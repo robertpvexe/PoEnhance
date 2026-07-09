@@ -56,6 +56,7 @@ Build a technical prototype that can run in the background, detect Path of Exile
 - Implement WPF application shell (V01-001).
 - Add background and tray-ready lifecycle foundation (V01-002).
 - Add basic navigation or development screen.
+- Preserve the background-first application model and the future main multitool menu entry point (LC-007, MENU-001 through MENU-003).
 - Add local logging sufficient for development (V01-012).
 
 #### 3.2 Path of Exile Detection
@@ -69,6 +70,8 @@ Build a technical prototype that can run in the background, detect Path of Exile
 
 - Add configurable shortcut foundation (V01-005).
 - Ensure shortcut behavior is active only when Path of Exile is foreground (LC-003).
+- Keep the prototype `X` shortcut as temporary technical scaffolding until confirmed bindings are implemented (SHORT-002).
+- Prepare for separate configurable shortcuts for the main multitool menu and Price Checker (MENU-001, MENU-002, PC-IN-005, PC-IN-006).
 - Capture normal or advanced item text through clipboard (V01-006, POE-004).
 - Preserve raw clipboard input (POE-006).
 - Avoid reading game memory (SEC-001).
@@ -280,6 +283,7 @@ These are not committed milestones. They may be promoted after validation.
 - Searchable Path of Exile data browser.
 - Crafting-oriented data views.
 - Public distribution and updater.
+- Settings UI for editing shortcut bindings.
 
 ## 10. Deferred Work
 
@@ -363,6 +367,7 @@ Zbudować prototyp techniczny, który może działać w tle, wykrywać stan Path
 - Zaimplementować powłokę aplikacji WPF (V01-001).
 - Dodać fundament lifecycle w tle i gotowy pod tray (V01-002).
 - Dodać podstawową nawigację lub ekran developerski.
+- Zachować background-first model aplikacji i przyszły punkt wejścia w postaci głównego menu multitool (LC-007, MENU-001 do MENU-003).
 - Dodać lokalne logowanie wystarczające do developmentu (V01-012).
 
 #### 3.2 Wykrywanie Path of Exile
@@ -376,6 +381,8 @@ Zbudować prototyp techniczny, który może działać w tle, wykrywać stan Path
 
 - Dodać fundament konfigurowalnego skrótu (V01-005).
 - Zapewnić, że zachowanie skrótu jest aktywne tylko wtedy, gdy Path of Exile jest foreground (LC-003).
+- Zachować prototypowy skrót `X` jako tymczasowe techniczne rusztowanie do czasu implementacji potwierdzonych powiązań (SHORT-002).
+- Przygotować osobne konfigurowalne skróty dla głównego menu multitool i Price Checkera (MENU-001, MENU-002, PC-IN-005, PC-IN-006).
 - Przechwytywać normalny lub zaawansowany tekst przedmiotu przez clipboard (V01-006, POE-004).
 - Zachować surowy input z clipboard (POE-006).
 - Unikać czytania pamięci gry (SEC-001).
@@ -587,6 +594,7 @@ To nie są zatwierdzone milestone'y. Mogą zostać awansowane po walidacji.
 - Przeszukiwalna przeglądarka danych Path of Exile.
 - Widoki danych zorientowane na crafting.
 - Publiczna dystrybucja i updater.
+- UI Settings do edycji powiązań skrótów.
 
 ## 10. Prace Odłożone
 

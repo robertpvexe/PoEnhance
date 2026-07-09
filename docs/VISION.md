@@ -24,6 +24,8 @@ PoEnhance should become a modular Path of Exile 1 companion that combines overla
 
 The application should feel fast, dependable, and unobtrusive: available when requested by shortcut, quiet when not needed, and resilient when leagues, items, or external data sources change.
 
+PoEnhance is intended to run primarily in the background. A dedicated configurable shortcut should open the main multitool menu, which acts as the entry point for modules such as regex tools, economy views, game-data browsing, and other future tools.
+
 Outside the game, PoEnhance should remain available as a standard desktop application for browsing data, managing saved searches, viewing economy information, and using tools that do not require an active Path of Exile window.
 
 ## 5. Core Principles
@@ -45,6 +47,7 @@ The first stage should establish the application foundation and prove the core c
 - Background process behavior.
 - Path of Exile active-window detection.
 - Keyboard-shortcut activation.
+- Main multitool menu entry point.
 - In-game overlay foundation.
 - Local configuration and local data storage.
 - Shared game-data core for reusable Path of Exile catalogs.
@@ -98,6 +101,8 @@ PoEnhance powinien stać się modularnym companionem dla Path of Exile 1, który
 
 Aplikacja powinna być szybka, niezawodna i nienachalna: dostępna po użyciu skrótu, cicha, gdy nie jest potrzebna, oraz odporna na zmiany lig, przedmiotów lub zewnętrznych źródeł danych.
 
+PoEnhance ma działać przede wszystkim w tle. Dedykowany konfigurowalny skrót powinien otwierać główne menu multitool, które jest punktem wejścia do modułów takich jak narzędzia regex, widoki ekonomii, przeglądanie game-data i inne przyszłe narzędzia.
+
 Poza grą PoEnhance powinien pozostać dostępny jako standardowa aplikacja desktopowa do przeglądania danych, zarządzania zapisanymi wyszukiwaniami, przeglądania informacji ekonomicznych i używania narzędzi, które nie wymagają aktywnego okna Path of Exile.
 
 ## 5. Główne zasady
@@ -119,6 +124,7 @@ Pierwszy etap powinien ustanowić fundament aplikacji i potwierdzić podstawowy 
 - Zachowanie procesu działającego w tle.
 - Wykrywanie aktywnego okna Path of Exile.
 - Aktywacja skrótem klawiaturowym.
+- Punkt wejścia w postaci głównego menu multitool.
 - Fundament overlay w grze.
 - Lokalna konfiguracja i lokalny storage danych.
 - Wspólny rdzeń game-data dla wielokrotnego użycia katalogów Path of Exile.

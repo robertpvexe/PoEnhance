@@ -59,6 +59,17 @@ Requirements describe intended behavior, constraints, and product boundaries. Th
 | LC-004 | Confirmed | The application must detect whether the Path of Exile process is running. |
 | LC-005 | Confirmed | The application must detect whether the Path of Exile window is currently active. |
 | LC-006 | Confirmed | A failure in one module must not prevent unrelated modules from working. |
+| LC-007 | Confirmed | PoEnhance is intended to run primarily in the background. |
+
+### 4.1 Shortcut and Main Menu Requirements
+
+| ID | Status | Requirement |
+| --- | --- | --- |
+| MENU-001 | Confirmed | A dedicated configurable shortcut opens the main multitool menu. |
+| MENU-002 | Confirmed | The current default main multitool menu shortcut is the Backslash key: `\`. |
+| MENU-003 | Confirmed | The main multitool menu is the entry point for modules such as regex tools, economy views, game-data browsing, and other future modules. |
+| SHORT-001 | Confirmed | Shortcut bindings will later be editable in application Settings through user-facing input controls. |
+| SHORT-002 | Confirmed | The current prototype shortcut `X` is temporary technical scaffolding and is not the final default. |
 
 ## 5. Path of Exile Integration
 
@@ -89,10 +100,12 @@ Requirements describe intended behavior, constraints, and product boundaries. Th
 
 | ID | Status | Requirement |
 | --- | --- | --- |
-| PC-IN-001 | Confirmed | In-game item checking is initiated by a configurable keyboard shortcut while Path of Exile is active. |
+| PC-IN-001 | Confirmed | In-game item checking is initiated by a dedicated configurable keyboard shortcut while Path of Exile is active. |
 | PC-IN-002 | Confirmed | The parser should support normal and advanced item descriptions. |
 | PC-IN-003 | Confirmed | Advanced item descriptions should be preferred when available. |
 | PC-IN-004 | Confirmed | The price checker must support manually pasted item text outside the game. |
+| PC-IN-005 | Confirmed | Price Checker has a separate dedicated configurable shortcut. |
+| PC-IN-006 | Confirmed | The confirmed default Price Checker shortcut is `Shift + D`. |
 
 ### 7.2 Parsing
 
@@ -389,6 +402,7 @@ These are deferred and should be split into small tasks. The architecture must p
 | OQ-006 | Candidate | What is the final history retention period? |
 | OQ-007 | Candidate | Is price estimation beyond raw listings useful enough to include? |
 | OQ-008 | Candidate | What are the final rules for future automatic important-mod selection? |
+| OQ-009 | Candidate | What are the final visual design, layout, and interaction details for the overlay and main multitool menu? |
 
 ---
 
@@ -455,6 +469,17 @@ Wymagania opisują oczekiwane zachowanie, ograniczenia i granice produktu. Nie n
 | LC-004 | Potwierdzone | Aplikacja musi wykrywać, czy proces Path of Exile jest uruchomiony. |
 | LC-005 | Potwierdzone | Aplikacja musi wykrywać, czy okno Path of Exile jest obecnie aktywne. |
 | LC-006 | Potwierdzone | Awaria jednego modułu nie może uniemożliwiać działania niezależnych modułów. |
+| LC-007 | Potwierdzone | PoEnhance ma działać przede wszystkim w tle. |
+
+### 4.1 Wymagania Dotyczące Skrótów i Głównego Menu
+
+| ID | Status | Wymaganie |
+| --- | --- | --- |
+| MENU-001 | Potwierdzone | Dedykowany konfigurowalny skrót otwiera główne menu multitool. |
+| MENU-002 | Potwierdzone | Obecny domyślny skrót głównego menu multitool to klawisz Backslash: `\`. |
+| MENU-003 | Potwierdzone | Główne menu multitool jest punktem wejścia do modułów takich jak narzędzia regex, widoki ekonomii, przeglądanie game-data i inne przyszłe moduły. |
+| SHORT-001 | Potwierdzone | Powiązania skrótów będą później edytowalne w Settings aplikacji przez kontrolki widoczne dla użytkownika. |
+| SHORT-002 | Potwierdzone | Obecny prototypowy skrót `X` jest tymczasowym technicznym rusztowaniem i nie jest finalnym ustawieniem domyślnym. |
 
 ## 5. Integracja z Path of Exile
 
@@ -485,10 +510,12 @@ Wymagania opisują oczekiwane zachowanie, ograniczenia i granice produktu. Nie n
 
 | ID | Status | Wymaganie |
 | --- | --- | --- |
-| PC-IN-001 | Potwierdzone | Sprawdzanie przedmiotu w grze jest inicjowane konfigurowalnym skrótem klawiaturowym, gdy Path of Exile jest aktywne. |
+| PC-IN-001 | Potwierdzone | Sprawdzanie przedmiotu w grze jest inicjowane dedykowanym konfigurowalnym skrótem klawiaturowym, gdy Path of Exile jest aktywne. |
 | PC-IN-002 | Potwierdzone | Parser powinien wspierać normalne i zaawansowane opisy przedmiotów. |
 | PC-IN-003 | Potwierdzone | Zaawansowane opisy przedmiotów powinny być preferowane, gdy są dostępne. |
 | PC-IN-004 | Potwierdzone | Price checker musi wspierać ręcznie wklejony tekst przedmiotu poza grą. |
+| PC-IN-005 | Potwierdzone | Price Checker ma osobny dedykowany konfigurowalny skrót. |
+| PC-IN-006 | Potwierdzone | Potwierdzony domyślny skrót Price Checkera to `Shift + D`. |
 
 ### 7.2 Parsowanie
 
@@ -785,3 +812,4 @@ Te elementy są odłożone i powinny zostać rozbite na małe zadania. Architekt
 | OQ-006 | Kandydat | Jaki jest finalny okres przechowywania historii? |
 | OQ-007 | Kandydat | Czy estymacja ceny wykraczająca poza surowe listingi jest wystarczająco użyteczna, aby ją uwzględnić? |
 | OQ-008 | Kandydat | Jakie są finalne zasady przyszłego automatycznego wyboru ważnych modów? |
+| OQ-009 | Kandydat | Jakie są finalne szczegóły projektu wizualnego, layoutu i interakcji dla overlay oraz głównego menu multitool? |
