@@ -1,0 +1,19 @@
+Item Class: Belts
+Rarity: Unique
+Screams of the Desiccated
+Leather Belt
+--------
+Requirements:
+Level: 56
+--------
+Item Level: 85
+--------
++35 to maximum Life (implicit)
+--------
+You have Diamond Shrine Buff while affected by no Flasks
++32 to Intelligence
++26% to Chaos Resistance
+--------
+"I staggered on, dying of thirst... I thought I found respite,
+but no... it was a pit of newborns... dry and hollow...
+and they screamed still, begging me for vengeance..."

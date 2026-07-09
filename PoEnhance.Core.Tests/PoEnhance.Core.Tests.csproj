@@ -21,4 +21,8 @@
     <ProjectReference Include="..\PoEnhance.Core\PoEnhance.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestData\Items\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
