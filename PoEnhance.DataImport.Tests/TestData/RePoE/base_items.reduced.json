@@ -1,0 +1,178 @@
+{
+  "Metadata/Items/Weapons/TwoHandWeapons/TwoHandAxes/TwoHandAxe17": {
+    "domain": "item",
+    "drop_level": 64,
+    "implicits": [
+      "LocalMaimOnHit2HImplicit_1"
+    ],
+    "inventory_height": 4,
+    "inventory_width": 2,
+    "item_class": "Two Hand Axe",
+    "name": "Vaal Axe",
+    "properties": {
+      "attack_time": 870,
+      "critical_strike_chance": 500,
+      "physical_damage_max": 174,
+      "physical_damage_min": 104,
+      "range": 13
+    },
+    "release_state": "released",
+    "requirements": {
+      "dexterity": 76,
+      "intelligence": 0,
+      "level": 64,
+      "strength": 158
+    },
+    "tags": [
+      "axe",
+      "two_hand_weapon",
+      "twohand",
+      "weapon",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Weapons/TwoHandWeapons/TwoHandAxes/TwoHandAxe5.dds",
+      "id": "TwoHandAxe5"
+    }
+  },
+  "Metadata/Items/Rings/Ring4": {
+    "domain": "item",
+    "drop_level": 20,
+    "implicits": [
+      "ItemFoundRarityIncreaseImplicitRing1"
+    ],
+    "inventory_height": 1,
+    "inventory_width": 1,
+    "item_class": "Ring",
+    "name": "Gold Ring",
+    "properties": {},
+    "release_state": "released",
+    "requirements": null,
+    "tags": [
+      "ring",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Rings/Ring4.dds",
+      "id": "Ring4"
+    }
+  },
+  "Metadata/Items/Flasks/FlaskUtility5": {
+    "domain": "flask",
+    "drop_level": 27,
+    "grants_buff": {
+      "id": "flask_utility_ironskin",
+      "stats": {
+        "base_physical_damage_reduction_rating": 1500
+      }
+    },
+    "implicits": [],
+    "inventory_height": 2,
+    "inventory_width": 1,
+    "item_class": "UtilityFlask",
+    "name": "Granite Flask",
+    "properties": {
+      "charges_max": 60,
+      "charges_per_use": 30,
+      "duration": 60
+    },
+    "release_state": "released",
+    "requirements": null,
+    "tags": [
+      "not_for_sale",
+      "utility_flask",
+      "flask",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Flasks/granite.dds",
+      "id": "FlaskUtilityGranite"
+    }
+  },
+  "Metadata/Items/Armours/BodyArmours/BodyStrDex10": {
+    "domain": "item",
+    "drop_level": 46,
+    "implicits": [],
+    "inventory_height": 3,
+    "inventory_width": 2,
+    "item_class": "Body Armour",
+    "name": "Full Wyrmscale",
+    "properties": {
+      "armour": {
+        "max": 292,
+        "min": 254
+      },
+      "evasion": {
+        "max": 292,
+        "min": 254
+      },
+      "movement_speed": -3
+    },
+    "release_state": "released",
+    "requirements": {
+      "dexterity": 68,
+      "intelligence": 0,
+      "level": 46,
+      "strength": 68
+    },
+    "tags": [
+      "str_dex_armour",
+      "body_armour",
+      "armour",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Armours/BodyArmours/BodyStrDex1C.dds",
+      "id": "BodyStrDex1C"
+    }
+  },
+  "Metadata/Items/Jewels/JewelInt": {
+    "domain": "misc",
+    "drop_level": 20,
+    "implicits": [],
+    "inventory_height": 1,
+    "inventory_width": 1,
+    "item_class": "Jewel",
+    "name": "Cobalt Jewel",
+    "properties": {},
+    "release_state": "released",
+    "requirements": null,
+    "tags": [
+      "jewel",
+      "not_dex",
+      "not_str",
+      "not_for_sale",
+      "intjewel",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Jewels/basicint.dds",
+      "id": "JewelInt"
+    }
+  },
+  "Metadata/Items/AtlasExiles/AddModToRareCrusader": {
+    "domain": "undefined",
+    "drop_level": 1,
+    "implicits": [],
+    "inventory_height": 1,
+    "inventory_width": 1,
+    "item_class": "StackableCurrency",
+    "name": "Crusader's Exalted Orb",
+    "properties": {
+      "description": "Adds Crusader influence and a new Crusader modifier to a rare item",
+      "directions": "Right click this item then left click a high-level rare item with no influence to apply it. Rare items can have up to six random modifiers.",
+      "stack_size": 10,
+      "stack_size_currency_tab": 5000
+    },
+    "release_state": "released",
+    "requirements": null,
+    "tags": [
+      "currency",
+      "default"
+    ],
+    "visual_identity": {
+      "dds_file": "Art/2DItems/Currency/Influence Exalts/CrusaderOrb.dds",
+      "id": "AtlasExilesAddModToRareCrusader"
+    }
+  }
+}

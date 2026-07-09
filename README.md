@@ -61,6 +61,8 @@ Current repository contents:
 - `PoEnhance.Core.Tests/` - xUnit tests for `PoEnhance.Core`.
 - `PoEnhance.GameData/` - independent shared game-data class library for versioned provider-neutral package manifests, item bases, and modifier tiers.
 - `PoEnhance.GameData.Tests/` - xUnit tests for `PoEnhance.GameData`.
+- `PoEnhance.DataImport/` - local-file-only data import adapters; currently imports RePoE `base_items.json` into provider-neutral game-data records without automatic downloading.
+- `PoEnhance.DataImport.Tests/` - xUnit tests for `PoEnhance.DataImport`.
 - `docs/` - project documentation.
 - `README.md` - repository overview.
 
@@ -137,6 +139,7 @@ No open-source license has been selected yet.
 - Windows only.
 - Early prototype.
 - Incomplete parser and data catalogs.
+- RePoE importing is local-file-only; there is no automatic data downloading or update workflow yet.
 - No production-ready Trade, OAuth, stash, or economy integration yet.
 
 ---
@@ -206,6 +209,8 @@ Obecna zawartość repozytorium:
 - `PoEnhance.Core.Tests/` - testy xUnit dla `PoEnhance.Core`.
 - `PoEnhance.GameData/` - niezależna biblioteka klas dla wersjonowanych, provider-neutral manifestów pakietów, baz przedmiotów i tierów modifierów.
 - `PoEnhance.GameData.Tests/` - testy xUnit dla `PoEnhance.GameData`.
+- `PoEnhance.DataImport/` - adaptery importu danych tylko z lokalnych plików; obecnie importuje RePoE `base_items.json` do provider-neutral rekordów game-data bez automatycznego pobierania.
+- `PoEnhance.DataImport.Tests/` - testy xUnit dla `PoEnhance.DataImport`.
 - `docs/` - dokumentacja projektu.
 - `README.md` - przegląd repozytorium.
 
@@ -282,4 +287,5 @@ Nie wybrano jeszcze licencji open-source.
 - Tylko Windows.
 - Wczesny prototyp.
 - Niekompletny parser i katalogi danych.
+- Import RePoE działa tylko z lokalnych plików; nie ma jeszcze automatycznego pobierania danych ani workflow aktualizacji.
 - Brak production-ready integracji Trade, OAuth, stash lub economy.
