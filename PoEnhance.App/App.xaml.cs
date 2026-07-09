@@ -1,5 +1,6 @@
 using System.Windows;
 using PoEnhance.App.Infrastructure.Logging;
+using PoEnhance.Core;
 using Serilog;
 
 namespace PoEnhance.App;
@@ -28,7 +29,7 @@ public partial class App : Application
             }
         };
 
-        Log.Information("PoEnhance application starting");
+        Log.Information("{ApplicationName} application starting", ProjectInfo.Name);
 
         base.OnStartup(e);
     }
