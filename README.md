@@ -57,6 +57,8 @@ Current repository contents:
 
 - `PoEnhance.slnx` - solution file.
 - `PoEnhance.App/` - WPF application project.
+- `PoEnhance.Core/` - shared business logic class library.
+- `PoEnhance.Core.Tests/` - xUnit tests for `PoEnhance.Core`.
 - `docs/` - project documentation.
 - `README.md` - repository overview.
 
@@ -87,7 +89,11 @@ dotnet run --project .\PoEnhance.App\PoEnhance.App.csproj
 
 ## Tests
 
-No automated test project exists yet. Automated tests are planned but not yet added.
+From the repository root:
+
+```powershell
+dotnet test
+```
 
 ## Development Approach
 
@@ -190,6 +196,8 @@ Obecna zawartość repozytorium:
 
 - `PoEnhance.slnx` - plik solution.
 - `PoEnhance.App/` - projekt aplikacji WPF.
+- `PoEnhance.Core/` - biblioteka klas dla współdzielonej logiki biznesowej.
+- `PoEnhance.Core.Tests/` - testy xUnit dla `PoEnhance.Core`.
 - `docs/` - dokumentacja projektu.
 - `README.md` - przegląd repozytorium.
 
@@ -220,7 +228,11 @@ dotnet run --project .\PoEnhance.App\PoEnhance.App.csproj
 
 ## Testy
 
-Projekt testów automatycznych jeszcze nie istnieje. Testy automatyczne są planowane, ale nie zostały jeszcze dodane.
+Z katalogu głównego repozytorium:
+
+```powershell
+dotnet test
+```
 
 ## Podejście Developerskie
 

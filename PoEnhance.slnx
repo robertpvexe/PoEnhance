@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="PoEnhance.App/PoEnhance.App.csproj" />
+  <Project Path="PoEnhance.Core/PoEnhance.Core.csproj" />
+  <Project Path="PoEnhance.Core.Tests/PoEnhance.Core.Tests.csproj" />
 </Solution>
