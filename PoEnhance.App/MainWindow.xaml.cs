@@ -1,6 +1,7 @@
 ﻿using System.Windows;
 using System.Windows.Threading;
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Shortcuts;
 using Serilog;
 
 namespace PoEnhance.App;
@@ -10,15 +11,18 @@ namespace PoEnhance.App;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly GlobalHotkeyService globalHotkeyService = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
+    private int shortcutActivationCount;
     private bool? lastPathOfExileForeground;
     private bool? lastPathOfExileRunning;
 
     public MainWindow()
     {
         InitializeComponent();
+        InitializeShortcutControls();
 
         pathOfExileStatusTimer = new DispatcherTimer
         {
@@ -26,14 +30,34 @@ public partial class MainWindow : Window
         };
 
         pathOfExileStatusTimer.Tick += (_, _) => RefreshPathOfExileStatus();
+        globalHotkeyService.Triggered += OnShortcutTriggered;
 
+        SourceInitialized += (_, _) => globalHotkeyService.Attach(this);
         Loaded += (_, _) =>
         {
             RefreshPathOfExileStatus();
             pathOfExileStatusTimer.Start();
         };
 
-        Closed += (_, _) => pathOfExileStatusTimer.Stop();
+        Closed += (_, _) =>
+        {
+            pathOfExileStatusTimer.Stop();
+            globalHotkeyService.Dispose();
+        };
+    }
+
+    private void InitializeShortcutControls()
+    {
+        ShortcutComboBox.ItemsSource = Enum.GetValues<ShortcutKey>();
+        ShortcutComboBox.SelectedItem = ShortcutKey.X;
+        ShortcutComboBox.SelectionChanged += (_, _) =>
+        {
+            if (ShortcutComboBox.SelectedItem is ShortcutKey shortcut)
+            {
+                globalHotkeyService.SetShortcut(shortcut);
+                UpdateShortcutRegistrationStatus();
+            }
+        };
     }
 
     private void RefreshPathOfExileStatus()
@@ -50,6 +74,9 @@ public partial class MainWindow : Window
 
         LogPathOfExileRunningChange(isRunning);
         LogPathOfExileForegroundChange(isForeground);
+
+        globalHotkeyService.UpdatePathOfExileForegroundState(isForeground);
+        UpdateShortcutRegistrationStatus();
     }
 
     private void LogPathOfExileRunningChange(bool isRunning)
@@ -88,5 +115,26 @@ public partial class MainWindow : Window
         }
 
         lastPathOfExileForeground = isForeground;
+    }
+
+    private void OnShortcutTriggered(object? sender, EventArgs e)
+    {
+        shortcutActivationCount++;
+        ShortcutActivationStatusText.Text =
+            $"Shortcut activations: {shortcutActivationCount} (last: {DateTimeOffset.Now:HH:mm:ss})";
+
+        Log.Information(
+            "Shortcut {ShortcutKey} triggered while Path of Exile is foreground",
+            globalHotkeyService.SelectedShortcut);
+    }
+
+    private void UpdateShortcutRegistrationStatus()
+    {
+        ShortcutRegistrationStatusText.Text = globalHotkeyService.RegistrationState switch
+        {
+            ShortcutRegistrationState.Active => "Shortcut registration: Active",
+            ShortcutRegistrationState.RegistrationFailed => "Shortcut registration: Registration failed",
+            _ => "Shortcut registration: Inactive because Path of Exile is not foreground",
+        };
     }
 }

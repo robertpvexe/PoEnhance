@@ -10,6 +10,9 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <TextBlock x:Name="PathOfExileStatusText"
@@ -23,5 +26,28 @@
                    VerticalAlignment="Top"
                    FontSize="16"
                    Text="Foreground window: Checking..." />
+        <StackPanel Grid.Row="2"
+                    Margin="0,16,0,0"
+                    Orientation="Horizontal">
+            <TextBlock VerticalAlignment="Center"
+                       FontSize="16"
+                       Text="Shortcut:" />
+            <ComboBox x:Name="ShortcutComboBox"
+                      Width="96"
+                      Margin="8,0,0,0"
+                      VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock x:Name="ShortcutRegistrationStatusText"
+                   Grid.Row="3"
+                   Margin="0,8,0,0"
+                   VerticalAlignment="Top"
+                   FontSize="16"
+                   Text="Shortcut registration: Inactive because Path of Exile is not foreground" />
+        <TextBlock x:Name="ShortcutActivationStatusText"
+                   Grid.Row="4"
+                   Margin="0,8,0,0"
+                   VerticalAlignment="Top"
+                   FontSize="16"
+                   Text="Shortcut activations: 0" />
     </Grid>
 </Window>
