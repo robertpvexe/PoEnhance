@@ -2,35 +2,50 @@ namespace PoEnhance.GameData;
 
 public static class GameDataPackageManifestValidator
 {
-    public static GameDataPackageManifestValidationResult Validate(GameDataPackageManifest? manifest)
+    public static GameDataValidationResult Validate(GameDataPackageManifest? manifest)
     {
-        var errors = new List<string>();
+        var errors = new List<GameDataValidationError>();
 
         if (manifest is null)
         {
-            errors.Add("Manifest is required.");
-            return new GameDataPackageManifestValidationResult(errors);
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestRequired,
+                "manifest",
+                "Manifest is required."));
+            return new GameDataValidationResult(errors);
         }
 
         if (manifest.SchemaVersion < 1)
         {
-            errors.Add("SchemaVersion must be 1 or greater.");
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestSchemaVersionInvalid,
+                "manifest.schemaVersion",
+                "SchemaVersion must be 1 or greater."));
         }
 
         if (string.IsNullOrWhiteSpace(manifest.DataVersion))
         {
-            errors.Add("DataVersion is required.");
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestDataVersionRequired,
+                "manifest.dataVersion",
+                "DataVersion is required."));
         }
 
         if (!IsUtc(manifest.CreatedAtUtc))
         {
-            errors.Add("CreatedAtUtc must be a UTC timestamp.");
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestCreatedAtUtcNotUtc,
+                "manifest.createdAtUtc",
+                "CreatedAtUtc must be a UTC timestamp."));
         }
 
         if (manifest.Sources is null || manifest.Sources.Count == 0)
         {
-            errors.Add("At least one source entry is required.");
-            return new GameDataPackageManifestValidationResult(errors);
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestSourcesRequired,
+                "manifest.sources",
+                "At least one source entry is required."));
+            return new GameDataValidationResult(errors);
         }
 
         var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -39,31 +54,48 @@ public static class GameDataPackageManifestValidator
             var source = manifest.Sources[index];
             if (source is null)
             {
-                errors.Add($"Sources[{index}] is required.");
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ManifestSourceRequired,
+                    $"manifest.sources[{index}]",
+                    $"Sources[{index}] is required."));
                 continue;
             }
 
             var sourceId = source.SourceId?.Trim();
             if (string.IsNullOrWhiteSpace(sourceId))
             {
-                errors.Add($"Sources[{index}].SourceId is required.");
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ManifestSourceIdRequired,
+                    $"manifest.sources[{index}].sourceId",
+                    $"Sources[{index}].SourceId is required."));
             }
             else if (!sourceIds.Add(sourceId))
             {
-                errors.Add($"SourceId '{sourceId}' is duplicated.");
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ManifestSourceIdDuplicate,
+                    $"manifest.sources[{index}].sourceId",
+                    $"SourceId '{sourceId}' is duplicated."));
             }
 
             if (!IsUtc(source.RetrievedAtUtc))
             {
-                errors.Add($"Sources[{index}].RetrievedAtUtc must be a UTC timestamp.");
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ManifestSourceRetrievedAtUtcNotUtc,
+                    $"manifest.sources[{index}].retrievedAtUtc",
+                    $"Sources[{index}].RetrievedAtUtc must be a UTC timestamp."));
             }
         }
 
-        return new GameDataPackageManifestValidationResult(errors);
+        return new GameDataValidationResult(errors);
     }
 
     private static bool IsUtc(DateTimeOffset value)
     {
         return value.Offset == TimeSpan.Zero;
+    }
+
+    private static GameDataValidationError Error(string code, string path, string message)
+    {
+        return new GameDataValidationError(code, path, message);
     }
 }

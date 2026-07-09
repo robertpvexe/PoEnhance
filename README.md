@@ -59,7 +59,7 @@ Current repository contents:
 - `PoEnhance.App/` - WPF application project.
 - `PoEnhance.Core/` - shared business logic class library.
 - `PoEnhance.Core.Tests/` - xUnit tests for `PoEnhance.Core`.
-- `PoEnhance.GameData/` - independent shared game-data class library.
+- `PoEnhance.GameData/` - independent shared game-data class library for versioned provider-neutral package manifests, item bases, and modifier tiers.
 - `PoEnhance.GameData.Tests/` - xUnit tests for `PoEnhance.GameData`.
 - `docs/` - project documentation.
 - `README.md` - repository overview.
@@ -204,7 +204,7 @@ Obecna zawartość repozytorium:
 - `PoEnhance.App/` - projekt aplikacji WPF.
 - `PoEnhance.Core/` - biblioteka klas dla współdzielonej logiki biznesowej.
 - `PoEnhance.Core.Tests/` - testy xUnit dla `PoEnhance.Core`.
-- `PoEnhance.GameData/` - niezależna biblioteka klas dla współdzielonych danych gry.
+- `PoEnhance.GameData/` - niezależna biblioteka klas dla wersjonowanych, provider-neutral manifestów pakietów, baz przedmiotów i tierów modifierów.
 - `PoEnhance.GameData.Tests/` - testy xUnit dla `PoEnhance.GameData`.
 - `docs/` - dokumentacja projektu.
 - `README.md` - przegląd repozytorium.

@@ -26,7 +26,7 @@ public sealed class GameDataPackageManifestValidatorTests
         var result = GameDataPackageManifestValidator.Validate(manifest);
 
         Assert.False(result.IsValid);
-        Assert.Contains("DataVersion is required.", result.Errors);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestDataVersionRequired);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class GameDataPackageManifestValidatorTests
         var result = GameDataPackageManifestValidator.Validate(manifest);
 
         Assert.False(result.IsValid);
-        Assert.Contains("SourceId 'RePoE' is duplicated.", result.Errors);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestSourceIdDuplicate);
     }
 
     [Fact]
@@ -74,8 +74,8 @@ public sealed class GameDataPackageManifestValidatorTests
         var result = GameDataPackageManifestValidator.Validate(manifest);
 
         Assert.False(result.IsValid);
-        Assert.Contains("CreatedAtUtc must be a UTC timestamp.", result.Errors);
-        Assert.Contains("Sources[0].RetrievedAtUtc must be a UTC timestamp.", result.Errors);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestCreatedAtUtcNotUtc);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestSourceRetrievedAtUtcNotUtc);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class GameDataPackageManifestValidatorTests
         var result = GameDataPackageManifestValidator.Validate(manifest);
 
         Assert.False(result.IsValid);
-        Assert.Contains("SchemaVersion must be 1 or greater.", result.Errors);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestSchemaVersionInvalid);
     }
 
     [Fact]
@@ -110,6 +110,6 @@ public sealed class GameDataPackageManifestValidatorTests
         var result = GameDataPackageManifestValidator.Validate(manifest);
 
         Assert.False(result.IsValid);
-        Assert.Contains("Sources[0].SourceId is required.", result.Errors);
+        Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestSourceIdRequired);
     }
 }
