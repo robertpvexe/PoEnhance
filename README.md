@@ -95,6 +95,10 @@ From the repository root:
 dotnet test
 ```
 
+## Development Logs
+
+PoEnhance.App writes local development logs to `%LOCALAPPDATA%\PoEnhance\Logs`.
+
 ## Development Approach
 
 - Documentation-first.
@@ -233,6 +237,10 @@ Z katalogu głównego repozytorium:
 ```powershell
 dotnet test
 ```
+
+## Logi Developerskie
+
+PoEnhance.App zapisuje lokalne logi developerskie w `%LOCALAPPDATA%\PoEnhance\Logs`.
 
 ## Podejście Developerskie
 
