@@ -5,9 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PoEnhance.App"
         mc:Ignorable="d"
-        Title="PoEnhance" Height="600" Width="800">
+        Title="PoEnhance" Height="720" Width="900">
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -57,14 +58,183 @@
                    VerticalAlignment="Top"
                    FontSize="16"
                    Text="Clipboard: No capture yet" />
-        <TextBox x:Name="RawClipboardTextBox"
-                 Grid.Row="6"
-                 Margin="0,8,0,0"
-                 AcceptsReturn="True"
-                 AcceptsTab="True"
-                 HorizontalScrollBarVisibility="Auto"
-                 IsReadOnly="True"
-                 TextWrapping="NoWrap"
-                 VerticalScrollBarVisibility="Auto" />
+        <GroupBox Grid.Row="6"
+                  Margin="0,8,0,0"
+                  Header="Manual item input">
+            <Grid Margin="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="96" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBox x:Name="ManualItemInputTextBox"
+                         Grid.Row="0"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto" />
+
+                <StackPanel Grid.Row="1"
+                            Margin="0,8,0,0"
+                            Orientation="Horizontal">
+                    <Button x:Name="ParseManualInputButton"
+                            MinWidth="72"
+                            Content="Parse" />
+                    <Button x:Name="ClearManualInputButton"
+                            MinWidth="72"
+                            Margin="8,0,0,0"
+                            Content="Clear" />
+                    <TextBlock x:Name="ManualInputStatusText"
+                               Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Text="Manual input: No input parsed yet" />
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <Grid Grid.Row="7"
+              Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <GroupBox Grid.Column="0"
+                      Header="Parsed item">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Item Class:" />
+                        <TextBlock x:Name="ParsedItemClassText"
+                                   Grid.Row="0"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected" />
+
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Rarity:" />
+                        <TextBlock x:Name="ParsedRarityText"
+                                   Grid.Row="1"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected" />
+
+                        <TextBlock Grid.Row="2"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Name:" />
+                        <TextBlock x:Name="ParsedNameText"
+                                   Grid.Row="2"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="3"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Base Type:" />
+                        <TextBlock x:Name="ParsedBaseTypeText"
+                                   Grid.Row="3"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="4"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,12"
+                                   FontWeight="SemiBold"
+                                   Text="Item Level:" />
+                        <TextBlock x:Name="ParsedItemLevelText"
+                                   Grid.Row="4"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,12"
+                                   Text="Not detected" />
+
+                        <StackPanel Grid.Row="5"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Basic properties" />
+                            <TextBox x:Name="ParsedPropertiesTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="6"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Visible modifiers" />
+                            <TextBox x:Name="ParsedModifiersTextBox"
+                                     MinHeight="96"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="7"
+                                    Grid.ColumnSpan="2">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Unclassified lines" />
+                            <TextBox x:Name="ParsedUnclassifiedTextBox"
+                                     MinHeight="96"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </GroupBox>
+
+            <GroupBox Grid.Column="2"
+                      Header="Raw clipboard text">
+                <TextBox x:Name="RawClipboardTextBox"
+                         Margin="8"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         HorizontalScrollBarVisibility="Auto"
+                         IsReadOnly="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto" />
+            </GroupBox>
+        </Grid>
     </Grid>
 </Window>
