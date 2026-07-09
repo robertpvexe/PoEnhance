@@ -1,0 +1,14 @@
+Item Class: Amulets
+Rarity: Rare
+Dusk Beads
+Onyx Amulet
+--------
+Requirements:
+Level: 20
+--------
+Item Level: 30
+--------
++16 to all Attributes (implicit)
+--------
++20 to maximum Life
++10% to Fire Resistance

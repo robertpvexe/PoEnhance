@@ -1,0 +1,22 @@
+Item Class: Two Hand Axes
+Rarity: Rare
+Dread Edge
+Poleaxe
+--------
+Two Handed Axe
+Physical Damage: 55-103 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.25
+Weapon Range: 1.3 metres
+--------
+Requirements:
+Level: 18
+Str: 44
+Dex: 25
+--------
+Item Level: 30
+--------
++25% to Global Critical Strike Multiplier
+--------
+Adds 5 to 10 Physical Damage
++20 to Strength

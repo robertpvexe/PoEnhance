@@ -1,0 +1,25 @@
+Item Class: Body Armours
+Rarity: Rare
+Rage Hide
+War Plate
+--------
+Armour: 422 (augmented)
+--------
+Requirements:
+Level: 32
+Str: 73
+Int: 23
+--------
+Sockets: R-R-R-R
+--------
+Item Level: 30
+--------
+{ Prefix Modifier "Journeyman's" (Tier: 7) — Damage, Physical, Attack }
+21(20-24)% increased Physical Damage
++28(21-46) to Accuracy Rating
+{ Suffix Modifier "of Light" (Tier: 2) — Attack }
+12(12-15)% increased Global Accuracy Rating
+10% increased Light Radius
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 1) — Damage, Physical, Attack }
+10(8-12)% increased Physical Damage
++15(10-20) to Accuracy Rating

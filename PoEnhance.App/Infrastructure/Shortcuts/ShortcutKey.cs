@@ -2,6 +2,7 @@ namespace PoEnhance.App.Infrastructure.Shortcuts;
 
 internal enum ShortcutKey
 {
+    D = 0x44,
     X = 0x58,
     F6 = 0x75,
     F7 = 0x76,

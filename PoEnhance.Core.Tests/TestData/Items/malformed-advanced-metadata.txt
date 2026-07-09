@@ -1,0 +1,9 @@
+Item Class: Body Armours
+Rarity: Rare
+Odd Jack
+Plate Vest
+--------
+Item Level: 12
+--------
+{ Mystery Modifier "Bent" (Tier: nope) — Odd Metadata }
++7 to maximum Life

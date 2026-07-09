@@ -1,0 +1,17 @@
+Item Class: Two Hand Axes
+Rarity: Rare
+Poleaxe
+--------
+Two Handed Axe
+Physical Damage: 32-60
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.25
+--------
+Requirements:
+Level: 18
+Str: 44
+Dex: 25
+--------
+Item Level: 30
+--------
+Unidentified

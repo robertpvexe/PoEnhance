@@ -36,7 +36,7 @@
                        FontSize="16"
                        Text="Shortcut:" />
             <ComboBox x:Name="ShortcutComboBox"
-                      Width="96"
+                      Width="140"
                       Margin="8,0,0,0"
                       VerticalAlignment="Center" />
         </StackPanel>
@@ -118,14 +118,27 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0"
                                    Grid.Column="0"
                                    Margin="0,0,8,6"
                                    FontWeight="SemiBold"
-                                   Text="Item Class:" />
-                        <TextBlock x:Name="ParsedItemClassText"
+                                   Text="Input Format:" />
+                        <TextBlock x:Name="ParsedInputFormatText"
                                    Grid.Row="0"
                                    Grid.Column="1"
                                    Margin="0,0,0,6"
@@ -135,8 +148,8 @@
                                    Grid.Column="0"
                                    Margin="0,0,8,6"
                                    FontWeight="SemiBold"
-                                   Text="Rarity:" />
-                        <TextBlock x:Name="ParsedRarityText"
+                                   Text="Item Class:" />
+                        <TextBlock x:Name="ParsedItemClassText"
                                    Grid.Row="1"
                                    Grid.Column="1"
                                    Margin="0,0,0,6"
@@ -146,20 +159,19 @@
                                    Grid.Column="0"
                                    Margin="0,0,8,6"
                                    FontWeight="SemiBold"
-                                   Text="Name:" />
-                        <TextBlock x:Name="ParsedNameText"
+                                   Text="Rarity:" />
+                        <TextBlock x:Name="ParsedRarityText"
                                    Grid.Row="2"
                                    Grid.Column="1"
                                    Margin="0,0,0,6"
-                                   Text="Not detected"
-                                   TextWrapping="Wrap" />
+                                   Text="Not detected" />
 
                         <TextBlock Grid.Row="3"
                                    Grid.Column="0"
                                    Margin="0,0,8,6"
                                    FontWeight="SemiBold"
-                                   Text="Base Type:" />
-                        <TextBlock x:Name="ParsedBaseTypeText"
+                                   Text="Display Name:" />
+                        <TextBlock x:Name="ParsedNameText"
                                    Grid.Row="3"
                                    Grid.Column="1"
                                    Margin="0,0,0,6"
@@ -168,16 +180,73 @@
 
                         <TextBlock Grid.Row="4"
                                    Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Base Type:" />
+                        <TextBlock x:Name="ParsedBaseTypeText"
+                                   Grid.Row="4"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap" />
+
+                        <TextBlock x:Name="ParsedItemTypeDescriptorLabel"
+                                   Grid.Row="5"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Item Type:"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="ParsedItemTypeDescriptorText"
+                                   Grid.Row="5"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+
+                        <TextBlock x:Name="ParsedItemStatesLabel"
+                                   Grid.Row="6"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="States:"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="ParsedItemStatesText"
+                                   Grid.Row="6"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+
+                        <TextBlock x:Name="ParsedNoteLinesLabel"
+                                   Grid.Row="7"
+                                   Grid.Column="0"
+                                   Margin="0,0,8,6"
+                                   FontWeight="SemiBold"
+                                   Text="Note:"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="ParsedNoteLinesText"
+                                   Grid.Row="7"
+                                   Grid.Column="1"
+                                   Margin="0,0,0,6"
+                                   Text="Not detected"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+
+                        <TextBlock Grid.Row="8"
+                                   Grid.Column="0"
                                    Margin="0,0,8,12"
                                    FontWeight="SemiBold"
                                    Text="Item Level:" />
                         <TextBlock x:Name="ParsedItemLevelText"
-                                   Grid.Row="4"
+                                   Grid.Row="8"
                                    Grid.Column="1"
                                    Margin="0,0,0,12"
                                    Text="Not detected" />
 
-                        <StackPanel Grid.Row="5"
+                        <StackPanel Grid.Row="9"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8">
                             <TextBlock FontWeight="SemiBold"
@@ -192,12 +261,82 @@
                                      VerticalScrollBarVisibility="Auto" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="6"
+                        <StackPanel x:Name="ParsedInfluencesPanel"
+                                    Grid.Row="10"
                                     Grid.ColumnSpan="2"
-                                    Margin="0,0,0,8">
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
                             <TextBlock FontWeight="SemiBold"
-                                       Text="Visible modifiers" />
-                            <TextBox x:Name="ParsedModifiersTextBox"
+                                       Text="Influences" />
+                            <TextBox x:Name="ParsedInfluencesTextBox"
+                                     MinHeight="48"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedImplicitModifiersPanel"
+                                    Grid.Row="11"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Implicits" />
+                            <TextBox x:Name="ParsedImplicitModifiersTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedPrefixModifiersPanel"
+                                    Grid.Row="12"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Prefixes" />
+                            <TextBox x:Name="ParsedPrefixModifiersTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedSuffixModifiersPanel"
+                                    Grid.Row="13"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Suffixes" />
+                            <TextBox x:Name="ParsedSuffixModifiersTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedUniqueModifiersPanel"
+                                    Grid.Row="14"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Unique modifiers" />
+                            <TextBox x:Name="ParsedUniqueModifiersTextBox"
                                      MinHeight="96"
                                      AcceptsReturn="True"
                                      HorizontalScrollBarVisibility="Auto"
@@ -207,8 +346,95 @@
                                      VerticalScrollBarVisibility="Auto" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="7"
-                                    Grid.ColumnSpan="2">
+                        <StackPanel x:Name="ParsedUnknownModifiersPanel"
+                                    Grid.Row="15"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Explicit modifiers with unknown kind" />
+                            <TextBox x:Name="ParsedUnknownModifiersTextBox"
+                                     MinHeight="96"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedEnchantmentsPanel"
+                                    Grid.Row="16"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Enchantments" />
+                            <TextBox x:Name="ParsedEnchantmentsTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedDescriptionPanel"
+                                    Grid.Row="17"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Description" />
+                            <TextBox x:Name="ParsedDescriptionTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedFlavourTextPanel"
+                                    Grid.Row="18"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Flavour text" />
+                            <TextBox x:Name="ParsedFlavourTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedListingNotePanel"
+                                    Grid.Row="19"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Listing note" />
+                            <TextBox x:Name="ParsedListingNoteTextBox"
+                                     MinHeight="40"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="ParsedUnclassifiedPanel"
+                                    Grid.Row="20"
+                                    Grid.ColumnSpan="2"
+                                    Visibility="Collapsed">
                             <TextBlock FontWeight="SemiBold"
                                        Text="Unclassified lines" />
                             <TextBox x:Name="ParsedUnclassifiedTextBox"
@@ -225,8 +451,8 @@
             </GroupBox>
 
             <GroupBox Grid.Column="2"
-                      Header="Raw clipboard text">
-                <TextBox x:Name="RawClipboardTextBox"
+                      Header="Raw input text">
+                <TextBox x:Name="RawInputTextBox"
                          Margin="8"
                          AcceptsReturn="True"
                          AcceptsTab="True"

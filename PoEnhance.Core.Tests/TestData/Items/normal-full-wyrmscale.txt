@@ -1,0 +1,13 @@
+Item Class: Body Armours
+Rarity: Normal
+Full Wyrmscale
+--------
+Armour: 514
+Evasion Rating: 514
+--------
+Requirements:
+Level: 68
+Str: 95
+Dex: 95
+--------
+Item Level: 86

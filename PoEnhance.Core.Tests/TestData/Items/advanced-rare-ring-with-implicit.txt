@@ -1,0 +1,20 @@
+Item Class: Rings
+Rarity: Rare
+Storm Spiral
+Two-Stone Ring
+--------
+Requirements:
+Level: 48
+--------
+Item Level: 82
+--------
+{ Implicit Modifier "Ruby and Sapphire" - Elemental, Resistance }
++12% to Fire and Cold Resistances (implicit)
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++55(50-59) to maximum Life
+{ Suffix Modifier "of the Rainbow" (Tier: 4) - Elemental, Resistance }
++12(11-13)% to all Elemental Resistances
+{ Fractured Suffix Modifier "of the Order" (Tier: 4) - Caster }
++17% to Global Critical Strike Multiplier
+{ Veiled Prefix Modifier "Chosen" (Rank: 1) - Life }
++(30-35) to maximum Life

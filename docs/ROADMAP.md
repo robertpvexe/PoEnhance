@@ -70,8 +70,8 @@ Build a technical prototype that can run in the background, detect Path of Exile
 
 - Add configurable shortcut foundation (V01-005).
 - Ensure shortcut behavior is active only when Path of Exile is foreground (LC-003).
-- Keep the prototype `X` shortcut as temporary technical scaffolding until confirmed bindings are implemented (SHORT-002).
-- Prepare for separate configurable shortcuts for the main multitool menu and Price Checker (MENU-001, MENU-002, PC-IN-005, PC-IN-006).
+- Use the confirmed default Price Checker shortcut `Ctrl + D` while keeping shortcut bindings configurable (PC-IN-005, PC-IN-006).
+- Prepare for the separate configurable main multitool menu shortcut (MENU-001, MENU-002).
 - Capture normal or advanced item text through clipboard (V01-006, POE-004).
 - Preserve raw clipboard input (POE-006).
 - Avoid reading game memory (SEC-001).
@@ -381,8 +381,8 @@ Zbudować prototyp techniczny, który może działać w tle, wykrywać stan Path
 
 - Dodać fundament konfigurowalnego skrótu (V01-005).
 - Zapewnić, że zachowanie skrótu jest aktywne tylko wtedy, gdy Path of Exile jest foreground (LC-003).
-- Zachować prototypowy skrót `X` jako tymczasowe techniczne rusztowanie do czasu implementacji potwierdzonych powiązań (SHORT-002).
-- Przygotować osobne konfigurowalne skróty dla głównego menu multitool i Price Checkera (MENU-001, MENU-002, PC-IN-005, PC-IN-006).
+- Użyć potwierdzonego domyślnego skrótu Price Checkera `Ctrl + D`, zachowując konfigurowalność powiązań skrótów (PC-IN-005, PC-IN-006).
+- Przygotować osobny konfigurowalny skrót dla głównego menu multitool (MENU-001, MENU-002).
 - Przechwytywać normalny lub zaawansowany tekst przedmiotu przez clipboard (V01-006, POE-004).
 - Zachować surowy input z clipboard (POE-006).
 - Unikać czytania pamięci gry (SEC-001).

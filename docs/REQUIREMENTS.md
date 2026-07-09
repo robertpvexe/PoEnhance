@@ -105,7 +105,7 @@ Requirements describe intended behavior, constraints, and product boundaries. Th
 | PC-IN-003 | Confirmed | Advanced item descriptions should be preferred when available. |
 | PC-IN-004 | Confirmed | The price checker must support manually pasted item text outside the game. |
 | PC-IN-005 | Confirmed | Price Checker has a separate dedicated configurable shortcut. |
-| PC-IN-006 | Confirmed | The confirmed default Price Checker shortcut is `Shift + D`. |
+| PC-IN-006 | Confirmed | The confirmed default Price Checker shortcut is `Ctrl + D`. |
 
 ### 7.2 Parsing
 
@@ -515,7 +515,7 @@ Wymagania opisują oczekiwane zachowanie, ograniczenia i granice produktu. Nie n
 | PC-IN-003 | Potwierdzone | Zaawansowane opisy przedmiotów powinny być preferowane, gdy są dostępne. |
 | PC-IN-004 | Potwierdzone | Price checker musi wspierać ręcznie wklejony tekst przedmiotu poza grą. |
 | PC-IN-005 | Potwierdzone | Price Checker ma osobny dedykowany konfigurowalny skrót. |
-| PC-IN-006 | Potwierdzone | Potwierdzony domyślny skrót Price Checkera to `Shift + D`. |
+| PC-IN-006 | Potwierdzone | Potwierdzony domyślny skrót Price Checkera to `Ctrl + D`. |
 
 ### 7.2 Parsowanie
 

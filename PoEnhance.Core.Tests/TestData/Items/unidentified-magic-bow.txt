@@ -1,0 +1,16 @@
+Item Class: Bows
+Rarity: Magic
+Grove Bow
+--------
+Bow
+Physical Damage: 6-16
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.40
+--------
+Requirements:
+Level: 35
+Dex: 116
+--------
+Item Level: 42
+--------
+Unidentified

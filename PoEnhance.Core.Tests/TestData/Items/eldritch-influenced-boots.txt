@@ -1,0 +1,20 @@
+Item Class: Boots
+Rarity: Rare
+Dusk March
+Dragonscale Boots
+--------
+Armour: 95
+Evasion Rating: 95
+--------
+Requirements:
+Level: 65
+Str: 62
+Dex: 62
+--------
+Item Level: 84
+--------
+Searing Exarch Item
+Eater of Worlds Item
+--------
+12% increased Movement Speed
++35 to maximum Life

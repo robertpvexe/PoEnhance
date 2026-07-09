@@ -1,0 +1,11 @@
+Item Class: Amulets
+Rarity: Rare
+Rune Pendant
+Onyx Amulet
+--------
+Requirements:
+Level: 64
+--------
+Item Level: 83
+--------
+Veiled Suffix

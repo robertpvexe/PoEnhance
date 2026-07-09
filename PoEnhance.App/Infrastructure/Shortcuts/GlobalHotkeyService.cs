@@ -19,7 +19,7 @@ internal sealed class GlobalHotkeyService : IDisposable
 
     public event EventHandler? Triggered;
 
-    public ShortcutKey SelectedShortcut { get; private set; } = ShortcutKey.X;
+    public ShortcutBinding SelectedShortcut { get; private set; } = ShortcutBinding.DefaultPriceChecker;
 
     public ShortcutRegistrationState RegistrationState { get; private set; }
         = ShortcutRegistrationState.InactiveBecausePathOfExileIsNotForeground;
@@ -38,7 +38,7 @@ internal sealed class GlobalHotkeyService : IDisposable
         hwndSource?.AddHook(WndProc);
     }
 
-    public void SetShortcut(ShortcutKey shortcut)
+    public void SetShortcut(ShortcutBinding shortcut)
     {
         ObjectDisposedException.ThrowIf(isDisposed, this);
 
@@ -109,7 +109,8 @@ internal sealed class GlobalHotkeyService : IDisposable
             return;
         }
 
-        if (RegisterHotKey(windowHandle, HotkeyId, ModNoRepeat, (uint)SelectedShortcut))
+        var modifiers = ModNoRepeat | (uint)SelectedShortcut.Modifiers;
+        if (RegisterHotKey(windowHandle, HotkeyId, modifiers, (uint)SelectedShortcut.PrimaryKey))
         {
             isRegistered = true;
             RegistrationState = ShortcutRegistrationState.Active;

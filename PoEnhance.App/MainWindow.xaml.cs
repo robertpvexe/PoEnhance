@@ -1,6 +1,8 @@
-﻿using System.Windows;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using PoEnhance.App.Infrastructure.Clipboard;
+using PoEnhance.App.Infrastructure.Input;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using PoEnhance.Core.Items.Parsing;
@@ -14,9 +16,13 @@ namespace PoEnhance.App;
 public partial class MainWindow : Window
 {
     private const string NotDetectedText = "Not detected";
+    private static readonly TimeSpan CopyChordDelay = TimeSpan.FromMilliseconds(75);
+    private static readonly TimeSpan ClipboardCaptureTimeout = TimeSpan.FromMilliseconds(650);
 
+    private readonly ClipboardSequenceNumberReader clipboardSequenceNumberReader = new();
     private readonly GlobalHotkeyService globalHotkeyService = new();
     private readonly ItemTextParser itemTextParser = new();
+    private readonly KeyboardInputSender keyboardInputSender = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
     private readonly WpfClipboardTextReader clipboardTextReader = new();
@@ -24,6 +30,7 @@ public partial class MainWindow : Window
     private string? rawClipboardText;
     private string? rawManualItemText;
     private int shortcutActivationCount;
+    private bool isClipboardCaptureInProgress;
     private bool? lastPathOfExileForeground;
     private bool? lastPathOfExileRunning;
 
@@ -64,11 +71,11 @@ public partial class MainWindow : Window
 
     private void InitializeShortcutControls()
     {
-        ShortcutComboBox.ItemsSource = Enum.GetValues<ShortcutKey>();
-        ShortcutComboBox.SelectedItem = ShortcutKey.X;
+        ShortcutComboBox.ItemsSource = ShortcutBinding.DevelopmentChoices;
+        ShortcutComboBox.SelectedItem = ShortcutBinding.DefaultPriceChecker;
         ShortcutComboBox.SelectionChanged += (_, _) =>
         {
-            if (ShortcutComboBox.SelectedItem is ShortcutKey shortcut)
+            if (ShortcutComboBox.SelectedItem is ShortcutBinding shortcut)
             {
                 globalHotkeyService.SetShortcut(shortcut);
                 UpdateShortcutRegistrationStatus();
@@ -133,7 +140,7 @@ public partial class MainWindow : Window
         lastPathOfExileForeground = isForeground;
     }
 
-    private void OnShortcutTriggered(object? sender, EventArgs e)
+    private async void OnShortcutTriggered(object? sender, EventArgs e)
     {
         shortcutActivationCount++;
         ShortcutActivationStatusText.Text =
@@ -143,10 +150,112 @@ public partial class MainWindow : Window
             "Shortcut {ShortcutKey} triggered while Path of Exile is foreground",
             globalHotkeyService.SelectedShortcut);
 
-        CaptureClipboardText();
+        await CaptureItemTextFromPathOfExileAsync();
     }
 
-    private void CaptureClipboardText()
+    private async Task CaptureItemTextFromPathOfExileAsync()
+    {
+        if (isClipboardCaptureInProgress)
+        {
+            ClipboardCaptureStatusText.Text = "Clipboard: Capture already in progress";
+            Log.Warning("Item capture skipped because a previous capture is still in progress");
+            return;
+        }
+
+        isClipboardCaptureInProgress = true;
+
+        try
+        {
+            if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
+            {
+                InvalidateClipboardCapture("Path of Exile is not foreground");
+                Log.Warning("Item capture canceled because Path of Exile is not foreground");
+                return;
+            }
+
+            await Task.Delay(CopyChordDelay);
+
+            if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
+            {
+                InvalidateClipboardCapture("Path of Exile lost foreground before copy");
+                Log.Warning("Item capture canceled because Path of Exile lost foreground before Ctrl+Alt+C was sent");
+                return;
+            }
+
+            uint sequenceNumberBeforeCopy = clipboardSequenceNumberReader.GetCurrentSequenceNumber();
+            if (!keyboardInputSender.TrySendAdvancedItemDescriptionCopyChord(out uint sentInputCount, out int errorCode))
+            {
+                InvalidateClipboardCapture("Copy input failed");
+                Log.Warning(
+                    "Ctrl+Alt+C SendInput failed. Sent input count: {SentInputCount}. Win32 error: {Win32ErrorCode}",
+                    sentInputCount,
+                    errorCode);
+                return;
+            }
+
+            ClipboardCaptureWaitResult waitResult =
+                await WaitForClipboardSequenceChangeAsync(sequenceNumberBeforeCopy);
+            if (waitResult == ClipboardCaptureWaitResult.ForegroundLost)
+            {
+                InvalidateClipboardCapture("Path of Exile lost foreground during capture");
+                Log.Warning("Item capture canceled because Path of Exile lost foreground during capture");
+                return;
+            }
+
+            if (waitResult == ClipboardCaptureWaitResult.TimedOut)
+            {
+                InvalidateClipboardCapture("No item text was copied");
+                Log.Information("Item capture timed out before the clipboard changed");
+                return;
+            }
+
+            if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
+            {
+                InvalidateClipboardCapture("Path of Exile lost foreground during capture");
+                Log.Warning("Item capture canceled because Path of Exile lost foreground during capture");
+                return;
+            }
+
+            ReadClipboardTextAfterCapture();
+        }
+        finally
+        {
+            isClipboardCaptureInProgress = false;
+        }
+    }
+
+    private async Task<ClipboardCaptureWaitResult> WaitForClipboardSequenceChangeAsync(uint initialSequenceNumber)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + ClipboardCaptureTimeout;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+
+            if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
+            {
+                return ClipboardCaptureWaitResult.ForegroundLost;
+            }
+
+            uint currentSequenceNumber = clipboardSequenceNumberReader.GetCurrentSequenceNumber();
+            if (currentSequenceNumber != initialSequenceNumber)
+            {
+                return ClipboardCaptureWaitResult.ClipboardChanged;
+            }
+        }
+
+        return ClipboardCaptureWaitResult.TimedOut;
+    }
+
+    private void InvalidateClipboardCapture(string status)
+    {
+        rawClipboardText = null;
+        ClearRawInputText();
+        ClearParsedItemResult();
+        ClipboardCaptureStatusText.Text = $"Clipboard: {status}";
+    }
+
+    private void ReadClipboardTextAfterCapture()
     {
         ClipboardTextReadResult result = clipboardTextReader.ReadText();
 
@@ -154,22 +263,18 @@ public partial class MainWindow : Window
         {
             case ClipboardTextReadStatus.TextAvailable:
                 rawClipboardText = result.Text ?? string.Empty;
-                RawClipboardTextBox.Text = rawClipboardText;
+                DisplayRawInputText(rawClipboardText);
                 ParseRawItemText(rawClipboardText, ItemInputSource.Clipboard);
+                Log.Information("Item capture succeeded from clipboard text");
                 break;
 
             case ClipboardTextReadStatus.EmptyOrNoText:
-                rawClipboardText = null;
-                RawClipboardTextBox.Clear();
-                ClearParsedItemResult();
-                ClipboardCaptureStatusText.Text = "Clipboard: Empty or does not contain text";
+                InvalidateClipboardCapture("Empty or does not contain text");
+                Log.Information("Item capture completed but clipboard did not contain text");
                 break;
 
             case ClipboardTextReadStatus.AccessFailed:
-                rawClipboardText = null;
-                RawClipboardTextBox.Clear();
-                ClearParsedItemResult();
-                ClipboardCaptureStatusText.Text = "Clipboard: Temporarily unavailable";
+                InvalidateClipboardCapture("Temporarily unavailable");
                 LogClipboardAccessFailure(result.Exception);
                 break;
         }
@@ -178,6 +283,7 @@ public partial class MainWindow : Window
     private void ParseManualItemInput()
     {
         rawManualItemText = ManualItemInputTextBox.Text ?? string.Empty;
+        DisplayRawInputText(rawManualItemText);
         ParseRawItemText(rawManualItemText, ItemInputSource.Manual);
     }
 
@@ -185,8 +291,19 @@ public partial class MainWindow : Window
     {
         rawManualItemText = null;
         ManualItemInputTextBox.Clear();
+        ClearRawInputText();
         ClearParsedItemResult();
         ManualInputStatusText.Text = "Manual input: Cleared";
+    }
+
+    private void DisplayRawInputText(string rawText)
+    {
+        RawInputTextBox.Text = rawText;
+    }
+
+    private void ClearRawInputText()
+    {
+        RawInputTextBox.Clear();
     }
 
     private void ParseRawItemText(string rawText, ItemInputSource inputSource)
@@ -228,26 +345,85 @@ public partial class MainWindow : Window
 
     private void DisplayParsedItemResult(ParsedItem parsedItem)
     {
+        ParsedInputFormatText.Text = parsedItem.InputFormat.ToString();
         ParsedItemClassText.Text = DisplayValue(parsedItem.ItemClass);
         ParsedRarityText.Text = DisplayValue(parsedItem.Rarity);
-        ParsedNameText.Text = DisplayValue(parsedItem.Name);
+        ParsedNameText.Text = DisplayValue(parsedItem.DisplayName);
         ParsedBaseTypeText.Text = DisplayValue(parsedItem.BaseType);
+        DisplayItemTypeDescriptor(parsedItem.ItemTypeDescriptor);
+        DisplayItemStates(parsedItem.ItemStates);
+        DisplayNoteLines([]);
         ParsedItemLevelText.Text = parsedItem.ItemLevel?.ToString() ?? NotDetectedText;
         ParsedPropertiesTextBox.Text = DisplayLines(parsedItem.PropertyLines);
-        ParsedModifiersTextBox.Text = DisplayLines(parsedItem.ModifierLines);
-        ParsedUnclassifiedTextBox.Text = DisplayLines(parsedItem.UnclassifiedLines);
+        DisplayOptionalTextBox(
+            ParsedInfluencesPanel,
+            ParsedInfluencesTextBox,
+            DisplayInfluences(parsedItem.TraditionalInfluences, parsedItem.EldritchInfluences));
+        DisplayOptionalTextBox(
+            ParsedImplicitModifiersPanel,
+            ParsedImplicitModifiersTextBox,
+            DisplayModifiers(parsedItem.ImplicitModifiers));
+        DisplayOptionalTextBox(
+            ParsedPrefixModifiersPanel,
+            ParsedPrefixModifiersTextBox,
+            DisplayModifiers(parsedItem.PrefixModifiers));
+        DisplayOptionalTextBox(
+            ParsedSuffixModifiersPanel,
+            ParsedSuffixModifiersTextBox,
+            DisplayModifiers(parsedItem.SuffixModifiers));
+        DisplayOptionalTextBox(
+            ParsedUniqueModifiersPanel,
+            ParsedUniqueModifiersTextBox,
+            DisplayModifiers(parsedItem.UniqueModifiers));
+        DisplayOptionalTextBox(
+            ParsedUnknownModifiersPanel,
+            ParsedUnknownModifiersTextBox,
+            DisplayModifiers(parsedItem.ExplicitModifiersWithUnknownKind));
+        DisplayOptionalTextBox(
+            ParsedEnchantmentsPanel,
+            ParsedEnchantmentsTextBox,
+            DisplayEnchantments(parsedItem.Enchantments));
+        DisplayOptionalTextBox(
+            ParsedDescriptionPanel,
+            ParsedDescriptionTextBox,
+            DisplayLines(parsedItem.DescriptionLines));
+        DisplayOptionalTextBox(
+            ParsedFlavourTextPanel,
+            ParsedFlavourTextBox,
+            DisplayLines(parsedItem.FlavourTextLines));
+        DisplayOptionalTextBox(
+            ParsedListingNotePanel,
+            ParsedListingNoteTextBox,
+            DisplayValue(parsedItem.ListingNote));
+        DisplayOptionalTextBox(
+            ParsedUnclassifiedPanel,
+            ParsedUnclassifiedTextBox,
+            DisplayLines(parsedItem.UnclassifiedLines));
     }
 
     private void ClearParsedItemResult()
     {
+        ParsedInputFormatText.Text = NotDetectedText;
         ParsedItemClassText.Text = NotDetectedText;
         ParsedRarityText.Text = NotDetectedText;
         ParsedNameText.Text = NotDetectedText;
         ParsedBaseTypeText.Text = NotDetectedText;
+        DisplayItemTypeDescriptor(null);
+        DisplayItemStates([]);
+        DisplayNoteLines([]);
         ParsedItemLevelText.Text = NotDetectedText;
         ParsedPropertiesTextBox.Text = NotDetectedText;
-        ParsedModifiersTextBox.Text = NotDetectedText;
-        ParsedUnclassifiedTextBox.Text = NotDetectedText;
+        DisplayOptionalTextBox(ParsedInfluencesPanel, ParsedInfluencesTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedImplicitModifiersPanel, ParsedImplicitModifiersTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedPrefixModifiersPanel, ParsedPrefixModifiersTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedSuffixModifiersPanel, ParsedSuffixModifiersTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedUniqueModifiersPanel, ParsedUniqueModifiersTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedUnknownModifiersPanel, ParsedUnknownModifiersTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedEnchantmentsPanel, ParsedEnchantmentsTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedDescriptionPanel, ParsedDescriptionTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedFlavourTextPanel, ParsedFlavourTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedListingNotePanel, ParsedListingNoteTextBox, NotDetectedText);
+        DisplayOptionalTextBox(ParsedUnclassifiedPanel, ParsedUnclassifiedTextBox, NotDetectedText);
     }
 
     private static string DisplayValue(string? value)
@@ -255,9 +431,152 @@ public partial class MainWindow : Window
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
+    private void DisplayItemTypeDescriptor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            ParsedItemTypeDescriptorLabel.Visibility = Visibility.Collapsed;
+            ParsedItemTypeDescriptorText.Visibility = Visibility.Collapsed;
+            ParsedItemTypeDescriptorText.Text = NotDetectedText;
+            return;
+        }
+
+        ParsedItemTypeDescriptorLabel.Visibility = Visibility.Visible;
+        ParsedItemTypeDescriptorText.Visibility = Visibility.Visible;
+        ParsedItemTypeDescriptorText.Text = value;
+    }
+
+    private void DisplayItemStates(IReadOnlyCollection<string> states)
+    {
+        DisplayOptionalLines(ParsedItemStatesLabel, ParsedItemStatesText, states);
+    }
+
+    private void DisplayNoteLines(IReadOnlyCollection<string> noteLines)
+    {
+        DisplayOptionalLines(ParsedNoteLinesLabel, ParsedNoteLinesText, noteLines);
+    }
+
+    private static void DisplayOptionalLines(
+        UIElement label,
+        TextBlock textBlock,
+        IReadOnlyCollection<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            label.Visibility = Visibility.Collapsed;
+            textBlock.Visibility = Visibility.Collapsed;
+            textBlock.Text = NotDetectedText;
+            return;
+        }
+
+        label.Visibility = Visibility.Visible;
+        textBlock.Visibility = Visibility.Visible;
+        textBlock.Text = DisplayLines(lines);
+    }
+
     private static string DisplayLines(IReadOnlyCollection<string> lines)
     {
         return lines.Count == 0 ? NotDetectedText : string.Join(Environment.NewLine, lines);
+    }
+
+    private static string DisplayInfluences(
+        IReadOnlyCollection<string> traditionalInfluences,
+        IReadOnlyCollection<string> eldritchInfluences)
+    {
+        var lines = new List<string>();
+        lines.AddRange(traditionalInfluences.Select(influence => $"Traditional: {influence}"));
+        lines.AddRange(eldritchInfluences.Select(influence => $"Eldritch: {influence}"));
+
+        return DisplayLines(lines);
+    }
+
+    private static string DisplayEnchantments(IReadOnlyCollection<ParsedEnchantment> enchantments)
+    {
+        return enchantments.Count == 0
+            ? NotDetectedText
+            : string.Join(Environment.NewLine, enchantments.Select(enchantment =>
+                enchantment.IsAnoint ? $"{enchantment.Text} [Anoint]" : enchantment.Text));
+    }
+
+    private static void DisplayOptionalTextBox(FrameworkElement panel, TextBox textBox, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text == NotDetectedText)
+        {
+            panel.Visibility = Visibility.Collapsed;
+            textBox.Text = NotDetectedText;
+            return;
+        }
+
+        panel.Visibility = Visibility.Visible;
+        textBox.Text = text;
+    }
+
+    private static string DisplayModifiers(IReadOnlyCollection<ParsedModifier> modifiers)
+    {
+        return modifiers.Count == 0
+            ? NotDetectedText
+            : string.Join($"{Environment.NewLine}{Environment.NewLine}", modifiers.Select(FormatModifier));
+    }
+
+    private static string FormatModifier(ParsedModifier modifier)
+    {
+        if (modifier.RawMetadataLine is null
+            && !modifier.IsCrafted
+            && !modifier.IsFractured
+            && !modifier.IsVeiled)
+        {
+            return modifier.Text;
+        }
+
+        var metadataParts = new List<string>
+        {
+            modifier.Kind.ToString(),
+        };
+
+        if (modifier.IsCrafted)
+        {
+            metadataParts.Insert(0, "Crafted");
+        }
+
+        if (modifier.IsFractured)
+        {
+            metadataParts.Insert(0, "Fractured");
+        }
+
+        if (modifier.IsVeiled)
+        {
+            metadataParts.Insert(0, "Veiled");
+        }
+
+        if (modifier.Tier.HasValue)
+        {
+            metadataParts.Add($"T{modifier.Tier.Value}");
+        }
+
+        if (modifier.Rank.HasValue)
+        {
+            metadataParts.Add($"R{modifier.Rank.Value}");
+        }
+
+        var metadataText = $"[{string.Join(' ', metadataParts)}]";
+        if (!string.IsNullOrWhiteSpace(modifier.Name))
+        {
+            metadataText = $"{metadataText} {modifier.Name}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(modifier.CategoryText))
+        {
+            metadataText = $"{metadataText} — {modifier.CategoryText}";
+        }
+
+        return $"{metadataText}{Environment.NewLine}{IndentLines(modifier.ValueLines)}";
+    }
+
+    private static string IndentLines(IReadOnlyCollection<string> lines)
+    {
+        return lines.Count == 0
+            ? NotDetectedText
+            : string.Join(Environment.NewLine, lines.Select(line => $"  {line}"));
     }
 
     private static void LogClipboardAccessFailure(Exception? exception)
@@ -297,5 +616,12 @@ public partial class MainWindow : Window
     {
         Clipboard,
         Manual,
+    }
+
+    private enum ClipboardCaptureWaitResult
+    {
+        ClipboardChanged,
+        TimedOut,
+        ForegroundLost,
     }
 }

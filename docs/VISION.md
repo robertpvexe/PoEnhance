@@ -26,6 +26,8 @@ The application should feel fast, dependable, and unobtrusive: available when re
 
 PoEnhance is intended to run primarily in the background. A dedicated configurable shortcut should open the main multitool menu, which acts as the entry point for modules such as regex tools, economy views, game-data browsing, and other future tools.
 
+Price Checker should have a separate dedicated configurable shortcut, with `Ctrl + D` as the confirmed default.
+
 Outside the game, PoEnhance should remain available as a standard desktop application for browsing data, managing saved searches, viewing economy information, and using tools that do not require an active Path of Exile window.
 
 ## 5. Core Principles
@@ -102,6 +104,8 @@ PoEnhance powinien stać się modularnym companionem dla Path of Exile 1, który
 Aplikacja powinna być szybka, niezawodna i nienachalna: dostępna po użyciu skrótu, cicha, gdy nie jest potrzebna, oraz odporna na zmiany lig, przedmiotów lub zewnętrznych źródeł danych.
 
 PoEnhance ma działać przede wszystkim w tle. Dedykowany konfigurowalny skrót powinien otwierać główne menu multitool, które jest punktem wejścia do modułów takich jak narzędzia regex, widoki ekonomii, przeglądanie game-data i inne przyszłe narzędzia.
+
+Price Checker powinien mieć osobny dedykowany konfigurowalny skrót, z `Ctrl + D` jako potwierdzonym ustawieniem domyślnym.
 
 Poza grą PoEnhance powinien pozostać dostępny jako standardowa aplikacja desktopowa do przeglądania danych, zarządzania zapisanymi wyszukiwaniami, przeglądania informacji ekonomicznych i używania narzędzi, które nie wymagają aktywnego okna Path of Exile.
 
