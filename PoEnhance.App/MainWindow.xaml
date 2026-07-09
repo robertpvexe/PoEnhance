@@ -5,8 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PoEnhance.App"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
-
+        Title="PoEnhance" Height="450" Width="800">
+    <Grid Margin="16">
+        <TextBlock x:Name="PathOfExileStatusText"
+                   VerticalAlignment="Top"
+                   FontSize="16"
+                   Text="Path of Exile: Checking..." />
     </Grid>
 </Window>
