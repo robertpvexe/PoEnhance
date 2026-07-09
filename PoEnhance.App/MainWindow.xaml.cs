@@ -10,8 +10,10 @@ namespace PoEnhance.App;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
+    private bool? lastPathOfExileForeground;
     private bool? lastPathOfExileRunning;
 
     public MainWindow()
@@ -37,11 +39,21 @@ public partial class MainWindow : Window
     private void RefreshPathOfExileStatus()
     {
         bool isRunning = pathOfExileProcessDetector.IsPathOfExileRunning();
+        bool isForeground = pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow();
 
         PathOfExileStatusText.Text = isRunning
             ? "Path of Exile: Running"
             : "Path of Exile: Not running";
+        ForegroundWindowStatusText.Text = isForeground
+            ? "Foreground window: Path of Exile"
+            : "Foreground window: Other application";
 
+        LogPathOfExileRunningChange(isRunning);
+        LogPathOfExileForegroundChange(isForeground);
+    }
+
+    private void LogPathOfExileRunningChange(bool isRunning)
+    {
         if (lastPathOfExileRunning == isRunning)
         {
             return;
@@ -57,5 +69,24 @@ public partial class MainWindow : Window
         }
 
         lastPathOfExileRunning = isRunning;
+    }
+
+    private void LogPathOfExileForegroundChange(bool isForeground)
+    {
+        if (lastPathOfExileForeground == isForeground)
+        {
+            return;
+        }
+
+        if (isForeground)
+        {
+            Log.Information("Path of Exile became the foreground application");
+        }
+        else if (lastPathOfExileForeground is true)
+        {
+            Log.Information("Path of Exile is no longer the foreground application");
+        }
+
+        lastPathOfExileForeground = isForeground;
     }
 }
