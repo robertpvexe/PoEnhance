@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PoEnhance.App"
         mc:Ignorable="d"
-        Title="PoEnhance" Height="450" Width="800">
+        Title="PoEnhance" Height="600" Width="800">
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -13,6 +13,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <TextBlock x:Name="PathOfExileStatusText"
@@ -49,5 +51,20 @@
                    VerticalAlignment="Top"
                    FontSize="16"
                    Text="Shortcut activations: 0" />
+        <TextBlock x:Name="ClipboardCaptureStatusText"
+                   Grid.Row="5"
+                   Margin="0,16,0,0"
+                   VerticalAlignment="Top"
+                   FontSize="16"
+                   Text="Clipboard: No capture yet" />
+        <TextBox x:Name="RawClipboardTextBox"
+                 Grid.Row="6"
+                 Margin="0,8,0,0"
+                 AcceptsReturn="True"
+                 AcceptsTab="True"
+                 HorizontalScrollBarVisibility="Auto"
+                 IsReadOnly="True"
+                 TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" />
     </Grid>
 </Window>

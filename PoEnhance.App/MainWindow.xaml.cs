@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using System.Windows.Threading;
+using PoEnhance.App.Infrastructure.Clipboard;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using Serilog;
@@ -14,7 +15,9 @@ public partial class MainWindow : Window
     private readonly GlobalHotkeyService globalHotkeyService = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
+    private readonly WpfClipboardTextReader clipboardTextReader = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
+    private string? rawClipboardText;
     private int shortcutActivationCount;
     private bool? lastPathOfExileForeground;
     private bool? lastPathOfExileRunning;
@@ -126,6 +129,50 @@ public partial class MainWindow : Window
         Log.Information(
             "Shortcut {ShortcutKey} triggered while Path of Exile is foreground",
             globalHotkeyService.SelectedShortcut);
+
+        CaptureClipboardText();
+    }
+
+    private void CaptureClipboardText()
+    {
+        ClipboardTextReadResult result = clipboardTextReader.ReadText();
+
+        switch (result.Status)
+        {
+            case ClipboardTextReadStatus.TextAvailable:
+                rawClipboardText = result.Text;
+                RawClipboardTextBox.Text = rawClipboardText;
+                ClipboardCaptureStatusText.Text =
+                    $"Clipboard: Captured {rawClipboardText?.Length ?? 0} characters";
+                break;
+
+            case ClipboardTextReadStatus.EmptyOrNoText:
+                rawClipboardText = null;
+                RawClipboardTextBox.Clear();
+                ClipboardCaptureStatusText.Text = "Clipboard: Empty or does not contain text";
+                break;
+
+            case ClipboardTextReadStatus.AccessFailed:
+                rawClipboardText = null;
+                RawClipboardTextBox.Clear();
+                ClipboardCaptureStatusText.Text = "Clipboard: Temporarily unavailable";
+                LogClipboardAccessFailure(result.Exception);
+                break;
+        }
+    }
+
+    private static void LogClipboardAccessFailure(Exception? exception)
+    {
+        if (exception is null)
+        {
+            Log.Warning("Clipboard text capture failed");
+            return;
+        }
+
+        Log.Warning(
+            "Clipboard text capture failed. {ExceptionType}: {ExceptionMessage}",
+            exception.GetType().FullName,
+            exception.Message);
     }
 
     private void UpdateShortcutRegistrationStatus()
