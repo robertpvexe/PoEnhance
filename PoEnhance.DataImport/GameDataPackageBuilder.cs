@@ -13,19 +13,17 @@ public sealed class GameDataPackageBuilder
         var manifestValidation = GameDataPackageManifestValidator.Validate(manifest);
         foreach (var error in manifestValidation.Errors)
         {
-            diagnostics.Add(new ImportDiagnostic(
+            diagnostics.Add(Diagnostic(
                 RePoeImportDiagnosticCodes.PackageManifestInvalid,
                 ImportDiagnosticSeverity.Error,
-                null,
                 $"{error.Code} at {error.Path}: {error.Message}"));
         }
 
         if (!ManifestDeclaresRePoeSource(manifest))
         {
-            diagnostics.Add(new ImportDiagnostic(
+            diagnostics.Add(Diagnostic(
                 RePoeImportDiagnosticCodes.PackageRePoeSourceMissing,
                 ImportDiagnosticSeverity.Error,
-                null,
                 "The manifest must declare SourceId 'repoe' before imported RePoE item bases can be packaged."));
         }
 
@@ -47,10 +45,9 @@ public sealed class GameDataPackageBuilder
         var packageValidation = GameDataPackageValidator.Validate(package);
         foreach (var error in packageValidation.Errors)
         {
-            diagnostics.Add(new ImportDiagnostic(
+            diagnostics.Add(Diagnostic(
                 RePoeImportDiagnosticCodes.PackageValidationFailed,
                 ImportDiagnosticSeverity.Error,
-                null,
                 $"{error.Code} at {error.Path}: {error.Message}"));
         }
 
@@ -67,5 +64,13 @@ public sealed class GameDataPackageBuilder
     {
         return manifest.Sources.Any(source =>
             string.Equals(source.SourceId?.Trim(), RePoeBaseItemImporter.SourceId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static ImportDiagnostic Diagnostic(
+        string code,
+        ImportDiagnosticSeverity severity,
+        string message)
+    {
+        return new ImportDiagnostic(code, severity, SourceRecordId: null, message);
     }
 }

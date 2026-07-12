@@ -27,8 +27,6 @@ public partial class MainWindow : Window
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
     private readonly WpfClipboardTextReader clipboardTextReader = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
-    private string? rawClipboardText;
-    private string? rawManualItemText;
     private int shortcutActivationCount;
     private bool isClipboardCaptureInProgress;
     private bool? lastPathOfExileForeground;
@@ -249,7 +247,6 @@ public partial class MainWindow : Window
 
     private void InvalidateClipboardCapture(string status)
     {
-        rawClipboardText = null;
         ClearRawInputText();
         ClearParsedItemResult();
         ClipboardCaptureStatusText.Text = $"Clipboard: {status}";
@@ -262,7 +259,7 @@ public partial class MainWindow : Window
         switch (result.Status)
         {
             case ClipboardTextReadStatus.TextAvailable:
-                rawClipboardText = result.Text ?? string.Empty;
+                var rawClipboardText = result.Text ?? string.Empty;
                 DisplayRawInputText(rawClipboardText);
                 ParseRawItemText(rawClipboardText, ItemInputSource.Clipboard);
                 Log.Information("Item capture succeeded from clipboard text");
@@ -282,14 +279,13 @@ public partial class MainWindow : Window
 
     private void ParseManualItemInput()
     {
-        rawManualItemText = ManualItemInputTextBox.Text ?? string.Empty;
+        var rawManualItemText = ManualItemInputTextBox.Text ?? string.Empty;
         DisplayRawInputText(rawManualItemText);
         ParseRawItemText(rawManualItemText, ItemInputSource.Manual);
     }
 
     private void ClearManualItemInput()
     {
-        rawManualItemText = null;
         ManualItemInputTextBox.Clear();
         ClearRawInputText();
         ClearParsedItemResult();
@@ -352,7 +348,7 @@ public partial class MainWindow : Window
         ParsedBaseTypeText.Text = DisplayValue(parsedItem.BaseType);
         DisplayItemTypeDescriptor(parsedItem.ItemTypeDescriptor);
         DisplayItemStates(parsedItem.ItemStates);
-        DisplayNoteLines([]);
+        DisplayNoteLines(parsedItem.NoteLines);
         ParsedItemLevelText.Text = parsedItem.ItemLevel?.ToString() ?? NotDetectedText;
         ParsedPropertiesTextBox.Text = DisplayLines(parsedItem.PropertyLines);
         DisplayOptionalTextBox(

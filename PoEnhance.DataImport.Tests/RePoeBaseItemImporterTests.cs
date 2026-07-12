@@ -10,7 +10,7 @@ public sealed class RePoeBaseItemImporterTests
     [Fact]
     public void Import_ReducedFixture_ImportsExpectedRecords()
     {
-        var result = _importer.Import(ReducedFixturePath);
+        var result = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath);
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
@@ -23,7 +23,7 @@ public sealed class RePoeBaseItemImporterTests
     [Fact]
     public void Import_GoldRing_PreservesVerifiedSourceFields()
     {
-        var result = _importer.Import(ReducedFixturePath);
+        var result = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath);
 
         var goldRing = FindById(result, "Metadata/Items/Rings/Ring4");
 
@@ -38,7 +38,7 @@ public sealed class RePoeBaseItemImporterTests
     [Fact]
     public void Import_GraniteFlask_PreservesClassAndNormalizesTags()
     {
-        var result = _importer.Import(ReducedFixturePath);
+        var result = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath);
 
         var graniteFlask = FindById(result, "Metadata/Items/Flasks/FlaskUtility5");
 
@@ -51,7 +51,7 @@ public sealed class RePoeBaseItemImporterTests
     [Fact]
     public void Import_RepresentativeBases_PreservesClassesAndRequirements()
     {
-        var result = _importer.Import(ReducedFixturePath);
+        var result = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath);
 
         var armour = FindById(result, "Metadata/Items/Armours/BodyArmours/BodyStrDex10");
         Assert.Equal("Full Wyrmscale", armour.Name);
@@ -77,8 +77,8 @@ public sealed class RePoeBaseItemImporterTests
     [Fact]
     public void Import_SourceReferencesValidateAgainstRePoeManifest()
     {
-        var result = _importer.Import(ReducedFixturePath);
-        var manifest = CreateManifestWithRePoeSource();
+        var result = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath);
+        var manifest = RePoeImportTestFixtures.CreateManifestWithRePoeSource();
         var package = new GameDataPackage
         {
             Manifest = manifest,
@@ -266,31 +266,6 @@ public sealed class RePoeBaseItemImporterTests
             diagnostic.Code == code &&
             (!severity.HasValue || diagnostic.Severity == severity.Value));
     }
-
-    private static GameDataPackageManifest CreateManifestWithRePoeSource()
-    {
-        return new GameDataPackageManifest
-        {
-            SchemaVersion = 1,
-            DataVersion = "dev-repoe-base-items",
-            CreatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
-            League = "Mercenaries",
-            Patch = "3.26.0",
-            Sources =
-            [
-                new GameDataPackageSource
-                {
-                    SourceId = "repoe",
-                    RetrievedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 5, 0, TimeSpan.Zero),
-                    SourceVersion = "8023a1d696dbddc836c05ac3fcedd072da1767d2",
-                    SourceUri = "https://github.com/brather1ng/RePoE",
-                },
-            ],
-        };
-    }
-
-    private static string ReducedFixturePath =>
-        Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "base_items.reduced.json");
 
     private static readonly string[] ExpectedOrderedIds =
     [

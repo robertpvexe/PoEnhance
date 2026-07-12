@@ -159,14 +159,7 @@ public sealed class RePoeBaseItemImporter
             ItemClass = itemClass,
             RequiredLevel = requiredLevel,
             Tags = ReadTags(record, sourceRecordId, diagnostics),
-            Sources =
-            [
-                new GameDataSourceReference
-                {
-                    SourceId = SourceId,
-                    ExternalId = sourceRecordId,
-                },
-            ],
+            Sources = [CreateSourceReference(sourceRecordId)],
         };
     }
 
@@ -279,6 +272,15 @@ public sealed class RePoeBaseItemImporter
                     null,
                     message),
             ],
+        };
+    }
+
+    private static GameDataSourceReference CreateSourceReference(string sourceRecordId)
+    {
+        return new GameDataSourceReference
+        {
+            SourceId = SourceId,
+            ExternalId = sourceRecordId,
         };
     }
 

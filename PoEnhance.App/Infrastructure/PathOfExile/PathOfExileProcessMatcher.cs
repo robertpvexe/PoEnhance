@@ -36,8 +36,6 @@ internal static class PathOfExileProcessMatcher
     private static bool IsObviousHelperProcess(string processName)
     {
         return processName.Contains("Crash", StringComparison.OrdinalIgnoreCase)
-            || processName.Contains("CrashHandler", StringComparison.OrdinalIgnoreCase)
-            || processName.Contains("CrashReporter", StringComparison.OrdinalIgnoreCase)
             || processName.Contains("Handler", StringComparison.OrdinalIgnoreCase)
             || processName.Contains("Reporter", StringComparison.OrdinalIgnoreCase);
     }
