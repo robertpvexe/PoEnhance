@@ -28,6 +28,7 @@ public sealed class GameDataCatalog
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatId;
 
     private GameDataCatalog(
+        IReadOnlyList<ItemBaseRecord> itemBases,
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesById,
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesByExactName,
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesByNormalizedName,
@@ -39,6 +40,7 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsById,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatId)
     {
+        ItemBases = itemBases;
         _itemBasesById = itemBasesById;
         _itemBasesByExactName = itemBasesByExactName;
         _itemBasesByNormalizedName = itemBasesByNormalizedName;
@@ -63,17 +65,20 @@ public sealed class GameDataCatalog
                 nameof(package));
         }
 
+        var itemBases = ToReadOnly(package.ItemBases);
+
         return new GameDataCatalog(
+            itemBases,
             BuildIndex(
-                package.ItemBases,
+                itemBases,
                 itemBase => GameDataLookupNormalizer.NormalizeIdentifier(itemBase.Id),
                 StringComparer.OrdinalIgnoreCase),
             BuildIndex(
-                package.ItemBases,
+                itemBases,
                 itemBase => GameDataLookupNormalizer.NormalizeName(itemBase.Name),
                 StringComparer.Ordinal),
             BuildIndex(
-                package.ItemBases,
+                itemBases,
                 itemBase => GameDataLookupNormalizer.NormalizeName(itemBase.Name),
                 StringComparer.OrdinalIgnoreCase),
             BuildIndex(
@@ -108,6 +113,8 @@ public sealed class GameDataCatalog
                     .Where(statId => statId is not null)!,
                 StringComparer.OrdinalIgnoreCase));
     }
+
+    public IReadOnlyList<ItemBaseRecord> ItemBases { get; }
 
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)
     {
@@ -221,6 +228,11 @@ public sealed class GameDataCatalog
         return key is not null && index.TryGetValue(key, out var records)
             ? records
             : empty;
+    }
+
+    private static IReadOnlyList<TRecord> ToReadOnly<TRecord>(IEnumerable<TRecord> records)
+    {
+        return new ReadOnlyCollection<TRecord>(records.ToArray());
     }
 
     private static void Add<TKey, TRecord>(

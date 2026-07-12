@@ -70,6 +70,32 @@ public sealed class GameDataCatalogTests
     }
 
     [Fact]
+    public void ItemBases_ReturnsReadOnlyPackageOrderSnapshot()
+    {
+        var mutableItemBases = GameDataPackageFixtures.CreateDevelopmentPackage().ItemBases.ToList();
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            ItemBases = mutableItemBases,
+        };
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        mutableItemBases.Clear();
+        var mutableView = Assert.IsAssignableFrom<ICollection<ItemBaseRecord>>(catalog.ItemBases);
+
+        Assert.True(mutableView.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => mutableView.Add(new ItemBaseRecord
+        {
+            Id = "item-base.injected",
+            Name = "Injected",
+            ItemClass = "Test",
+        }));
+        Assert.Collection(
+            catalog.ItemBases,
+            first => Assert.Equal("item-base.gold-ring", first.Id),
+            second => Assert.Equal("item-base.granite-flask", second.Id));
+    }
+
+    [Fact]
     public void FindModifiersByIdGroupGenerationTypeAndStatId_ReturnsExpectedRecords()
     {
         var catalog = CreateCatalog();
