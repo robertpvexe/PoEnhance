@@ -13,7 +13,7 @@ public sealed class ParsedItemGameDataDisplayServiceTests
     public void ResolveItemBase_DoesNotCallResolverWhenCatalogIsUnavailable()
     {
         var resolver = new CountingResolver();
-        var service = new ParsedItemGameDataDisplayService(resolver);
+        var service = new ParsedItemGameDataDisplayService(resolver, new CountingModifierCandidateResolver());
         var item = parser.Parse("""
 Item Class: Rings
 Rarity: Rare
@@ -122,6 +122,85 @@ Item Level: 83
         Assert.Equal(5, display.CandidateNames.Count);
     }
 
+    [Fact]
+    public void ResolveModifierCandidates_DoesNotCallResolverWhenCatalogIsUnavailable()
+    {
+        var resolver = new CountingModifierCandidateResolver();
+        var service = new ParsedItemGameDataDisplayService(new CountingResolver(), resolver);
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+
+        var display = service.ResolveModifierCandidates(item, catalog: null);
+
+        Assert.False(display.IsAvailable);
+        Assert.Equal("Game data not loaded", display.Diagnostic);
+        Assert.Empty(display.Results);
+        Assert.Equal(0, resolver.CallCount);
+    }
+
+    [Fact]
+    public void ResolveModifierCandidates_WithCatalogDisplaysDiagnosticsAndLimitsCandidates()
+    {
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var resolver = new CountingModifierCandidateResolver
+        {
+            Results =
+            [
+                new ModifierCandidateResolutionResult(
+                    0,
+                    item.PrefixModifiers[0],
+                    "Hale",
+                    ParsedModifierKind.Prefix,
+                    ModifierGenerationType.Prefix,
+                    ModifierCandidateResolutionStatus.Unknown,
+                    [
+                        Modifier("mod.one", "Hale", ModifierGenerationType.Prefix),
+                        Modifier("mod.two", "Hale", ModifierGenerationType.Prefix),
+                        Modifier("mod.three", "Hale", ModifierGenerationType.Prefix),
+                        Modifier("mod.four", "Hale", ModifierGenerationType.Prefix),
+                        Modifier("mod.five", "Hale", ModifierGenerationType.Prefix),
+                        Modifier("mod.six", "Hale", ModifierGenerationType.Prefix),
+                    ],
+                    [
+                        new ModifierCandidateResolutionDiagnostic(
+                            ModifierCandidateResolutionDiagnosticCodes.ModifierAmbiguous,
+                            "Ambiguous test match."),
+                    ]),
+            ],
+        };
+        var service = new ParsedItemGameDataDisplayService(new CountingResolver(), resolver);
+
+        var display = service.ResolveModifierCandidates(item, CreateCatalog());
+        var result = Assert.Single(display.Results);
+
+        Assert.True(display.IsAvailable);
+        Assert.Equal("Unknown", result.Status);
+        Assert.Equal("MODIFIER_AMBIGUOUS: Ambiguous test match.", result.Diagnostic);
+        Assert.Equal(6, result.CandidateCount);
+        Assert.Equal(5, result.CandidateLabels.Count);
+        Assert.Equal("mod.one (Hale)", result.CandidateLabels[0]);
+        Assert.Equal(1, resolver.CallCount);
+    }
+
     private static GameDataCatalog CreateCatalog()
     {
         return GameDataCatalog.FromPackage(new GameDataPackage
@@ -141,8 +220,8 @@ Item Level: 83
                 ],
             },
             ItemBases = [Base("item-base.gold-ring", "Gold Ring", "Rings")],
-            Modifiers = [],
-            Stats = [],
+            Modifiers = [Modifier("mod.prefix.hale", "Hale", ModifierGenerationType.Prefix)],
+            Stats = [Stat("test_stat")],
             StatTranslations = [],
         });
     }
@@ -154,6 +233,54 @@ Item Level: 83
             Id = id,
             Name = name,
             ItemClass = itemClass,
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = id,
+                },
+            ],
+        };
+    }
+
+    private static ModifierDefinition Modifier(
+        string id,
+        string name,
+        ModifierGenerationType generationType)
+    {
+        return new ModifierDefinition
+        {
+            Id = id,
+            GroupId = $"group.{id}",
+            Name = name,
+            GenerationType = generationType,
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "test_stat",
+                    MinValue = 1m,
+                    MaxValue = 2m,
+                },
+            ],
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = id,
+                },
+            ],
+        };
+    }
+
+    private static StatDefinition Stat(string id)
+    {
+        return new StatDefinition
+        {
+            Id = id,
             Sources =
             [
                 new GameDataSourceReference
@@ -178,6 +305,21 @@ Item Level: 83
         {
             CallCount++;
             return Result;
+        }
+    }
+
+    private sealed class CountingModifierCandidateResolver : IParsedItemModifierCandidateResolver
+    {
+        public int CallCount { get; private set; }
+
+        public IReadOnlyList<ModifierCandidateResolutionResult> Results { get; init; } = [];
+
+        public IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
+            ParsedItem parsedItem,
+            GameDataCatalog catalog)
+        {
+            CallCount++;
+            return Results;
         }
     }
 }

@@ -7,16 +7,27 @@ namespace PoEnhance.App.Infrastructure.GameData;
 internal sealed class ParsedItemGameDataDisplayService
 {
     private const int CandidateDisplayLimit = 5;
-    private readonly IParsedItemBaseResolver resolver;
+    private readonly IParsedItemBaseResolver itemBaseResolver;
+    private readonly IParsedItemModifierCandidateResolver modifierCandidateResolver;
 
     public ParsedItemGameDataDisplayService()
-        : this(new CoreParsedItemBaseResolverAdapter())
+        : this(
+            new CoreParsedItemBaseResolverAdapter(),
+            new CoreParsedItemModifierCandidateResolverAdapter())
     {
     }
 
-    public ParsedItemGameDataDisplayService(IParsedItemBaseResolver resolver)
+    public ParsedItemGameDataDisplayService(IParsedItemBaseResolver itemBaseResolver)
+        : this(itemBaseResolver, new CoreParsedItemModifierCandidateResolverAdapter())
     {
-        this.resolver = resolver;
+    }
+
+    public ParsedItemGameDataDisplayService(
+        IParsedItemBaseResolver itemBaseResolver,
+        IParsedItemModifierCandidateResolver modifierCandidateResolver)
+    {
+        this.itemBaseResolver = itemBaseResolver;
+        this.modifierCandidateResolver = modifierCandidateResolver;
     }
 
     public ItemBaseResolutionDisplay ResolveItemBase(
@@ -35,7 +46,7 @@ internal sealed class ParsedItemGameDataDisplayService
             };
         }
 
-        var result = resolver.Resolve(parsedItem, catalog);
+        var result = itemBaseResolver.Resolve(parsedItem, catalog);
         var diagnostic = result.Diagnostics.FirstOrDefault();
 
         return new ItemBaseResolutionDisplay
@@ -57,8 +68,57 @@ internal sealed class ParsedItemGameDataDisplayService
         };
     }
 
+    public ModifierCandidateResolutionsDisplay ResolveModifierCandidates(
+        ParsedItem parsedItem,
+        GameDataCatalog? catalog)
+    {
+        ArgumentNullException.ThrowIfNull(parsedItem);
+
+        if (catalog is null)
+        {
+            return new ModifierCandidateResolutionsDisplay
+            {
+                IsAvailable = false,
+                Diagnostic = "Game data not loaded",
+            };
+        }
+
+        var results = modifierCandidateResolver.Resolve(parsedItem, catalog);
+        return new ModifierCandidateResolutionsDisplay
+        {
+            IsAvailable = true,
+            Diagnostic = "Available",
+            Results = results
+                .Select(result =>
+                {
+                    var diagnostic = result.Diagnostics.FirstOrDefault();
+                    return new ModifierCandidateResolutionItemDisplay
+                    {
+                        ParsedModifierIndex = result.ParsedModifierIndex,
+                        ParsedModifier = result.ParsedModifier,
+                        Status = result.Status.ToString(),
+                        Diagnostic = diagnostic is null
+                            ? "Not detected"
+                            : $"{diagnostic.Code}: {diagnostic.Reason}",
+                        CandidateCount = result.Candidates.Count,
+                        CandidateLabels = result.Candidates
+                            .Take(CandidateDisplayLimit)
+                            .Select(FormatModifierCandidate)
+                            .ToArray(),
+                    };
+                })
+                .ToArray(),
+        };
+    }
+
     private static string DisplayValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "Not detected" : value;
+    }
+
+    private static string FormatModifierCandidate(ModifierDefinition candidate)
+    {
+        var name = DisplayValue(candidate.Name);
+        return $"{DisplayValue(candidate.Id)} ({name})";
     }
 }

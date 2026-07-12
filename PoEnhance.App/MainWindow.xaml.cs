@@ -395,7 +395,10 @@ public partial class MainWindow : Window
             var itemBaseResolution = itemGameDataDisplayService.ResolveItemBase(
                 parsedItem,
                 runtimeGameDataService.Current.Catalog);
-            DisplayParsedItemResult(parsedItem, itemBaseResolution);
+            var modifierCandidateResolutions = itemGameDataDisplayService.ResolveModifierCandidates(
+                parsedItem,
+                runtimeGameDataService.Current.Catalog);
+            DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
             SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
         }
         catch (Exception exception)
@@ -422,7 +425,8 @@ public partial class MainWindow : Window
 
     private void DisplayParsedItemResult(
         ParsedItem parsedItem,
-        ItemBaseResolutionDisplay itemBaseResolution)
+        ItemBaseResolutionDisplay itemBaseResolution,
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
     {
         ParsedInputFormatText.Text = parsedItem.InputFormat.ToString();
         ParsedItemClassText.Text = DisplayValue(parsedItem.ItemClass);
@@ -442,23 +446,23 @@ public partial class MainWindow : Window
         DisplayOptionalTextBox(
             ParsedImplicitModifiersPanel,
             ParsedImplicitModifiersTextBox,
-            DisplayModifiers(parsedItem.ImplicitModifiers));
+            DisplayModifiers(parsedItem.ImplicitModifiers, modifierCandidateResolutions));
         DisplayOptionalTextBox(
             ParsedPrefixModifiersPanel,
             ParsedPrefixModifiersTextBox,
-            DisplayModifiers(parsedItem.PrefixModifiers));
+            DisplayModifiers(parsedItem.PrefixModifiers, modifierCandidateResolutions));
         DisplayOptionalTextBox(
             ParsedSuffixModifiersPanel,
             ParsedSuffixModifiersTextBox,
-            DisplayModifiers(parsedItem.SuffixModifiers));
+            DisplayModifiers(parsedItem.SuffixModifiers, modifierCandidateResolutions));
         DisplayOptionalTextBox(
             ParsedUniqueModifiersPanel,
             ParsedUniqueModifiersTextBox,
-            DisplayModifiers(parsedItem.UniqueModifiers));
+            DisplayModifiers(parsedItem.UniqueModifiers, modifierCandidateResolutions));
         DisplayOptionalTextBox(
             ParsedUnknownModifiersPanel,
             ParsedUnknownModifiersTextBox,
-            DisplayModifiers(parsedItem.ExplicitModifiersWithUnknownKind));
+            DisplayModifiers(parsedItem.ExplicitModifiersWithUnknownKind, modifierCandidateResolutions));
         DisplayOptionalTextBox(
             ParsedEnchantmentsPanel,
             ParsedEnchantmentsTextBox,
@@ -646,21 +650,33 @@ public partial class MainWindow : Window
         textBox.Text = text;
     }
 
-    private static string DisplayModifiers(IReadOnlyCollection<ParsedModifier> modifiers)
+    private static string DisplayModifiers(
+        IReadOnlyCollection<ParsedModifier> modifiers,
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
     {
         return modifiers.Count == 0
             ? NotDetectedText
-            : string.Join($"{Environment.NewLine}{Environment.NewLine}", modifiers.Select(FormatModifier));
+            : string.Join(
+                $"{Environment.NewLine}{Environment.NewLine}",
+                modifiers.Select(modifier => FormatModifier(modifier, modifierCandidateResolutions)));
     }
 
-    private static string FormatModifier(ParsedModifier modifier)
+    private static string FormatModifier(
+        ParsedModifier modifier,
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
     {
+        var candidateDisplay = modifierCandidateResolutions.Results
+            .FirstOrDefault(result => ReferenceEquals(result.ParsedModifier, modifier));
+        var candidateLines = candidateDisplay is null
+            ? string.Empty
+            : $"{Environment.NewLine}{FormatModifierCandidateResolution(candidateDisplay)}";
+
         if (modifier.RawMetadataLine is null
             && !modifier.IsCrafted
             && !modifier.IsFractured
             && !modifier.IsVeiled)
         {
-            return modifier.Text;
+            return $"{modifier.Text}{candidateLines}";
         }
 
         var metadataParts = new List<string>
@@ -704,7 +720,26 @@ public partial class MainWindow : Window
             metadataText = $"{metadataText} — {modifier.CategoryText}";
         }
 
-        return $"{metadataText}{Environment.NewLine}{IndentLines(modifier.ValueLines)}";
+        return $"{metadataText}{Environment.NewLine}{IndentLines(modifier.ValueLines)}{candidateLines}";
+    }
+
+    private static string FormatModifierCandidateResolution(
+        ModifierCandidateResolutionItemDisplay candidateDisplay)
+    {
+        var lines = new List<string>
+        {
+            $"  Candidate status: {candidateDisplay.Status}",
+            $"  Candidate diagnostic: {candidateDisplay.Diagnostic}",
+            $"  Candidate count: {candidateDisplay.CandidateCount}",
+        };
+
+        if (candidateDisplay.CandidateLabels.Count > 0)
+        {
+            lines.Add("  Candidate IDs/names:");
+            lines.AddRange(candidateDisplay.CandidateLabels.Select(candidate => $"    {candidate}"));
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string IndentLines(IReadOnlyCollection<string> lines)

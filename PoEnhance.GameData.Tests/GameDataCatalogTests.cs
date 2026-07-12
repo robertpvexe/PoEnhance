@@ -115,6 +115,98 @@ public sealed class GameDataCatalogTests
     }
 
     [Fact]
+    public void FindModifiersByName_ReturnsExactAndNormalizedMatches()
+    {
+        var catalog = CreateCatalog();
+
+        var byExactName = Assert.Single(catalog.FindModifiersByExactName(" Hale "));
+        var byNormalizedName = Assert.Single(catalog.FindModifiersByNormalizedName(" hale "));
+
+        Assert.Equal("mod.prefix.maximum-life.t5", byExactName.Id);
+        Assert.Same(byExactName, byNormalizedName);
+        Assert.Empty(catalog.FindModifiersByExactName("hale"));
+    }
+
+    [Fact]
+    public void FindModifiersByNameAndGenerationType_ReturnsOnlyMatchingGenerationType()
+    {
+        var suffixDuplicateName = GameDataPackageFixtures.CreateDevelopmentPackage().Modifiers[2] with
+        {
+            Id = "mod.suffix.maximum-life.test",
+            Name = "Hale",
+            GenerationType = ModifierGenerationType.Suffix,
+        };
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            Modifiers =
+            [
+                GameDataPackageFixtures.CreateDevelopmentPackage().Modifiers[1],
+                suffixDuplicateName,
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var prefixMatches = catalog.FindModifiersByNameAndGenerationType(" hale ", ModifierGenerationType.Prefix);
+        var suffixMatches = catalog.FindModifiersByNameAndGenerationType("Hale", ModifierGenerationType.Suffix);
+
+        Assert.Equal(["mod.prefix.maximum-life.t5"], prefixMatches.Select(modifier => modifier.Id));
+        Assert.Equal(["mod.suffix.maximum-life.test"], suffixMatches.Select(modifier => modifier.Id));
+    }
+
+    [Fact]
+    public void FindModifiersByName_DuplicateNamesReturnAllRecordsInPackageOrder()
+    {
+        var duplicate = GameDataPackageFixtures.CreateDevelopmentPackage().Modifiers[1] with
+        {
+            Id = "mod.prefix.maximum-life.duplicate-name",
+            Tier = 6,
+        };
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            Modifiers =
+            [
+                GameDataPackageFixtures.CreateDevelopmentPackage().Modifiers[1],
+                duplicate,
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var records = catalog.FindModifiersByNameAndGenerationType("hale", ModifierGenerationType.Prefix);
+
+        Assert.Collection(
+            records,
+            first => Assert.Equal("mod.prefix.maximum-life.t5", first.Id),
+            second => Assert.Equal("mod.prefix.maximum-life.duplicate-name", second.Id));
+    }
+
+    [Fact]
+    public void ModifierLookupsReturnReadOnlyPackageOrderSnapshots()
+    {
+        var mutableModifiers = GameDataPackageFixtures.CreateDevelopmentPackage().Modifiers.ToList();
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            Modifiers = mutableModifiers,
+        };
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        mutableModifiers.Clear();
+        var records = catalog.FindModifiersByNameAndGenerationType("Hale", ModifierGenerationType.Prefix);
+        var mutableView = Assert.IsAssignableFrom<ICollection<ModifierDefinition>>(records);
+
+        Assert.Single(records);
+        Assert.True(mutableView.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => mutableView.Add(new ModifierDefinition
+        {
+            Id = "mod.injected",
+            Name = "Injected",
+            GenerationType = ModifierGenerationType.Prefix,
+        }));
+        Assert.Equal(
+            ["mod.implicit.gold-ring.item-rarity", "mod.prefix.maximum-life.t5", "mod.suffix.fire-resistance.t4", "mod.prefix.armour-requirements.hybrid.t3"],
+            catalog.Modifiers.Select(modifier => modifier.Id));
+    }
+
+    [Fact]
     public void FindStatsById_ReturnsExpectedRecord()
     {
         var catalog = CreateCatalog();

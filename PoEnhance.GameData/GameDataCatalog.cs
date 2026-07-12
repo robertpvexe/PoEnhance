@@ -18,6 +18,9 @@ public sealed class GameDataCatalog
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesByNormalizedName;
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersById;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersByExactName;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersByNormalizedName;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersByNameAndGenerationType;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersByGroupId;
     private readonly IReadOnlyDictionary<ModifierGenerationType, IReadOnlyList<ModifierDefinition>> _modifiersByGenerationType;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> _modifiersByStatId;
@@ -32,7 +35,11 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesById,
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesByExactName,
         IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> itemBasesByNormalizedName,
+        IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersById,
+        IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByExactName,
+        IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByNormalizedName,
+        IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByNameAndGenerationType,
         IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByGroupId,
         IReadOnlyDictionary<ModifierGenerationType, IReadOnlyList<ModifierDefinition>> modifiersByGenerationType,
         IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByStatId,
@@ -44,7 +51,11 @@ public sealed class GameDataCatalog
         _itemBasesById = itemBasesById;
         _itemBasesByExactName = itemBasesByExactName;
         _itemBasesByNormalizedName = itemBasesByNormalizedName;
+        Modifiers = modifiers;
         _modifiersById = modifiersById;
+        _modifiersByExactName = modifiersByExactName;
+        _modifiersByNormalizedName = modifiersByNormalizedName;
+        _modifiersByNameAndGenerationType = modifiersByNameAndGenerationType;
         _modifiersByGroupId = modifiersByGroupId;
         _modifiersByGenerationType = modifiersByGenerationType;
         _modifiersByStatId = modifiersByStatId;
@@ -66,6 +77,7 @@ public sealed class GameDataCatalog
         }
 
         var itemBases = ToReadOnly(package.ItemBases);
+        var modifiers = ToReadOnly(package.Modifiers);
 
         return new GameDataCatalog(
             itemBases,
@@ -81,19 +93,32 @@ public sealed class GameDataCatalog
                 itemBases,
                 itemBase => GameDataLookupNormalizer.NormalizeName(itemBase.Name),
                 StringComparer.OrdinalIgnoreCase),
+            modifiers,
             BuildIndex(
-                package.Modifiers,
+                modifiers,
                 modifier => GameDataLookupNormalizer.NormalizeIdentifier(modifier.Id),
                 StringComparer.OrdinalIgnoreCase),
             BuildIndex(
-                package.Modifiers,
+                modifiers,
+                modifier => GameDataLookupNormalizer.NormalizeName(modifier.Name),
+                StringComparer.Ordinal),
+            BuildIndex(
+                modifiers,
+                modifier => GameDataLookupNormalizer.NormalizeName(modifier.Name),
+                StringComparer.OrdinalIgnoreCase),
+            BuildIndex(
+                modifiers,
+                modifier => CreateModifierNameGenerationTypeKey(modifier.Name, modifier.GenerationType),
+                StringComparer.OrdinalIgnoreCase),
+            BuildIndex(
+                modifiers,
                 modifier => GameDataLookupNormalizer.NormalizeIdentifier(modifier.GroupId),
                 StringComparer.OrdinalIgnoreCase),
             BuildIndex(
-                package.Modifiers,
+                modifiers,
                 modifier => modifier.GenerationType),
             BuildManyIndex(
-                package.Modifiers,
+                modifiers,
                 modifier => modifier.Stats
                     .Select(stat => GameDataLookupNormalizer.NormalizeIdentifier(stat.StatId))
                     .Where(statId => statId is not null)!,
@@ -116,6 +141,8 @@ public sealed class GameDataCatalog
 
     public IReadOnlyList<ItemBaseRecord> ItemBases { get; }
 
+    public IReadOnlyList<ModifierDefinition> Modifiers { get; }
+
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)
     {
         return Find(_itemBasesById, GameDataLookupNormalizer.NormalizeIdentifier(id), EmptyItemBases);
@@ -134,6 +161,26 @@ public sealed class GameDataCatalog
     public IReadOnlyList<ModifierDefinition> FindModifiersById(string? id)
     {
         return Find(_modifiersById, GameDataLookupNormalizer.NormalizeIdentifier(id), EmptyModifiers);
+    }
+
+    public IReadOnlyList<ModifierDefinition> FindModifiersByExactName(string? name)
+    {
+        return Find(_modifiersByExactName, GameDataLookupNormalizer.NormalizeName(name), EmptyModifiers);
+    }
+
+    public IReadOnlyList<ModifierDefinition> FindModifiersByNormalizedName(string? name)
+    {
+        return Find(_modifiersByNormalizedName, GameDataLookupNormalizer.NormalizeName(name), EmptyModifiers);
+    }
+
+    public IReadOnlyList<ModifierDefinition> FindModifiersByNameAndGenerationType(
+        string? name,
+        ModifierGenerationType generationType)
+    {
+        return Find(
+            _modifiersByNameAndGenerationType,
+            CreateModifierNameGenerationTypeKey(name, generationType),
+            EmptyModifiers);
     }
 
     public IReadOnlyList<ModifierDefinition> FindModifiersByGroupId(string? groupId)
@@ -228,6 +275,12 @@ public sealed class GameDataCatalog
         return key is not null && index.TryGetValue(key, out var records)
             ? records
             : empty;
+    }
+
+    private static string? CreateModifierNameGenerationTypeKey(string? name, ModifierGenerationType generationType)
+    {
+        var normalizedName = GameDataLookupNormalizer.NormalizeName(name);
+        return normalizedName is null ? null : $"{(int)generationType}\u001F{normalizedName}";
     }
 
     private static IReadOnlyList<TRecord> ToReadOnly<TRecord>(IEnumerable<TRecord> records)
