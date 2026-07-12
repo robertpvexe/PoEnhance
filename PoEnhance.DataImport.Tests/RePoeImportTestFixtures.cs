@@ -10,6 +10,9 @@ internal static class RePoeImportTestFixtures
     public static string ReducedStatsPath =>
         Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "stats.reduced.json");
 
+    public static string ReducedModsPath =>
+        Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "mods.reduced.json");
+
     public static string ReducedStatTranslationsPath =>
         Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "stat_translations.reduced.json");
 

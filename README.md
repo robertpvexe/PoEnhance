@@ -61,8 +61,10 @@ Current repository contents:
 - `PoEnhance.Core.Tests/` - xUnit tests for `PoEnhance.Core`.
 - `PoEnhance.GameData/` - independent shared game-data class library for versioned provider-neutral package manifests, item bases, modifier tiers, stat definitions, and stat translations.
 - `PoEnhance.GameData.Tests/` - xUnit tests for `PoEnhance.GameData`.
-- `PoEnhance.DataImport/` - local-file-only data import adapters; currently imports RePoE `base_items.json`, `stats.json`, and `stat_translations.json` into provider-neutral game-data records without automatic downloading.
+- `PoEnhance.DataImport/` - local-file-only data import adapters; currently imports RePoE `base_items.json`, `mods.json`, `stats.json`, and `stat_translations.json` into provider-neutral game-data records without automatic downloading.
 - `PoEnhance.DataImport.Tests/` - xUnit tests for `PoEnhance.DataImport`.
+- `PoEnhance.DataTool/` - developer command-line tool for building a complete local PoEnhance game-data package from local RePoE files.
+- `PoEnhance.DataTool.Tests/` - xUnit tests for `PoEnhance.DataTool`.
 - `docs/` - project documentation.
 - `README.md` - repository overview.
 
@@ -98,6 +100,22 @@ From the repository root:
 ```powershell
 dotnet test
 ```
+
+## Build Local Game-Data Package
+
+`PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network.
+
+```powershell
+dotnet run --project .\PoEnhance.DataTool -- build-package `
+  --base-items .\data\repoe\base_items.json `
+  --mods .\data\repoe\mods.json `
+  --stats .\data\repoe\stats.json `
+  --translations .\data\repoe\stat_translations.json `
+  --output .\artifacts\poenhance-game-data.json `
+  --data-version dev-001
+```
+
+Generated packages are local artifacts and are not committed. Use local paths such as `artifacts/`, `local-data/`, or `data/repoe/` for generated packages and local source snapshots.
 
 ## Development Logs
 
@@ -140,7 +158,6 @@ No open-source license has been selected yet.
 - Early prototype.
 - Incomplete parser and data catalogs.
 - RePoE importing is local-file-only for supported files; there is no automatic data downloading or update workflow yet.
-- RePoE `mods.json` is not imported directly yet; package assembly can include provider-neutral modifier records alongside imported item bases, stats, and stat translations.
 - No production-ready Trade, OAuth, stash, or economy integration yet.
 
 ---
@@ -210,8 +227,10 @@ Obecna zawartość repozytorium:
 - `PoEnhance.Core.Tests/` - testy xUnit dla `PoEnhance.Core`.
 - `PoEnhance.GameData/` - niezależna biblioteka klas dla wersjonowanych, provider-neutral manifestów pakietów, baz przedmiotów, tierów modifierów, definicji statystyk i tłumaczeń statystyk.
 - `PoEnhance.GameData.Tests/` - testy xUnit dla `PoEnhance.GameData`.
-- `PoEnhance.DataImport/` - adaptery importu danych tylko z lokalnych plików; obecnie importuje RePoE `base_items.json`, `stats.json` i `stat_translations.json` do provider-neutral rekordów game-data bez automatycznego pobierania.
+- `PoEnhance.DataImport/` - adaptery importu danych tylko z lokalnych plików; obecnie importuje RePoE `base_items.json`, `mods.json`, `stats.json` i `stat_translations.json` do provider-neutral rekordów game-data bez automatycznego pobierania.
 - `PoEnhance.DataImport.Tests/` - testy xUnit dla `PoEnhance.DataImport`.
+- `PoEnhance.DataTool/` - narzędzie developerskie command-line do budowania kompletnego lokalnego pakietu game-data PoEnhance z lokalnych plików RePoE.
+- `PoEnhance.DataTool.Tests/` - testy xUnit dla `PoEnhance.DataTool`.
 - `docs/` - dokumentacja projektu.
 - `README.md` - przegląd repozytorium.
 
@@ -247,6 +266,22 @@ Z katalogu głównego repozytorium:
 ```powershell
 dotnet test
 ```
+
+## Budowanie Lokalnego Pakietu Game-Data
+
+`PoEnhance.DataTool` buduje kompletny lokalny pakiet game-data z lokalnych plików RePoE. Narzędzie nie pobiera danych RePoE i nie kontaktuje się z siecią.
+
+```powershell
+dotnet run --project .\PoEnhance.DataTool -- build-package `
+  --base-items .\data\repoe\base_items.json `
+  --mods .\data\repoe\mods.json `
+  --stats .\data\repoe\stats.json `
+  --translations .\data\repoe\stat_translations.json `
+  --output .\artifacts\poenhance-game-data.json `
+  --data-version dev-001
+```
+
+Wygenerowane pakiety są lokalnymi artefaktami i nie są commitowane. Do wygenerowanych pakietów i lokalnych snapshotów źródłowych używaj ścieżek takich jak `artifacts/`, `local-data/` lub `data/repoe/`.
 
 ## Logi Developerskie
 
@@ -289,5 +324,4 @@ Nie wybrano jeszcze licencji open-source.
 - Wczesny prototyp.
 - Niekompletny parser i katalogi danych.
 - Import RePoE działa tylko z obsługiwanych lokalnych plików; nie ma jeszcze automatycznego pobierania danych ani workflow aktualizacji.
-- RePoE `mods.json` nie jest jeszcze importowany bezpośrednio; składanie pakietu może dołączać provider-neutral rekordy modifierów obok zaimportowanych baz przedmiotów, statystyk i tłumaczeń statystyk.
 - Brak production-ready integracji Trade, OAuth, stash lub economy.

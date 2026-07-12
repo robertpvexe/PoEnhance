@@ -1,0 +1,88 @@
+{
+  "ItemFoundRarityIncreaseImplicitRing1": {
+    "adds_tags": [],
+    "domain": "item",
+    "generation_type": "unique",
+    "generation_weights": [],
+    "grants_effects": [],
+    "groups": [
+      "ItemFoundRarityIncrease"
+    ],
+    "implicit_tags": [],
+    "is_essence_only": false,
+    "name": "",
+    "required_level": 25,
+    "spawn_weights": [],
+    "stats": [
+      {
+        "id": "base_item_found_rarity_+%",
+        "max": 15,
+        "min": 6
+      }
+    ],
+    "type": "ItemFoundRarityIncrease"
+  },
+  "AbyssJewelAddedLife1": {
+    "adds_tags": [],
+    "domain": "abyss_jewel",
+    "generation_type": "prefix",
+    "generation_weights": [],
+    "grants_effects": [],
+    "groups": [
+      "AbyssJewelLife"
+    ],
+    "implicit_tags": [
+      "resource",
+      "life"
+    ],
+    "is_essence_only": false,
+    "name": "Hale",
+    "required_level": 1,
+    "spawn_weights": [
+      {
+        "tag": "default",
+        "weight": 3000
+      }
+    ],
+    "stats": [
+      {
+        "id": "base_maximum_life",
+        "max": 25,
+        "min": 21
+      }
+    ],
+    "type": "AbyssJewelLife"
+  },
+  "AbyssFireResistanceJewel1": {
+    "adds_tags": [],
+    "domain": "abyss_jewel",
+    "generation_type": "suffix",
+    "generation_weights": [],
+    "grants_effects": [],
+    "groups": [
+      "FireResistance"
+    ],
+    "implicit_tags": [
+      "elemental",
+      "fire",
+      "resistance"
+    ],
+    "is_essence_only": false,
+    "name": "of the Dragon",
+    "required_level": 1,
+    "spawn_weights": [
+      {
+        "tag": "default",
+        "weight": 400
+      }
+    ],
+    "stats": [
+      {
+        "id": "base_fire_damage_resistance_%",
+        "max": 15,
+        "min": 12
+      }
+    ],
+    "type": "FireResistanceForJewel"
+  }
+}

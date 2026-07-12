@@ -11,6 +11,13 @@ public static class RePoeImportDiagnosticCodes
     public const string RecordMissingItemClass = "REPOE_RECORD_MISSING_ITEM_CLASS";
     public const string RecordInvalidRequiredLevel = "REPOE_RECORD_INVALID_REQUIRED_LEVEL";
     public const string RecordInvalidTags = "REPOE_RECORD_INVALID_TAGS";
+    public const string ModifierRecordMissingId = "REPOE_MODIFIER_RECORD_MISSING_ID";
+    public const string ModifierRecordUnsupported = "REPOE_MODIFIER_RECORD_UNSUPPORTED";
+    public const string ModifierRecordMissingGroup = "REPOE_MODIFIER_RECORD_MISSING_GROUP";
+    public const string ModifierRecordMissingStats = "REPOE_MODIFIER_RECORD_MISSING_STATS";
+    public const string ModifierRecordInvalidStat = "REPOE_MODIFIER_RECORD_INVALID_STAT";
+    public const string ModifierRecordInvalidSpawnWeight = "REPOE_MODIFIER_RECORD_INVALID_SPAWN_WEIGHT";
+    public const string ModifierRecordInvalidTags = "REPOE_MODIFIER_RECORD_INVALID_TAGS";
     public const string StatRecordMissingId = "REPOE_STAT_RECORD_MISSING_ID";
     public const string StatRecordUnsupported = "REPOE_STAT_RECORD_UNSUPPORTED";
     public const string StatRecordMissingIsLocal = "REPOE_STAT_RECORD_MISSING_IS_LOCAL";
@@ -30,4 +37,7 @@ public static class RePoeImportDiagnosticCodes
     public const string PackageModifierStatReferenceMissing = "PACKAGE_MODIFIER_STAT_REFERENCE_MISSING";
     public const string PackageStatAliasReferenceMissing = "PACKAGE_STAT_ALIAS_REFERENCE_MISSING";
     public const string PackageTranslationStatReferenceMissing = "PACKAGE_TRANSLATION_STAT_REFERENCE_MISSING";
+    public const string BuildArgumentInvalid = "BUILD_ARGUMENT_INVALID";
+    public const string BuildInputFileMissing = "BUILD_INPUT_FILE_MISSING";
+    public const string BuildOutputWriteFailed = "BUILD_OUTPUT_WRITE_FAILED";
 }
