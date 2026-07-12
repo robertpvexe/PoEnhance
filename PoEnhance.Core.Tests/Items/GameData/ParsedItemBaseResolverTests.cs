@@ -13,7 +13,7 @@ public sealed class ParsedItemBaseResolverTests
     public void Resolve_BaseTypeExactMatch_ReturnsCatalogRecordAndPreservesCatalogCasing()
     {
         var catalog = CreateCatalog(
-            Base("item-base.leather-belt", "Leather Belt", "Belts"));
+            Base("item-base.leather-belt", "Leather Belt", "Belt"));
         var item = _parser.Parse("""
 Item Class: Belts
 Rarity: Unique
@@ -38,8 +38,8 @@ Item Level: 85
     public void Resolve_ExactNameMultipleClasses_NarrowsByParsedItemClass()
     {
         var catalog = CreateCatalog(
-            Base("item-base.test-armour", "Shared Base", "Body Armours"),
-            Base("item-base.test-map", "Shared Base", "Maps"));
+            Base("item-base.test-armour", "Shared Base", "Body Armour"),
+            Base("item-base.test-map", "Shared Base", "Map"));
         var item = _parser.Parse("""
 Item Class: Maps
 Rarity: Rare
@@ -56,9 +56,28 @@ Item Level: 83
     }
 
     [Fact]
+    public void Resolve_ExactNameTreatsDisplayAndCatalogItemClassFormsAsCompatible()
+    {
+        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Ring"));
+        var item = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("item-base.gold-ring", result.ResolvedBaseId);
+    }
+
+    [Fact]
     public void Resolve_ExactNameClassConflict_ReturnsMismatchWithCandidates()
     {
-        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Rings"));
+        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Ring"));
         var item = _parser.Parse("""
 Item Class: Amulets
 Rarity: Rare
@@ -81,7 +100,7 @@ Item Level: 75
     [Fact]
     public void Resolve_UnknownCatalogBaseType_ReturnsUnknownWithoutMutatingItemOrCatalog()
     {
-        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Rings"));
+        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Ring"));
         var originalItemBases = catalog.ItemBases.ToArray();
         var item = _parser.Parse("""
 Item Class: Belts
@@ -111,7 +130,7 @@ Item Level: 84
     [Fact]
     public void Resolve_MagicDisplayName_UsesCompleteTokenBoundarySuffixBeforeOptionalOfSuffix()
     {
-        var catalog = CreateCatalog(Base("item-base.granite-flask", "Granite Flask", "Utility Flasks"));
+        var catalog = CreateCatalog(Base("item-base.granite-flask", "Granite Flask", "UtilityFlask"));
         var item = _parser.Parse("""
 Item Class: Utility Flasks
 Rarity: Magic
@@ -175,8 +194,8 @@ Item Level: 84
     public void Resolve_MagicDisplayName_EqualLongestCandidatesRemainAmbiguousDeterministically()
     {
         var catalog = CreateCatalog(
-            Base("item-base.one", "Granite Flask", "Utility Flasks"),
-            Base("item-base.two", "Granite Flask", "Utility Flasks"));
+            Base("item-base.one", "Granite Flask", "UtilityFlask"),
+            Base("item-base.two", "Granite Flask", "UtilityFlask"));
         var item = _parser.Parse("""
 Item Class: Utility Flasks
 Rarity: Magic
@@ -199,7 +218,7 @@ Item Level: 84
     [Fact]
     public void Resolve_MagicDisplayName_CandidateClassConflictReturnsMismatch()
     {
-        var catalog = CreateCatalog(Base("item-base.granite-flask", "Granite Flask", "Utility Flasks"));
+        var catalog = CreateCatalog(Base("item-base.granite-flask", "Granite Flask", "UtilityFlask"));
         var item = _parser.Parse("""
 Item Class: Life Flasks
 Rarity: Magic
@@ -220,7 +239,7 @@ Item Level: 84
     [Fact]
     public void Resolve_WithoutBaseTypeOrMagicName_ReturnsUnknown()
     {
-        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Rings"));
+        var catalog = CreateCatalog(Base("item-base.gold-ring", "Gold Ring", "Ring"));
         var item = _parser.Parse("Item Level: 80");
 
         var result = _resolver.Resolve(item, catalog);
@@ -230,6 +249,271 @@ Item Level: 84
         Assert.Equal(
             ItemBaseResolutionDiagnosticCodes.BaseNotFound,
             Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_SkitteringIncubatorWithVerifiedCatalogClass_ReturnsExact()
+    {
+        var catalog = CreateCatalog(Base(
+            "Metadata/Items/Currency/CurrencyIncubationScarabsStackable",
+            "Skittering Incubator",
+            "IncubatorStackable"));
+        var item = _parser.Parse("""
+Item Class: Incubators
+Rarity: Currency
+Skittering Incubator
+--------
+Item Level: 1
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("Metadata/Items/Currency/CurrencyIncubationScarabsStackable", result.ResolvedBaseId);
+    }
+
+    [Fact]
+    public void Resolve_RangerBowWithVerifiedCatalogClass_ReturnsExact()
+    {
+        var catalog = CreateCatalog(Base(
+            "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow18",
+            "Ranger Bow",
+            "Bow"));
+        var item = _parser.Parse("""
+Item Class: Bows
+Rarity: Rare
+Dire Flight
+Ranger Bow
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow18", result.ResolvedBaseId);
+    }
+
+    [Fact]
+    public void Resolve_ManifoldRingWhenCatalogContainsBase_ReturnsExact()
+    {
+        var catalog = CreateCatalog(Base("item-base.manifold-ring", "Manifold Ring", "Ring"));
+        var item = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Havoc Loop
+Manifold Ring
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("item-base.manifold-ring", result.ResolvedBaseId);
+    }
+
+    [Fact]
+    public void Resolve_GenericCurrencyBaseTypeMayUseDisplayNameForExplicitCurrencyPath()
+    {
+        var catalog = CreateCatalog(Base("item-base.coin-restoration", "Coin of Restoration", "StackableCurrency"));
+        var item = CreateParsedItem(
+            itemClass: "Stackable Currency",
+            rarity: "Currency",
+            name: "Coin of Restoration",
+            baseType: "Currency");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("item-base.coin-restoration", result.ResolvedBaseId);
+        Assert.Equal("Currency", item.BaseType);
+    }
+
+    [Fact]
+    public void Resolve_GenericCurrencyBaseTypeWhenDisplayNameAbsentFromCatalog_ReturnsUnknown()
+    {
+        var catalog = CreateCatalog(Base("item-base.chaos", "Chaos Orb", "StackableCurrency"));
+        var item = CreateParsedItem(
+            itemClass: "Stackable Currency",
+            rarity: "Currency",
+            name: "Coin of Restoration",
+            baseType: "Currency");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_RareDisplayNameIsNotUsedAsUnrestrictedFallback()
+    {
+        var catalog = CreateCatalog(Base("item-base.rare-name", "Lost Choice", "Map"));
+        var item = _parser.Parse("""
+Item Class: Maps
+Rarity: Rare
+Lost Choice
+Map (Tier 16)
+--------
+Item Level: 83
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_UniqueDisplayNameIsNotUsedAsUnrestrictedFallback()
+    {
+        var catalog = CreateCatalog(Base("item-base.unique-name", "The Tempest", "Bow"));
+        var item = _parser.Parse("""
+Item Class: Bows
+Rarity: Unique
+The Tempest
+Missing Bow Base
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void Resolve_SynthesisedReaverHelmetWithConfirmedState_ReturnsProbable()
+    {
+        var catalog = CreateCatalog(Base(
+            "Metadata/Items/Armours/Helmets/HelmetStr6",
+            "Reaver Helmet",
+            "Helmet"));
+        var item = _parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Probable, result.Status);
+        Assert.Equal("Metadata/Items/Armours/Helmets/HelmetStr6", result.ResolvedBaseId);
+        Assert.Equal("Synthesised Reaver Helmet", item.BaseType);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseProbableStateDecorationMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_SynthesisedPrefixWithoutConfirmedState_ReturnsUnknown()
+    {
+        var catalog = CreateCatalog(Base(
+            "Metadata/Items/Armours/Helmets/HelmetStr6",
+            "Reaver Helmet",
+            "Helmet"));
+        var item = _parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_MapTierRareItem_RemainsUnknown()
+    {
+        var catalog = CreateCatalog(
+            Base("item-base.lost-choice", "Lost Choice", "Map"),
+            Base("item-base.crimson-temple", "Crimson Temple Map", "Map"));
+        var item = _parser.Parse("""
+Item Class: Maps
+Rarity: Rare
+Lost Choice
+Map (Tier 16)
+--------
+Item Level: 83
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CurrentRuntimePathsNeverReturnGeneric()
+    {
+        var catalog = CreateCatalog(
+            Base("item-base.gold-ring", "Gold Ring", "Ring"),
+            Base("item-base.granite-flask", "Granite Flask", "UtilityFlask"),
+            Base("item-base.reaver-helmet", "Reaver Helmet", "Helmet"));
+        var exactItem = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+""");
+        var magicItem = _parser.Parse("""
+Item Class: Utility Flasks
+Rarity: Magic
+Constant Granite Flask of Tapping
+--------
+Item Level: 84
+""");
+        var stateDecoratedItem = _parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+""");
+        var unknownItem = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Missing Ring
+--------
+Item Level: 80
+""");
+
+        var statuses = new[]
+        {
+            _resolver.Resolve(exactItem, catalog).Status,
+            _resolver.Resolve(magicItem, catalog).Status,
+            _resolver.Resolve(stateDecoratedItem, catalog).Status,
+            _resolver.Resolve(unknownItem, catalog).Status,
+        };
+
+        Assert.DoesNotContain(ItemBaseResolutionStatus.Generic, statuses);
     }
 
     private static GameDataCatalog CreateCatalog(params ItemBaseRecord[] itemBases)
@@ -281,5 +565,41 @@ Item Level: 84
                 },
             ],
         };
+    }
+
+    private static ParsedItem CreateParsedItem(
+        string? itemClass,
+        string? rarity,
+        string? name,
+        string? baseType,
+        IReadOnlyList<string>? itemStates = null)
+    {
+        return new ParsedItem(
+            RawText: string.Empty,
+            InputFormat: ParsedItemInputFormat.Unknown,
+            ItemClass: itemClass,
+            Rarity: rarity,
+            Name: name,
+            BaseType: baseType,
+            ItemTypeDescriptor: null,
+            ItemStates: itemStates ?? [],
+            NoteLines: [],
+            ListingNote: null,
+            TraditionalInfluences: [],
+            EldritchInfluences: [],
+            IsCorrupted: false,
+            ItemLevel: null,
+            PropertyLines: [],
+            Modifiers: [],
+            ImplicitModifiers: [],
+            PrefixModifiers: [],
+            SuffixModifiers: [],
+            UniqueModifiers: [],
+            ExplicitModifiersWithUnknownKind: [],
+            ModifierLines: [],
+            FlavourTextLines: [],
+            Enchantments: [],
+            DescriptionLines: [],
+            UnclassifiedLines: []);
     }
 }

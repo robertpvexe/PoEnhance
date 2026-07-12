@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using PoEnhance.App.Infrastructure.Clipboard;
+using PoEnhance.App.Infrastructure.GameData;
 using PoEnhance.App.Infrastructure.Input;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
@@ -22,9 +23,11 @@ public partial class MainWindow : Window
     private readonly ClipboardSequenceNumberReader clipboardSequenceNumberReader = new();
     private readonly GlobalHotkeyService globalHotkeyService = new();
     private readonly ItemTextParser itemTextParser = new();
+    private readonly ParsedItemGameDataDisplayService itemGameDataDisplayService = new();
     private readonly KeyboardInputSender keyboardInputSender = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
+    private readonly RuntimeGameDataService runtimeGameDataService;
     private readonly WpfClipboardTextReader clipboardTextReader = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
     private int shortcutActivationCount;
@@ -33,10 +36,18 @@ public partial class MainWindow : Window
     private bool? lastPathOfExileRunning;
 
     public MainWindow()
+        : this(new RuntimeGameDataService())
     {
+    }
+
+    internal MainWindow(RuntimeGameDataService runtimeGameDataService)
+    {
+        this.runtimeGameDataService = runtimeGameDataService;
+
         InitializeComponent();
         InitializeShortcutControls();
         InitializeManualInputControls();
+        DisplayRuntimeGameDataStatus(runtimeGameDataService.Current);
         ClearParsedItemResult();
 
         pathOfExileStatusTimer = new DispatcherTimer
@@ -46,6 +57,7 @@ public partial class MainWindow : Window
 
         pathOfExileStatusTimer.Tick += (_, _) => RefreshPathOfExileStatus();
         globalHotkeyService.Triggered += OnShortcutTriggered;
+        runtimeGameDataService.StateChanged += OnRuntimeGameDataStateChanged;
 
         SourceInitialized += (_, _) => globalHotkeyService.Attach(this);
         Loaded += (_, _) =>
@@ -57,8 +69,27 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             pathOfExileStatusTimer.Stop();
+            runtimeGameDataService.StateChanged -= OnRuntimeGameDataStateChanged;
             globalHotkeyService.Dispose();
         };
+    }
+
+    internal async Task LoadGameDataAsync(
+        IReadOnlyList<string> commandLineArgs,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runtimeGameDataService.LoadAsync(commandLineArgs, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Information("Runtime game-data loading canceled during shutdown");
+        }
+        catch (Exception exception)
+        {
+            Log.Error(exception, "Unexpected runtime game-data startup failure");
+        }
     }
 
     private void InitializeManualInputControls()
@@ -79,6 +110,53 @@ public partial class MainWindow : Window
                 UpdateShortcutRegistrationStatus();
             }
         };
+    }
+
+    private void OnRuntimeGameDataStateChanged(object? sender, RuntimeGameDataStatus status)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            DisplayRuntimeGameDataStatus(status);
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(() => DisplayRuntimeGameDataStatus(status));
+    }
+
+    private void DisplayRuntimeGameDataStatus(RuntimeGameDataStatus status)
+    {
+        GameDataStateText.Text = status.State switch
+        {
+            RuntimeGameDataState.NotConfigured => "Not loaded",
+            RuntimeGameDataState.Loading => "Loading",
+            RuntimeGameDataState.Loaded => "Loaded",
+            RuntimeGameDataState.Failed => "Failed",
+            _ => "Not loaded",
+        };
+        GameDataPathText.Text = ShortenPath(status.PackagePath);
+        GameDataVersionText.Text = DisplayValue(status.DataVersion);
+        GameDataSourceVersionText.Text = DisplayValue(status.SourceVersion);
+        GameDataRecordCountsText.Text = status.State == RuntimeGameDataState.Loaded
+            ? $"ItemBases: {status.ItemBaseCount}, Modifiers: {status.ModifierCount}, Stats: {status.StatCount}, StatTranslations: {status.StatTranslationCount}"
+            : NotDetectedText;
+        GameDataDiagnosticText.Text = DisplayRuntimeGameDataDiagnostic(status);
+    }
+
+    private static string DisplayRuntimeGameDataDiagnostic(RuntimeGameDataStatus status)
+    {
+        var diagnostic = status.Diagnostics.FirstOrDefault();
+        if (diagnostic is not null)
+        {
+            return $"{diagnostic.Code}: {diagnostic.Message}";
+        }
+
+        var validationError = status.ValidationErrors.FirstOrDefault();
+        if (validationError is not null)
+        {
+            return $"{validationError.Code}: {validationError.Message}";
+        }
+
+        return DisplayValue(status.FailureMessage);
     }
 
     private void RefreshPathOfExileStatus()
@@ -314,7 +392,10 @@ public partial class MainWindow : Window
         try
         {
             ParsedItem parsedItem = itemTextParser.Parse(rawText);
-            DisplayParsedItemResult(parsedItem);
+            var itemBaseResolution = itemGameDataDisplayService.ResolveItemBase(
+                parsedItem,
+                runtimeGameDataService.Current.Catalog);
+            DisplayParsedItemResult(parsedItem, itemBaseResolution);
             SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
         }
         catch (Exception exception)
@@ -339,7 +420,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void DisplayParsedItemResult(ParsedItem parsedItem)
+    private void DisplayParsedItemResult(
+        ParsedItem parsedItem,
+        ItemBaseResolutionDisplay itemBaseResolution)
     {
         ParsedInputFormatText.Text = parsedItem.InputFormat.ToString();
         ParsedItemClassText.Text = DisplayValue(parsedItem.ItemClass);
@@ -350,6 +433,7 @@ public partial class MainWindow : Window
         DisplayItemStates(parsedItem.ItemStates);
         DisplayNoteLines(parsedItem.NoteLines);
         ParsedItemLevelText.Text = parsedItem.ItemLevel?.ToString() ?? NotDetectedText;
+        DisplayItemBaseResolution(itemBaseResolution);
         ParsedPropertiesTextBox.Text = DisplayLines(parsedItem.PropertyLines);
         DisplayOptionalTextBox(
             ParsedInfluencesPanel,
@@ -408,6 +492,7 @@ public partial class MainWindow : Window
         DisplayItemStates([]);
         DisplayNoteLines([]);
         ParsedItemLevelText.Text = NotDetectedText;
+        ParsedItemBaseResolutionTextBox.Text = NotDetectedText;
         ParsedPropertiesTextBox.Text = NotDetectedText;
         DisplayOptionalTextBox(ParsedInfluencesPanel, ParsedInfluencesTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedImplicitModifiersPanel, ParsedImplicitModifiersTextBox, NotDetectedText);
@@ -422,9 +507,63 @@ public partial class MainWindow : Window
         DisplayOptionalTextBox(ParsedUnclassifiedPanel, ParsedUnclassifiedTextBox, NotDetectedText);
     }
 
+    private void DisplayItemBaseResolution(ItemBaseResolutionDisplay resolution)
+    {
+        var lines = new List<string>
+        {
+            $"Status: {resolution.Status}",
+            $"Resolved base name: {resolution.ResolvedBaseName}",
+            $"Resolved base ID: {resolution.ResolvedBaseId}",
+            $"Diagnostic: {resolution.Diagnostic}",
+            $"Candidate count: {resolution.CandidateCount}",
+        };
+
+        if (resolution.CandidateNames.Count > 0)
+        {
+            lines.Add($"Candidate names: {string.Join(", ", resolution.CandidateNames)}");
+        }
+
+        ParsedItemBaseResolutionTextBox.Text = string.Join(Environment.NewLine, lines);
+    }
+
     private static string DisplayValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
+    }
+
+    private static string ShortenPath(string? path)
+    {
+        const int maxLength = 96;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return NotDetectedText;
+        }
+
+        if (path.Length <= maxLength)
+        {
+            return path;
+        }
+
+        var fileName = System.IO.Path.GetFileName(path);
+        var directoryName = System.IO.Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(directoryName))
+        {
+            return ShortenFromEnd(path, maxLength);
+        }
+
+        var suffix = System.IO.Path.Combine(
+            System.IO.Path.GetFileName(directoryName),
+            fileName);
+        return suffix.Length + 4 >= maxLength
+            ? ShortenFromEnd(path, maxLength)
+            : $"...\\{suffix}";
+    }
+
+    private static string ShortenFromEnd(string value, int maxLength)
+    {
+        var retainedLength = Math.Min(value.Length, maxLength - 3);
+        return $"...{value.Substring(value.Length - retainedLength, retainedLength)}";
     }
 
     private void DisplayItemTypeDescriptor(string? value)

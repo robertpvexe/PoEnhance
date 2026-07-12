@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PoEnhance.Core\PoEnhance.Core.csproj" />
+    <ProjectReference Include="..\PoEnhance.GameData\PoEnhance.GameData.csproj" />
   </ItemGroup>
 
 </Project>

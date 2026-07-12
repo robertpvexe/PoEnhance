@@ -123,7 +123,9 @@ Generated packages are local artifacts and are not committed. Use local paths su
 
 `PoEnhance.Core` can enrich an already parsed item with provider-neutral item-base resolution when a caller supplies a validated `GameDataCatalog`. Exact parsed base-type matches are catalog-backed only when one item-class-compatible record remains; identified magic item names use a conservative token-boundary suffix match and are reported as probable.
 
-The application shell, package activation, installation, rollback, and update UI are not connected to runtime package loading yet. Parser enrichment does not load package files or create global catalog state. Modifier matching, affix parsing, fuzzy matching, and statless RePoE concepts audited in `docs/development/repoe-skipped-record-audit-2026-07-12.md` remain deferred.
+The development application can load one local generated package for a session and show item-base resolution in the developer parser UI. Configure the package with `--game-data <path>`, `POENHANCE_GAMEDATA_PATH`, or the development fallback `artifacts/poenhance-game-data.json` discovered from the current directory or parent repository directories. Missing or invalid game data does not prevent parser operation; the UI degrades to parser-only output.
+
+Production package activation, installation, rollback, automatic updates, and update UI are not implemented yet. Parser enrichment does not load package files or create global catalog state. Modifier matching, affix parsing, fuzzy matching, and statless RePoE concepts audited in `docs/development/repoe-skipped-record-audit-2026-07-12.md` remain deferred.
 
 ## Development Logs
 
@@ -166,8 +168,9 @@ No open-source license has been selected yet.
 - Early prototype.
 - Incomplete parser and data catalogs.
 - RePoE importing is local-file-only for supported files; there is no automatic data downloading or update workflow yet.
-- Complete local game-data packages can be loaded and validated, but the App is not connected to package activation or lookup catalogs yet.
+- Complete local game-data packages can be loaded and validated. The development App can load one local package for the current session through `--game-data <path>`, `POENHANCE_GAMEDATA_PATH`, or the `artifacts/poenhance-game-data.json` fallback.
 - Parsed items can be enriched with item-base resolution in `PoEnhance.Core` when a caller supplies a validated `GameDataCatalog`; modifier matching and fuzzy matching are not implemented yet.
+- Production package installation, activation, rollback, automatic updates, and update UI are not implemented yet.
 - Runtime lookup indexes are provider-neutral and intentionally exclude statless RePoE behavior records until a separate future model is designed.
 - No production-ready Trade, OAuth, stash, or economy integration yet.
 
@@ -300,7 +303,9 @@ Wygenerowane pakiety są lokalnymi artefaktami i nie są commitowane. Do wygener
 
 `PoEnhance.Core` moze wzbogacic juz sparsowany przedmiot o provider-neutral rozpoznanie item-base, gdy caller przekaze zwalidowany `GameDataCatalog`. Exact match z parsowanego base type jest uznawany tylko wtedy, gdy zostaje jeden rekord zgodny z item class; rozpoznanie nazw zidentyfikowanych magic itemow uzywa konserwatywnego suffix match na granicach tokenow i ma status probable.
 
-Aplikacja, package activation, instalacja, rollback i update UI nie sa jeszcze polaczone z runtime package loading. Parser enrichment nie laduje plikow pakietu i nie tworzy globalnego stanu katalogu. Modifier matching, affix parsing, fuzzy matching i statless koncepty RePoE opisane w `docs/development/repoe-skipped-record-audit-2026-07-12.md` pozostaja odlozone.
+Development App moze zaladowac jeden lokalnie wygenerowany pakiet na sesje i pokazac item-base resolution w developerskim UI parsera. Sciezke mozna ustawic przez `--game-data <path>`, `POENHANCE_GAMEDATA_PATH` albo development fallback `artifacts/poenhance-game-data.json` znaleziony z current directory lub parent repository directories. Brak lub niepoprawne game data nie blokuje parsera; UI degraduje sie do parser-only output.
+
+Production package activation, instalacja, rollback, automatyczne aktualizacje i update UI nie sa jeszcze zaimplementowane. Parser enrichment nie laduje plikow pakietu i nie tworzy globalnego stanu katalogu. Modifier matching, affix parsing, fuzzy matching i statless koncepty RePoE opisane w `docs/development/repoe-skipped-record-audit-2026-07-12.md` pozostaja odlozone.
 
 ## Logi Developerskie
 
@@ -343,7 +348,8 @@ Nie wybrano jeszcze licencji open-source.
 - Wczesny prototyp.
 - Niekompletny parser i katalogi danych.
 - Import RePoE działa tylko z obsługiwanych lokalnych plików; nie ma jeszcze automatycznego pobierania danych ani workflow aktualizacji.
-- Kompletne lokalne pakiety game-data moga byc ladowane i walidowane, ale App nie jest jeszcze polaczona z aktywacja pakietow ani lookup catalogs.
+- Kompletne lokalne pakiety game-data moga byc ladowane i walidowane. Development App moze zaladowac jeden lokalny pakiet na aktualna sesje przez `--game-data <path>`, `POENHANCE_GAMEDATA_PATH` albo fallback `artifacts/poenhance-game-data.json`.
 - Sparsowane przedmioty moga byc wzbogacane o item-base resolution w `PoEnhance.Core`, gdy caller przekaze zwalidowany `GameDataCatalog`; modifier matching i fuzzy matching nie sa jeszcze zaimplementowane.
+- Production package installation, activation, rollback, automatyczne aktualizacje i update UI nie sa jeszcze zaimplementowane.
 - Runtime lookup indexes sa provider-neutral i celowo wykluczaja statless rekordy RePoE do czasu zaprojektowania osobnego przyszlego modelu.
 - Brak production-ready integracji Trade, OAuth, stash lub economy.

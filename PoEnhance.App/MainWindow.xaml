@@ -14,6 +14,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -59,6 +60,94 @@
                    Text="Clipboard: No capture yet" />
         <GroupBox Grid.Row="6"
                   Margin="0,8,0,0"
+                  Header="Game Data">
+            <Grid Margin="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="State:" />
+                <TextBlock x:Name="GameDataStateText"
+                           Grid.Row="0"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not loaded" />
+
+                <TextBlock Grid.Row="1"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="Path:" />
+                <TextBlock x:Name="GameDataPathText"
+                           Grid.Row="1"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="2"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="Data Version:" />
+                <TextBlock x:Name="GameDataVersionText"
+                           Grid.Row="2"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not detected" />
+
+                <TextBlock Grid.Row="3"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="Source Version:" />
+                <TextBlock x:Name="GameDataSourceVersionText"
+                           Grid.Row="3"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="4"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="Records:" />
+                <TextBlock x:Name="GameDataRecordCountsText"
+                           Grid.Row="4"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="5"
+                           Grid.Column="0"
+                           Margin="0,0,8,0"
+                           FontWeight="SemiBold"
+                           Text="Diagnostic:" />
+                <TextBlock x:Name="GameDataDiagnosticText"
+                           Grid.Row="5"
+                           Grid.Column="1"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+            </Grid>
+        </GroupBox>
+
+        <GroupBox Grid.Row="7"
+                  Margin="0,8,0,0"
                   Header="Manual item input">
             <Grid Margin="8">
                 <Grid.RowDefinitions>
@@ -92,7 +181,7 @@
             </Grid>
         </GroupBox>
 
-        <Grid Grid.Row="7"
+        <Grid Grid.Row="8"
               Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -109,6 +198,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -249,6 +339,21 @@
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8">
                             <TextBlock FontWeight="SemiBold"
+                                       Text="Item-base resolution" />
+                            <TextBox x:Name="ParsedItemBaseResolutionTextBox"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     IsReadOnly="True"
+                                     Text="Not detected"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="10"
+                                    Grid.ColumnSpan="2"
+                                    Margin="0,0,0,8">
+                            <TextBlock FontWeight="SemiBold"
                                        Text="Basic properties" />
                             <TextBox x:Name="ParsedPropertiesTextBox"
                                      MinHeight="64"
@@ -261,7 +366,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedInfluencesPanel"
-                                    Grid.Row="10"
+                                    Grid.Row="11"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -278,7 +383,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedImplicitModifiersPanel"
-                                    Grid.Row="11"
+                                    Grid.Row="12"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -295,7 +400,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedPrefixModifiersPanel"
-                                    Grid.Row="12"
+                                    Grid.Row="13"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -312,7 +417,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedSuffixModifiersPanel"
-                                    Grid.Row="13"
+                                    Grid.Row="14"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -329,7 +434,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedUniqueModifiersPanel"
-                                    Grid.Row="14"
+                                    Grid.Row="15"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -346,7 +451,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedUnknownModifiersPanel"
-                                    Grid.Row="15"
+                                    Grid.Row="16"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -363,7 +468,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedEnchantmentsPanel"
-                                    Grid.Row="16"
+                                    Grid.Row="17"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -380,7 +485,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedDescriptionPanel"
-                                    Grid.Row="17"
+                                    Grid.Row="18"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -397,7 +502,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedFlavourTextPanel"
-                                    Grid.Row="18"
+                                    Grid.Row="19"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -414,7 +519,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedListingNotePanel"
-                                    Grid.Row="19"
+                                    Grid.Row="20"
                                     Grid.ColumnSpan="2"
                                     Margin="0,0,0,8"
                                     Visibility="Collapsed">
@@ -431,7 +536,7 @@
                         </StackPanel>
 
                         <StackPanel x:Name="ParsedUnclassifiedPanel"
-                                    Grid.Row="20"
+                                    Grid.Row="21"
                                     Grid.ColumnSpan="2"
                                     Visibility="Collapsed">
                             <TextBlock FontWeight="SemiBold"

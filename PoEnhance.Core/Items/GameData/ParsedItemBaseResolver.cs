@@ -7,6 +7,11 @@ namespace PoEnhance.Core.Items.GameData;
 public sealed class ParsedItemBaseResolver
 {
     private const string MagicRarity = "Magic";
+    private const string CurrencyRarity = "Currency";
+    private const string CurrencyBaseType = "Currency";
+    private const string StackableCurrencyItemClass = "Stackable Currency";
+    private const string SynthesisedItemState = "Synthesised Item";
+    private const string SynthesisedPrefix = "Synthesised ";
 
     public ParsedItemGameDataEnrichment Enrich(ParsedItem parsedItem, GameDataCatalog catalog)
     {
@@ -37,36 +42,33 @@ public sealed class ParsedItemBaseResolver
         ParsedItem parsedItem,
         GameDataCatalog catalog)
     {
+        if (TryResolveGenericCategoryDisplayName(parsedItem, catalog, out var genericCategoryResult))
+        {
+            return genericCategoryResult;
+        }
+
         var candidates = catalog.FindItemBasesByNormalizedName(parsedItem.BaseType);
-        if (candidates.Count == 0)
-        {
-            return Unknown(
-                ItemBaseResolutionDiagnosticCodes.BaseNotFound,
-                "The parsed base type was not found in the game-data catalog.");
-        }
-
-        var classMatches = NarrowByItemClass(candidates, parsedItem.ItemClass);
-        if (classMatches.Count == 0)
-        {
-            return Unknown(
-                ItemBaseResolutionDiagnosticCodes.BaseItemClassMismatch,
-                "Catalog candidates were found, but none matched the parsed item class.",
-                candidates);
-        }
-
-        if (classMatches.Count > 1)
-        {
-            return Unknown(
-                ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
-                "Multiple catalog item bases match the parsed base type.",
-                classMatches);
-        }
-
-        return Matched(
+        if (TryResolveCandidates(
+            parsedItem,
+            candidates,
             ItemBaseResolutionStatus.Exact,
-            classMatches[0],
             ItemBaseResolutionDiagnosticCodes.BaseExactMatch,
-            "The parsed base type exactly matched one catalog item base.");
+            "The parsed base type exactly matched one catalog item base.",
+            "Catalog candidates were found, but none matched the parsed item class.",
+            "Multiple catalog item bases match the parsed base type.",
+            out var directResult))
+        {
+            return directResult;
+        }
+
+        if (TryResolveStateDecoration(parsedItem, catalog, out var stateDecorationResult))
+        {
+            return stateDecorationResult;
+        }
+
+        return Unknown(
+            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+            "The parsed base type was not found in the game-data catalog.");
     }
 
     private static ItemBaseResolutionResult ResolveMagicDisplayName(
@@ -122,6 +124,143 @@ public sealed class ParsedItemBaseResolver
             "The magic item display name matched one catalog item base by token-boundary suffix.");
     }
 
+    private static bool TryResolveGenericCategoryDisplayName(
+        ParsedItem parsedItem,
+        GameDataCatalog catalog,
+        out ItemBaseResolutionResult result)
+    {
+        result = default!;
+
+        var displayName = parsedItem.DisplayName?.Trim();
+        if (!CanUseDisplayNameForGenericCategory(parsedItem)
+            || string.IsNullOrEmpty(displayName)
+            || string.Equals(displayName, parsedItem.BaseType?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var candidates = catalog.FindItemBasesByNormalizedName(displayName);
+        if (!TryResolveCandidates(
+            parsedItem,
+            candidates,
+            ItemBaseResolutionStatus.Exact,
+            ItemBaseResolutionDiagnosticCodes.BaseExactMatch,
+            "The item display name exactly matched one catalog item base for an explicitly supported generic category.",
+            "Generic-category display-name candidates were found, but none matched the parsed item class.",
+            "Multiple catalog item bases match the generic-category display name.",
+            out result))
+        {
+            result = Unknown(
+                ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+                "Neither the generic base type nor the display name was found in the game-data catalog.");
+            return true;
+        }
+
+        return true;
+    }
+
+    private static bool TryResolveStateDecoration(
+        ParsedItem parsedItem,
+        GameDataCatalog catalog,
+        out ItemBaseResolutionResult result)
+    {
+        result = default!;
+
+        if (!TryGetStateDecorationBaseName(parsedItem, out var undecoratedBaseName))
+        {
+            return false;
+        }
+
+        var candidates = catalog.FindItemBasesByNormalizedName(undecoratedBaseName);
+        if (!TryResolveCandidates(
+            parsedItem,
+            candidates,
+            ItemBaseResolutionStatus.Probable,
+            ItemBaseResolutionDiagnosticCodes.BaseProbableStateDecorationMatch,
+            "A confirmed parsed item state allowed the decorated base type to match one catalog item base.",
+            "State-decoration candidates were found, but none matched the parsed item class.",
+            "Multiple catalog item bases match the state-decoration base type.",
+            out result))
+        {
+            result = Unknown(
+                ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+                "The parsed base type was not found in the game-data catalog.");
+            return true;
+        }
+
+        return true;
+    }
+
+    private static bool CanUseDisplayNameForGenericCategory(ParsedItem parsedItem)
+    {
+        return string.Equals(parsedItem.BaseType?.Trim(), CurrencyBaseType, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(parsedItem.Rarity?.Trim(), CurrencyRarity, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parsedItem.ItemClass?.Trim(), StackableCurrencyItemClass, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryGetStateDecorationBaseName(ParsedItem parsedItem, out string baseName)
+    {
+        baseName = string.Empty;
+
+        var parsedBaseType = parsedItem.BaseType?.Trim();
+        if (string.IsNullOrEmpty(parsedBaseType)
+            || !parsedBaseType.StartsWith(SynthesisedPrefix, StringComparison.OrdinalIgnoreCase)
+            || !parsedItem.ItemStates.Any(state => string.Equals(
+                state.Trim(),
+                SynthesisedItemState,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        baseName = parsedBaseType[SynthesisedPrefix.Length..].Trim();
+        return !string.IsNullOrEmpty(baseName);
+    }
+
+    private static bool TryResolveCandidates(
+        ParsedItem parsedItem,
+        IReadOnlyList<ItemBaseRecord> candidates,
+        ItemBaseResolutionStatus successStatus,
+        string successDiagnosticCode,
+        string successReason,
+        string classMismatchReason,
+        string ambiguousReason,
+        out ItemBaseResolutionResult result)
+    {
+        result = default!;
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        var classMatches = NarrowByItemClass(candidates, parsedItem.ItemClass);
+        if (classMatches.Count == 0)
+        {
+            result = Unknown(
+                ItemBaseResolutionDiagnosticCodes.BaseItemClassMismatch,
+                classMismatchReason,
+                candidates);
+            return true;
+        }
+
+        if (classMatches.Count > 1)
+        {
+            result = Unknown(
+                ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
+                ambiguousReason,
+                classMatches);
+            return true;
+        }
+
+        result = Matched(
+            successStatus,
+            classMatches[0],
+            successDiagnosticCode,
+            successReason);
+        return true;
+    }
+
     private static bool IsMagicBaseNameCandidate(string displayName, string? baseName)
     {
         baseName = baseName?.Trim();
@@ -173,10 +312,7 @@ public sealed class ParsedItemBaseResolver
         }
 
         return ToReadOnly(candidates.Where(candidate =>
-            string.Equals(
-                candidate.ItemClass?.Trim(),
-                itemClass.Trim(),
-                StringComparison.OrdinalIgnoreCase)));
+            ItemBaseClassCompatibility.AreCompatible(itemClass, candidate.ItemClass)));
     }
 
     private static ItemBaseResolutionResult Matched(

@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="PoEnhance.App/PoEnhance.App.csproj" />
+  <Project Path="PoEnhance.App.Tests/PoEnhance.App.Tests.csproj" />
   <Project Path="PoEnhance.Core/PoEnhance.Core.csproj" />
   <Project Path="PoEnhance.Core.Tests/PoEnhance.Core.Tests.csproj" />
   <Project Path="PoEnhance.GameData/PoEnhance.GameData.csproj" />
