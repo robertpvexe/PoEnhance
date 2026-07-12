@@ -117,6 +117,12 @@ dotnet run --project .\PoEnhance.DataTool -- build-package `
 
 Generated packages are local artifacts and are not committed. Use local paths such as `artifacts/`, `local-data/`, or `data/repoe/` for generated packages and local source snapshots.
 
+## Load Local Game-Data Packages
+
+`PoEnhance.GameData` can load complete local package files or streams asynchronously, deserialize them with the shared package JSON options, and validate them before use. Runtime lookup catalogs are provider-neutral and are built in memory only from validated packages.
+
+The application shell, item parser, package activation, installation, rollback, and update UI are not connected to runtime package loading yet. Statless RePoE concepts audited in `docs/development/repoe-skipped-record-audit-2026-07-12.md` remain deferred and are not indexed as `ModifierDefinition` records.
+
 ## Development Logs
 
 PoEnhance.App writes local development logs to `%LOCALAPPDATA%\PoEnhance\Logs`.
@@ -158,6 +164,8 @@ No open-source license has been selected yet.
 - Early prototype.
 - Incomplete parser and data catalogs.
 - RePoE importing is local-file-only for supported files; there is no automatic data downloading or update workflow yet.
+- Complete local game-data packages can be loaded and validated, but the App and parser are not connected to package activation or lookup catalogs yet.
+- Runtime lookup indexes are provider-neutral and intentionally exclude statless RePoE behavior records until a separate future model is designed.
 - No production-ready Trade, OAuth, stash, or economy integration yet.
 
 ---

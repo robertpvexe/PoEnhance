@@ -1,0 +1,247 @@
+using PoEnhance.GameData;
+
+namespace PoEnhance.GameData.Tests;
+
+public sealed class GameDataCatalogTests
+{
+    [Fact]
+    public void FromPackage_InvalidPackage_Throws()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            Manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest() with
+            {
+                DataVersion = "",
+            },
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() => GameDataCatalog.FromPackage(package));
+
+        Assert.Contains("valid package", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindItemBasesByIdAndName_ReturnsExpectedRecords()
+    {
+        var catalog = CreateCatalog();
+
+        var byId = Assert.Single(catalog.FindItemBasesById(" ITEM-BASE.GOLD-RING "));
+        var byExactName = Assert.Single(catalog.FindItemBasesByExactName("Gold Ring"));
+
+        Assert.Equal("Gold Ring", byId.Name);
+        Assert.Same(byId, byExactName);
+        Assert.Empty(catalog.FindItemBasesByExactName("gold ring"));
+    }
+
+    [Fact]
+    public void FindItemBasesByNormalizedName_UsesCaseInsensitiveTrimmedName()
+    {
+        var catalog = CreateCatalog();
+
+        var itemBase = Assert.Single(catalog.FindItemBasesByNormalizedName(" gold ring "));
+
+        Assert.Equal("item-base.gold-ring", itemBase.Id);
+    }
+
+    [Fact]
+    public void FindItemBasesByName_DuplicateNamesReturnAllRecordsInPackageOrder()
+    {
+        var duplicate = GameDataPackageFixtures.CreateDevelopmentPackage().ItemBases[1] with
+        {
+            Id = "item-base.gold-ring.duplicate-name",
+            Name = "Gold Ring",
+        };
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage() with
+        {
+            ItemBases =
+            [
+                GameDataPackageFixtures.CreateDevelopmentPackage().ItemBases[0],
+                duplicate,
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var records = catalog.FindItemBasesByNormalizedName("gold ring");
+
+        Assert.Collection(
+            records,
+            first => Assert.Equal("item-base.gold-ring", first.Id),
+            second => Assert.Equal("item-base.gold-ring.duplicate-name", second.Id));
+    }
+
+    [Fact]
+    public void FindModifiersByIdGroupGenerationTypeAndStatId_ReturnsExpectedRecords()
+    {
+        var catalog = CreateCatalog();
+
+        var byId = Assert.Single(catalog.FindModifiersById(" MOD.PREFIX.MAXIMUM-LIFE.T5 "));
+        var byGroup = Assert.Single(catalog.FindModifiersByGroupId("mod-group.maximum-life"));
+        var byStat = Assert.Single(catalog.FindModifiersByStatId("base_maximum_life"));
+        var prefixes = catalog.FindModifiersByGenerationType(ModifierGenerationType.Prefix);
+
+        Assert.Equal("mod.prefix.maximum-life.t5", byId.Id);
+        Assert.Same(byId, byGroup);
+        Assert.Same(byId, byStat);
+        Assert.Collection(
+            prefixes,
+            first => Assert.Equal("mod.prefix.maximum-life.t5", first.Id),
+            second => Assert.Equal("mod.prefix.armour-requirements.hybrid.t3", second.Id));
+    }
+
+    [Fact]
+    public void FindStatsById_ReturnsExpectedRecord()
+    {
+        var catalog = CreateCatalog();
+
+        var stat = Assert.Single(catalog.FindStatsById(" BASE_MAXIMUM_LIFE "));
+
+        Assert.Equal("base_maximum_life", stat.Id);
+    }
+
+    [Fact]
+    public void FindStatTranslationsByIdAndStatId_ReturnsExpectedRecord()
+    {
+        var catalog = CreateCatalog();
+
+        var byId = Assert.Single(catalog.FindStatTranslationsById(" TRANSLATION.BASE-MAXIMUM-LIFE "));
+        var byStatId = Assert.Single(catalog.FindStatTranslationsByStatId("BASE_MAXIMUM_LIFE"));
+
+        Assert.Equal("translation.base-maximum-life", byId.Id);
+        Assert.Same(byId, byStatId);
+    }
+
+    [Fact]
+    public void FindStatTranslationsByStatId_MultiStatTranslationsRemainOrdered()
+    {
+        var package = CreatePackageWithMultiStatTranslation();
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var translation = Assert.Single(catalog.FindStatTranslationsByStatId("base_fire_damage_resistance_%"));
+
+        Assert.Equal("translation.life-and-fire", translation.Id);
+        Assert.Equal(["base_maximum_life", "base_fire_damage_resistance_%"], translation.StatIds);
+        Assert.Collection(
+            translation.Variants,
+            variant =>
+            {
+                Assert.Equal(["#|#", "+{0} to maximum Life", "+{1}% to Fire Resistance"], variant.FormatLines);
+                Assert.Collection(
+                    variant.Conditions,
+                    first => Assert.Equal(0, first.Index),
+                    second => Assert.Equal(1, second.Index));
+                Assert.Collection(
+                    variant.IndexHandlers,
+                    first =>
+                    {
+                        Assert.Equal(0, first.Index);
+                        Assert.Equal(["negate"], first.Handlers);
+                    },
+                    second =>
+                    {
+                        Assert.Equal(1, second.Index);
+                        Assert.Equal(["divide_by_one"], second.Handlers);
+                    });
+            });
+    }
+
+    [Fact]
+    public void ReturnedCollectionsCannotMutateCatalogState()
+    {
+        var catalog = CreateCatalog();
+        var records = catalog.FindItemBasesByNormalizedName("Gold Ring");
+        var mutableView = Assert.IsAssignableFrom<ICollection<ItemBaseRecord>>(records);
+
+        Assert.True(mutableView.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => mutableView.Add(new ItemBaseRecord
+        {
+            Id = "item-base.injected",
+            Name = "Injected",
+            ItemClass = "Test",
+        }));
+
+        var freshLookup = catalog.FindItemBasesByNormalizedName("Gold Ring");
+        var itemBase = Assert.Single(freshLookup);
+        Assert.Equal("item-base.gold-ring", itemBase.Id);
+    }
+
+    [Fact]
+    public void LookupsWithMissingOrWhitespaceKeysReturnEmptyReadOnlyCollections()
+    {
+        var catalog = CreateCatalog();
+
+        var records = catalog.FindModifiersByStatId(" ");
+        var mutableView = Assert.IsAssignableFrom<ICollection<ModifierDefinition>>(records);
+
+        Assert.Empty(records);
+        Assert.True(mutableView.IsReadOnly);
+    }
+
+    private static GameDataCatalog CreateCatalog()
+    {
+        return GameDataCatalog.FromPackage(GameDataPackageFixtures.CreateDevelopmentPackage());
+    }
+
+    private static GameDataPackage CreatePackageWithMultiStatTranslation()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        return package with
+        {
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation.life-and-fire",
+                    StatIds = ["base_maximum_life", "base_fire_damage_resistance_%"],
+                    Language = "English",
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition
+                                {
+                                    Index = 0,
+                                    MinValue = 1m,
+                                },
+                                new StatTranslationCondition
+                                {
+                                    Index = 1,
+                                    MinValue = 1m,
+                                },
+                            ],
+                            ValueFormats = ["#", "#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["negate"],
+                                },
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 1,
+                                    Handlers = ["divide_by_one"],
+                                },
+                            ],
+                            FormatLines =
+                            [
+                                "#|#",
+                                "+{0} to maximum Life",
+                                "+{1}% to Fire Resistance",
+                            ],
+                        },
+                    ],
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "translation.life-and-fire",
+                        },
+                    ],
+                },
+            ],
+        };
+    }
+}
