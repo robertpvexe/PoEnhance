@@ -103,6 +103,85 @@ public sealed class ModifierEligibilityEvaluatorTests
     }
 
     [Fact]
+    public void Evaluate_DynamicInfluenceTagCanSatisfyFirstMatchingSpawnWeight()
+    {
+        var itemBase = Base(tags: ["body_armour", "default"]);
+        var context = ItemModifierEligibilityContext.Create(itemBase, ["Redeemer Item"]);
+
+        var result = evaluator.Evaluate(
+            Modifier(
+                SpawnWeight("body_armour_eyrie", 1000),
+                SpawnWeight("default", 0)),
+            context);
+
+        Assert.True(result.Evaluated);
+        Assert.Equal(ModifierEligibilityOutcome.Eligible, result.Outcome);
+        Assert.Equal(ModifierEligibilityDiagnosticCodes.ModifierDynamicTagMatch, result.ReasonCode);
+        Assert.Equal("body_armour_eyrie", result.MatchedTag);
+        Assert.True(result.MatchedDynamicTag);
+    }
+
+    [Fact]
+    public void Evaluate_DynamicInfluenceTagDoesNotOverrideEarlierStaticDefaultMatch()
+    {
+        var itemBase = Base(tags: ["body_armour", "default"]);
+        var context = ItemModifierEligibilityContext.Create(itemBase, ["Redeemer Item"]);
+
+        var result = evaluator.Evaluate(
+            Modifier(
+                SpawnWeight("default", 0),
+                SpawnWeight("body_armour_eyrie", 1000)),
+            context);
+
+        Assert.Equal(ModifierEligibilityOutcome.Ineligible, result.Outcome);
+        Assert.Equal(ModifierEligibilityDiagnosticCodes.ModifierSpawnWeightZero, result.ReasonCode);
+        Assert.Equal("default", result.MatchedTag);
+        Assert.False(result.MatchedDynamicTag);
+    }
+
+    [Fact]
+    public void CreateContext_MapsTraditionalInfluencesToVerifiedDynamicTags()
+    {
+        var itemBase = Base(tags: ["body_armour", "default"]);
+
+        var context = ItemModifierEligibilityContext.Create(
+            itemBase,
+            [
+                "Shaper Item",
+                "Elder Item",
+                "Crusader Item",
+                "Redeemer Item",
+                "Hunter Item",
+                "Warlord Item",
+            ]);
+
+        Assert.Equal(
+            [
+                "body_armour_shaper",
+                "body_armour_elder",
+                "body_armour_adjudicator",
+                "body_armour_eyrie",
+                "body_armour_basilisk",
+                "body_armour_crusader",
+            ],
+            context.DynamicTags);
+        Assert.Empty(context.Diagnostics);
+    }
+
+    [Fact]
+    public void CreateContext_PreservesDoubleInfluenceOrderAndDoesNotMutateBaseTags()
+    {
+        var itemBase = Base(tags: ["ring", "default"]);
+        var originalTags = itemBase.Tags.ToArray();
+
+        var context = ItemModifierEligibilityContext.Create(itemBase, ["Shaper Item", "Elder Item"]);
+
+        Assert.Equal(["ring_shaper", "ring_elder"], context.DynamicTags);
+        Assert.Equal(["Shaper Item", "Elder Item"], context.TraditionalInfluences);
+        Assert.Equal(originalTags, itemBase.Tags);
+    }
+
+    [Fact]
     public void Evaluate_DoesNotMutateInputs()
     {
         var modifier = Modifier(SpawnWeight("ring", 1000), SpawnWeight("default", 0));

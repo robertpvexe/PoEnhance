@@ -110,6 +110,8 @@ internal sealed class ParsedItemGameDataDisplayService
                             .Take(CandidateDisplayLimit)
                             .Select(FormatModifierCandidate)
                             .ToArray(),
+                        ShowInRegularDisplay = diagnostic?.Code
+                            != ModifierCandidateResolutionDiagnosticCodes.ModifierKindUnsupported,
                     };
                 })
                 .ToArray(),

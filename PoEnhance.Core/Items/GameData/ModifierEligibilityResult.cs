@@ -7,4 +7,5 @@ public sealed record ModifierEligibilityResult(
     string Reason,
     string? MatchedTag = null,
     string? ModifierDomain = null,
-    string? ItemBaseDomain = null);
+    string? ItemBaseDomain = null,
+    bool MatchedDynamicTag = false);

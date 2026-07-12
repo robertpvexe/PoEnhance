@@ -26,4 +26,6 @@ internal sealed record ModifierCandidateResolutionItemDisplay
     public string CountSummary { get; init; } = "0 name -> 0 kind -> 0 eligible";
 
     public IReadOnlyList<string> CandidateLabels { get; init; } = [];
+
+    public bool ShowInRegularDisplay { get; init; } = true;
 }

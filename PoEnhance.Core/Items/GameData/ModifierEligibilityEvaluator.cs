@@ -8,11 +8,20 @@ public sealed class ModifierEligibilityEvaluator
         ModifierDefinition modifier,
         ItemBaseRecord itemBase)
     {
-        ArgumentNullException.ThrowIfNull(modifier);
         ArgumentNullException.ThrowIfNull(itemBase);
 
+        return Evaluate(modifier, ItemModifierEligibilityContext.ForItemBase(itemBase));
+    }
+
+    public ModifierEligibilityResult Evaluate(
+        ModifierDefinition modifier,
+        ItemModifierEligibilityContext context)
+    {
+        ArgumentNullException.ThrowIfNull(modifier);
+        ArgumentNullException.ThrowIfNull(context);
+
         var modifierDomain = Normalize(modifier.Domain);
-        var itemBaseDomain = Normalize(itemBase.Domain);
+        var itemBaseDomain = Normalize(context.ItemBase.Domain);
         if (modifierDomain is null || itemBaseDomain is null)
         {
             return Unknown(
@@ -42,38 +51,51 @@ public sealed class ModifierEligibilityEvaluator
                 itemBaseDomain);
         }
 
-        if (itemBase.Tags.Count == 0)
+        if (context.ItemBase.Tags.Count == 0 && context.DynamicTags.Count == 0)
         {
             return Unknown(
                 evaluated: false,
-                "Item-base tags are required to evaluate modifier spawn weights.",
+                "Item-base tags or dynamic item-context tags are required to evaluate modifier spawn weights.",
                 modifierDomain,
                 itemBaseDomain);
         }
 
-        var baseTags = new HashSet<string>(
-            itemBase.Tags
+        var staticTags = new HashSet<string>(
+            context.ItemBase.Tags
                 .Select(Normalize)
                 .Where(tag => tag is not null)!,
             StringComparer.OrdinalIgnoreCase);
+        var dynamicTags = new HashSet<string>(
+            context.DynamicTags
+                .Select(Normalize)
+                .Where(tag => tag is not null)!,
+            StringComparer.OrdinalIgnoreCase);
+        var candidateTags = new HashSet<string>(staticTags, StringComparer.OrdinalIgnoreCase);
+        candidateTags.UnionWith(dynamicTags);
 
         foreach (var spawnWeight in modifier.SpawnWeights)
         {
             var tag = Normalize(spawnWeight.Tag);
-            if (tag is null || (!IsDefaultTag(tag) && !baseTags.Contains(tag)))
+            if (tag is null || (!IsDefaultTag(tag) && !candidateTags.Contains(tag)))
             {
                 continue;
             }
 
+            var matchedDynamicTag = dynamicTags.Contains(tag);
             return spawnWeight.Weight > 0
                 ? new ModifierEligibilityResult(
                     true,
                     ModifierEligibilityOutcome.Eligible,
-                    ModifierEligibilityDiagnosticCodes.ModifierEligibleForBase,
-                    "The first matching spawn-weight tag has a positive weight for the resolved item base.",
+                    matchedDynamicTag
+                        ? ModifierEligibilityDiagnosticCodes.ModifierDynamicTagMatch
+                        : ModifierEligibilityDiagnosticCodes.ModifierEligibleForBase,
+                    matchedDynamicTag
+                        ? "The first matching spawn-weight tag has a positive weight for the dynamic item context."
+                        : "The first matching spawn-weight tag has a positive weight for the resolved item base.",
                     tag,
                     modifierDomain,
-                    itemBaseDomain)
+                    itemBaseDomain,
+                    matchedDynamicTag)
                 : new ModifierEligibilityResult(
                     true,
                     ModifierEligibilityOutcome.Ineligible,
@@ -81,14 +103,22 @@ public sealed class ModifierEligibilityEvaluator
                     "The first matching spawn-weight tag has zero weight for the resolved item base.",
                     tag,
                     modifierDomain,
-                    itemBaseDomain);
+                    itemBaseDomain,
+                    matchedDynamicTag);
         }
 
+        var hasInfluenceSpawnWeight = modifier.SpawnWeights
+            .Select(spawnWeight => Normalize(spawnWeight.Tag))
+            .Any(IsKnownTraditionalInfluenceTag);
         return new ModifierEligibilityResult(
             true,
             ModifierEligibilityOutcome.Ineligible,
-            ModifierEligibilityDiagnosticCodes.ModifierNoMatchingBaseTag,
-            "No modifier spawn-weight tag matched the resolved item-base tags.",
+            hasInfluenceSpawnWeight
+                ? ModifierEligibilityDiagnosticCodes.ModifierRequiredInfluenceMissing
+                : ModifierEligibilityDiagnosticCodes.ModifierNoMatchingBaseTag,
+            hasInfluenceSpawnWeight
+                ? "No modifier spawn-weight tag matched the resolved item-base tags or traditional influence context."
+                : "No modifier spawn-weight tag matched the resolved item-base tags.",
             ModifierDomain: modifierDomain,
             ItemBaseDomain: itemBaseDomain);
     }
@@ -111,6 +141,21 @@ public sealed class ModifierEligibilityEvaluator
     private static bool IsDefaultTag(string tag)
     {
         return string.Equals(tag, "default", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsKnownTraditionalInfluenceTag(string? tag)
+    {
+        if (tag is null)
+        {
+            return false;
+        }
+
+        return tag.EndsWith("_shaper", StringComparison.OrdinalIgnoreCase)
+            || tag.EndsWith("_elder", StringComparison.OrdinalIgnoreCase)
+            || tag.EndsWith("_adjudicator", StringComparison.OrdinalIgnoreCase)
+            || tag.EndsWith("_eyrie", StringComparison.OrdinalIgnoreCase)
+            || tag.EndsWith("_basilisk", StringComparison.OrdinalIgnoreCase)
+            || tag.EndsWith("_crusader", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? Normalize(string? value)

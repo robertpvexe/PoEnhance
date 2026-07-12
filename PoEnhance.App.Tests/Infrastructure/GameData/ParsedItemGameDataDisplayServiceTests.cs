@@ -253,6 +253,48 @@ Item Level: 80
     }
 
     [Fact]
+    public void ResolveModifierCandidates_HidesUnsupportedKindDiagnosticFromRegularModifierDisplay()
+    {
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Unique
+Test Ring
+Gold Ring
+--------
+Item Level: 80
+--------
+{ Unique Modifier }
+Adds 1 to 2 Physical Damage
+""");
+        var resolver = new CountingModifierCandidateResolver
+        {
+            Results =
+            [
+                new ModifierCandidateResolutionResult(
+                    0,
+                    item.UniqueModifiers[0],
+                    null,
+                    ParsedModifierKind.Unique,
+                    null,
+                    ModifierCandidateResolutionStatus.Unknown,
+                    [],
+                    [
+                        new ModifierCandidateResolutionDiagnostic(
+                            ModifierCandidateResolutionDiagnosticCodes.ModifierKindUnsupported,
+                            "Unsupported test kind."),
+                    ]),
+            ],
+        };
+        var service = new ParsedItemGameDataDisplayService(new CountingResolver(), resolver);
+
+        var display = service.ResolveModifierCandidates(item, CreateCatalog());
+        var result = Assert.Single(display.Results);
+
+        Assert.False(result.ShowInRegularDisplay);
+        Assert.Equal("MODIFIER_KIND_UNSUPPORTED: Unsupported test kind.", result.Diagnostic);
+    }
+
+    [Fact]
     public void ResolveModifierCandidates_PassesExistingItemBaseResolutionToResolver()
     {
         var baseResolution = new ItemBaseResolutionResult

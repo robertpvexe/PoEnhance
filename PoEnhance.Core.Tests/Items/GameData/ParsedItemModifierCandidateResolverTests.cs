@@ -235,6 +235,145 @@ Adds 1 to 2 Physical Damage
     }
 
     [Fact]
+    public void Resolve_TraditionalInfluenceDynamicTagCanReduceCandidatesToExactMatch()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.astral-plate", "Astral Plate", "Body Armours", "item", ["body_armour", "default"])],
+            Modifier(
+                "mod.suffix.redemption.redeemer",
+                "of Redemption",
+                ModifierGenerationType.Suffix,
+                "item",
+                SpawnWeight("body_armour_eyrie", 1000),
+                SpawnWeight("default", 0)),
+            Modifier(
+                "mod.suffix.redemption.ring",
+                "of Redemption",
+                ModifierGenerationType.Suffix,
+                "item",
+                SpawnWeight("ring_eyrie", 1000),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of Redemption" (Tier: 1) - Aura }
+10% increased Effect of Non-Curse Auras from your Skills
+""") with
+        {
+            TraditionalInfluences = ["Redeemer Item"],
+        };
+        var baseResolution = ExactBase(catalog, "base.astral-plate");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.suffix.redemption.redeemer", Assert.Single(result.Candidates).Id);
+        Assert.Equal(1, result.EligibilityCandidateCount);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+    }
+
+    [Fact]
+    public void Resolve_TraditionalInfluenceAffixIsExcludedFromPlainItem()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.astral-plate", "Astral Plate", "Body Armours", "item", ["body_armour", "default"])],
+            Modifier(
+                "mod.suffix.redemption.redeemer",
+                "of Redemption",
+                ModifierGenerationType.Suffix,
+                "item",
+                SpawnWeight("body_armour_eyrie", 1000),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of Redemption" (Tier: 1) - Aura }
+10% increased Effect of Non-Curse Auras from your Skills
+""");
+        var baseResolution = ExactBase(catalog, "base.astral-plate");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(0, result.EligibilityCandidateCount);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierNoEligibleCandidates,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_EldritchInfluenceDoesNotUnlockTraditionalInfluenceAffix()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.astral-plate", "Astral Plate", "Body Armours", "item", ["body_armour", "default"])],
+            Modifier(
+                "mod.suffix.redemption.redeemer",
+                "of Redemption",
+                ModifierGenerationType.Suffix,
+                "item",
+                SpawnWeight("body_armour_eyrie", 1000),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of Redemption" (Tier: 1) - Aura }
+10% increased Effect of Non-Curse Auras from your Skills
+""") with
+        {
+            EldritchInfluences = ["Searing Exarch Item"],
+        };
+        var baseResolution = ExactBase(catalog, "base.astral-plate");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+    }
+
+    [Fact]
+    public void Resolve_DoubleInfluencedItemCanMatchEitherTraditionalInfluence()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Rings", "item", ["ring", "default"])],
+            Modifier(
+                "mod.prefix.shaper",
+                "Conqueror's",
+                ModifierGenerationType.Prefix,
+                "item",
+                SpawnWeight("ring_shaper", 1000),
+                SpawnWeight("default", 0)),
+            Modifier(
+                "mod.prefix.elder",
+                "Conqueror's",
+                ModifierGenerationType.Prefix,
+                "item",
+                SpawnWeight("ring_elder", 1000),
+                SpawnWeight("default", 0)),
+            Modifier(
+                "mod.prefix.hunter",
+                "Conqueror's",
+                ModifierGenerationType.Prefix,
+                "item",
+                SpawnWeight("ring_basilisk", 1000),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Conqueror's" (Tier: 1) - Damage }
+10% increased Damage
+""") with
+        {
+            TraditionalInfluences = ["Shaper Item", "Elder Item"],
+        };
+        var baseResolution = ExactBase(catalog, "base.gold-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(["mod.prefix.shaper", "mod.prefix.elder"], result.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(2, result.EligibilityCandidateCount);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Resolve_AmbiguousBaseDoesNotGuessEligibility()
     {
         var catalog = CreateCatalog(

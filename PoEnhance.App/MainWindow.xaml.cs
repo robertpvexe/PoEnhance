@@ -663,7 +663,7 @@ public partial class MainWindow : Window
     {
         var candidateDisplay = modifierCandidateResolutions.Results
             .FirstOrDefault(result => ReferenceEquals(result.ParsedModifier, modifier));
-        var candidateLines = candidateDisplay is null
+        var candidateLines = candidateDisplay is null || !candidateDisplay.ShowInRegularDisplay
             ? string.Empty
             : $"{Environment.NewLine}{FormatModifierCandidateResolution(candidateDisplay)}";
 

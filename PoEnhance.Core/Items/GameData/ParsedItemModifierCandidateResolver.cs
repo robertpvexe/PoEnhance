@@ -28,6 +28,9 @@ public sealed class ParsedItemModifierCandidateResolver
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(baseResolution);
 
+        var eligibilityContext = TryGetEligibilityBase(baseResolution, out var itemBase)
+            ? ItemModifierEligibilityContext.Create(itemBase, parsedItem.TraditionalInfluences)
+            : null;
         var results = new List<ModifierCandidateResolutionResult>();
         for (var index = 0; index < parsedItem.Modifiers.Count; index++)
         {
@@ -37,7 +40,7 @@ public sealed class ParsedItemModifierCandidateResolver
                 continue;
             }
 
-            results.Add(ResolveModifier(index, modifier, catalog, baseResolution));
+            results.Add(ResolveModifier(index, modifier, catalog, eligibilityContext));
         }
 
         return ToReadOnly(results);
@@ -47,7 +50,7 @@ public sealed class ParsedItemModifierCandidateResolver
         int index,
         ParsedModifier modifier,
         GameDataCatalog catalog,
-        ItemBaseResolutionResult baseResolution)
+        ItemModifierEligibilityContext? eligibilityContext)
     {
         if (!TryMapGenerationType(modifier.Kind, out var generationType))
         {
@@ -88,7 +91,7 @@ public sealed class ParsedItemModifierCandidateResolver
                 eligibilityCandidateCount: 0);
         }
 
-        if (!TryGetEligibilityBase(baseResolution, out var itemBase))
+        if (eligibilityContext is null)
         {
             return kindCandidates.Count == 1
                 ? MatchedWithoutEligibility(
@@ -114,7 +117,7 @@ public sealed class ParsedItemModifierCandidateResolver
             .Select(candidate => new
             {
                 Candidate = candidate,
-                Result = eligibilityEvaluator.Evaluate(candidate, itemBase),
+                Result = eligibilityEvaluator.Evaluate(candidate, eligibilityContext),
             })
             .ToArray();
         if (evaluations.Any(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Unknown))
