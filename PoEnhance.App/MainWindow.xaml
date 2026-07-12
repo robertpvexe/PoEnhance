@@ -484,23 +484,6 @@
                                      VerticalScrollBarVisibility="Auto" />
                         </StackPanel>
 
-                        <StackPanel x:Name="ParsedDescriptionPanel"
-                                    Grid.Row="18"
-                                    Grid.ColumnSpan="2"
-                                    Margin="0,0,0,8"
-                                    Visibility="Collapsed">
-                            <TextBlock FontWeight="SemiBold"
-                                       Text="Description" />
-                            <TextBox x:Name="ParsedDescriptionTextBox"
-                                     MinHeight="64"
-                                     AcceptsReturn="True"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     IsReadOnly="True"
-                                     Text="Not detected"
-                                     TextWrapping="NoWrap"
-                                     VerticalScrollBarVisibility="Auto" />
-                        </StackPanel>
-
                         <StackPanel x:Name="ParsedFlavourTextPanel"
                                     Grid.Row="19"
                                     Grid.ColumnSpan="2"

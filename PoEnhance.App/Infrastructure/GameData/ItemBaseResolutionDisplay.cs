@@ -1,5 +1,7 @@
 namespace PoEnhance.App.Infrastructure.GameData;
 
+using PoEnhance.Core.Items.GameData;
+
 internal sealed record ItemBaseResolutionDisplay
 {
     public bool IsAvailable { get; init; }
@@ -15,4 +17,6 @@ internal sealed record ItemBaseResolutionDisplay
     public int CandidateCount { get; init; }
 
     public IReadOnlyList<string> CandidateNames { get; init; } = [];
+
+    public ItemBaseResolutionResult? Result { get; init; }
 }

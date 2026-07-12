@@ -10,6 +10,8 @@ public sealed record ItemBaseRecord
 
     public int? RequiredLevel { get; init; }
 
+    public string? Domain { get; init; }
+
     public IReadOnlyList<string> Tags { get; init; } = [];
 
     public IReadOnlyList<GameDataSourceReference> Sources { get; init; } = [];

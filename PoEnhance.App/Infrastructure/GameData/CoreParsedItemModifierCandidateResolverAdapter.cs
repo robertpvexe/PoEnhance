@@ -10,8 +10,9 @@ internal sealed class CoreParsedItemModifierCandidateResolverAdapter : IParsedIt
 
     public IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
         ParsedItem parsedItem,
-        GameDataCatalog catalog)
+        GameDataCatalog catalog,
+        ItemBaseResolutionResult baseResolution)
     {
-        return resolver.Resolve(parsedItem, catalog);
+        return resolver.Resolve(parsedItem, catalog, baseResolution);
     }
 }

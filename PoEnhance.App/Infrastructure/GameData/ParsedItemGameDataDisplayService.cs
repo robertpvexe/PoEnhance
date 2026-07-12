@@ -65,12 +65,14 @@ internal sealed class ParsedItemGameDataDisplayService
                 .Take(CandidateDisplayLimit)
                 .Cast<string>()
                 .ToArray(),
+            Result = result,
         };
     }
 
     public ModifierCandidateResolutionsDisplay ResolveModifierCandidates(
         ParsedItem parsedItem,
-        GameDataCatalog? catalog)
+        GameDataCatalog? catalog,
+        ItemBaseResolutionResult? baseResolution = null)
     {
         ArgumentNullException.ThrowIfNull(parsedItem);
 
@@ -83,7 +85,8 @@ internal sealed class ParsedItemGameDataDisplayService
             };
         }
 
-        var results = modifierCandidateResolver.Resolve(parsedItem, catalog);
+        baseResolution ??= itemBaseResolver.Resolve(parsedItem, catalog);
+        var results = modifierCandidateResolver.Resolve(parsedItem, catalog, baseResolution);
         return new ModifierCandidateResolutionsDisplay
         {
             IsAvailable = true,
@@ -101,6 +104,8 @@ internal sealed class ParsedItemGameDataDisplayService
                             ? "Not detected"
                             : $"{diagnostic.Code}: {diagnostic.Reason}",
                         CandidateCount = result.Candidates.Count,
+                        CountSummary =
+                            $"{result.NameCandidateCount} name -> {result.GenerationKindCandidateCount} kind -> {result.EligibilityCandidateCount} eligible",
                         CandidateLabels = result.Candidates
                             .Take(CandidateDisplayLimit)
                             .Select(FormatModifierCandidate)

@@ -6,5 +6,8 @@ namespace PoEnhance.App.Infrastructure.GameData;
 
 internal interface IParsedItemModifierCandidateResolver
 {
-    IReadOnlyList<ModifierCandidateResolutionResult> Resolve(ParsedItem parsedItem, GameDataCatalog catalog);
+    IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
+        ParsedItem parsedItem,
+        GameDataCatalog catalog,
+        ItemBaseResolutionResult baseResolution);
 }

@@ -17,6 +17,7 @@ internal static class GameDataPackageFixtures
                     Name = "Gold Ring",
                     ItemClass = "Rings",
                     RequiredLevel = 20,
+                    Domain = "item",
                     Tags = ["jewellery", "ring"],
                     Sources =
                     [
@@ -40,6 +41,7 @@ internal static class GameDataPackageFixtures
                     Name = "Granite Flask",
                     ItemClass = "Utility Flasks",
                     RequiredLevel = 27,
+                    Domain = "flask",
                     Tags = ["flask", "utility-flask"],
                     Sources =
                     [

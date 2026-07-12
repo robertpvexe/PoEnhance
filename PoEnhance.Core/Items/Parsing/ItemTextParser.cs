@@ -585,7 +585,8 @@ public sealed class ItemTextParser
                 }
 
                 var rawLine = section.Lines[lineIndex];
-                if (rawLine.Trim().Length == 0)
+                var line = rawLine.Trim();
+                if (line.Length == 0 || IsDescriptionLine(line))
                 {
                     continue;
                 }

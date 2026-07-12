@@ -24,7 +24,7 @@ public sealed class ParsedItemModifierCandidateResolverTests
         Assert.Equal(ModifierGenerationType.Prefix, result.GenerationType);
         Assert.Equal("mod.prefix.hale.t5", Assert.Single(result.Candidates).Id);
         Assert.Equal(
-            ModifierCandidateResolutionDiagnosticCodes.ModifierExactMatch,
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityNotEvaluated,
             Assert.Single(result.Diagnostics).Code);
     }
 
@@ -97,7 +97,169 @@ Adds 1 to 2 Physical Damage
             ["mod.prefix.hale.t5", "mod.prefix.hale.t6"],
             result.Candidates.Select(candidate => candidate.Id));
         Assert.Equal(
-            ModifierCandidateResolutionDiagnosticCodes.ModifierAmbiguous,
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityNotEvaluated,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_ManyNameAndKindCandidatesReduceToOneEligibleCandidate_ReturnsExact()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            Modifier(
+                "mod.prefix.hale.ring",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                SpawnWeight("ring", 1000)),
+            Modifier(
+                "mod.prefix.hale.amulet",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                SpawnWeight("amulet", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = ExactBase(catalog, "base.gold-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.ring", Assert.Single(result.Candidates).Id);
+        Assert.Equal(2, result.NameCandidateCount);
+        Assert.Equal(2, result.GenerationKindCandidateCount);
+        Assert.Equal(1, result.EligibilityCandidateCount);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierExactEligibleMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_ManyCandidatesReduceToSeveralEligibleCandidates_RemainsUnknown()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            Modifier("mod.prefix.hale.one", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("ring", 1000)),
+            Modifier("mod.prefix.hale.two", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("default", 1000)),
+            Modifier("mod.prefix.hale.amulet", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("amulet", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = ExactBase(catalog, "base.gold-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(["mod.prefix.hale.one", "mod.prefix.hale.two"], result.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(3, result.NameCandidateCount);
+        Assert.Equal(3, result.GenerationKindCandidateCount);
+        Assert.Equal(2, result.EligibilityCandidateCount);
+        Assert.Equal(1, result.ExcludedCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_AllCandidatesExcluded_ReturnsUnknownWithoutEligibleCandidates()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            Modifier("mod.prefix.hale.amulet", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("amulet", 1000)),
+            Modifier("mod.prefix.hale.flask", "Hale", ModifierGenerationType.Prefix, "flask", SpawnWeight("default", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = ExactBase(catalog, "base.gold-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(2, result.ExcludedCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierNoEligibleCandidates,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_UnknownBasePreservesNameAndKindCandidates()
+    {
+        var catalog = CreateCatalog(
+            Modifier("mod.prefix.hale.one", "Hale", ModifierGenerationType.Prefix),
+            Modifier("mod.prefix.hale.two", "Hale", ModifierGenerationType.Prefix));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+        };
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(["mod.prefix.hale.one", "mod.prefix.hale.two"], result.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(2, result.EligibilityCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityNotEvaluated,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_ProbableBaseCanBeEvaluated()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            Modifier("mod.prefix.hale.ring", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("ring", 1000)),
+            Modifier("mod.prefix.hale.amulet", "Hale", ModifierGenerationType.Prefix, "item", SpawnWeight("amulet", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = ProbableBase(catalog, "base.gold-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.ring", Assert.Single(result.Candidates).Id);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierExactEligibleMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_AmbiguousBaseDoesNotGuessEligibility()
+    {
+        var catalog = CreateCatalog(
+            Modifier("mod.prefix.hale.one", "Hale", ModifierGenerationType.Prefix),
+            Modifier("mod.prefix.hale.two", "Hale", ModifierGenerationType.Prefix));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var baseResolution = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+            Candidates =
+            [
+                Base("base.one", "Shared Base", "Ring", "item", ["ring"]),
+                Base("base.two", "Shared Base", "Ring", "item", ["ring"]),
+            ],
+        };
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(["mod.prefix.hale.one", "mod.prefix.hale.two"], result.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityNotEvaluated,
             Assert.Single(result.Diagnostics).Code);
     }
 
@@ -239,10 +401,17 @@ Item Level: 80
 
     private static GameDataCatalog CreateCatalog(params ModifierDefinition[] modifiers)
     {
+        return CreateCatalog([], modifiers);
+    }
+
+    private static GameDataCatalog CreateCatalog(
+        IReadOnlyList<ItemBaseRecord> itemBases,
+        params ModifierDefinition[] modifiers)
+    {
         return GameDataCatalog.FromPackage(new GameDataPackage
         {
             Manifest = CreateManifest(),
-            ItemBases = [],
+            ItemBases = itemBases,
             Modifiers = modifiers,
             Stats = [Stat("test_stat")],
             StatTranslations = [],
@@ -254,13 +423,24 @@ Item Level: 80
         string name,
         ModifierGenerationType generationType)
     {
+        return Modifier(id, name, generationType, "item");
+    }
+
+    private static ModifierDefinition Modifier(
+        string id,
+        string name,
+        ModifierGenerationType generationType,
+        string? domain,
+        params ModifierSpawnWeight[] spawnWeights)
+    {
         return new ModifierDefinition
         {
             Id = id,
             GroupId = $"group.{id}",
             Name = name,
             GenerationType = generationType,
-            Domain = "item",
+            Domain = domain,
+            SpawnWeights = spawnWeights,
             Stats =
             [
                 new ModifierStat
@@ -279,6 +459,66 @@ Item Level: 80
                     ExternalId = id,
                 },
             ],
+        };
+    }
+
+    private static ItemBaseRecord Base(
+        string id,
+        string name,
+        string itemClass,
+        string? domain,
+        IReadOnlyList<string> tags)
+    {
+        return new ItemBaseRecord
+        {
+            Id = id,
+            Name = name,
+            ItemClass = itemClass,
+            Domain = domain,
+            Tags = tags,
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = id,
+                },
+            ],
+        };
+    }
+
+    private static ItemBaseResolutionResult ExactBase(GameDataCatalog catalog, string id)
+    {
+        return MatchedBase(catalog, id, ItemBaseResolutionStatus.Exact);
+    }
+
+    private static ItemBaseResolutionResult ProbableBase(GameDataCatalog catalog, string id)
+    {
+        return MatchedBase(catalog, id, ItemBaseResolutionStatus.Probable);
+    }
+
+    private static ItemBaseResolutionResult MatchedBase(
+        GameDataCatalog catalog,
+        string id,
+        ItemBaseResolutionStatus status)
+    {
+        var itemBase = Assert.Single(catalog.FindItemBasesById(id));
+        return new ItemBaseResolutionResult
+        {
+            Status = status,
+            MatchedItemBase = itemBase,
+            ResolvedBaseId = itemBase.Id,
+            ResolvedBaseName = itemBase.Name,
+            Candidates = [itemBase],
+        };
+    }
+
+    private static ModifierSpawnWeight SpawnWeight(string tag, int weight)
+    {
+        return new ModifierSpawnWeight
+        {
+            Tag = tag,
+            Weight = weight,
         };
     }
 

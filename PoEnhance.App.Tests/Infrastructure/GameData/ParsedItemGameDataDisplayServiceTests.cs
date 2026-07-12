@@ -196,9 +196,105 @@ Item Level: 80
         Assert.Equal("Unknown", result.Status);
         Assert.Equal("MODIFIER_AMBIGUOUS: Ambiguous test match.", result.Diagnostic);
         Assert.Equal(6, result.CandidateCount);
+        Assert.Equal("0 name -> 0 kind -> 0 eligible", result.CountSummary);
         Assert.Equal(5, result.CandidateLabels.Count);
         Assert.Equal("mod.one (Hale)", result.CandidateLabels[0]);
         Assert.Equal(1, resolver.CallCount);
+    }
+
+    [Fact]
+    public void ResolveModifierCandidates_DisplaysEachNarrowingStageAndKeepsCompleteResultCollection()
+    {
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var candidates = Enumerable
+            .Range(1, 6)
+            .Select(index => Modifier($"mod.{index}", "Hale", ModifierGenerationType.Prefix))
+            .ToArray();
+        var resolver = new CountingModifierCandidateResolver
+        {
+            Results =
+            [
+                new ModifierCandidateResolutionResult(
+                    0,
+                    item.PrefixModifiers[0],
+                    "Hale",
+                    ParsedModifierKind.Prefix,
+                    ModifierGenerationType.Prefix,
+                    ModifierCandidateResolutionStatus.Unknown,
+                    candidates,
+                    [
+                        new ModifierCandidateResolutionDiagnostic(
+                            ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityAmbiguous,
+                            "Ambiguous after eligibility."),
+                    ],
+                    NameCandidateCount: 42,
+                    GenerationKindCandidateCount: 42,
+                    EligibilityCandidateCount: 6),
+            ],
+        };
+        var service = new ParsedItemGameDataDisplayService(new CountingResolver(), resolver);
+
+        var display = service.ResolveModifierCandidates(item, CreateCatalog());
+        var result = Assert.Single(display.Results);
+
+        Assert.Equal("42 name -> 42 kind -> 6 eligible", result.CountSummary);
+        Assert.Equal(6, result.CandidateCount);
+        Assert.Equal(5, result.CandidateLabels.Count);
+    }
+
+    [Fact]
+    public void ResolveModifierCandidates_PassesExistingItemBaseResolutionToResolver()
+    {
+        var baseResolution = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Exact,
+            MatchedItemBase = Base("item-base.gold-ring", "Gold Ring", "Rings"),
+        };
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dire Loop
+Gold Ring
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50 to maximum Life
+""");
+        var itemBaseResolver = new CountingResolver();
+        var modifierResolver = new CountingModifierCandidateResolver();
+        var service = new ParsedItemGameDataDisplayService(itemBaseResolver, modifierResolver);
+
+        _ = service.ResolveModifierCandidates(item, CreateCatalog(), baseResolution);
+
+        Assert.Equal(0, itemBaseResolver.CallCount);
+        Assert.Same(baseResolution, modifierResolver.LastBaseResolution);
+    }
+
+    [Fact]
+    public void ParsedItemStoresDescriptionEvenThoughRegularDisplayDoesNotExposeIt()
+    {
+        var item = parser.Parse("""
+Item Class: Stackable Currency
+Rarity: Currency
+Orb of Testing
+--------
+Stack Size: 1/20
+--------
+Right click this item then left click another item to apply it.
+""");
+
+        Assert.NotEmpty(item.DescriptionLines);
     }
 
     private static GameDataCatalog CreateCatalog()
@@ -312,13 +408,17 @@ Item Level: 80
     {
         public int CallCount { get; private set; }
 
+        public ItemBaseResolutionResult? LastBaseResolution { get; private set; }
+
         public IReadOnlyList<ModifierCandidateResolutionResult> Results { get; init; } = [];
 
         public IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
             ParsedItem parsedItem,
-            GameDataCatalog catalog)
+            GameDataCatalog catalog,
+            ItemBaseResolutionResult baseResolution)
         {
             CallCount++;
+            LastBaseResolution = baseResolution;
             return Results;
         }
     }

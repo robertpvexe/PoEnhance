@@ -31,6 +31,7 @@ public sealed class RePoeBaseItemImporterTests
         Assert.Equal("Gold Ring", goldRing.Name);
         Assert.Equal("Ring", goldRing.ItemClass);
         Assert.Null(goldRing.RequiredLevel);
+        Assert.Equal("item", goldRing.Domain);
         Assert.Equal(["default", "ring"], goldRing.Tags);
         AssertRePoeSource(goldRing, "Metadata/Items/Rings/Ring4");
     }
@@ -44,6 +45,7 @@ public sealed class RePoeBaseItemImporterTests
 
         Assert.Equal("Granite Flask", graniteFlask.Name);
         Assert.Equal("UtilityFlask", graniteFlask.ItemClass);
+        Assert.Equal("flask", graniteFlask.Domain);
         Assert.Equal(["default", "flask", "not_for_sale", "utility_flask"], graniteFlask.Tags);
         AssertRePoeSource(graniteFlask, "Metadata/Items/Flasks/FlaskUtility5");
     }

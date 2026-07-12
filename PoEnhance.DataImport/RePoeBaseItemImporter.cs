@@ -158,12 +158,25 @@ public sealed class RePoeBaseItemImporter
             Name = name,
             ItemClass = itemClass,
             RequiredLevel = requiredLevel,
+            Domain = ReadOptionalString(record, "domain"),
             Tags = ReadTags(record, sourceRecordId, diagnostics),
             Sources = [CreateSourceReference(sourceRecordId)],
         };
     }
 
     private static string? ReadRequiredString(JsonElement record, string propertyName)
+    {
+        if (!record.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var value = property.GetString()?.Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static string? ReadOptionalString(JsonElement record, string propertyName)
     {
         if (!record.TryGetProperty(propertyName, out var property) ||
             property.ValueKind != JsonValueKind.String)

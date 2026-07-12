@@ -397,7 +397,8 @@ public partial class MainWindow : Window
                 runtimeGameDataService.Current.Catalog);
             var modifierCandidateResolutions = itemGameDataDisplayService.ResolveModifierCandidates(
                 parsedItem,
-                runtimeGameDataService.Current.Catalog);
+                runtimeGameDataService.Current.Catalog,
+                itemBaseResolution.Result);
             DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
             SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
         }
@@ -468,10 +469,6 @@ public partial class MainWindow : Window
             ParsedEnchantmentsTextBox,
             DisplayEnchantments(parsedItem.Enchantments));
         DisplayOptionalTextBox(
-            ParsedDescriptionPanel,
-            ParsedDescriptionTextBox,
-            DisplayLines(parsedItem.DescriptionLines));
-        DisplayOptionalTextBox(
             ParsedFlavourTextPanel,
             ParsedFlavourTextBox,
             DisplayLines(parsedItem.FlavourTextLines));
@@ -505,7 +502,6 @@ public partial class MainWindow : Window
         DisplayOptionalTextBox(ParsedUniqueModifiersPanel, ParsedUniqueModifiersTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedUnknownModifiersPanel, ParsedUnknownModifiersTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedEnchantmentsPanel, ParsedEnchantmentsTextBox, NotDetectedText);
-        DisplayOptionalTextBox(ParsedDescriptionPanel, ParsedDescriptionTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedFlavourTextPanel, ParsedFlavourTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedListingNotePanel, ParsedListingNoteTextBox, NotDetectedText);
         DisplayOptionalTextBox(ParsedUnclassifiedPanel, ParsedUnclassifiedTextBox, NotDetectedText);
@@ -728,9 +724,10 @@ public partial class MainWindow : Window
     {
         var lines = new List<string>
         {
+            $"  Parsed name: {DisplayValue(candidateDisplay.ParsedModifier.Name)}",
             $"  Candidate status: {candidateDisplay.Status}",
+            $"  Candidate counts: {candidateDisplay.CountSummary}",
             $"  Candidate diagnostic: {candidateDisplay.Diagnostic}",
-            $"  Candidate count: {candidateDisplay.CandidateCount}",
         };
 
         if (candidateDisplay.CandidateLabels.Count > 0)

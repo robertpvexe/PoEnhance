@@ -696,6 +696,33 @@ Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to r
     }
 
     [Fact]
+    public void Parse_UniqueJewelWithFlavourAndSocketInstruction_DoesNotMixDescriptionIntoFlavour()
+    {
+        const string rawText = """
+Item Class: Jewels
+Rarity: Unique
+Voices
+Large Cluster Jewel
+--------
+Item Level: 84
+--------
+Only a madman would ignore a god's instructions.
+Place into an allocated Large Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+""";
+
+        var result = _parser.Parse(rawText);
+
+        Assert.Equal(rawText, result.RawText);
+        Assert.Equal(
+            ["Only a madman would ignore a god's instructions."],
+            result.FlavourTextLines);
+        Assert.Equal(
+            ["Place into an allocated Large Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket."],
+            result.DescriptionLines);
+        Assert.Empty(result.UnclassifiedLines);
+    }
+
+    [Fact]
     public void Parse_BlightAnointment_ClassifiesAllocatesEnchantAsAnoint()
     {
         const string rawText = """

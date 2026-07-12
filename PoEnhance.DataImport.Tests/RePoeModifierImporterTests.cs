@@ -145,6 +145,36 @@ public sealed class RePoeModifierImporterTests
         AssertHasDiagnostic(result, RePoeImportDiagnosticCodes.SchemaUnsupported, ImportDiagnosticSeverity.Error);
     }
 
+    [Fact]
+    public void Import_PreservesSpawnWeightSourceOrder()
+    {
+        var json = """
+            {
+              "OrderedMod": {
+                "domain": "item",
+                "generation_type": "prefix",
+                "groups": ["OrderedGroup"],
+                "stats": [
+                  {
+                    "id": "base_maximum_life",
+                    "min": 1,
+                    "max": 2
+                  }
+                ],
+                "spawn_weights": [
+                  { "tag": "ring", "weight": 0 },
+                  { "tag": "default", "weight": 1000 }
+                ]
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+        var modifier = Assert.Single(result.ImportedRecords);
+
+        Assert.Equal(["ring", "default"], modifier.SpawnWeights.Select(weight => weight.Tag));
+    }
+
     private ImportResult<ModifierDefinition> ImportJson(string json)
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));

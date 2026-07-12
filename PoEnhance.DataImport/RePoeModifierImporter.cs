@@ -347,10 +347,7 @@ public sealed class RePoeModifierImporter
             });
         }
 
-        return importedSpawnWeights
-            .OrderBy(spawnWeight => spawnWeight.Tag, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(spawnWeight => spawnWeight.Tag, StringComparer.Ordinal)
-            .ToArray();
+        return importedSpawnWeights.ToArray();
     }
 
     private static int? ReadOptionalNonNegativeInt(JsonElement record, string propertyName)

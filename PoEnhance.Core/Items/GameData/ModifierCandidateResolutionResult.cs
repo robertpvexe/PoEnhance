@@ -11,7 +11,12 @@ public sealed record ModifierCandidateResolutionResult(
     ModifierGenerationType? GenerationType,
     ModifierCandidateResolutionStatus Status,
     IReadOnlyList<ModifierDefinition> Candidates,
-    IReadOnlyList<ModifierCandidateResolutionDiagnostic> Diagnostics)
+    IReadOnlyList<ModifierCandidateResolutionDiagnostic> Diagnostics,
+    int NameCandidateCount = 0,
+    int GenerationKindCandidateCount = 0,
+    int EligibilityCandidateCount = 0,
+    int ExcludedCandidateCount = 0,
+    IReadOnlyList<ModifierDefinition>? ExcludedCandidates = null)
 {
     public int CandidateCount => Candidates.Count;
 }
