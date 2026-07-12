@@ -6,6 +6,8 @@ public sealed class GameDataPackageBuilderTests
 {
     private readonly GameDataPackageBuilder _builder = new();
     private readonly RePoeBaseItemImporter _importer = new();
+    private readonly RePoeStatsImporter _statsImporter = new();
+    private readonly RePoeStatTranslationsImporter _translationsImporter = new();
 
     [Fact]
     public void CreatePackage_WithImportedBasesAndRePoeManifest_ReturnsValidPackage()
@@ -74,6 +76,98 @@ public sealed class GameDataPackageBuilderTests
         Assert.Equal("repoe", source.SourceId);
         Assert.Equal("Metadata/Items/Rings/Ring4", source.ExternalId);
         Assert.Null(source.ExternalUri);
+    }
+
+    [Fact]
+    public void CreatePackage_WithImportedStatsAndTranslations_ReturnsValidCompletePackage()
+    {
+        var baseItems = _importer.Import(RePoeImportTestFixtures.ReducedBaseItemsPath).ImportedRecords;
+        var stats = _statsImporter.Import(RePoeImportTestFixtures.ReducedStatsPath).ImportedRecords;
+        var translations = _translationsImporter
+            .Import(RePoeImportTestFixtures.ReducedStatTranslationsPath, stats)
+            .ImportedRecords;
+        var modifiers = new[]
+        {
+            new ModifierDefinition
+            {
+                Id = "mod.test.maximum-life",
+                GroupId = "mod-group.test.maximum-life",
+                Name = "Test Life",
+                GenerationType = ModifierGenerationType.Prefix,
+                Tier = 1,
+                Stats =
+                [
+                    new ModifierStat
+                    {
+                        Index = 0,
+                        StatId = "base_maximum_life",
+                        MinValue = 10m,
+                        MaxValue = 20m,
+                    },
+                ],
+                Sources =
+                [
+                    new GameDataSourceReference
+                    {
+                        SourceId = "repoe",
+                        ExternalId = "TestLife",
+                    },
+                ],
+            },
+        };
+
+        var result = _builder.CreatePackage(
+            RePoeImportTestFixtures.CreateManifestWithRePoeSource(),
+            baseItems,
+            modifiers,
+            stats,
+            translations);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.NotNull(result.Package);
+        Assert.Equal(6, result.Package.ItemBases.Count);
+        Assert.Single(result.Package.Modifiers);
+        Assert.Equal(19, result.Package.Stats.Count);
+        Assert.Equal(6, result.Package.StatTranslations.Count);
+        Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
+    }
+
+    [Fact]
+    public void CreatePackage_MissingModifierStatReference_ReturnsDiagnosticAndNoPackage()
+    {
+        var stats = _statsImporter.Import(RePoeImportTestFixtures.ReducedStatsPath).ImportedRecords;
+        var modifiers = new[]
+        {
+            new ModifierDefinition
+            {
+                Id = "mod.test.missing-stat",
+                GroupId = "mod-group.test.missing-stat",
+                GenerationType = ModifierGenerationType.Prefix,
+                Tier = 1,
+                Stats =
+                [
+                    new ModifierStat
+                    {
+                        Index = 0,
+                        StatId = "missing_stat_id",
+                    },
+                ],
+            },
+        };
+
+        var result = _builder.CreatePackage(
+            RePoeImportTestFixtures.CreateManifestWithRePoeSource(),
+            itemBases: [],
+            modifiers,
+            stats,
+            statTranslations: []);
+
+        Assert.True(result.HasErrors);
+        Assert.Null(result.Package);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.PackageModifierStatReferenceMissing &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
     }
 
 }

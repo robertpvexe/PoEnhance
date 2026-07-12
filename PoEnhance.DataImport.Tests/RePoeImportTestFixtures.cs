@@ -7,6 +7,12 @@ internal static class RePoeImportTestFixtures
     public static string ReducedBaseItemsPath =>
         Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "base_items.reduced.json");
 
+    public static string ReducedStatsPath =>
+        Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "stats.reduced.json");
+
+    public static string ReducedStatTranslationsPath =>
+        Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "stat_translations.reduced.json");
+
     public static GameDataPackageManifest CreateManifestWithRePoeSource()
     {
         return new GameDataPackageManifest

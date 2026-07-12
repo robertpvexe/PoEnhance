@@ -22,6 +22,8 @@ public sealed class GameDataPackageValidatorTests
         {
             ItemBases = null!,
             Modifiers = null!,
+            Stats = null!,
+            StatTranslations = null!,
         };
 
         var result = GameDataPackageValidator.Validate(package);
@@ -29,6 +31,8 @@ public sealed class GameDataPackageValidatorTests
         Assert.False(result.IsValid);
         AssertHasError(result, GameDataValidationErrorCodes.PackageItemBasesRequired);
         AssertHasError(result, GameDataValidationErrorCodes.PackageModifiersRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.PackageStatsRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.PackageStatTranslationsRequired);
     }
 
     [Fact]
@@ -300,6 +304,109 @@ public sealed class GameDataPackageValidatorTests
         AssertHasError(result, GameDataValidationErrorCodes.ModifierSpawnWeightTagRequired);
         AssertHasError(result, GameDataValidationErrorCodes.ModifierSpawnWeightWeightNegative);
         AssertHasError(result, GameDataValidationErrorCodes.ModifierSpawnWeightTagDuplicate);
+    }
+
+    [Fact]
+    public void Validate_InvalidStats_ReturnsExpectedErrors()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var invalidPackage = package with
+        {
+            Stats =
+            [
+                new StatDefinition
+                {
+                    Id = "",
+                    MainHandAliasId = " ",
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "missing-id",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "base_maximum_life",
+                    MainHandAliasId = "base_maximum_life",
+                },
+                new StatDefinition
+                {
+                    Id = "BASE_MAXIMUM_LIFE",
+                    OffHandAliasId = "missing_alias_target",
+                },
+            ],
+        };
+
+        var result = GameDataPackageValidator.Validate(invalidPackage);
+
+        Assert.False(result.IsValid);
+        AssertHasError(result, GameDataValidationErrorCodes.StatIdRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.StatMainHandAliasIdRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.StatIdDuplicate);
+        AssertHasError(result, GameDataValidationErrorCodes.StatAliasIdSelfReference);
+        AssertHasError(result, GameDataValidationErrorCodes.StatAliasIdUnknown);
+    }
+
+    [Fact]
+    public void Validate_InvalidStatTranslations_ReturnsExpectedErrors()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var invalidPackage = package with
+        {
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "",
+                    StatIds = ["base_maximum_life", "BASE_MAXIMUM_LIFE", "missing_stat", ""],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition
+                                {
+                                    Index = -1,
+                                },
+                                new StatTranslationCondition
+                                {
+                                    Index = 0,
+                                    MinValue = 2m,
+                                    MaxValue = 1m,
+                                },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 99,
+                                    Handlers = [""],
+                                },
+                            ],
+                            FormatLines = [""],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var result = GameDataPackageValidator.Validate(invalidPackage);
+
+        Assert.False(result.IsValid);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationIdRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationStatIdDuplicate);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationStatIdUnknown);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationStatIdRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationFormatLineRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationConditionIndexInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationConditionRangeInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationIndexHandlerIndexInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.StatTranslationIndexHandlerValueRequired);
     }
 
     private static void AssertHasError(GameDataValidationResult result, string code)

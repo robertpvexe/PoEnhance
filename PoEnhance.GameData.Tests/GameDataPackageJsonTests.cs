@@ -14,6 +14,8 @@ public sealed class GameDataPackageJsonTests
         Assert.Contains("\"manifest\": {", json);
         Assert.Contains("\"itemBases\": [", json);
         Assert.Contains("\"modifiers\": [", json);
+        Assert.Contains("\"stats\": [", json);
+        Assert.Contains("\"statTranslations\": [", json);
         Assert.Contains("\"generationType\": \"prefix\"", json);
         Assert.Contains("\n", json);
     }
@@ -31,6 +33,8 @@ public sealed class GameDataPackageJsonTests
         Assert.Equal(package.Manifest.CreatedAtUtc, roundTrippedPackage.Manifest.CreatedAtUtc);
         Assert.Equal(package.ItemBases.Count, roundTrippedPackage.ItemBases.Count);
         Assert.Equal(package.Modifiers.Count, roundTrippedPackage.Modifiers.Count);
+        Assert.Equal(package.Stats.Count, roundTrippedPackage.Stats.Count);
+        Assert.Equal(package.StatTranslations.Count, roundTrippedPackage.StatTranslations.Count);
         Assert.True(GameDataPackageValidator.Validate(roundTrippedPackage).IsValid);
     }
 
@@ -92,6 +96,28 @@ public sealed class GameDataPackageJsonTests
     }
 
     [Fact]
+    public void Deserialize_SerializedPackage_PreservesStatsAndTranslations()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+
+        var json = GameDataPackageJson.Serialize(package);
+        var roundTrippedPackage = GameDataPackageJson.Deserialize(json);
+
+        Assert.NotNull(roundTrippedPackage);
+        var localArmour = roundTrippedPackage.Stats.Single(stat => stat.Id == "local_armour_+%");
+        Assert.True(localArmour.IsLocal);
+        Assert.Equal("main_hand_local_armour_+%", localArmour.MainHandAliasId);
+        Assert.Equal("off_hand_local_armour_+%", localArmour.OffHandAliasId);
+
+        var translation = Assert.Single(roundTrippedPackage.StatTranslations);
+        Assert.Equal("English", translation.Language);
+        Assert.Equal(["base_maximum_life"], translation.StatIds);
+        Assert.Equal(["+{0} to maximum Life"], Assert.Single(translation.Variants).FormatLines);
+        Assert.Equal(1m, Assert.Single(translation.Variants[0].Conditions).MinValue);
+    }
+
+
+    [Fact]
     public void Serialize_Enums_AreStableHumanReadableStrings()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();
@@ -150,7 +176,11 @@ public sealed class GameDataPackageJsonTests
         Assert.NotNull(package);
         Assert.NotNull(package.ItemBases);
         Assert.NotNull(package.Modifiers);
+        Assert.NotNull(package.Stats);
+        Assert.NotNull(package.StatTranslations);
         Assert.Empty(package.ItemBases);
         Assert.Empty(package.Modifiers);
+        Assert.Empty(package.Stats);
+        Assert.Empty(package.StatTranslations);
     }
 }

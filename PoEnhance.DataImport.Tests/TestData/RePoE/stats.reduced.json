@@ -1,0 +1,103 @@
+{
+  "base_item_found_rarity_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "base_maximum_life": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "base_fire_damage_resistance_%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "local_attribute_requirements_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_accuracy_rating": {
+    "alias": {
+      "when_in_main_hand": "main_hand_local_accuracy_rating",
+      "when_in_off_hand": "off_hand_local_accuracy_rating"
+    },
+    "is_aliased": true,
+    "is_local": true
+  },
+  "main_hand_local_accuracy_rating": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "off_hand_local_accuracy_rating": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "attack_maximum_added_fire_damage_per_10_strength": {
+    "alias": {
+      "when_in_main_hand": "main_hand_attack_maximum_added_fire_damage_per_10_strength",
+      "when_in_off_hand": "off_hand_attack_maximum_added_fire_damage_per_10_strength"
+    },
+    "is_aliased": true,
+    "is_local": false
+  },
+  "main_hand_attack_maximum_added_fire_damage_per_10_strength": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "off_hand_attack_maximum_added_fire_damage_per_10_strength": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "+1_max_charged_attack_stages": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "heist_coins_from_monsters_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "local_jewel_+%_effect_per_passive_between_jewel_and_class_start": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_unique_hungry_loop_number_of_gems_to_consume": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_unique_hungry_loop_has_consumed_gem": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_random_support_gem_level": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_random_support_gem_index": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_display_socketed_gems_minimum_added_fire_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_display_socketed_gems_maximum_added_fire_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  }
+}

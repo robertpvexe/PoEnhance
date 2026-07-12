@@ -1,0 +1,12 @@
+# RePoE stats and stat translations reduced fixtures
+
+These fixtures are reduced test-only excerpts from the public RePoE repository.
+
+- Repository: https://github.com/brather1ng/RePoE
+- Commit: 8023a1d696dbddc836c05ac3fcedd072da1767d2
+- Source files: `RePoE/data/stats.json`, `RePoE/data/stat_translations.json`
+- Inspected: 2026-07-12
+
+The selected records cover global stats, local stats, main-hand/off-hand aliases,
+single-stat translations, multi-stat translations, negative conditions,
+index handlers, and multi-line output strings.

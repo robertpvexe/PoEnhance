@@ -213,6 +213,143 @@ internal static class GameDataPackageFixtures
                     ],
                 },
             ],
+            Stats =
+            [
+                new StatDefinition
+                {
+                    Id = "base_item_found_rarity_+%",
+                    IsLocal = false,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "base_item_found_rarity_+%",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "base_maximum_life",
+                    IsLocal = false,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "base_maximum_life",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "base_fire_damage_resistance_%",
+                    IsLocal = false,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "base_fire_damage_resistance_%",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "local_armour_+%",
+                    IsLocal = true,
+                    MainHandAliasId = "main_hand_local_armour_+%",
+                    OffHandAliasId = "off_hand_local_armour_+%",
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "local_armour_+%",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "main_hand_local_armour_+%",
+                    IsLocal = false,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "main_hand_local_armour_+%",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "off_hand_local_armour_+%",
+                    IsLocal = false,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "off_hand_local_armour_+%",
+                        },
+                    ],
+                },
+                new StatDefinition
+                {
+                    Id = "local_attribute_requirements_+%",
+                    IsLocal = true,
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "local_attribute_requirements_+%",
+                        },
+                    ],
+                },
+            ],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation.base-maximum-life",
+                    StatIds = ["base_maximum_life"],
+                    Language = "English",
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition
+                                {
+                                    Index = 0,
+                                    MinValue = 1m,
+                                },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = [],
+                                },
+                            ],
+                            FormatLines = ["+{0} to maximum Life"],
+                        },
+                    ],
+                    Sources =
+                    [
+                        new GameDataSourceReference
+                        {
+                            SourceId = "repoe",
+                            ExternalId = "translation.base-maximum-life",
+                        },
+                    ],
+                },
+            ],
         };
     }
 }

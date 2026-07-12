@@ -59,9 +59,9 @@ Current repository contents:
 - `PoEnhance.App/` - WPF application project.
 - `PoEnhance.Core/` - shared business logic class library.
 - `PoEnhance.Core.Tests/` - xUnit tests for `PoEnhance.Core`.
-- `PoEnhance.GameData/` - independent shared game-data class library for versioned provider-neutral package manifests, item bases, and modifier tiers.
+- `PoEnhance.GameData/` - independent shared game-data class library for versioned provider-neutral package manifests, item bases, modifier tiers, stat definitions, and stat translations.
 - `PoEnhance.GameData.Tests/` - xUnit tests for `PoEnhance.GameData`.
-- `PoEnhance.DataImport/` - local-file-only data import adapters; currently imports RePoE `base_items.json` into provider-neutral game-data records without automatic downloading.
+- `PoEnhance.DataImport/` - local-file-only data import adapters; currently imports RePoE `base_items.json`, `stats.json`, and `stat_translations.json` into provider-neutral game-data records without automatic downloading.
 - `PoEnhance.DataImport.Tests/` - xUnit tests for `PoEnhance.DataImport`.
 - `docs/` - project documentation.
 - `README.md` - repository overview.
@@ -139,7 +139,8 @@ No open-source license has been selected yet.
 - Windows only.
 - Early prototype.
 - Incomplete parser and data catalogs.
-- RePoE importing is local-file-only; there is no automatic data downloading or update workflow yet.
+- RePoE importing is local-file-only for supported files; there is no automatic data downloading or update workflow yet.
+- RePoE `mods.json` is not imported directly yet; package assembly can include provider-neutral modifier records alongside imported item bases, stats, and stat translations.
 - No production-ready Trade, OAuth, stash, or economy integration yet.
 
 ---
@@ -207,9 +208,9 @@ Obecna zawartość repozytorium:
 - `PoEnhance.App/` - projekt aplikacji WPF.
 - `PoEnhance.Core/` - biblioteka klas dla współdzielonej logiki biznesowej.
 - `PoEnhance.Core.Tests/` - testy xUnit dla `PoEnhance.Core`.
-- `PoEnhance.GameData/` - niezależna biblioteka klas dla wersjonowanych, provider-neutral manifestów pakietów, baz przedmiotów i tierów modifierów.
+- `PoEnhance.GameData/` - niezależna biblioteka klas dla wersjonowanych, provider-neutral manifestów pakietów, baz przedmiotów, tierów modifierów, definicji statystyk i tłumaczeń statystyk.
 - `PoEnhance.GameData.Tests/` - testy xUnit dla `PoEnhance.GameData`.
-- `PoEnhance.DataImport/` - adaptery importu danych tylko z lokalnych plików; obecnie importuje RePoE `base_items.json` do provider-neutral rekordów game-data bez automatycznego pobierania.
+- `PoEnhance.DataImport/` - adaptery importu danych tylko z lokalnych plików; obecnie importuje RePoE `base_items.json`, `stats.json` i `stat_translations.json` do provider-neutral rekordów game-data bez automatycznego pobierania.
 - `PoEnhance.DataImport.Tests/` - testy xUnit dla `PoEnhance.DataImport`.
 - `docs/` - dokumentacja projektu.
 - `README.md` - przegląd repozytorium.
@@ -287,5 +288,6 @@ Nie wybrano jeszcze licencji open-source.
 - Tylko Windows.
 - Wczesny prototyp.
 - Niekompletny parser i katalogi danych.
-- Import RePoE działa tylko z lokalnych plików; nie ma jeszcze automatycznego pobierania danych ani workflow aktualizacji.
+- Import RePoE działa tylko z obsługiwanych lokalnych plików; nie ma jeszcze automatycznego pobierania danych ani workflow aktualizacji.
+- RePoE `mods.json` nie jest jeszcze importowany bezpośrednio; składanie pakietu może dołączać provider-neutral rekordy modifierów obok zaimportowanych baz przedmiotów, statystyk i tłumaczeń statystyk.
 - Brak production-ready integracji Trade, OAuth, stash lub economy.

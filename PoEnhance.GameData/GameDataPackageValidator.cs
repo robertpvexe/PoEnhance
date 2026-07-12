@@ -30,6 +30,19 @@ public static class GameDataPackageValidator
             ValidateItemBases(package.ItemBases, manifestSourceIds, errors);
         }
 
+        HashSet<string>? knownStatIds = null;
+        if (package.Stats is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageStatsRequired,
+                "stats",
+                "Stats collection is required."));
+        }
+        else
+        {
+            knownStatIds = ValidateStatDefinitions(package.Stats, manifestSourceIds, errors);
+        }
+
         if (package.Modifiers is null)
         {
             errors.Add(Error(
@@ -39,7 +52,19 @@ public static class GameDataPackageValidator
         }
         else
         {
-            ValidateModifiers(package.Modifiers, manifestSourceIds, errors);
+            ValidateModifiers(package.Modifiers, manifestSourceIds, knownStatIds, errors);
+        }
+
+        if (package.StatTranslations is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageStatTranslationsRequired,
+                "statTranslations",
+                "StatTranslations collection is required."));
+        }
+        else
+        {
+            ValidateStatTranslations(package.StatTranslations, manifestSourceIds, knownStatIds, errors);
         }
 
         return new GameDataValidationResult(errors);
@@ -120,6 +145,7 @@ public static class GameDataPackageValidator
     private static void ValidateModifiers(
         IReadOnlyList<ModifierDefinition> modifiers,
         ISet<string> manifestSourceIds,
+        ISet<string>? knownStatIds,
         List<GameDataValidationError> errors)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -186,7 +212,7 @@ public static class GameDataPackageValidator
                 errors);
 
             ValidateSourceReferences(modifier.Sources, $"{path}.sources", manifestSourceIds, errors);
-            ValidateStats(modifier.Stats, $"{path}.stats", index, errors);
+            ValidateStats(modifier.Stats, $"{path}.stats", index, knownStatIds, errors);
             ValidateSpawnWeights(modifier.SpawnWeights, $"{path}.spawnWeights", index, errors);
         }
     }
@@ -195,6 +221,7 @@ public static class GameDataPackageValidator
         IReadOnlyList<ModifierStat>? stats,
         string path,
         int modifierIndex,
+        ISet<string>? knownStatIds,
         List<GameDataValidationError> errors)
     {
         if (stats is null || stats.Count == 0)
@@ -242,6 +269,13 @@ public static class GameDataPackageValidator
                     $"{statPath}.statId",
                     $"Modifiers[{modifierIndex}].Stats[{statIndex}].StatId is required."));
             }
+            else if (knownStatIds is { Count: > 0 } && !knownStatIds.Contains(stat.StatId.Trim()))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ModifierStatIdUnknown,
+                    $"{statPath}.statId",
+                    $"Modifiers[{modifierIndex}].Stats[{statIndex}].StatId '{stat.StatId}' is not declared in package stats."));
+            }
 
             if (stat.MinValue.HasValue && stat.MaxValue.HasValue && stat.MinValue.Value > stat.MaxValue.Value)
             {
@@ -249,6 +283,396 @@ public static class GameDataPackageValidator
                     GameDataValidationErrorCodes.ModifierStatRangeInvalid,
                     statPath,
                     $"Modifiers[{modifierIndex}].Stats[{statIndex}] has MinValue greater than MaxValue."));
+            }
+        }
+    }
+
+    private static HashSet<string> ValidateStatDefinitions(
+        IReadOnlyList<StatDefinition> stats,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var nonNullStats = new List<(int Index, StatDefinition Stat, string Id)>();
+
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var path = $"stats[{index}]";
+            StatDefinition? stat = stats[index];
+            if (stat is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatRequired,
+                    path,
+                    $"Stats[{index}] is required."));
+                continue;
+            }
+
+            var id = stat.Id?.Trim();
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatIdRequired,
+                    $"{path}.id",
+                    $"Stats[{index}].Id is required."));
+            }
+            else
+            {
+                if (!ids.Add(id))
+                {
+                    errors.Add(Error(
+                        GameDataValidationErrorCodes.StatIdDuplicate,
+                        $"{path}.id",
+                        $"Stat Id '{id}' is duplicated."));
+                }
+
+                nonNullStats.Add((index, stat, id));
+            }
+
+            ValidateAlias(
+                stat.MainHandAliasId,
+                $"{path}.mainHandAliasId",
+                id,
+                GameDataValidationErrorCodes.StatMainHandAliasIdRequired,
+                errors);
+            ValidateAlias(
+                stat.OffHandAliasId,
+                $"{path}.offHandAliasId",
+                id,
+                GameDataValidationErrorCodes.StatOffHandAliasIdRequired,
+                errors);
+
+            ValidateSourceReferences(stat.Sources, $"{path}.sources", manifestSourceIds, errors);
+        }
+
+        foreach (var (index, stat, _) in nonNullStats)
+        {
+            ValidateAliasTarget(stat.MainHandAliasId, $"stats[{index}].mainHandAliasId", ids, errors);
+            ValidateAliasTarget(stat.OffHandAliasId, $"stats[{index}].offHandAliasId", ids, errors);
+        }
+
+        return ids;
+    }
+
+    private static void ValidateAlias(
+        string? aliasId,
+        string path,
+        string? ownerId,
+        string requiredErrorCode,
+        List<GameDataValidationError> errors)
+    {
+        if (aliasId is null)
+        {
+            return;
+        }
+
+        var normalizedAliasId = aliasId.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedAliasId))
+        {
+            errors.Add(Error(
+                requiredErrorCode,
+                path,
+                $"Stat alias at {path} is required when present."));
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ownerId) &&
+            string.Equals(normalizedAliasId, ownerId.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.StatAliasIdSelfReference,
+                path,
+                $"Stat alias at {path} cannot reference its own stat Id."));
+        }
+    }
+
+    private static void ValidateAliasTarget(
+        string? aliasId,
+        string path,
+        ISet<string> knownStatIds,
+        List<GameDataValidationError> errors)
+    {
+        var normalizedAliasId = aliasId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedAliasId))
+        {
+            return;
+        }
+
+        if (!knownStatIds.Contains(normalizedAliasId))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.StatAliasIdUnknown,
+                path,
+                $"Stat alias at {path} references unknown stat Id '{normalizedAliasId}'."));
+        }
+    }
+
+    private static void ValidateStatTranslations(
+        IReadOnlyList<StatTranslationDefinition> translations,
+        ISet<string> manifestSourceIds,
+        ISet<string>? knownStatIds,
+        List<GameDataValidationError> errors)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var index = 0; index < translations.Count; index++)
+        {
+            var path = $"statTranslations[{index}]";
+            StatTranslationDefinition? translation = translations[index];
+            if (translation is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationRequired,
+                    path,
+                    $"StatTranslations[{index}] is required."));
+                continue;
+            }
+
+            var id = translation.Id?.Trim();
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationIdRequired,
+                    $"{path}.id",
+                    $"StatTranslations[{index}].Id is required."));
+            }
+            else if (!ids.Add(id))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationIdDuplicate,
+                    $"{path}.id",
+                    $"Stat translation Id '{id}' is duplicated."));
+            }
+
+            ValidateTranslationStatIds(translation.StatIds, path, index, knownStatIds, errors);
+            ValidateTranslationVariants(translation.Variants, path, index, translation.StatIds?.Count ?? 0, errors);
+            ValidateSourceReferences(translation.Sources, $"{path}.sources", manifestSourceIds, errors);
+        }
+    }
+
+    private static void ValidateTranslationStatIds(
+        IReadOnlyList<string>? statIds,
+        string path,
+        int translationIndex,
+        ISet<string>? knownStatIds,
+        List<GameDataValidationError> errors)
+    {
+        if (statIds is null || statIds.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.StatTranslationStatIdsRequired,
+                $"{path}.statIds",
+                $"StatTranslations[{translationIndex}].StatIds must contain at least one stat id."));
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < statIds.Count; index++)
+        {
+            var statId = statIds[index]?.Trim();
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationStatIdRequired,
+                    $"{path}.statIds[{index}]",
+                    $"StatTranslations[{translationIndex}].StatIds[{index}] is required."));
+                continue;
+            }
+
+            if (!seen.Add(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationStatIdDuplicate,
+                    $"{path}.statIds[{index}]",
+                    $"StatTranslations[{translationIndex}].StatIds[{index}] '{statId}' is duplicated."));
+            }
+
+            if (knownStatIds is { Count: > 0 } && !knownStatIds.Contains(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationStatIdUnknown,
+                    $"{path}.statIds[{index}]",
+                    $"StatTranslations[{translationIndex}].StatIds[{index}] '{statId}' is not declared in package stats."));
+            }
+        }
+    }
+
+    private static void ValidateTranslationVariants(
+        IReadOnlyList<StatTranslationVariant>? variants,
+        string path,
+        int translationIndex,
+        int statIdCount,
+        List<GameDataValidationError> errors)
+    {
+        if (variants is null || variants.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.StatTranslationVariantsRequired,
+                $"{path}.variants",
+                $"StatTranslations[{translationIndex}].Variants must contain at least one variant."));
+            return;
+        }
+
+        for (var variantIndex = 0; variantIndex < variants.Count; variantIndex++)
+        {
+            var variantPath = $"{path}.variants[{variantIndex}]";
+            StatTranslationVariant? variant = variants[variantIndex];
+            if (variant is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationVariantRequired,
+                    variantPath,
+                    $"StatTranslations[{translationIndex}].Variants[{variantIndex}] is required."));
+                continue;
+            }
+
+            ValidateFormatLines(variant.FormatLines, variantPath, translationIndex, variantIndex, errors);
+            ValidateValueFormats(variant.ValueFormats, variantPath, errors);
+            ValidateConditions(variant.Conditions, variantPath, statIdCount, errors);
+            ValidateIndexHandlers(variant.IndexHandlers, variantPath, statIdCount, errors);
+        }
+    }
+
+    private static void ValidateFormatLines(
+        IReadOnlyList<string>? formatLines,
+        string variantPath,
+        int translationIndex,
+        int variantIndex,
+        List<GameDataValidationError> errors)
+    {
+        if (formatLines is null || formatLines.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.StatTranslationFormatLinesRequired,
+                $"{variantPath}.formatLines",
+                $"StatTranslations[{translationIndex}].Variants[{variantIndex}].FormatLines must contain at least one line."));
+            return;
+        }
+
+        for (var index = 0; index < formatLines.Count; index++)
+        {
+            if (string.IsNullOrWhiteSpace(formatLines[index]))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationFormatLineRequired,
+                    $"{variantPath}.formatLines[{index}]",
+                    $"StatTranslations[{translationIndex}].Variants[{variantIndex}].FormatLines[{index}] is required."));
+            }
+        }
+    }
+
+    private static void ValidateValueFormats(
+        IReadOnlyList<string>? valueFormats,
+        string variantPath,
+        List<GameDataValidationError> errors)
+    {
+        if (valueFormats is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < valueFormats.Count; index++)
+        {
+            if (string.IsNullOrWhiteSpace(valueFormats[index]))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationValueFormatRequired,
+                    $"{variantPath}.valueFormats[{index}]",
+                    $"Stat translation value format at {variantPath}.ValueFormats[{index}] is required."));
+            }
+        }
+    }
+
+    private static void ValidateConditions(
+        IReadOnlyList<StatTranslationCondition>? conditions,
+        string variantPath,
+        int statIdCount,
+        List<GameDataValidationError> errors)
+    {
+        if (conditions is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < conditions.Count; index++)
+        {
+            var conditionPath = $"{variantPath}.conditions[{index}]";
+            StatTranslationCondition? condition = conditions[index];
+            if (condition is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationConditionRequired,
+                    conditionPath,
+                    $"Stat translation condition at {conditionPath} is required."));
+                continue;
+            }
+
+            if (condition.Index < 0 || condition.Index >= statIdCount)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationConditionIndexInvalid,
+                    $"{conditionPath}.index",
+                    $"Stat translation condition at {conditionPath}.Index must reference a stat id index."));
+            }
+
+            if (condition.MinValue.HasValue &&
+                condition.MaxValue.HasValue &&
+                condition.MinValue.Value > condition.MaxValue.Value)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationConditionRangeInvalid,
+                    conditionPath,
+                    $"Stat translation condition at {conditionPath} has MinValue greater than MaxValue."));
+            }
+        }
+    }
+
+    private static void ValidateIndexHandlers(
+        IReadOnlyList<StatTranslationIndexHandler>? indexHandlers,
+        string variantPath,
+        int statIdCount,
+        List<GameDataValidationError> errors)
+    {
+        if (indexHandlers is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < indexHandlers.Count; index++)
+        {
+            var handlerPath = $"{variantPath}.indexHandlers[{index}]";
+            StatTranslationIndexHandler? indexHandler = indexHandlers[index];
+            if (indexHandler is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationIndexHandlerRequired,
+                    handlerPath,
+                    $"Stat translation index handler at {handlerPath} is required."));
+                continue;
+            }
+
+            if (indexHandler.Index < 0 || indexHandler.Index >= statIdCount)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationIndexHandlerIndexInvalid,
+                    $"{handlerPath}.index",
+                    $"Stat translation index handler at {handlerPath}.Index must reference a stat id index."));
+            }
+
+            if (indexHandler.Handlers is null)
+            {
+                continue;
+            }
+
+            for (var handlerValueIndex = 0; handlerValueIndex < indexHandler.Handlers.Count; handlerValueIndex++)
+            {
+                if (string.IsNullOrWhiteSpace(indexHandler.Handlers[handlerValueIndex]))
+                {
+                    errors.Add(Error(
+                        GameDataValidationErrorCodes.StatTranslationIndexHandlerValueRequired,
+                        $"{handlerPath}.handlers[{handlerValueIndex}]",
+                        $"Stat translation index handler at {handlerPath}.Handlers[{handlerValueIndex}] is required."));
+                }
             }
         }
     }

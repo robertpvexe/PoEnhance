@@ -1,0 +1,175 @@
+[
+  {
+    "English": [
+      {
+        "condition": [
+          {}
+        ],
+        "format": [
+          "ignore"
+        ],
+        "index_handlers": [
+          []
+        ],
+        "string": "+1 to maximum Blade Flurry stages"
+      }
+    ],
+    "ids": [
+      "+1_max_charged_attack_stages"
+    ]
+  },
+  {
+    "English": [
+      {
+        "condition": [
+          {
+            "min": 1
+          }
+        ],
+        "format": [
+          "#"
+        ],
+        "index_handlers": [
+          []
+        ],
+        "string": "{0}% increased Rogue's Markers dropped by monsters"
+      },
+      {
+        "condition": [
+          {
+            "max": -1
+          }
+        ],
+        "format": [
+          "#"
+        ],
+        "index_handlers": [
+          [
+            "negate"
+          ]
+        ],
+        "string": "{0}% reduced Rogue's Markers dropped by monsters"
+      }
+    ],
+    "ids": [
+      "heist_coins_from_monsters_+%"
+    ]
+  },
+  {
+    "English": [
+      {
+        "condition": [
+          {}
+        ],
+        "format": [
+          "#"
+        ],
+        "index_handlers": [
+          []
+        ],
+        "string": "This Jewel's Socket has {0}% increased effect per Allocated Passive Skill between\nit and your Class's starting location"
+      }
+    ],
+    "ids": [
+      "local_jewel_+%_effect_per_passive_between_jewel_and_class_start"
+    ]
+  },
+  {
+    "English": [
+      {
+        "condition": [
+          {
+            "max": 1,
+            "min": 1
+          },
+          {
+            "max": 0,
+            "min": 0
+          }
+        ],
+        "format": [
+          "#",
+          "ignore"
+        ],
+        "index_handlers": [
+          [],
+          []
+        ],
+        "string": "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume {0} Uncorrupted Support Gem\nHas not Consumed any Gems"
+      },
+      {
+        "condition": [
+          {
+            "max": -1,
+            "min": -1
+          },
+          {
+            "max": 1,
+            "min": 1
+          }
+        ],
+        "format": [
+          "ignore",
+          "ignore"
+        ],
+        "index_handlers": [
+          [],
+          []
+        ],
+        "string": "Has Consumed 1 Gem"
+      }
+    ],
+    "ids": [
+      "local_unique_hungry_loop_number_of_gems_to_consume",
+      "local_unique_hungry_loop_has_consumed_gem"
+    ]
+  },
+  {
+    "English": [
+      {
+        "condition": [
+          {},
+          {}
+        ],
+        "format": [
+          "#",
+          "#"
+        ],
+        "index_handlers": [
+          [],
+          [
+            "display_indexable_support"
+          ]
+        ],
+        "string": "Socketed Gems are Supported by Level {0} {1}"
+      }
+    ],
+    "ids": [
+      "local_random_support_gem_level",
+      "local_random_support_gem_index"
+    ]
+  },
+  {
+    "English": [
+      {
+        "condition": [
+          {},
+          {}
+        ],
+        "format": [
+          "#",
+          "#"
+        ],
+        "index_handlers": [
+          [],
+          []
+        ],
+        "string": "Socketed Gems deal {0} to {1} Added Fire Damage"
+      }
+    ],
+    "ids": [
+      "local_display_socketed_gems_minimum_added_fire_damage",
+      "local_display_socketed_gems_maximum_added_fire_damage"
+    ]
+  }
+]
