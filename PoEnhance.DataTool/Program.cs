@@ -22,7 +22,7 @@ internal static class Program
         {
             var service = new RePoeGameDataPackageBuildService();
             var result = service.Build(parsed.Request!);
-            BuildPackageReportPrinter.Print(result, Console.Out);
+            BuildPackageReportPrinter.Print(result, Console.Out, parsed.VerboseDiagnostics);
             return (int)result.ExitCode;
         }
         catch (Exception exception)

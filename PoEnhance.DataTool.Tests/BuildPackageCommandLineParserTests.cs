@@ -26,6 +26,7 @@ public sealed class BuildPackageCommandLineParserTests
             "3.26.0",
             "--source-version",
             "repoe-commit",
+            "--verbose-diagnostics",
         ]);
 
         Assert.True(result.IsValid);
@@ -39,6 +40,7 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("Mercenaries", result.Request.League);
         Assert.Equal("3.26.0", result.Request.Patch);
         Assert.Equal("repoe-commit", result.Request.SourceVersion);
+        Assert.True(result.VerboseDiagnostics);
     }
 
     [Fact]

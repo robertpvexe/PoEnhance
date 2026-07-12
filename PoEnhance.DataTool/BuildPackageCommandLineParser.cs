@@ -19,6 +19,11 @@ public static class BuildPackageCommandLineParser
         "--source-version",
     };
 
+    private static readonly HashSet<string> FlagOptions = new(StringComparer.Ordinal)
+    {
+        "--verbose-diagnostics",
+    };
+
     public static BuildPackageCommandLineParseResult Parse(IReadOnlyList<string> args)
     {
         var errors = new List<string>();
@@ -34,9 +39,20 @@ public static class BuildPackageCommandLineParser
         }
 
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var flags = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 1; index < args.Count; index++)
         {
             var option = args[index];
+            if (FlagOptions.Contains(option))
+            {
+                if (!flags.Add(option))
+                {
+                    errors.Add($"Duplicate option '{option}'.");
+                }
+
+                continue;
+            }
+
             if (!OptionsWithValues.Contains(option))
             {
                 errors.Add($"Unknown option '{option}'.");
@@ -89,6 +105,7 @@ public static class BuildPackageCommandLineParser
                 Patch = values.GetValueOrDefault("--patch"),
                 SourceVersion = values.GetValueOrDefault("--source-version"),
             },
+            VerboseDiagnostics = flags.Contains("--verbose-diagnostics"),
         };
 
         static BuildPackageCommandLineParseResult Invalid(string error)
@@ -104,7 +121,7 @@ public static class BuildPackageCommandLineParser
     {
         return """
             Usage:
-              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --output <path> --data-version <value> [--league <value>] [--patch <value>] [--source-version <value>]
+              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --output <path> --data-version <value> [--league <value>] [--patch <value>] [--source-version <value>] [--verbose-diagnostics]
 
             Example:
               dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --output .\artifacts\poenhance-game-data.json --data-version dev-001
