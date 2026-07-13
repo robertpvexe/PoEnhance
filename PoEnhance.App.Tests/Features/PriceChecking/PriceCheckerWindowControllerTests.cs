@@ -457,14 +457,16 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
-    public void AppAssembly_DoesNotIntroduceTradeHttpDependency()
+    public void PriceCheckerUi_DoesNotInvokeTradeSearchClient()
     {
-        var referencedNames = typeof(PriceCheckerWindowController).Assembly
-            .GetReferencedAssemblies()
-            .Select(assemblyName => assemblyName.Name)
-            .ToHashSet(StringComparer.Ordinal);
+        var priceCheckerTypes = typeof(PriceCheckerWindowController).Assembly
+            .GetTypes()
+            .Where(type => type.Namespace == "PoEnhance.App.Features.PriceChecking")
+            .ToArray();
 
-        Assert.DoesNotContain("System.Net.Http", referencedNames);
+        Assert.DoesNotContain(priceCheckerTypes, type => Contains(type, "PathOfExileTradeSearchClient"));
+        Assert.DoesNotContain(priceCheckerTypes.SelectMany(ReferencedMemberTypes), type =>
+            Contains(type, "PathOfExileTradeSearchClient"));
     }
 
     [Fact]
@@ -527,6 +529,32 @@ Item Level: 80
             .Where(entryPoint => !string.IsNullOrWhiteSpace(entryPoint))
             .Select(entryPoint => entryPoint!)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<Type> ReferencedMemberTypes(Type type)
+    {
+        const BindingFlags flags =
+            BindingFlags.Instance |
+            BindingFlags.Static |
+            BindingFlags.Public |
+            BindingFlags.NonPublic;
+
+        return type.GetConstructors(flags).SelectMany(ConstructorTypes)
+            .Concat(type.GetFields(flags).Select(field => field.FieldType))
+            .Concat(type.GetProperties(flags).Select(property => property.PropertyType))
+            .Concat(type.GetMethods(flags).Select(method => method.ReturnType))
+            .Concat(type.GetMethods(flags).SelectMany(method =>
+                method.GetParameters().Select(parameter => parameter.ParameterType)));
+    }
+
+    private static IEnumerable<Type> ConstructorTypes(ConstructorInfo constructor)
+    {
+        return constructor.GetParameters().Select(parameter => parameter.ParameterType);
+    }
+
+    private static bool Contains(Type type, string value)
+    {
+        return type.FullName?.Contains(value, StringComparison.OrdinalIgnoreCase) == true;
     }
 
     private static ItemBaseResolutionResult ExactBase(string id, string name)

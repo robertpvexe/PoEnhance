@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
 
@@ -13,12 +11,6 @@ internal sealed class PathOfExileTradeQueryBuilder
     private const string RarityNormal = "Normal";
     private const string StatusMerchantOnly = "securable";
     private const string StatusInPerson = "available";
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false,
-    };
 
     public PathOfExileTradeQueryBuildResult Build(
         TradeSearchDraft? draft,
@@ -99,7 +91,7 @@ internal sealed class PathOfExileTradeQueryBuilder
             Sort = new PathOfExileTradeSearchSort(),
         };
 
-        var serializedJson = JsonSerializer.Serialize(request, JsonOptions);
+        var serializedJson = PathOfExileTradeJson.SerializeSearchRequest(request);
         return PathOfExileTradeQueryBuildResult.Success(
             trimmedLeague,
             request,

@@ -6,24 +6,34 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradeInfrastructureArchitectureTests
 {
     [Fact]
-    public void ProviderTradeInfrastructure_DoesNotIntroduceHttpRequestExecution()
+    public void ProviderTradeInfrastructure_IntroducesOnlySearchHttpExecution()
     {
-        Assert.DoesNotContain(ProviderTradeTypes(), type =>
-            Contains(type, "HttpClient") ||
-            Contains(type, "HttpRequest") ||
-            Contains(type, "HttpResponse") ||
-            Contains(type, "TradeSearchClient"));
+        var httpTypes = ProviderTradeTypes()
+            .Where(type =>
+                Contains(type, "HttpClient") ||
+                Contains(type, "HttpRequest") ||
+                Contains(type, "HttpResponse") ||
+                Contains(type, "TradeSearchClient"))
+            .Select(type => type.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            [
+                "IPathOfExileTradeSearchClient",
+                "PathOfExileTradeSearchClient",
+            ],
+            httpTypes);
     }
 
     [Fact]
-    public void AppAssembly_DoesNotReferenceHttpClientAssembly()
+    public void ProviderTradeInfrastructure_DoesNotIntroduceFetchExecution()
     {
-        var referencedNames = typeof(PathOfExileTradeEndpointBuilder).Assembly
-            .GetReferencedAssemblies()
-            .Select(assemblyName => assemblyName.Name)
-            .ToHashSet(StringComparer.Ordinal);
-
-        Assert.DoesNotContain("System.Net.Http", referencedNames);
+        Assert.DoesNotContain(ProviderTradeTypes(), type =>
+            Contains(type, "FetchClient") ||
+            type.GetMethods().Any(method =>
+                method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase) &&
+                method.Name.Contains("Async", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]
@@ -68,6 +78,7 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         return typeof(PathOfExileTradeEndpointBuilder).Assembly
             .GetTypes()
             .Where(type => type.Namespace == "PoEnhance.App.Infrastructure.Trade.PathOfExile")
+            .Where(type => !type.IsNested && !type.Name.StartsWith("<", StringComparison.Ordinal))
             .ToArray();
     }
 

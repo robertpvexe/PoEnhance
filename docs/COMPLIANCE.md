@@ -37,6 +37,7 @@ These directions are consistent with the current project documentation, but ever
 - Local parsing and local data processing.
 - Browser-based official GGG OAuth.
 - Official GGG APIs where available.
+- Explicit user-triggered Path of Exile web Trade Search/Fetch endpoint use for price checks, when isolated behind replaceable integration code.
 - Opening official Path of Exile or Trade pages.
 - Local caching that respects freshness and rate limits.
 - Explicit user actions for Search, Refresh, Load More, login, and future trade-related actions.
@@ -56,6 +57,7 @@ Future trade-related actions, including any whisper support, must preserve expli
 - Validate requests locally before sending them.
 - Queue requests where necessary.
 - Never intentionally bypass limits.
+- Do not automatically search, retry, resend, discover hidden endpoints, bypass authentication, index Public Stash data, or evade rate limits.
 - Clearly communicate request cost for Search, Refresh, and Load More.
 - Cache recent results where appropriate.
 
@@ -122,8 +124,10 @@ For every major feature, answer:
 - Official GGG OAuth should be used where account access is required.
 - PoEnhance must never request or store the user's GGG password.
 - Official GGG APIs are preferred where available.
+- Publicly reachable Path of Exile web Trade Search/Fetch endpoints may be used only for explicit user-triggered price checks, through isolated and replaceable integration code that can be disabled if upstream behavior or policy changes.
 - Search, Refresh, and Load More actions must respect current rate limits.
 - Hidden or undocumented GGG endpoints are outside the project scope.
+- Currency Exchange integration remains deferred and separate from individual-item Trade Search/Fetch.
 - Real-money trading workflows are outside the project scope.
 
 ## 14. Open Compliance Questions
@@ -192,6 +196,7 @@ Te kierunki są zgodne z obecną dokumentacją projektu, ale każda implementacj
 - Lokalne parsowanie i lokalne przetwarzanie danych.
 - Oficjalny OAuth GGG w przeglądarce.
 - Oficjalne API GGG tam, gdzie są dostępne.
+- Jawne, wywołane przez użytkownika użycie web endpointów Path of Exile Trade Search/Fetch do sprawdzania cen, gdy jest odizolowane za wymienialnym kodem integracyjnym.
 - Otwieranie oficjalnych stron Path of Exile lub Trade.
 - Lokalny cache respektujący świeżość i rate limit.
 - Jawne akcje użytkownika dla Search, Refresh, Load More, logowania i przyszłych akcji związanych z handlem.
@@ -211,6 +216,7 @@ Przyszłe akcje związane z handlem, w tym ewentualne wsparcie whisper, muszą z
 - Walidować żądania lokalnie przed wysłaniem.
 - Kolejkować żądania tam, gdzie to konieczne.
 - Nigdy celowo nie omijać limitów.
+- Nie wyszukiwać automatycznie, nie ponawiać ani nie wysyłać ponownie żądań automatycznie, nie odkrywać ukrytych endpointów, nie obchodzić uwierzytelniania, nie indeksować Public Stash i nie omijać rate limitów.
 - Jasno komunikować koszt żądania dla Search, Refresh i Load More.
 - Używać cache dla niedawnych wyników tam, gdzie to właściwe.
 
@@ -277,8 +283,10 @@ Dla każdej dużej funkcji odpowiedz:
 - Oficjalny OAuth GGG powinien być używany tam, gdzie wymagany jest dostęp do konta.
 - PoEnhance nigdy nie może prosić o hasło GGG użytkownika ani go przechowywać.
 - Oficjalne API GGG są preferowane tam, gdzie są dostępne.
+- Publicznie osiągalne web endpointy Path of Exile Trade Search/Fetch mogą być używane tylko dla jawnych price checków wywołanych przez użytkownika, przez odizolowany i wymienialny kod integracyjny, który można wyłączyć, jeśli zmieni się zachowanie upstream lub polityka.
 - Akcje Search, Refresh i Load More muszą respektować aktualne rate limits.
 - Ukryte lub nieudokumentowane endpointy GGG są poza zakresem projektu.
+- Integracja Currency Exchange pozostaje odłożona i oddzielna od individual-item Trade Search/Fetch.
 - Workflows real-money trading są poza zakresem projektu.
 
 ## 14. Otwarte Pytania Zgodności

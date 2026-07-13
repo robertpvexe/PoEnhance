@@ -291,17 +291,20 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void AppTradeQueryBuilder_DoesNotIntroduceHttpClientOrNetworkReference()
+    public void AppTradeQueryBuilder_DoesNotOwnHttpClientOrNetworkExecution()
     {
-        var referencedNames = typeof(PathOfExileTradeQueryBuilder).Assembly
-            .GetReferencedAssemblies()
-            .Select(assemblyName => assemblyName.Name)
-            .ToHashSet(StringComparer.Ordinal);
+        var queryBuilderTypes = new[]
+        {
+            typeof(PathOfExileTradeQueryBuilder),
+            typeof(PathOfExileTradeQueryBuildResult),
+            typeof(PathOfExileTradeQueryDiagnostic),
+        };
 
-        Assert.DoesNotContain("System.Net.Http", referencedNames);
+        Assert.DoesNotContain(queryBuilderTypes, type => Contains(type, "HttpClient"));
         Assert.DoesNotContain(
-            typeof(PathOfExileTradeQueryBuilder).Assembly.GetTypes(),
-            type => Contains(type, "HttpClient") || Contains(type, "TradeSearchClient"));
+            typeof(PathOfExileTradeQueryBuilder).GetMethods(),
+            method => method.Name.Contains("SearchAsync", StringComparison.OrdinalIgnoreCase) ||
+                method.Name.Contains("SendAsync", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
