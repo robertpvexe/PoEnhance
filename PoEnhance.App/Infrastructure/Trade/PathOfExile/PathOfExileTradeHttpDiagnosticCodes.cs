@@ -10,6 +10,10 @@ internal static class PathOfExileTradeHttpDiagnosticCodes
     public const string Timeout = "POE_TRADE_HTTP_TIMEOUT";
     public const string NonSuccessStatus = "POE_TRADE_HTTP_NON_SUCCESS_STATUS";
     public const string MalformedResponse = "POE_TRADE_HTTP_MALFORMED_RESPONSE";
+    public const string MalformedProviderError = "POE_TRADE_HTTP_MALFORMED_PROVIDER_ERROR";
     public const string ProviderDeclaredError = "POE_TRADE_HTTP_PROVIDER_DECLARED_ERROR";
     public const string ResponseTooLarge = "POE_TRADE_HTTP_RESPONSE_TOO_LARGE";
+    public const string MalformedOffer = "POE_TRADE_HTTP_MALFORMED_OFFER";
+    public const string MalformedPrice = "POE_TRADE_HTTP_MALFORMED_PRICE";
+    public const string MalformedIndexedTimestamp = "POE_TRADE_HTTP_MALFORMED_INDEXED_TIMESTAMP";
 }

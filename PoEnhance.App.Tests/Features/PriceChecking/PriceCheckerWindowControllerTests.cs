@@ -457,16 +457,19 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
-    public void PriceCheckerUi_DoesNotInvokeTradeSearchClient()
+    public void PriceCheckerUi_DoesNotInvokeTradeSearchOrFetchClients()
     {
         var priceCheckerTypes = typeof(PriceCheckerWindowController).Assembly
             .GetTypes()
             .Where(type => type.Namespace == "PoEnhance.App.Features.PriceChecking")
             .ToArray();
 
-        Assert.DoesNotContain(priceCheckerTypes, type => Contains(type, "PathOfExileTradeSearchClient"));
+        Assert.DoesNotContain(priceCheckerTypes, type =>
+            Contains(type, "PathOfExileTradeSearchClient") ||
+            Contains(type, "PathOfExileTradeFetchClient"));
         Assert.DoesNotContain(priceCheckerTypes.SelectMany(ReferencedMemberTypes), type =>
-            Contains(type, "PathOfExileTradeSearchClient"));
+            Contains(type, "PathOfExileTradeSearchClient") ||
+            Contains(type, "PathOfExileTradeFetchClient"));
     }
 
     [Fact]

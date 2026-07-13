@@ -330,7 +330,7 @@ public sealed class PathOfExileTradeSearchClientTests
     }
 
     [Fact]
-    public void SearchClient_DoesNotIntroduceFetchCurrencyExchangePublicStashOrUiInvocation()
+    public void SearchClient_DoesNotInvokeFetchCurrencyExchangePublicStashOrUi()
     {
         var providerTypes = typeof(PathOfExileTradeSearchClient).Assembly
             .GetTypes()
@@ -342,7 +342,6 @@ public sealed class PathOfExileTradeSearchClientTests
             .ToArray();
 
         Assert.DoesNotContain(providerTypes, type =>
-            Contains(type, "FetchClient") ||
             Contains(type, "CurrencyExchange") ||
             Contains(type, "PublicStash"));
         Assert.DoesNotContain(typeof(PathOfExileTradeSearchClient).GetMethods(), method =>

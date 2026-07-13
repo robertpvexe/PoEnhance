@@ -1,34 +1,33 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Text;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
-internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClient
+internal sealed class PathOfExileTradeFetchClient : IPathOfExileTradeFetchClient
 {
     public const int DefaultMaximumResponseBodyBytes = 1024 * 1024;
 
     private readonly HttpClient httpClient;
     private readonly PathOfExileTradeEndpointBuilder endpointBuilder;
-    private readonly PathOfExileTradeResponseParser responseParser;
+    private readonly PathOfExileTradeFetchResponseParser responseParser;
     private readonly PathOfExileTradeRateLimitParser rateLimitParser;
     private readonly int maximumResponseBodyBytes;
 
-    public PathOfExileTradeSearchClient(HttpClient httpClient)
+    public PathOfExileTradeFetchClient(HttpClient httpClient)
         : this(
             httpClient,
             new PathOfExileTradeEndpointBuilder(),
-            new PathOfExileTradeResponseParser(),
+            new PathOfExileTradeFetchResponseParser(),
             new PathOfExileTradeRateLimitParser(),
             PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes)
     {
     }
 
-    internal PathOfExileTradeSearchClient(
+    internal PathOfExileTradeFetchClient(
         HttpClient httpClient,
         PathOfExileTradeEndpointBuilder endpointBuilder,
-        PathOfExileTradeResponseParser responseParser,
+        PathOfExileTradeFetchResponseParser responseParser,
         PathOfExileTradeRateLimitParser rateLimitParser,
         int maximumResponseBodyBytes = DefaultMaximumResponseBodyBytes)
     {
@@ -45,19 +44,12 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
         this.maximumResponseBodyBytes = maximumResponseBodyBytes;
     }
 
-    public async Task<PathOfExileTradeSearchExecutionResult> SearchAsync(
-        PathOfExileTradeSearchRequest? request,
-        string? leagueIdentifier,
+    public async Task<PathOfExileTradeFetchExecutionResult> FetchAsync(
+        string? queryId,
+        IReadOnlyList<string?>? resultIds,
         CancellationToken cancellationToken = default)
     {
-        if (request is null)
-        {
-            return Failure(Diagnostic(
-                PathOfExileTradeHttpDiagnosticCodes.NullRequest,
-                "A Path of Exile Trade search request is required."));
-        }
-
-        var endpoint = endpointBuilder.BuildSearchEndpoint(leagueIdentifier);
+        var endpoint = endpointBuilder.BuildFetchEndpoint(queryId, resultIds);
         if (!endpoint.IsSuccess ||
             endpoint.BaseHost is null ||
             string.IsNullOrWhiteSpace(endpoint.PathAndQuery) ||
@@ -68,24 +60,8 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
                 EndpointFailureMessage(endpoint)));
         }
 
-        string serializedJson;
-        try
-        {
-            serializedJson = PathOfExileTradeJson.SerializeSearchRequest(request);
-        }
-        catch (Exception exception) when (IsSerializationException(exception))
-        {
-            return Failure(Diagnostic(
-                PathOfExileTradeHttpDiagnosticCodes.SerializationFailed,
-                "The Path of Exile Trade search request could not be serialized."));
-        }
-
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, uri);
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, uri);
         PathOfExileTradeHttpClientSupport.AddJsonHeaders(httpRequest);
-        httpRequest.Content = new StringContent(
-            serializedJson,
-            Encoding.UTF8,
-            "application/json");
 
         try
         {
@@ -106,7 +82,7 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
                 return Failure(
                     Diagnostic(
                         PathOfExileTradeHttpDiagnosticCodes.ResponseTooLarge,
-                        $"The Trade search response exceeded {maximumResponseBodyBytes} bytes.",
+                        $"The Trade fetch response exceeded {maximumResponseBodyBytes} bytes.",
                         httpResponse.StatusCode),
                     httpResponse.StatusCode,
                     rateLimitParseResult.Snapshot,
@@ -128,7 +104,7 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
             return Failure(
                 Diagnostic(
                     PathOfExileTradeHttpDiagnosticCodes.CallerCancellation,
-                    "The Trade search request was cancelled by the caller."),
+                    "The Trade fetch request was cancelled by the caller."),
                 isCancelled: true);
         }
         catch (TaskCanceledException)
@@ -136,32 +112,33 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
             return Failure(
                 Diagnostic(
                     PathOfExileTradeHttpDiagnosticCodes.Timeout,
-                    "The Trade search request timed out."),
+                    "The Trade fetch request timed out."),
                 isTimeout: true);
         }
         catch (Exception exception) when (IsNetworkException(exception))
         {
             return Failure(Diagnostic(
                 PathOfExileTradeHttpDiagnosticCodes.NetworkFailure,
-                "The Trade search request failed before a provider response was available."));
+                "The Trade fetch request failed before a provider response was available."));
         }
     }
 
-    private PathOfExileTradeSearchExecutionResult ParseSuccessfulResponse(
+    private PathOfExileTradeFetchExecutionResult ParseSuccessfulResponse(
         string body,
         HttpStatusCode statusCode,
         PathOfExileTradeRateLimitParseResult rateLimitParseResult)
     {
-        var parseResult = responseParser.ParseSearchResponse(body);
+        var parseResult = responseParser.ParseFetchResponse(body);
         if (parseResult.IsSuccess && parseResult.Response is not null)
         {
-            return new PathOfExileTradeSearchExecutionResult
+            return new PathOfExileTradeFetchExecutionResult
             {
                 IsSuccess = true,
                 HttpStatusCode = statusCode,
                 Response = parseResult.Response,
                 RateLimitSnapshot = rateLimitParseResult.Snapshot,
                 RateLimitDiagnostics = rateLimitParseResult.Diagnostics,
+                Diagnostics = parseResult.Diagnostics,
             };
         }
 
@@ -176,23 +153,21 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
         }
 
         return Failure(
-            Diagnostic(
-                PathOfExileTradeHttpDiagnosticCodes.MalformedResponse,
-                FirstMessageOrDefault(
-                    parseResult.Diagnostics,
-                    "The successful Trade search response could not be parsed."),
-                statusCode),
+            FirstDiagnosticOrDefault(
+                parseResult.Diagnostics,
+                statusCode,
+                "The successful Trade fetch response could not be parsed."),
             statusCode,
             rateLimitParseResult.Snapshot,
             rateLimitParseResult.Diagnostics);
     }
 
-    private PathOfExileTradeSearchExecutionResult ParseNonSuccessResponse(
+    private PathOfExileTradeFetchExecutionResult ParseNonSuccessResponse(
         string body,
         HttpStatusCode statusCode,
         PathOfExileTradeRateLimitParseResult rateLimitParseResult)
     {
-        var parseResult = responseParser.ParseSearchResponse(body);
+        var parseResult = responseParser.ParseFetchResponse(body);
         if (parseResult.ProviderError is not null)
         {
             return Failure(
@@ -204,15 +179,13 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
         }
 
         if (parseResult.Diagnostics.Any(diagnostic =>
-                diagnostic.Code == PathOfExileTradeResponseDiagnosticCodes.MalformedProviderError))
+                diagnostic.Code == PathOfExileTradeHttpDiagnosticCodes.MalformedProviderError))
         {
             return Failure(
-                Diagnostic(
-                    PathOfExileTradeHttpDiagnosticCodes.MalformedResponse,
-                    FirstMessageOrDefault(
-                        parseResult.Diagnostics,
-                        "The Trade provider error response could not be parsed."),
-                    statusCode),
+                FirstDiagnosticOrDefault(
+                    parseResult.Diagnostics,
+                    statusCode,
+                    "The Trade provider error response could not be parsed."),
                 statusCode,
                 rateLimitParseResult.Snapshot,
                 rateLimitParseResult.Diagnostics);
@@ -221,14 +194,14 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
         return Failure(
             Diagnostic(
                 PathOfExileTradeHttpDiagnosticCodes.NonSuccessStatus,
-                $"The Trade search provider returned HTTP {(int)statusCode}.",
+                $"The Trade fetch provider returned HTTP {(int)statusCode}.",
                 statusCode),
             statusCode,
             rateLimitParseResult.Snapshot,
             rateLimitParseResult.Diagnostics);
     }
 
-    private static PathOfExileTradeSearchExecutionResult Failure(
+    private static PathOfExileTradeFetchExecutionResult Failure(
         PathOfExileTradeHttpDiagnostic diagnostic,
         HttpStatusCode? statusCode = null,
         PathOfExileTradeRateLimitSnapshot? rateLimitSnapshot = null,
@@ -237,7 +210,7 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
         bool isCancelled = false,
         bool isTimeout = false)
     {
-        return new PathOfExileTradeSearchExecutionResult
+        return new PathOfExileTradeFetchExecutionResult
         {
             IsSuccess = false,
             HttpStatusCode = statusCode,
@@ -270,32 +243,31 @@ internal sealed class PathOfExileTradeSearchClient : IPathOfExileTradeSearchClie
             providerError.Code);
     }
 
+    private static PathOfExileTradeHttpDiagnostic FirstDiagnosticOrDefault(
+        IReadOnlyList<PathOfExileTradeHttpDiagnostic> diagnostics,
+        HttpStatusCode statusCode,
+        string fallback)
+    {
+        var diagnostic = diagnostics.FirstOrDefault();
+        return diagnostic is null
+            ? Diagnostic(
+                PathOfExileTradeHttpDiagnosticCodes.MalformedResponse,
+                fallback,
+                statusCode)
+            : diagnostic with { HttpStatusCode = statusCode };
+    }
+
     private static string EndpointFailureMessage(PathOfExileTradeEndpointBuildResult endpoint)
     {
         var message = endpoint.Diagnostics
             .Select(diagnostic => diagnostic.Message)
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
-        return message ?? "The Path of Exile Trade search endpoint could not be built.";
-    }
-
-    private static string FirstMessageOrDefault(
-        IReadOnlyList<PathOfExileTradeQueryDiagnostic> diagnostics,
-        string fallback)
-    {
-        return diagnostics
-            .Select(diagnostic => diagnostic.Message)
-            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? fallback;
-    }
-
-    private static bool IsSerializationException(Exception exception)
-    {
-        return exception is NotSupportedException or InvalidOperationException or ArgumentException;
+        return message ?? "The Path of Exile Trade fetch endpoint could not be built.";
     }
 
     private static bool IsNetworkException(Exception exception)
     {
         return exception is HttpRequestException or IOException or InvalidOperationException;
     }
-
 }

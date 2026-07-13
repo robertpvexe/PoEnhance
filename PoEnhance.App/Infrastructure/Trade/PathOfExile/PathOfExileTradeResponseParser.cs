@@ -20,7 +20,7 @@ internal sealed class PathOfExileTradeResponseParser
 
             if (root.TryGetProperty("error", out var errorElement))
             {
-                return ParseProviderError(errorElement);
+                return PathOfExileTradeProviderErrorParser.Parse(errorElement);
             }
 
             if (!root.TryGetProperty("id", out var idElement) ||
@@ -90,48 +90,6 @@ internal sealed class PathOfExileTradeResponseParser
                 PathOfExileTradeResponseDiagnosticCodes.MalformedJson,
                 "The Trade search response body is not valid JSON.");
         }
-    }
-
-    private static PathOfExileTradeResponseParseResult ParseProviderError(
-        JsonElement errorElement)
-    {
-        if (errorElement.ValueKind != JsonValueKind.Object ||
-            !errorElement.TryGetProperty("code", out var codeElement) ||
-            !TryReadProviderCode(codeElement, out var code) ||
-            !errorElement.TryGetProperty("message", out var messageElement) ||
-            messageElement.ValueKind != JsonValueKind.String)
-        {
-            return Failure(
-                PathOfExileTradeResponseDiagnosticCodes.MalformedProviderError,
-                "The Trade provider error shape is malformed.");
-        }
-
-        return PathOfExileTradeResponseParseResult.ProviderFailure(
-            new PathOfExileTradeProviderError
-            {
-                Code = code,
-                Message = messageElement.GetString() ?? string.Empty,
-            });
-    }
-
-    private static bool TryReadProviderCode(
-        JsonElement codeElement,
-        out string code)
-    {
-        if (codeElement.ValueKind == JsonValueKind.String)
-        {
-            code = codeElement.GetString() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(code);
-        }
-
-        if (codeElement.ValueKind == JsonValueKind.Number)
-        {
-            code = codeElement.GetRawText();
-            return true;
-        }
-
-        code = string.Empty;
-        return false;
     }
 
     private static PathOfExileTradeResponseParseResult Failure(

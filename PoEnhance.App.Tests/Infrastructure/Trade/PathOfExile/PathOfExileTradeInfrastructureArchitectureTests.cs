@@ -6,13 +6,14 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradeInfrastructureArchitectureTests
 {
     [Fact]
-    public void ProviderTradeInfrastructure_IntroducesOnlySearchHttpExecution()
+    public void ProviderTradeInfrastructure_IntroducesOnlySearchAndFetchHttpExecution()
     {
         var httpTypes = ProviderTradeTypes()
             .Where(type =>
                 Contains(type, "HttpClient") ||
                 Contains(type, "HttpRequest") ||
                 Contains(type, "HttpResponse") ||
+                Contains(type, "TradeFetchClient") ||
                 Contains(type, "TradeSearchClient"))
             .Select(type => type.Name)
             .Order(StringComparer.Ordinal)
@@ -20,20 +21,22 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
 
         Assert.Equal(
             [
+                "IPathOfExileTradeFetchClient",
                 "IPathOfExileTradeSearchClient",
+                "PathOfExileTradeFetchClient",
+                "PathOfExileTradeHttpClientSupport",
                 "PathOfExileTradeSearchClient",
             ],
             httpTypes);
     }
 
     [Fact]
-    public void ProviderTradeInfrastructure_DoesNotIntroduceFetchExecution()
+    public void ProviderTradeInfrastructure_DoesNotIntroduceSearchThenFetchOrchestration()
     {
-        Assert.DoesNotContain(ProviderTradeTypes(), type =>
-            Contains(type, "FetchClient") ||
-            type.GetMethods().Any(method =>
-                method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase) &&
-                method.Name.Contains("Async", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(typeof(PathOfExileTradeSearchClient).GetMethods(), method =>
+            method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(typeof(PathOfExileTradeFetchClient).GetMethods(), method =>
+            method.Name.Contains("Search", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
