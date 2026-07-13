@@ -31,7 +31,7 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     }
 
     [Fact]
-    public void ProviderTradeInfrastructure_DoesNotIntroduceSearchThenFetchOrchestration()
+    public void SearchAndFetchClients_DoNotInvokeEachOther()
     {
         Assert.DoesNotContain(typeof(PathOfExileTradeSearchClient).GetMethods(), method =>
             method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase));

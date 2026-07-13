@@ -3,7 +3,7 @@ using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
-internal sealed class PathOfExileTradeQueryBuilder
+internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuilder
 {
     private const string RarityUnique = "Unique";
     private const string RarityRare = "Rare";
