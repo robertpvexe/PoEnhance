@@ -1,0 +1,417 @@
+using System.Text.Json;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Trade;
+
+namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
+
+public sealed class PathOfExileTradeQueryBuilderTests
+{
+    private const string League = "Mercenaries";
+
+    private readonly PathOfExileTradeQueryBuilder builder = new();
+
+    [Fact]
+    public void Build_RareItem_ProducesTypeButNoName()
+    {
+        var result = BuildSuccessful(Draft(rarity: "Rare", displayName: "Dusk Shell"));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+    }
+
+    [Fact]
+    public void Build_MagicItem_ProducesTypeButNoRandomName()
+    {
+        var result = BuildSuccessful(Draft(
+            rarity: "Magic",
+            displayName: "Humming Titan Plate"));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+    }
+
+    [Fact]
+    public void Build_NormalItem_ProducesType()
+    {
+        var result = BuildSuccessful(Draft(
+            rarity: "Normal",
+            displayName: "Titan Plate"));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+    }
+
+    [Fact]
+    public void Build_UniqueItem_ProducesNameAndType()
+    {
+        var result = BuildSuccessful(Draft(
+            rarity: "Unique",
+            displayName: "Mageblood",
+            parsedBaseType: "Heavy Belt",
+            resolvedBaseName: "Heavy Belt",
+            itemClass: "Belts"));
+
+        Assert.Equal("Mageblood", result.Request?.Query.Name);
+        Assert.Equal("Heavy Belt", result.Request?.Query.Type);
+    }
+
+    [Fact]
+    public void Build_ExactResolvedBaseName_IsPreferred()
+    {
+        var result = BuildSuccessful(Draft(
+            parsedBaseType: "Parsed Plate",
+            status: ItemBaseResolutionStatus.Exact,
+            resolvedBaseName: "Catalog Plate"));
+
+        Assert.Equal("Catalog Plate", result.Request?.Query.Type);
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.SelectedBaseResolutionStatus);
+    }
+
+    [Fact]
+    public void Build_ProbableResolvedBaseName_MayBeUsedWithoutChangingConfidence()
+    {
+        var result = BuildSuccessful(Draft(
+            parsedBaseType: "Decorated Plate",
+            status: ItemBaseResolutionStatus.Probable,
+            resolvedBaseName: "Titan Plate"));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Equal(ItemBaseResolutionStatus.Probable, result.SelectedBaseResolutionStatus);
+    }
+
+    [Fact]
+    public void Build_UnknownBase_FallsBackToParsedBaseText()
+    {
+        var result = BuildSuccessful(Draft(
+            parsedBaseType: "Onyx Amulet",
+            status: ItemBaseResolutionStatus.Unknown,
+            resolvedBaseName: "Catalog Amulet",
+            itemClass: "Amulets"));
+
+        Assert.Equal("Onyx Amulet", result.Request?.Query.Type);
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.SelectedBaseResolutionStatus);
+    }
+
+    [Fact]
+    public void Build_MissingAllBaseIdentities_Fails()
+    {
+        var result = builder.Build(
+            Draft(parsedBaseType: null, status: null, resolvedBaseName: null),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingBaseIdentity);
+    }
+
+    [Fact]
+    public void Build_MerchantOnly_MapsToSecurable()
+    {
+        var result = BuildSuccessful(Draft(listingMode: TradeListingMode.MerchantOnly));
+
+        Assert.Equal("securable", result.Request?.Query.Status.Option);
+    }
+
+    [Fact]
+    public void Build_InPerson_MapsToAvailable()
+    {
+        var result = BuildSuccessful(Draft(listingMode: TradeListingMode.InPerson));
+
+        Assert.Equal("available", result.Request?.Query.Status.Option);
+    }
+
+    [Fact]
+    public void Build_NullDraft_FailsWithoutThrowing()
+    {
+        var exception = Record.Exception(() => builder.Build(null, ValidValidation(), League));
+
+        Assert.Null(exception);
+        AssertFailure(
+            builder.Build(null, ValidValidation(), League),
+            PathOfExileTradeQueryDiagnosticCodes.NullDraft);
+    }
+
+    [Fact]
+    public void Build_NullValidationResult_FailsWithoutThrowing()
+    {
+        var exception = Record.Exception(() => builder.Build(Draft(), null, League));
+
+        Assert.Null(exception);
+        AssertFailure(
+            builder.Build(Draft(), null, League),
+            PathOfExileTradeQueryDiagnosticCodes.NullValidationResult);
+    }
+
+    [Fact]
+    public void Build_ValidationErrors_BlockQueryCreation()
+    {
+        var result = builder.Build(
+            Draft(),
+            InvalidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.LocallyInvalidDraft);
+    }
+
+    [Fact]
+    public void Build_EmptyLeague_Fails()
+    {
+        var result = builder.Build(Draft(), ValidValidation(), " ");
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingLeague);
+    }
+
+    [Fact]
+    public void Build_SelectedExactModifier_BlocksBaseOnlyBuilder()
+    {
+        var result = builder.Build(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersUnsupported);
+    }
+
+    [Fact]
+    public void Build_SelectedUnknownModifier_BlocksBaseOnlyBuilder()
+    {
+        var result = builder.Build(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Unknown)]),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersUnsupported);
+    }
+
+    [Fact]
+    public void Build_UnselectedModifiers_DoNotAffectQuery()
+    {
+        var result = BuildSuccessful(Draft(modifiers:
+        [
+            Modifier(isSelected: false, status: ModifierCandidateResolutionStatus.Unknown),
+        ]));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+    }
+
+    [Fact]
+    public void Build_UnsupportedItemPath_FailsInsteadOfGuessing()
+    {
+        var result = builder.Build(
+            Draft(
+                rarity: "Currency",
+                displayName: "Chaos Orb",
+                parsedBaseType: "Chaos Orb",
+                resolvedBaseName: "Chaos Orb",
+                itemClass: "Stackable Currency"),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.UnsupportedRarityOrItemPath);
+    }
+
+    [Fact]
+    public void Build_UniqueItemWithoutUniqueName_Fails()
+    {
+        var result = builder.Build(
+            Draft(rarity: "Unique", displayName: " ", parsedBaseType: "Heavy Belt", resolvedBaseName: "Heavy Belt"),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingUniqueName);
+    }
+
+    [Fact]
+    public void Build_JsonUsesCamelCase()
+    {
+        var result = BuildSuccessful(Draft());
+
+        Assert.Contains("\"query\"", result.SerializedJson);
+        Assert.Contains("\"status\"", result.SerializedJson);
+        Assert.Contains("\"option\"", result.SerializedJson);
+        Assert.DoesNotContain("\"Query\"", result.SerializedJson);
+        Assert.DoesNotContain("\"Status\"", result.SerializedJson);
+    }
+
+    [Fact]
+    public void Build_JsonOmitsNullName()
+    {
+        var result = BuildSuccessful(Draft(rarity: "Rare"));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.False(document.RootElement.GetProperty("query").TryGetProperty("name", out _));
+    }
+
+    [Fact]
+    public void Build_JsonContainsOneEmptyAndStatsGroup()
+    {
+        var result = BuildSuccessful(Draft());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var stats = document.RootElement.GetProperty("query").GetProperty("stats");
+        var statsGroup = Assert.Single(stats.EnumerateArray());
+        Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+        Assert.Empty(statsGroup.GetProperty("filters").EnumerateArray());
+    }
+
+    [Fact]
+    public void Build_JsonContainsEmptyFiltersObject()
+    {
+        var result = BuildSuccessful(Draft());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Empty(document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .EnumerateObject());
+    }
+
+    [Fact]
+    public void Build_SortIsPriceAscending()
+    {
+        var result = BuildSuccessful(Draft());
+
+        Assert.Equal("asc", result.Request?.Sort.Price);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal("asc", document.RootElement
+            .GetProperty("sort")
+            .GetProperty("price")
+            .GetString());
+    }
+
+    [Fact]
+    public void Build_RepeatedSerialization_IsEquivalent()
+    {
+        var draft = Draft();
+
+        var first = BuildSuccessful(draft);
+        var second = BuildSuccessful(draft);
+
+        Assert.Equal(first.SerializedJson, second.SerializedJson);
+    }
+
+    [Fact]
+    public void AppTradeQueryBuilder_DoesNotIntroduceHttpClientOrNetworkReference()
+    {
+        var referencedNames = typeof(PathOfExileTradeQueryBuilder).Assembly
+            .GetReferencedAssemblies()
+            .Select(assemblyName => assemblyName.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain("System.Net.Http", referencedNames);
+        Assert.DoesNotContain(
+            typeof(PathOfExileTradeQueryBuilder).Assembly.GetTypes(),
+            type => Contains(type, "HttpClient") || Contains(type, "TradeSearchClient"));
+    }
+
+    [Fact]
+    public void CoreAssembly_KeepsProviderSpecificWpfAndNetworkDependenciesOut()
+    {
+        var coreAssembly = typeof(TradeSearchDraft).Assembly;
+        var referencedNames = coreAssembly
+            .GetReferencedAssemblies()
+            .Select(assemblyName => assemblyName.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain("PresentationCore", referencedNames);
+        Assert.DoesNotContain("PresentationFramework", referencedNames);
+        Assert.DoesNotContain("WindowsBase", referencedNames);
+        Assert.DoesNotContain("System.Net.Http", referencedNames);
+        Assert.DoesNotContain(
+            coreAssembly.GetTypes(),
+            type => Contains(type, "PathOfExileTrade"));
+    }
+
+    [Fact]
+    public void AppTradeQueryBuilder_DoesNotIntroduceCurrencyExchangeOrPublicStashModels()
+    {
+        Assert.DoesNotContain(
+            typeof(PathOfExileTradeQueryBuilder).Assembly.GetTypes(),
+            type => Contains(type, "CurrencyExchange") || Contains(type, "PublicStash"));
+    }
+
+    private PathOfExileTradeQueryBuildResult BuildSuccessful(TradeSearchDraft draft)
+    {
+        var result = builder.Build(draft, ValidValidation(), League);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Diagnostics);
+        Assert.NotNull(result.Request);
+        Assert.NotNull(result.SerializedJson);
+        Assert.Equal(League, result.LeagueIdentifier);
+        return result;
+    }
+
+    private static TradeSearchDraft Draft(
+        string rarity = "Rare",
+        string displayName = "Dusk Shell",
+        string? parsedBaseType = "Titan Plate",
+        ItemBaseResolutionStatus? status = ItemBaseResolutionStatus.Exact,
+        string? resolvedBaseName = "Titan Plate",
+        TradeListingMode listingMode = TradeListingMode.MerchantOnly,
+        IReadOnlyList<TradeModifierFilterDraft>? modifiers = null,
+        string itemClass = "Body Armours")
+    {
+        return new TradeSearchDraft
+        {
+            ItemClass = itemClass,
+            Rarity = rarity,
+            DisplayName = displayName,
+            ParsedBaseType = parsedBaseType,
+            Base = new TradeSearchBaseDraft
+            {
+                Status = status,
+                ResolvedBaseId = resolvedBaseName is null ? null : "base.test",
+                ResolvedBaseName = resolvedBaseName,
+            },
+            ModifierFilters = modifiers ?? [],
+            ListingMode = listingMode,
+        };
+    }
+
+    private static TradeModifierFilterDraft Modifier(
+        bool isSelected,
+        ModifierCandidateResolutionStatus status)
+    {
+        return new TradeModifierFilterDraft
+        {
+            OriginalText = "+55 to maximum Life",
+            ResolutionStatus = status,
+            ResolvedModifierId = status == ModifierCandidateResolutionStatus.Exact
+                ? "mod.test"
+                : null,
+            IsSelected = isSelected,
+        };
+    }
+
+    private static TradeSearchValidationResult ValidValidation()
+    {
+        return TradeSearchValidationResult.FromDiagnostics([]);
+    }
+
+    private static TradeSearchValidationResult InvalidValidation()
+    {
+        return TradeSearchValidationResult.FromDiagnostics(
+        [
+            new TradeSearchValidationDiagnostic(
+                TradeSearchValidationDiagnosticCodes.MissingBaseIdentity,
+                TradeSearchValidationSeverity.Error,
+                "Invalid for test."),
+        ]);
+    }
+
+    private static void AssertFailure(
+        PathOfExileTradeQueryBuildResult result,
+        string expectedCode)
+    {
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Request);
+        Assert.Null(result.SerializedJson);
+        Assert.Equal(expectedCode, Assert.Single(result.Diagnostics).Code);
+    }
+
+    private static bool Contains(Type type, string value)
+    {
+        return type.FullName?.Contains(value, StringComparison.OrdinalIgnoreCase) == true;
+    }
+}
