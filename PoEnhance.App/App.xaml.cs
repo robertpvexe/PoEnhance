@@ -12,6 +12,7 @@ namespace PoEnhance.App;
 public partial class App : Application
 {
     private readonly CancellationTokenSource shutdownCancellation = new();
+    private PoEnhanceApplicationComposition? applicationComposition;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -36,8 +37,8 @@ public partial class App : Application
 
         base.OnStartup(e);
 
-        var gameDataService = new RuntimeGameDataService();
-        var mainWindow = new MainWindow(gameDataService);
+        applicationComposition = PoEnhanceApplicationComposition.CreateDefault();
+        var mainWindow = new MainWindow(applicationComposition);
         MainWindow = mainWindow;
         mainWindow.Show();
 
@@ -49,6 +50,7 @@ public partial class App : Application
         try
         {
             shutdownCancellation.Cancel();
+            applicationComposition?.Dispose();
             Log.Information("PoEnhance application shutting down with exit code {ExitCode}", e.ApplicationExitCode);
         }
         finally

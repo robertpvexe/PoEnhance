@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 
@@ -25,6 +26,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
             HorizontalDragCompleted?.Invoke(this, EventArgs.Empty);
         PinToggleButton.Checked += OnPinStateChanged;
         PinToggleButton.Unchecked += OnPinStateChanged;
+        LeagueTextBox.TextChanged += OnLeagueTextChanged;
+        SearchButton.Click += OnSearchButtonClick;
         ResetPositionButton.Click += OnResetPositionButtonClick;
         CloseButton.Click += (_, _) => Close();
         KeyDown += OnKeyDown;
@@ -40,6 +43,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
 
     public event EventHandler? PanelInteraction;
 
+    public event EventHandler? SearchRequested;
+
+    public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
     public event EventHandler<bool>? PinStateChanged;
 
     public event EventHandler? HorizontalDragCompleted;
@@ -54,6 +61,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
 
     public PriceCheckerPlacement? CurrentPlacement { get; private set; }
 
+    public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
+
     public void UpdateContent(PriceCheckerWindowState state)
     {
         CurrentState = state;
@@ -67,6 +76,25 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         ModifierCountText.Text = draft.ModifierFilters.Count.ToString();
         ListingModeText.Text = draft.ListingMode.ToString();
         ValidationTextBox.Text = FormatValidation(state.ValidationResult);
+    }
+
+    public void UpdateSearch(PriceCheckerSearchViewState state)
+    {
+        CurrentSearchState = state;
+
+        if (!string.Equals(LeagueTextBox.Text, state.LeagueIdentifier, StringComparison.Ordinal))
+        {
+            LeagueTextBox.Text = state.LeagueIdentifier;
+        }
+
+        LeagueTextBox.IsEnabled = !state.IsLoading;
+        SearchButton.IsEnabled = state.CanSearch;
+        SearchStatusText.Text = state.Message;
+        SearchSummaryText.Text = state.Summary;
+        OfferListBox.ItemsSource = state.Offers;
+        OfferListBox.Visibility = state.Offers.Count == 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     public void ApplyPlacement(PriceCheckerPlacement placement)
@@ -106,6 +134,17 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         ResetPositionRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnLeagueTextChanged(object sender, TextChangedEventArgs e)
+    {
+        LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(LeagueTextBox.Text));
+    }
+
+    private void OnSearchButtonClick(object sender, RoutedEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        SearchRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)

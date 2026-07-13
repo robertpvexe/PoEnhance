@@ -283,15 +283,18 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
-    public void PriceCheckerUi_DoesNotInvokePriceCheckService()
+    public void PriceCheckerWpfCodeBehind_DoesNotInvokeTradeServicesOrClients()
     {
-        var priceCheckerTypes = typeof(PriceCheckerWindowController).Assembly
-            .GetTypes()
-            .Where(type => type.Namespace == "PoEnhance.App.Features.PriceChecking")
-            .ToArray();
+        var wpfCodeBehindTypes = new[]
+        {
+            typeof(PriceCheckerWindow),
+            typeof(PriceCheckerWindowFactory),
+        };
 
-        Assert.DoesNotContain(priceCheckerTypes.SelectMany(ReferencedMemberTypes), type =>
-            Contains(type, "PathOfExileTradePriceCheckService"));
+        Assert.DoesNotContain(wpfCodeBehindTypes.SelectMany(ReferencedMemberTypes), type =>
+            Contains(type, "PathOfExileTradePriceCheckService") ||
+            Contains(type, "PathOfExileTradeSearchClient") ||
+            Contains(type, "PathOfExileTradeFetchClient"));
     }
 
     [Fact]

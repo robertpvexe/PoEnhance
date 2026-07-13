@@ -10,6 +10,10 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? PanelInteraction;
 
+    event EventHandler? SearchRequested;
+
+    event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
     event EventHandler<bool>? PinStateChanged;
 
     event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -27,6 +31,8 @@ internal interface IPriceCheckerWindow
     PriceCheckerPlacement? CurrentPlacement { get; }
 
     void UpdateContent(PriceCheckerWindowState state);
+
+    void UpdateSearch(PriceCheckerSearchViewState state);
 
     void ApplyPlacement(PriceCheckerPlacement placement);
 

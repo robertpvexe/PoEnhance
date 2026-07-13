@@ -82,6 +82,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0"
@@ -187,6 +188,96 @@
                                  IsReadOnly="True"
                                  TextWrapping="NoWrap"
                                  VerticalScrollBarVisibility="Auto" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="8"
+                                Grid.ColumnSpan="2"
+                                Margin="0,12,0,0">
+                        <TextBlock FontWeight="SemiBold"
+                                   Foreground="#EEEEEE"
+                                   Text="Trade Search" />
+
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#EEEEEE"
+                                       Text="League (provisional)" />
+                            <TextBox x:Name="LeagueTextBox"
+                                     Grid.Column="1"
+                                     MinWidth="120"
+                                     Background="#101010"
+                                     BorderBrush="#404040"
+                                     Foreground="#EEEEEE"
+                                     Text="Standard" />
+                            <Button x:Name="SearchButton"
+                                    Grid.Column="2"
+                                    MinWidth="68"
+                                    Margin="8,0,0,0"
+                                    Content="Search" />
+                        </Grid>
+
+                        <TextBlock x:Name="SearchStatusText"
+                                   Margin="0,8,0,0"
+                                   Foreground="#EEEEEE"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="SearchSummaryText"
+                                   Margin="0,4,0,0"
+                                   Foreground="#CFCFCF"
+                                   TextWrapping="Wrap" />
+
+                        <ListBox x:Name="OfferListBox"
+                                 MaxHeight="260"
+                                 Margin="0,8,0,0"
+                                 Background="#101010"
+                                 BorderBrush="#404040"
+                                 Foreground="#EEEEEE"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 Visibility="Collapsed">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4,0,6">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#F3D88B"
+                                                   Text="{Binding PriceText}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1"
+                                                   Margin="0,2,0,0"
+                                                   Foreground="#EEEEEE"
+                                                   Text="{Binding SellerText}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2"
+                                                   Margin="0,2,0,0"
+                                                   Foreground="#B8D8FF"
+                                                   Text="{Binding OnlineStatusText}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="3"
+                                                   Margin="0,2,0,0"
+                                                   Foreground="#CFCFCF"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="{Binding ItemText}" />
+                                            <Run Text=" - " />
+                                            <Run Text="{Binding IndexedText}" />
+                                        </TextBlock>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </StackPanel>
                 </Grid>
             </ScrollViewer>

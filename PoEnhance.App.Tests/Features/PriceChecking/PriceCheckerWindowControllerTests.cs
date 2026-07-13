@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
@@ -66,6 +67,16 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
+    public void ShowOrUpdate_DoesNotInvokePriceCheckSearch()
+    {
+        using var fixture = ControllerFixture.Create();
+
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
     public void ShowOrUpdate_UnavailablePathOfExileBoundsDoesNotThrowOrCreateWindow()
     {
         using var fixture = ControllerFixture.Create(boundsAvailable: false);
@@ -102,6 +113,21 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.ForegroundWindowDetector.IsPathOfExileForeground = true;
 
         window.RaisePanelInteraction();
+        window.RaisePanelDeactivated();
+        fixture.DeferredActionScheduler.RunPending();
+
+        Assert.True(window.IsClosed);
+    }
+
+    [Fact]
+    public void SearchInteractionThenDeactivationToPathOfExileClosesUnpinnedWindow()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        fixture.ForegroundWindowDetector.IsPathOfExileForeground = true;
+
+        window.RaiseSearchRequested();
         window.RaisePanelDeactivated();
         fixture.DeferredActionScheduler.RunPending();
 
@@ -585,6 +611,7 @@ Item Level: 80
             FakeWindowFactory windowFactory,
             CountingMapper mapper,
             CountingValidator validator,
+            FakePriceCheckService priceCheckService,
             FakeForegroundWindowDetector foregroundWindowDetector,
             FakeDeferredActionScheduler deferredActionScheduler)
         {
@@ -597,6 +624,7 @@ Item Level: 80
             WindowFactory = windowFactory;
             Mapper = mapper;
             Validator = validator;
+            PriceCheckService = priceCheckService;
             ForegroundWindowDetector = foregroundWindowDetector;
             DeferredActionScheduler = deferredActionScheduler;
         }
@@ -616,6 +644,8 @@ Item Level: 80
         public CountingMapper Mapper { get; }
 
         public CountingValidator Validator { get; }
+
+        public FakePriceCheckService PriceCheckService { get; }
 
         public FakeForegroundWindowDetector ForegroundWindowDetector { get; }
 
@@ -644,6 +674,7 @@ Item Level: 80
             var windowFactory = new FakeWindowFactory();
             var mapper = new CountingMapper();
             var validator = new CountingValidator();
+            var priceCheckService = new FakePriceCheckService();
             var foregroundWindowDetector = new FakeForegroundWindowDetector();
             var deferredActionScheduler = new FakeDeferredActionScheduler();
             var controller = new PriceCheckerWindowController(
@@ -654,7 +685,8 @@ Item Level: 80
                 mapper,
                 validator,
                 foregroundWindowDetector,
-                deferredActionScheduler);
+                deferredActionScheduler,
+                new PriceCheckerSearchController(priceCheckService));
 
             return new ControllerFixture(
                 tempDirectory,
@@ -666,6 +698,7 @@ Item Level: 80
                 windowFactory,
                 mapper,
                 validator,
+                priceCheckService,
                 foregroundWindowDetector,
                 deferredActionScheduler);
         }
@@ -747,6 +780,10 @@ Item Level: 80
 
         public event EventHandler? PanelInteraction;
 
+        public event EventHandler? SearchRequested;
+
+        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
         public event EventHandler<bool>? PinStateChanged;
 
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -763,11 +800,18 @@ Item Level: 80
 
         public PriceCheckerPlacement? CurrentPlacement { get; private set; }
 
+        public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
+
         public int ShowCount { get; private set; }
 
         public void UpdateContent(PriceCheckerWindowState state)
         {
             CurrentState = state;
+        }
+
+        public void UpdateSearch(PriceCheckerSearchViewState state)
+        {
+            CurrentSearchState = state;
         }
 
         public void ApplyPlacement(PriceCheckerPlacement placement)
@@ -812,6 +856,17 @@ Item Level: 80
         public void RaisePanelInteraction()
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseSearchRequested()
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            SearchRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void SetLeague(string leagueIdentifier)
+        {
+            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
         }
 
         public void SetPinned(bool isPinned)
@@ -883,6 +938,27 @@ Item Level: 80
         {
             CallCount++;
             return TradeSearchValidationResult.FromDiagnostics([]);
+        }
+    }
+
+    private sealed class FakePriceCheckService : IPathOfExileTradePriceCheckService
+    {
+        public int CallCount { get; private set; }
+
+        public Task<PathOfExileTradePriceCheckResult> CheckAsync(
+            TradeSearchDraft? draft,
+            TradeSearchValidationResult? validationResult,
+            string? leagueIdentifier,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(new PathOfExileTradePriceCheckResult
+            {
+                IsSuccess = true,
+                Stage = PathOfExileTradePriceCheckStage.Completed,
+                SearchQueryId = "query-1",
+                ProviderTotal = 0,
+            });
         }
     }
 

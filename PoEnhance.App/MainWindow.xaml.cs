@@ -33,35 +33,43 @@ public partial class MainWindow : Window
     private readonly RuntimeGameDataService runtimeGameDataService;
     private readonly WpfClipboardTextReader clipboardTextReader = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
+    private readonly IDisposable? ownedComposition;
     private int shortcutActivationCount;
     private bool isClipboardCaptureInProgress;
     private bool? lastPathOfExileForeground;
     private bool? lastPathOfExileRunning;
 
     public MainWindow()
-        : this(new RuntimeGameDataService())
+        : this(PoEnhanceApplicationComposition.CreateDefault(), ownsComposition: true)
     {
     }
 
-    internal MainWindow(RuntimeGameDataService runtimeGameDataService)
-        : this(
-            runtimeGameDataService,
-            new ProvisionalGameDataRecordingService(
-                new JsonProvisionalGameDataStore(
-                    new ProvisionalGameDataStorePathResolver().ResolveDefaultPath())))
+    internal MainWindow(PoEnhanceApplicationComposition composition)
+        : this(composition, ownsComposition: false)
     {
+    }
+
+    private MainWindow(
+        PoEnhanceApplicationComposition composition,
+        bool ownsComposition)
+        : this(
+            composition.RuntimeGameDataService,
+            composition.ProvisionalGameDataRecordingService,
+            composition.PriceCheckerWindowController)
+    {
+        ownedComposition = ownsComposition ? composition : null;
     }
 
     internal MainWindow(
         RuntimeGameDataService runtimeGameDataService,
-        ProvisionalGameDataRecordingService provisionalGameDataRecordingService)
+        ProvisionalGameDataRecordingService provisionalGameDataRecordingService,
+        PriceCheckerWindowController priceCheckerWindowController)
     {
         this.runtimeGameDataService = runtimeGameDataService;
         this.provisionalGameDataRecordingService = provisionalGameDataRecordingService;
+        this.priceCheckerWindowController = priceCheckerWindowController;
 
         InitializeComponent();
-        priceCheckerWindowController = new PriceCheckerWindowController(
-            new PriceCheckerWindowFactory());
         InitializeShortcutControls();
         InitializeManualInputControls();
         DisplayRuntimeGameDataStatus(runtimeGameDataService.Current);
@@ -90,6 +98,7 @@ public partial class MainWindow : Window
             pathOfExileStatusTimer.Stop();
             runtimeGameDataService.StateChanged -= OnRuntimeGameDataStateChanged;
             globalHotkeyService.Dispose();
+            ownedComposition?.Dispose();
         };
     }
 

@@ -1,4 +1,5 @@
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using Serilog;
@@ -15,6 +16,7 @@ internal sealed class PriceCheckerWindowController
     private readonly ITradeSearchDraftValidator draftValidator;
     private readonly IPathOfExileForegroundWindowDetector foregroundWindowDetector;
     private readonly IPriceCheckerDeferredActionScheduler deferredActionScheduler;
+    private readonly PriceCheckerSearchController searchController;
     private IPriceCheckerWindow? window;
     private PathOfExileClientBounds? currentClientBounds;
     private PriceCheckerPlacementKey? currentPlacementKey;
@@ -24,7 +26,8 @@ internal sealed class PriceCheckerWindowController
     private bool isPinned;
 
     public PriceCheckerWindowController(
-        IPriceCheckerWindowFactory windowFactory)
+        IPriceCheckerWindowFactory windowFactory,
+        IPathOfExileTradePriceCheckService priceCheckService)
         : this(
             new PathOfExileClientBoundsProvider(),
             new PriceCheckerPlacementCalculator(),
@@ -34,7 +37,8 @@ internal sealed class PriceCheckerWindowController
             new CoreTradeSearchDraftMapperAdapter(),
             new CoreTradeSearchDraftValidatorAdapter(),
             new PathOfExileForegroundWindowDetector(),
-            new WpfPriceCheckerDeferredActionScheduler())
+            new WpfPriceCheckerDeferredActionScheduler(),
+            new PriceCheckerSearchController(priceCheckService))
     {
     }
 
@@ -46,7 +50,8 @@ internal sealed class PriceCheckerWindowController
         ITradeSearchDraftMapper draftMapper,
         ITradeSearchDraftValidator draftValidator,
         IPathOfExileForegroundWindowDetector foregroundWindowDetector,
-        IPriceCheckerDeferredActionScheduler deferredActionScheduler)
+        IPriceCheckerDeferredActionScheduler deferredActionScheduler,
+        PriceCheckerSearchController searchController)
     {
         this.clientBoundsProvider = clientBoundsProvider;
         this.placementCalculator = placementCalculator;
@@ -56,6 +61,7 @@ internal sealed class PriceCheckerWindowController
         this.draftValidator = draftValidator;
         this.foregroundWindowDetector = foregroundWindowDetector;
         this.deferredActionScheduler = deferredActionScheduler;
+        this.searchController = searchController;
     }
 
     public PriceCheckerWindowUpdateResult ShowOrUpdate(
@@ -88,6 +94,7 @@ internal sealed class PriceCheckerWindowController
         priceCheckerWindow.UpdateContent(new PriceCheckerWindowState(
             draftResult.Draft,
             validationResult));
+        searchController.UpdateCurrentDraft(draftResult.Draft, validationResult);
 
         var placementKey = PriceCheckerPlacementKey.FromClientBounds(clientBounds);
         if (currentPlacementKey != placementKey)
@@ -136,6 +143,7 @@ internal sealed class PriceCheckerWindowController
         window.HorizontalDragDelta += OnWindowHorizontalDragDelta;
         window.HorizontalDragCompleted += OnWindowHorizontalDragCompleted;
         window.ResetPositionRequested += OnWindowResetPositionRequested;
+        searchController.AttachWindow(window);
         isAutoCloseArmed = false;
         isPinned = window.IsPinned;
         return window;
@@ -148,14 +156,16 @@ internal sealed class PriceCheckerWindowController
             return;
         }
 
-        window.Closed -= OnWindowClosed;
-        window.PanelActivated -= OnWindowPanelActivated;
-        window.PanelDeactivated -= OnWindowPanelDeactivated;
-        window.PanelInteraction -= OnWindowPanelInteraction;
-        window.PinStateChanged -= OnWindowPinStateChanged;
-        window.HorizontalDragDelta -= OnWindowHorizontalDragDelta;
-        window.HorizontalDragCompleted -= OnWindowHorizontalDragCompleted;
-        window.ResetPositionRequested -= OnWindowResetPositionRequested;
+        var closedWindow = window;
+        searchController.DetachWindow(closedWindow);
+        closedWindow.Closed -= OnWindowClosed;
+        closedWindow.PanelActivated -= OnWindowPanelActivated;
+        closedWindow.PanelDeactivated -= OnWindowPanelDeactivated;
+        closedWindow.PanelInteraction -= OnWindowPanelInteraction;
+        closedWindow.PinStateChanged -= OnWindowPinStateChanged;
+        closedWindow.HorizontalDragDelta -= OnWindowHorizontalDragDelta;
+        closedWindow.HorizontalDragCompleted -= OnWindowHorizontalDragCompleted;
+        closedWindow.ResetPositionRequested -= OnWindowResetPositionRequested;
         window = null;
         currentClientBounds = null;
         currentPlacementKey = null;
