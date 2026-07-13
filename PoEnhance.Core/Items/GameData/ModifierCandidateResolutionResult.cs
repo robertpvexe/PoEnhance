@@ -16,7 +16,10 @@ public sealed record ModifierCandidateResolutionResult(
     int GenerationKindCandidateCount = 0,
     int EligibilityCandidateCount = 0,
     int ExcludedCandidateCount = 0,
-    IReadOnlyList<ModifierDefinition>? ExcludedCandidates = null)
+    IReadOnlyList<ModifierDefinition>? ExcludedCandidates = null,
+    int TextSignatureCandidateCount = 0,
+    int ExcludedByTextCandidateCount = 0,
+    IReadOnlyList<ModifierTextSignatureMatchResult>? TextSignatureMatches = null)
 {
     public int CandidateCount => Candidates.Count;
 }

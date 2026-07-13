@@ -29,6 +29,7 @@ public sealed class GameDataCatalog
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsById;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatId;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatIdGroup;
 
     private GameDataCatalog(
         IReadOnlyList<ItemBaseRecord> itemBases,
@@ -45,7 +46,8 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByStatId,
         IReadOnlyDictionary<string, IReadOnlyList<StatDefinition>> statsById,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsById,
-        IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatId)
+        IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatId,
+        IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatIdGroup)
     {
         ItemBases = itemBases;
         _itemBasesById = itemBasesById;
@@ -62,6 +64,7 @@ public sealed class GameDataCatalog
         _statsById = statsById;
         _translationsById = translationsById;
         _translationsByStatId = translationsByStatId;
+        _translationsByStatIdGroup = translationsByStatIdGroup;
     }
 
     public static GameDataCatalog FromPackage(GameDataPackage package)
@@ -136,6 +139,10 @@ public sealed class GameDataCatalog
                 translation => translation.StatIds
                     .Select(GameDataLookupNormalizer.NormalizeIdentifier)
                     .Where(statId => statId is not null)!,
+                StringComparer.OrdinalIgnoreCase),
+            BuildIndex(
+                package.StatTranslations,
+                translation => CreateStatTranslationStatIdGroupKey(translation.StatIds),
                 StringComparer.OrdinalIgnoreCase));
     }
 
@@ -215,6 +222,15 @@ public sealed class GameDataCatalog
         return Find(_translationsByStatId, GameDataLookupNormalizer.NormalizeIdentifier(statId), EmptyStatTranslations);
     }
 
+    public IReadOnlyList<StatTranslationDefinition> FindStatTranslationsByStatIdGroup(
+        IReadOnlyList<string> statIds)
+    {
+        return Find(
+            _translationsByStatIdGroup,
+            CreateStatTranslationStatIdGroupKey(statIds),
+            EmptyStatTranslations);
+    }
+
     private static IReadOnlyDictionary<string, IReadOnlyList<TRecord>> BuildIndex<TRecord>(
         IEnumerable<TRecord> records,
         Func<TRecord, string?> keySelector,
@@ -281,6 +297,23 @@ public sealed class GameDataCatalog
     {
         var normalizedName = GameDataLookupNormalizer.NormalizeName(name);
         return normalizedName is null ? null : $"{(int)generationType}\u001F{normalizedName}";
+    }
+
+    private static string? CreateStatTranslationStatIdGroupKey(IEnumerable<string?> statIds)
+    {
+        var normalizedIds = new List<string>();
+        foreach (var statId in statIds)
+        {
+            var normalizedId = GameDataLookupNormalizer.NormalizeIdentifier(statId);
+            if (normalizedId is null)
+            {
+                return null;
+            }
+
+            normalizedIds.Add(normalizedId);
+        }
+
+        return normalizedIds.Count == 0 ? null : string.Join('\u001F', normalizedIds);
     }
 
     private static IReadOnlyList<TRecord> ToReadOnly<TRecord>(IEnumerable<TRecord> records)

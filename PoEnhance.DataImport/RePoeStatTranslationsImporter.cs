@@ -309,7 +309,7 @@ public sealed class RePoeStatTranslationsImporter
 
             if (!TryReadDecimal(conditionElement, "min", out var minValue) ||
                 !TryReadDecimal(conditionElement, "max", out var maxValue) ||
-                !TryReadNullableBoolean(conditionElement, "negated") ||
+                !TryReadNullableBoolean(conditionElement, "negated", out var isNegated) ||
                 (minValue.HasValue && maxValue.HasValue && minValue.Value > maxValue.Value))
             {
                 diagnostics.Add(InvalidConditionDiagnostic(sourceRecordId, variantIndex));
@@ -321,6 +321,7 @@ public sealed class RePoeStatTranslationsImporter
                 Index = index,
                 MinValue = minValue,
                 MaxValue = maxValue,
+                IsNegated = isNegated,
             });
 
             index++;
@@ -472,15 +473,23 @@ public sealed class RePoeStatTranslationsImporter
         return true;
     }
 
-    private static bool TryReadNullableBoolean(JsonElement element, string propertyName)
+    private static bool TryReadNullableBoolean(JsonElement element, string propertyName, out bool value)
     {
+        value = false;
+
         if (!element.TryGetProperty(propertyName, out var property) ||
             property.ValueKind == JsonValueKind.Null)
         {
             return true;
         }
 
-        return property.ValueKind is JsonValueKind.True or JsonValueKind.False;
+        if (property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        value = property.GetBoolean();
+        return true;
     }
 
     private static ISet<string>? BuildKnownStatIds(IReadOnlyCollection<StatDefinition>? knownStats)

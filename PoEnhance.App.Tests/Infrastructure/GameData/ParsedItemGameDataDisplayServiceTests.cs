@@ -196,7 +196,7 @@ Item Level: 80
         Assert.Equal("Unknown", result.Status);
         Assert.Equal("MODIFIER_AMBIGUOUS: Ambiguous test match.", result.Diagnostic);
         Assert.Equal(6, result.CandidateCount);
-        Assert.Equal("0 name -> 0 kind -> 0 eligible", result.CountSummary);
+        Assert.Equal("0 name -> 0 kind -> 0 eligible -> 0 text", result.CountSummary);
         Assert.Equal(5, result.CandidateLabels.Count);
         Assert.Equal("mod.one (Hale)", result.CandidateLabels[0]);
         Assert.Equal(1, resolver.CallCount);
@@ -247,7 +247,7 @@ Item Level: 80
         var display = service.ResolveModifierCandidates(item, CreateCatalog());
         var result = Assert.Single(display.Results);
 
-        Assert.Equal("42 name -> 42 kind -> 6 eligible", result.CountSummary);
+        Assert.Equal("42 name -> 42 kind -> 6 eligible -> 0 text", result.CountSummary);
         Assert.Equal(6, result.CandidateCount);
         Assert.Equal(5, result.CandidateLabels.Count);
     }

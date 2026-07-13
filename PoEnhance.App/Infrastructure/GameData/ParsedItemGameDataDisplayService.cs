@@ -105,13 +105,14 @@ internal sealed class ParsedItemGameDataDisplayService
                             : $"{diagnostic.Code}: {diagnostic.Reason}",
                         CandidateCount = result.Candidates.Count,
                         CountSummary =
-                            $"{result.NameCandidateCount} name -> {result.GenerationKindCandidateCount} kind -> {result.EligibilityCandidateCount} eligible",
+                            $"{result.NameCandidateCount} name -> {result.GenerationKindCandidateCount} kind -> {result.EligibilityCandidateCount} eligible -> {result.TextSignatureCandidateCount} text",
                         CandidateLabels = result.Candidates
                             .Take(CandidateDisplayLimit)
                             .Select(FormatModifierCandidate)
                             .ToArray(),
                         ShowInRegularDisplay = diagnostic?.Code
-                            != ModifierCandidateResolutionDiagnosticCodes.ModifierKindUnsupported,
+                            is not ModifierCandidateResolutionDiagnosticCodes.ModifierKindUnsupported
+                            and not ModifierCandidateResolutionDiagnosticCodes.ModifierNameNotAvailable,
                     };
                 })
                 .ToArray(),

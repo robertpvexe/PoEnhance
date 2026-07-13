@@ -134,6 +134,7 @@ public sealed class RePoeStatTranslationsImporterTests
         Assert.Equal("English", translation.Language);
         Assert.Null(condition.MinValue);
         Assert.Null(condition.MaxValue);
+        Assert.False(condition.IsNegated);
         Assert.Equal(["#"], variant.ValueFormats);
         Assert.Empty(Assert.Single(variant.IndexHandlers).Handlers);
         Assert.Equal(["Known {0}"], variant.FormatLines);
@@ -171,6 +172,7 @@ public sealed class RePoeStatTranslationsImporterTests
         Assert.Empty(result.Diagnostics);
         Assert.Equal(-5m, condition.MinValue);
         Assert.Equal(10m, condition.MaxValue);
+        Assert.True(condition.IsNegated);
         Assert.Equal(["negate"], variant.ValueFormats);
         Assert.Equal(["divide_by_one_hundred"], handler.Handlers);
         Assert.Equal(["Known {0}", "Second line"], variant.FormatLines);

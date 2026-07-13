@@ -8,6 +8,7 @@ public sealed class ParsedItemModifierCandidateResolver
 {
     private readonly ParsedItemBaseResolver baseResolver = new();
     private readonly ModifierEligibilityEvaluator eligibilityEvaluator = new();
+    private readonly ModifierTextSignatureMatcher textSignatureMatcher = new();
 
     public IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
         ParsedItem parsedItem,
@@ -149,17 +150,9 @@ public sealed class ParsedItemModifierCandidateResolver
             .Where(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Ineligible)
             .Select(evaluation => evaluation.Candidate));
 
-        return eligibleCandidates.Count switch
+        if (eligibleCandidates.Count == 0)
         {
-            1 => MatchedEligible(
-                index,
-                modifier,
-                generationType,
-                eligibleCandidates[0],
-                nameCandidates.Count,
-                kindCandidates.Count,
-                excludedCandidates),
-            0 => Unknown(
+            return Unknown(
                 index,
                 modifier,
                 generationType,
@@ -169,19 +162,115 @@ public sealed class ParsedItemModifierCandidateResolver
                 nameCandidates.Count,
                 kindCandidates.Count,
                 eligibilityCandidateCount: 0,
-                excludedCandidates),
-            _ => Unknown(
+                excludedCandidates);
+        }
+
+        return ResolveTextSignatures(
+            index,
+            modifier,
+            catalog,
+            generationType,
+            nameCandidates.Count,
+            kindCandidates.Count,
+            eligibleCandidates,
+            excludedCandidates);
+    }
+
+    private ModifierCandidateResolutionResult ResolveTextSignatures(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        ModifierGenerationType generationType,
+        int nameCandidateCount,
+        int generationKindCandidateCount,
+        IReadOnlyList<ModifierDefinition> eligibleCandidates,
+        IReadOnlyList<ModifierDefinition> eligibilityExcludedCandidates)
+    {
+        var textEvaluations = eligibleCandidates
+            .Select(candidate => new
+            {
+                Candidate = candidate,
+                Result = textSignatureMatcher.Match(candidate, catalog, modifier.ValueLines),
+            })
+            .ToArray();
+        var retainedEvaluations = textEvaluations
+            .Where(evaluation => evaluation.Result.Outcome != ModifierTextSignatureMatchOutcome.NoMatch)
+            .ToArray();
+        var textExcludedCandidates = textEvaluations
+            .Where(evaluation => evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.NoMatch)
+            .Select(evaluation => evaluation.Candidate)
+            .ToArray();
+        var finalCandidates = ToReadOnly(retainedEvaluations.Select(evaluation => evaluation.Candidate));
+        var allExcludedCandidates = ToReadOnly(eligibilityExcludedCandidates.Concat(textExcludedCandidates));
+        var textResults = ToReadOnly(textEvaluations.Select(evaluation => evaluation.Result));
+
+        if (finalCandidates.Count == 0)
+        {
+            return Unknown(
                 index,
                 modifier,
                 generationType,
-                eligibleCandidates,
-                ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityAmbiguous,
-                "Multiple candidates remained after item-base eligibility filtering.",
-                nameCandidates.Count,
-                kindCandidates.Count,
+                finalCandidates,
+                ModifierCandidateResolutionDiagnosticCodes.ModifierTextNoMatch,
+                "All eligible candidates were excluded by stat-text signature matching.",
+                nameCandidateCount,
+                generationKindCandidateCount,
                 eligibleCandidates.Count,
-                excludedCandidates),
-        };
+                allExcludedCandidates,
+                textSignatureCandidateCount: 0,
+                excludedByTextCandidateCount: textExcludedCandidates.Length,
+                textResults);
+        }
+
+        if (finalCandidates.Count == 1)
+        {
+            var retainedTextResult = retainedEvaluations[0].Result;
+            var diagnosticCode = retainedTextResult.Outcome == ModifierTextSignatureMatchOutcome.Match
+                ? ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch
+                : ModifierCandidateResolutionDiagnosticCodes.ModifierTextNotEvaluated;
+            var reason = retainedTextResult.Outcome == ModifierTextSignatureMatchOutcome.Match
+                ? "Exactly one candidate remained after stat-text signature matching."
+                : "Exactly one candidate remained, but stat-text signature matching could not verify it.";
+
+            return new ModifierCandidateResolutionResult(
+                index,
+                modifier,
+                modifier.Name,
+                modifier.Kind,
+                generationType,
+                ModifierCandidateResolutionStatus.Exact,
+                finalCandidates,
+                Diagnostics(diagnosticCode, reason),
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                allExcludedCandidates.Count,
+                allExcludedCandidates,
+                TextSignatureCandidateCount: finalCandidates.Count,
+                ExcludedByTextCandidateCount: textExcludedCandidates.Length,
+                TextSignatureMatches: textResults);
+        }
+
+        var allRetainedUnknown = retainedEvaluations.All(evaluation =>
+            evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.Unknown);
+        return Unknown(
+            index,
+            modifier,
+            generationType,
+            finalCandidates,
+            allRetainedUnknown && textExcludedCandidates.Length == 0
+                ? ModifierCandidateResolutionDiagnosticCodes.ModifierTextNotEvaluated
+                : ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
+            allRetainedUnknown && textExcludedCandidates.Length == 0
+                ? "Stat-text signature matching could not be evaluated for the retained candidates."
+                : "Multiple candidates remained after stat-text signature matching.",
+            nameCandidateCount,
+            generationKindCandidateCount,
+            eligibleCandidates.Count,
+            allExcludedCandidates,
+            textSignatureCandidateCount: finalCandidates.Count,
+            excludedByTextCandidateCount: textExcludedCandidates.Length,
+            textResults);
     }
 
     private static bool HasCandidateDiscoverySignal(ParsedModifier modifier)
@@ -283,7 +372,10 @@ public sealed class ParsedItemModifierCandidateResolver
         int nameCandidateCount = 0,
         int generationKindCandidateCount = 0,
         int eligibilityCandidateCount = 0,
-        IReadOnlyList<ModifierDefinition>? excludedCandidates = null)
+        IReadOnlyList<ModifierDefinition>? excludedCandidates = null,
+        int textSignatureCandidateCount = 0,
+        int excludedByTextCandidateCount = 0,
+        IReadOnlyList<ModifierTextSignatureMatchResult>? textSignatureMatches = null)
     {
         excludedCandidates ??= [];
         return new ModifierCandidateResolutionResult(
@@ -299,7 +391,10 @@ public sealed class ParsedItemModifierCandidateResolver
             generationKindCandidateCount,
             eligibilityCandidateCount,
             excludedCandidates.Count,
-            excludedCandidates);
+            excludedCandidates,
+            textSignatureCandidateCount,
+            excludedByTextCandidateCount,
+            textSignatureMatches);
     }
 
     private static IReadOnlyList<ModifierCandidateResolutionDiagnostic> Diagnostics(string code, string reason)

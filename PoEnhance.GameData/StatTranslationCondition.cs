@@ -7,4 +7,6 @@ public sealed record StatTranslationCondition
     public decimal? MinValue { get; init; }
 
     public decimal? MaxValue { get; init; }
+
+    public bool IsNegated { get; init; }
 }

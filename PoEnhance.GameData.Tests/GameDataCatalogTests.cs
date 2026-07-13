@@ -263,6 +263,23 @@ public sealed class GameDataCatalogTests
     }
 
     [Fact]
+    public void FindStatTranslationsByStatIdGroup_UsesExactOrderedGroup()
+    {
+        var package = CreatePackageWithMultiStatTranslation();
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var exact = Assert.Single(catalog.FindStatTranslationsByStatIdGroup(
+            [" BASE_MAXIMUM_LIFE ", "base_fire_damage_resistance_%"]));
+        var reversed = catalog.FindStatTranslationsByStatIdGroup(
+            ["base_fire_damage_resistance_%", "base_maximum_life"]);
+        var partial = catalog.FindStatTranslationsByStatIdGroup(["base_maximum_life"]);
+
+        Assert.Equal("translation.life-and-fire", exact.Id);
+        Assert.Empty(reversed);
+        Assert.Empty(partial);
+    }
+
+    [Fact]
     public void ReturnedCollectionsCannotMutateCatalogState()
     {
         var catalog = CreateCatalog();
