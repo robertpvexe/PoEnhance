@@ -127,11 +127,15 @@ The current active-fork package build imports 4,639 item bases, 38,800 modifiers
 
 The development application can load one local generated package for a session and show item-base resolution plus modifier candidate diagnostics in the developer parser UI. Modifier debug output shows the parsed modifier name, final status, name/kind/eligibility/text narrowing counts, a limited candidate preview, and the diagnostic code for supported modifier kinds; unsupported placeholder kinds remain parsed but do not append repetitive candidate debug blocks in the regular panel. Description remains stored on `ParsedItem` and visible in Raw Input, but it is hidden from the regular development result panel. Configure the package with `--game-data <path>`, `POENHANCE_GAMEDATA_PATH`, or the development fallback `artifacts/poenhance-game-data.json` discovered from the current directory or parent repository directories. Missing or invalid game data does not prevent parser operation; the UI degrades to parser-only output.
 
+The development application also keeps a minimal local provisional game-data store at `%LOCALAPPDATA%\PoEnhance\provisional-game-data.json`. It records only high-confidence unresolved identities found during normal parsing and catalog resolution: missing parsed item bases with a `BASE_NOT_FOUND` result, and missing authentic Advanced modifier names with zero catalog name candidates and a supported generation kind. Records are provider-neutral, local-only, deduplicated by stable key, and store source, timestamps, league or patch context, confidence, and concise discovery context. They do not store full copied item text, seller notes, account names, prices, or clipboard history, and they do not automatically become canonical game data. Review, enrichment, promotion, and management UI remain deferred.
+
 Production package activation, installation, rollback, automatic updates, and update UI are not implemented yet. Parser enrichment does not load package files or create global catalog state. Modifier tier inference, value-range matching, full rendered-stat/value matching, Trade stat mapping, fuzzy matching, and statless RePoE concepts audited in `docs/development/repoe-skipped-record-audit-2026-07-12.md` remain deferred.
 
 ## Development Logs
 
 PoEnhance.App writes local development logs to `%LOCALAPPDATA%\PoEnhance\Logs`.
+
+PoEnhance.App writes provisional game-data records to `%LOCALAPPDATA%\PoEnhance\provisional-game-data.json`.
 
 ## Development Approach
 
@@ -172,6 +176,7 @@ No open-source license has been selected yet.
 - RePoE importing is local-file-only for supported files; there is no automatic data downloading or update workflow yet.
 - Complete local game-data packages can be loaded and validated. The development App can load one local package for the current session through `--game-data <path>`, `POENHANCE_GAMEDATA_PATH`, or the `artifacts/poenhance-game-data.json` fallback.
 - Parsed items can be enriched with item-base resolution and Advanced metadata modifier candidate discovery in `PoEnhance.Core` when a caller supplies a validated `GameDataCatalog`; modifier candidates can be narrowed by verified base eligibility, dynamic traditional-influence item-context tags, and conservative stat-text signature matching. Unresolved or ambiguous bases preserve earlier candidates, and unsupported translation shapes remain Unknown. Tier inference, modifier value-range matching, full rendered-stat/value matching, and fuzzy matching are not implemented yet.
+- Provisional game-data records capture only high-confidence unresolved identities in a local provider-neutral JSON store. They are not a second canonical data package and are not automatically promoted into trusted game data.
 - Production package installation, activation, rollback, automatic updates, and update UI are not implemented yet.
 - Runtime lookup indexes are provider-neutral and intentionally exclude statless RePoE behavior records until a separate future model is designed.
 - No production-ready Trade, OAuth, stash, or economy integration yet.

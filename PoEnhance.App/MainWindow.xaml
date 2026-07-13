@@ -73,6 +73,9 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
@@ -140,6 +143,41 @@
                            Text="Diagnostic:" />
                 <TextBlock x:Name="GameDataDiagnosticText"
                            Grid.Row="5"
+                           Grid.Column="1"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="6"
+                           Grid.Column="0"
+                           Margin="0,8,8,4"
+                           FontWeight="SemiBold"
+                           Text="Provisional Store:" />
+                <TextBlock x:Name="ProvisionalStoreStateText"
+                           Grid.Row="6"
+                           Grid.Column="1"
+                           Margin="0,8,0,4"
+                           Text="Not loaded"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="7"
+                           Grid.Column="0"
+                           Margin="0,0,8,4"
+                           FontWeight="SemiBold"
+                           Text="Provisional Path:" />
+                <TextBlock x:Name="ProvisionalStorePathText"
+                           Grid.Row="7"
+                           Grid.Column="1"
+                           Margin="0,0,0,4"
+                           Text="Not detected"
+                           TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="8"
+                           Grid.Column="0"
+                           Margin="0,0,8,0"
+                           FontWeight="SemiBold"
+                           Text="Provisional Diagnostic:" />
+                <TextBlock x:Name="ProvisionalStoreDiagnosticText"
+                           Grid.Row="8"
                            Grid.Column="1"
                            Text="Not detected"
                            TextWrapping="Wrap" />

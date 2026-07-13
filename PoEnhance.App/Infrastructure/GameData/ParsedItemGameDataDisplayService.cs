@@ -99,6 +99,7 @@ internal sealed class ParsedItemGameDataDisplayService
                     {
                         ParsedModifierIndex = result.ParsedModifierIndex,
                         ParsedModifier = result.ParsedModifier,
+                        Result = result,
                         Status = result.Status.ToString(),
                         Diagnostic = diagnostic is null
                             ? "Not detected"

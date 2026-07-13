@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly KeyboardInputSender keyboardInputSender = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
+    private readonly ProvisionalGameDataRecordingService provisionalGameDataRecordingService;
     private readonly RuntimeGameDataService runtimeGameDataService;
     private readonly WpfClipboardTextReader clipboardTextReader = new();
     private readonly DispatcherTimer pathOfExileStatusTimer;
@@ -41,13 +42,26 @@ public partial class MainWindow : Window
     }
 
     internal MainWindow(RuntimeGameDataService runtimeGameDataService)
+        : this(
+            runtimeGameDataService,
+            new ProvisionalGameDataRecordingService(
+                new JsonProvisionalGameDataStore(
+                    new ProvisionalGameDataStorePathResolver().ResolveDefaultPath())))
+    {
+    }
+
+    internal MainWindow(
+        RuntimeGameDataService runtimeGameDataService,
+        ProvisionalGameDataRecordingService provisionalGameDataRecordingService)
     {
         this.runtimeGameDataService = runtimeGameDataService;
+        this.provisionalGameDataRecordingService = provisionalGameDataRecordingService;
 
         InitializeComponent();
         InitializeShortcutControls();
         InitializeManualInputControls();
         DisplayRuntimeGameDataStatus(runtimeGameDataService.Current);
+        DisplayProvisionalStoreStatus(provisionalGameDataRecordingService.Status);
         ClearParsedItemResult();
 
         pathOfExileStatusTimer = new DispatcherTimer
@@ -64,6 +78,7 @@ public partial class MainWindow : Window
         {
             RefreshPathOfExileStatus();
             pathOfExileStatusTimer.Start();
+            _ = RefreshProvisionalStoreStatusAsync();
         };
 
         Closed += (_, _) =>
@@ -94,7 +109,7 @@ public partial class MainWindow : Window
 
     private void InitializeManualInputControls()
     {
-        ParseManualInputButton.Click += (_, _) => ParseManualItemInput();
+        ParseManualInputButton.Click += async (_, _) => await ParseManualItemInputAsync();
         ClearManualInputButton.Click += (_, _) => ClearManualItemInput();
     }
 
@@ -157,6 +172,13 @@ public partial class MainWindow : Window
         }
 
         return DisplayValue(status.FailureMessage);
+    }
+
+    private void DisplayProvisionalStoreStatus(ProvisionalGameDataStoreStatus status)
+    {
+        ProvisionalStoreStateText.Text = $"Records: {status.RecordCount}";
+        ProvisionalStorePathText.Text = ShortenPath(status.FilePath);
+        ProvisionalStoreDiagnosticText.Text = DisplayValue(status.LastDiagnostic);
     }
 
     private void RefreshPathOfExileStatus()
@@ -292,7 +314,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            ReadClipboardTextAfterCapture();
+            await ReadClipboardTextAfterCaptureAsync();
         }
         finally
         {
@@ -330,7 +352,7 @@ public partial class MainWindow : Window
         ClipboardCaptureStatusText.Text = $"Clipboard: {status}";
     }
 
-    private void ReadClipboardTextAfterCapture()
+    private async Task ReadClipboardTextAfterCaptureAsync()
     {
         ClipboardTextReadResult result = clipboardTextReader.ReadText();
 
@@ -339,7 +361,7 @@ public partial class MainWindow : Window
             case ClipboardTextReadStatus.TextAvailable:
                 var rawClipboardText = result.Text ?? string.Empty;
                 DisplayRawInputText(rawClipboardText);
-                ParseRawItemText(rawClipboardText, ItemInputSource.Clipboard);
+                await ParseRawItemTextAsync(rawClipboardText, ItemInputSource.Clipboard);
                 Log.Information("Item capture succeeded from clipboard text");
                 break;
 
@@ -355,11 +377,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ParseManualItemInput()
+    private async Task ParseManualItemInputAsync()
     {
         var rawManualItemText = ManualItemInputTextBox.Text ?? string.Empty;
         DisplayRawInputText(rawManualItemText);
-        ParseRawItemText(rawManualItemText, ItemInputSource.Manual);
+        await ParseRawItemTextAsync(rawManualItemText, ItemInputSource.Manual);
     }
 
     private void ClearManualItemInput()
@@ -380,7 +402,7 @@ public partial class MainWindow : Window
         RawInputTextBox.Clear();
     }
 
-    private void ParseRawItemText(string rawText, ItemInputSource inputSource)
+    private async Task ParseRawItemTextAsync(string rawText, ItemInputSource inputSource)
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
@@ -400,6 +422,14 @@ public partial class MainWindow : Window
                 runtimeGameDataService.Current.Catalog,
                 itemBaseResolution.Result);
             DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
+            if (itemBaseResolution.Result is not null)
+            {
+                await RecordProvisionalGameDataAsync(
+                    parsedItem,
+                    itemBaseResolution.Result,
+                    modifierCandidateResolutions,
+                    CreateProcessingEventKey(inputSource));
+            }
             SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
         }
         catch (Exception exception)
@@ -407,6 +437,40 @@ public partial class MainWindow : Window
             ClearParsedItemResult();
             SetInputStatus(inputSource, "Item parsing failed");
             LogItemParsingFailure(inputSource, exception);
+        }
+    }
+
+    private static string CreateProcessingEventKey(ItemInputSource inputSource)
+    {
+        return $"{inputSource}:{Guid.NewGuid():N}";
+    }
+
+    private async Task RefreshProvisionalStoreStatusAsync()
+    {
+        await provisionalGameDataRecordingService.LoadSnapshotAsync();
+        await Dispatcher.BeginInvoke(() => DisplayProvisionalStoreStatus(provisionalGameDataRecordingService.Status));
+    }
+
+    private async Task RecordProvisionalGameDataAsync(
+        ParsedItem parsedItem,
+        PoEnhance.Core.Items.GameData.ItemBaseResolutionResult itemBaseResolution,
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions,
+        string processingEventKey)
+    {
+        try
+        {
+            var result = await provisionalGameDataRecordingService.RecordAsync(
+                parsedItem,
+                runtimeGameDataService.Current,
+                itemBaseResolution,
+                modifierCandidateResolutions.Results.Select(display => display.Result).OfType<PoEnhance.Core.Items.GameData.ModifierCandidateResolutionResult>().ToArray(),
+                processingEventKey);
+
+            await Dispatcher.BeginInvoke(() => DisplayProvisionalStoreStatus(result.StoreStatus));
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "Provisional game-data recording failed without interrupting item parsing");
         }
     }
 

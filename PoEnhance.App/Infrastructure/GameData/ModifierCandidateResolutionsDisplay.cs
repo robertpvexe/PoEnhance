@@ -1,3 +1,4 @@
+using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 
 namespace PoEnhance.App.Infrastructure.GameData;
@@ -16,6 +17,8 @@ internal sealed record ModifierCandidateResolutionItemDisplay
     public int ParsedModifierIndex { get; init; }
 
     public ParsedModifier ParsedModifier { get; init; } = default!;
+
+    public ModifierCandidateResolutionResult? Result { get; init; }
 
     public string Status { get; init; } = "Unknown";
 

@@ -118,6 +118,10 @@ Build a technical prototype that can run in the background, detect Path of Exile
 
 ## 4. Milestone 2 — Shared Data Core Foundation
 
+**Status:** Complete on 2026-07-13.
+
+**Next:** Milestone 3 - Basic Trade Price Checker.
+
 ### Goal
 
 Create reusable data infrastructure for future modules.
