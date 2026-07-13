@@ -28,5 +28,9 @@ public sealed record TradeModifierFilterDraft
 
     public string? ResolvedModifierName { get; init; }
 
+    public decimal? RequestedMinimum { get; init; }
+
+    public decimal? RequestedMaximum { get; init; }
+
     public bool IsSelected { get; init; }
 }
