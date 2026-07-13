@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Clipboard;
 using PoEnhance.App.Infrastructure.GameData;
 using PoEnhance.App.Infrastructure.Input;
@@ -27,6 +28,7 @@ public partial class MainWindow : Window
     private readonly KeyboardInputSender keyboardInputSender = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
+    private readonly PriceCheckerWindowController priceCheckerWindowController;
     private readonly ProvisionalGameDataRecordingService provisionalGameDataRecordingService;
     private readonly RuntimeGameDataService runtimeGameDataService;
     private readonly WpfClipboardTextReader clipboardTextReader = new();
@@ -58,6 +60,8 @@ public partial class MainWindow : Window
         this.provisionalGameDataRecordingService = provisionalGameDataRecordingService;
 
         InitializeComponent();
+        priceCheckerWindowController = new PriceCheckerWindowController(
+            new PriceCheckerWindowFactory());
         InitializeShortcutControls();
         InitializeManualInputControls();
         DisplayRuntimeGameDataStatus(runtimeGameDataService.Current);
@@ -422,6 +426,12 @@ public partial class MainWindow : Window
                 runtimeGameDataService.Current.Catalog,
                 itemBaseResolution.Result);
             DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
+            var priceCheckerUpdateResult = inputSource == ItemInputSource.Clipboard
+                ? ShowOrUpdatePriceCheckerWindow(
+                    parsedItem,
+                    itemBaseResolution,
+                    modifierCandidateResolutions)
+                : null;
             if (itemBaseResolution.Result is not null)
             {
                 await RecordProvisionalGameDataAsync(
@@ -430,7 +440,14 @@ public partial class MainWindow : Window
                     modifierCandidateResolutions,
                     CreateProcessingEventKey(inputSource));
             }
-            SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
+
+            var status = $"Parsed {rawText.Length} characters";
+            if (priceCheckerUpdateResult is not null)
+            {
+                status = $"{status}; {priceCheckerUpdateResult.Diagnostic}";
+            }
+
+            SetInputStatus(inputSource, status);
         }
         catch (Exception exception)
         {
@@ -443,6 +460,27 @@ public partial class MainWindow : Window
     private static string CreateProcessingEventKey(ItemInputSource inputSource)
     {
         return $"{inputSource}:{Guid.NewGuid():N}";
+    }
+
+    private PriceCheckerWindowUpdateResult ShowOrUpdatePriceCheckerWindow(
+        ParsedItem parsedItem,
+        ItemBaseResolutionDisplay itemBaseResolution,
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
+    {
+        var result = priceCheckerWindowController.ShowOrUpdate(
+            parsedItem,
+            itemBaseResolution.Result,
+            modifierCandidateResolutions.Results
+                .Select(display => display.Result)
+                .OfType<PoEnhance.Core.Items.GameData.ModifierCandidateResolutionResult>()
+                .ToArray());
+
+        if (!result.IsSuccess)
+        {
+            Log.Warning("Price Checker window was not updated. {Diagnostic}", result.Diagnostic);
+        }
+
+        return result;
     }
 
     private async Task RefreshProvisionalStoreStatusAsync()

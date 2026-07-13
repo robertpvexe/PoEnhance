@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace PoEnhance.App.Infrastructure.PathOfExile;
 
-internal sealed class PathOfExileForegroundWindowDetector
+internal sealed class PathOfExileForegroundWindowDetector : IPathOfExileForegroundWindowDetector
 {
     public bool IsPathOfExileForegroundWindow()
     {
