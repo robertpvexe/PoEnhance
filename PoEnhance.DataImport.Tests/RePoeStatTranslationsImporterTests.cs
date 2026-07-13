@@ -94,6 +94,102 @@ public sealed class RePoeStatTranslationsImporterTests
     }
 
     [Fact]
+    public void Import_ExplicitNullConditionBoundsAndNegated_TreatsAsAbsent()
+    {
+        var stats = new[]
+        {
+            new StatDefinition { Id = "known_stat" },
+        };
+        var json = """
+            [
+              {
+                "ids": ["known_stat"],
+                "English": [
+                  {
+                    "condition": [{ "min": null, "max": null, "negated": null }],
+                    "format": ["#"],
+                    "index_handlers": [[]],
+                    "string": "Known {0}"
+                  }
+                ],
+                "hidden": false,
+                "trade_stats": ["pseudo.pseudo_known_stat"],
+                "reminder_text": null,
+                "is_markup": true
+              }
+            ]
+            """;
+
+        var result = ImportJson(json, stats);
+        var translation = Assert.Single(result.ImportedRecords);
+        var variant = Assert.Single(translation.Variants);
+        var condition = Assert.Single(variant.Conditions);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(1, result.SourceRecordsRead);
+        Assert.Equal(1, result.RecordsImported);
+        Assert.Equal(0, result.RecordsSkipped);
+        Assert.Equal(["known_stat"], translation.StatIds);
+        Assert.Equal("English", translation.Language);
+        Assert.Null(condition.MinValue);
+        Assert.Null(condition.MaxValue);
+        Assert.Equal(["#"], variant.ValueFormats);
+        Assert.Empty(Assert.Single(variant.IndexHandlers).Handlers);
+        Assert.Equal(["Known {0}"], variant.FormatLines);
+    }
+
+    [Fact]
+    public void Import_NonNullConditionBoundsAndNegated_PreservesNeutralFields()
+    {
+        var stats = new[]
+        {
+            new StatDefinition { Id = "known_stat" },
+        };
+        var json = """
+            [
+              {
+                "ids": ["known_stat"],
+                "English": [
+                  {
+                    "condition": [{ "min": -5, "max": 10, "negated": true }],
+                    "format": ["negate"],
+                    "index_handlers": [["divide_by_one_hundred"]],
+                    "string": "Known {0}\nSecond line"
+                  }
+                ]
+              }
+            ]
+            """;
+
+        var result = ImportJson(json, stats);
+        var variant = Assert.Single(Assert.Single(result.ImportedRecords).Variants);
+        var condition = Assert.Single(variant.Conditions);
+        var handler = Assert.Single(variant.IndexHandlers);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(-5m, condition.MinValue);
+        Assert.Equal(10m, condition.MaxValue);
+        Assert.Equal(["negate"], variant.ValueFormats);
+        Assert.Equal(["divide_by_one_hundred"], handler.Handlers);
+        Assert.Equal(["Known {0}", "Second line"], variant.FormatLines);
+    }
+
+    [Fact]
+    public void Import_OldFixture_RemainsCompatibleAfterNullableConditionSupport()
+    {
+        var stats = ImportReducedStats();
+
+        var result = _translationsImporter.Import(RePoeImportTestFixtures.ReducedStatTranslationsPath, stats);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(6, result.RecordsImported);
+        Assert.Equal(0, result.RecordsSkipped);
+    }
+
+    [Fact]
     public void Import_MalformedRecords_SkipsInvalidRecordsWithDiagnostics()
     {
         var stats = new[]

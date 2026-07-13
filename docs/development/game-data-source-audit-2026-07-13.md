@@ -4,7 +4,7 @@
 
 This audit answers whether the obsolete `brather1ng/RePoE` source can be replaced by the actively maintained `repoe-fork/repoe` source without redesigning the importer.
 
-No importer code was changed. No multi-source merging, PoB importer, PoEWiki importer, PoEDB scraping, override system, UI change, update workflow, or `Ctrl+D` behavior change was implemented.
+The initial audit did not change importer code. The follow-up migration made only the narrow importer changes identified here. No multi-source merging, PoB importer, PoEWiki importer, PoEDB scraping, override system, UI change, update workflow, or `Ctrl+D` behavior change was implemented.
 
 ## Baseline
 
@@ -275,23 +275,84 @@ Because the active DataTool run failed validation, active coverage below is sour
 
 The active fork substantially improves base coverage for the audited live/suspicious names, but does not fully close the list.
 
+## Migration Follow-up
+
+The narrow migration was completed on 2026-07-13. `PoEnhance.DataImport` now treats explicit null `stats.alias.when_in_main_hand` / `when_in_off_hand` values as absent aliases, and explicit null `stat_translations.condition.min` / `max` / `negated` values as absent condition metadata. Non-null alias strings, numeric bounds, and boolean `negated` values remain accepted; invalid non-null shapes still produce importer diagnostics. The provider-neutral GameData models were not widened with RePoE-specific nullable DTOs or catch-all `JsonElement` fields.
+
+`RePoeGameDataPackageBuildService` now writes the active source URI `https://github.com/repoe-fork/repoe` into the manifest while preserving source id `repoe` and the exact caller-supplied source version. The replacement local artifact was generated from commit `c50acab2ed660a70511e7f91ee09db4e632089e4`.
+
+Final active-fork build command:
+
+```powershell
+dotnet run --project .\PoEnhance.DataTool -- build-package `
+  --base-items .\artifacts\source-audit\active-poe1\base_items.json `
+  --mods .\artifacts\source-audit\active-poe1\mods.json `
+  --stats .\artifacts\source-audit\active-poe1\stats.json `
+  --translations .\artifacts\source-audit\active-poe1\stat_translations.json `
+  --output .\artifacts\poenhance-game-data.json `
+  --data-version repoe-fork-c50acab-20260713 `
+  --league Mercenaries `
+  --patch 3.28.0.14.3 `
+  --source-version c50acab2ed660a70511e7f91ee09db4e632089e4
+```
+
+Outcome: active fork package imports, validates, loads through `GameDataPackageLoader`, builds a `GameDataCatalog`, and passes focused resolver smoke checks. The ignored local package `artifacts/poenhance-game-data.json` was atomically replaced by the build service.
+
+| Section | Source read | Imported | Skipped | Final package count |
+| --- | ---: | ---: | ---: | ---: |
+| ItemBases | 5,059 | 4,639 | 420 | 4,639 |
+| Modifiers | 39,292 | 38,800 | 492 | 38,800 |
+| Stats | 22,774 | 22,774 | 0 | 22,774 |
+| StatTranslations | 11,076 | 11,060 | 16 | 11,060 |
+
+Grouped diagnostics from the successful active-fork build:
+
+| Severity | Code | Count | Meaning |
+| --- | --- | ---: | --- |
+| Warning | `REPOE_RECORD_MISSING_NAME` | 420 | Same unnamed `RandomFossilOutcome*` base-item pattern as old source |
+| Warning | `REPOE_MODIFIER_RECORD_MISSING_STATS` | 492 | Statless modifiers skipped |
+| Warning | `REPOE_STAT_TRANSLATION_INVALID_FORMAT` | 2 | Translation variants with invalid format/string values skipped |
+| Warning | `REPOE_STAT_TRANSLATION_UNKNOWN_STAT_ID` | 14 | Translation records referencing stats absent from active `stats.json` skipped |
+| Error | none | 0 | Package validation succeeded |
+
+Package output:
+
+- Path: `artifacts/poenhance-game-data.json`
+- Size: `60,190,273` bytes
+- SHA256: `a62ed4c3e6aed618ad9fcaa158ae1c11d40e3d4aea00d7f7357633fe9ab1e6da`
+- Manifest source URI: `https://github.com/repoe-fork/repoe`
+- Manifest source version: `c50acab2ed660a70511e7f91ee09db4e632089e4`
+
+Package-level known base results:
+
+| Name | Package exact presence | ID | Item class | Domain | Tags | Resolver result |
+| --- | --- | --- | --- | --- | --- | --- |
+| Organic Ring | Yes | `Metadata/Items/Rings/RingB4` | Ring | item | `not_for_sale`, `ring`, `default` | Exact for parsed Ring base text |
+| Necrotic Armour | Yes | `Metadata/Items/Armours/BodyArmours/BodyDexInt20` | Body Armour | item | `dex_int_armour`, `top_tier_base_item_type`, `not_for_sale`, `body_armour`, `armour`, `default` | Exact for parsed Body Armour base text |
+| Tattoo of the Tasalio Shaman | Yes | `Metadata/Items/Currency/AncestralTattooTasalio3` | StackableCurrency | undefined | `int_tattoo`, `currency`, `default` | Exact through generic currency display-name path |
+| Manifold Ring | Yes | `Metadata/Items/Rings/RingE4` | Ring | item | `not_for_sale`, `experimental_base`, `ring`, `default` | Exact for parsed Ring base text |
+| Coin of Restoration | Yes | `Metadata/Items/Currency/CurrencyWishConvertUnique` | StackableCurrency | undefined | `currency`, `default` | Exact through generic currency display-name path |
+| Titan Plate | Yes | `Metadata/Items/Armours/BodyArmours/BodyStr18` | Body Armour | item | `str_armour`, `top_tier_base_item_type`, `not_for_sale`, `body_armour`, `armour`, `default` | Exact for parsed Body Armour base text |
+| Inscribed Ultimatum | No exact item-base match | None | Not applicable | Not applicable | Not applicable | Unknown; related active source text exists, but the exact base remains `Engraved Ultimatum` at `Metadata/Items/Maps/MapWorldsTrialmaster` |
+| Card Belt | No exact item-base match | None | Not applicable | Not applicable | Not applicable | Unknown; no active base-item name containing both `Card` and `Belt` was found |
+
 ## Decision
 
-The active fork cannot replace the obsolete RePoE source without code changes, because the current importer fails unchanged on narrow schema/nullability drift.
+The active fork can replace the obsolete RePoE source after the narrow schema/nullability changes above.
 
-The failure does not indicate that active fork coverage is insufficient or that a multi-source architecture is needed now. Base item import succeeds, active source coverage is materially better, and the incompatibilities are localized to current parsing assumptions:
+The initial failure did not indicate that active fork coverage was insufficient or that a multi-source architecture was needed. Base item import succeeds, active source coverage is materially better, and the incompatibilities were localized to current parsing assumptions:
 
 - allow null `stats.alias.when_in_main_hand` / `when_in_off_hand` as equivalent to absent alias;
-- allow null `stat_translations.condition.min` / `max` / `negated` as equivalent to absent open bounds / false negation;
-- then rerun package validation before making the active fork primary.
+- allow null `stat_translations.condition.min` / `max` / `negated` as equivalent to absent condition metadata;
+- keep package validation as the gate before replacing the local artifact.
 
 ## Verification
 
 Final verification for this audit:
 
-- `git diff --check`: Passed.
-- `dotnet build`: Passed, 0 warnings, 0 errors.
-- `dotnet test`: Passed, 239 tests.
-- `git status --short --branch`: `## main...origin/main` plus this untracked report file.
+- `git diff --check`: Passed after follow-up changes.
+- `dotnet build`: Passed after follow-up changes, 0 warnings, 0 errors.
+- `dotnet test`: Passed after follow-up changes, 245 tests.
+- `GameDataPackageLoader` / `GameDataCatalog` / resolver smoke check: Passed for `artifacts/poenhance-game-data.json`.
 
-Recommendation: Adapt importer narrowly, then replace old RePoE.
+Recommendation: use `repoe-fork/repoe` as the current primary local RePoE source, with production activation/update workflow still deferred.

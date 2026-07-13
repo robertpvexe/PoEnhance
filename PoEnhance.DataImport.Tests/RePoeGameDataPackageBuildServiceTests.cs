@@ -46,6 +46,10 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal("Mercenaries", package.Manifest.League);
         Assert.Equal("3.26.0", package.Manifest.Patch);
         Assert.Equal(FixedCreatedAtUtc, package.Manifest.CreatedAtUtc);
+        var source = Assert.Single(package.Manifest.Sources);
+        Assert.Equal("repoe", source.SourceId);
+        Assert.Equal("https://github.com/repoe-fork/repoe", source.SourceUri);
+        Assert.Equal("c50acab2ed660a70511e7f91ee09db4e632089e4", source.SourceVersion);
         Assert.True(GameDataPackageValidator.Validate(package).IsValid);
     }
 
@@ -213,6 +217,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.NotNull(result.Package);
         var manifestSource = Assert.Single(result.Package.Manifest.Sources);
         Assert.Equal("repoe", manifestSource.SourceId);
+        Assert.Equal("https://github.com/repoe-fork/repoe", manifestSource.SourceUri);
 
         Assert.All(result.Package.ItemBases.SelectMany(record => record.Sources), AssertRePoeSource);
         Assert.All(result.Package.Modifiers.SelectMany(record => record.Sources), AssertRePoeSource);
@@ -232,7 +237,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             DataVersion = "dev-test",
             League = "Mercenaries",
             Patch = "3.26.0",
-            SourceVersion = "8023a1d696dbddc836c05ac3fcedd072da1767d2",
+            SourceVersion = "c50acab2ed660a70511e7f91ee09db4e632089e4",
             CreatedAtUtc = FixedCreatedAtUtc,
         };
     }

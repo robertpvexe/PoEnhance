@@ -7,7 +7,7 @@ namespace PoEnhance.DataImport;
 public sealed class RePoeGameDataPackageBuildService
 {
     private const int CurrentSchemaVersion = 1;
-    private const string RePoeSourceUri = "https://github.com/brather1ng/RePoE";
+    private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
     private readonly RePoeModifierImporter _modifierImporter = new();

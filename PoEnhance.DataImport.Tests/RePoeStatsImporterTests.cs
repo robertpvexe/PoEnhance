@@ -41,6 +41,83 @@ public sealed class RePoeStatsImporterTests
     }
 
     [Fact]
+    public void Import_ExplicitNullAliasHandConditions_TreatsAsNoAlias()
+    {
+        var json = """
+            {
+              "active_fork_null_alias_stat": {
+                "alias": {
+                  "when_in_main_hand": null,
+                  "when_in_off_hand": null
+                },
+                "is_local": true
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+        var stat = Assert.Single(result.ImportedRecords);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(1, result.SourceRecordsRead);
+        Assert.Equal(1, result.RecordsImported);
+        Assert.Equal(0, result.RecordsSkipped);
+        Assert.Equal("active_fork_null_alias_stat", stat.Id);
+        Assert.True(stat.IsLocal);
+        Assert.Null(stat.MainHandAliasId);
+        Assert.Null(stat.OffHandAliasId);
+        AssertRePoeSource(stat, "active_fork_null_alias_stat");
+    }
+
+    [Fact]
+    public void Import_NonNullAliasHandConditions_PreservesAliases()
+    {
+        var json = """
+            {
+              "active_fork_string_alias_stat": {
+                "alias": {
+                  "when_in_main_hand": " main_hand_active_fork_string_alias_stat ",
+                  "when_in_off_hand": " off_hand_active_fork_string_alias_stat "
+                },
+                "is_local": false
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+        var stat = Assert.Single(result.ImportedRecords);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal("main_hand_active_fork_string_alias_stat", stat.MainHandAliasId);
+        Assert.Equal("off_hand_active_fork_string_alias_stat", stat.OffHandAliasId);
+        Assert.False(stat.IsLocal);
+    }
+
+    [Fact]
+    public void Import_OldEmptyAliasObjectFixtureShape_RemainsCompatible()
+    {
+        var json = """
+            {
+              "old_empty_alias_stat": {
+                "alias": {},
+                "is_local": false
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+        var stat = Assert.Single(result.ImportedRecords);
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal("old_empty_alias_stat", stat.Id);
+        Assert.Null(stat.MainHandAliasId);
+        Assert.Null(stat.OffHandAliasId);
+    }
+
+    [Fact]
     public void Import_SourceReferencesValidateAgainstRePoeManifest()
     {
         var result = _importer.Import(RePoeImportTestFixtures.ReducedStatsPath);

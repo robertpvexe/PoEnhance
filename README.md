@@ -103,7 +103,7 @@ dotnet test
 
 ## Build Local Game-Data Package
 
-`PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network.
+`PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network. Current local development packages use the active `repoe-fork/repoe` PoE1 export, with source commit `c50acab2ed660a70511e7f91ee09db4e632089e4` recorded in the package manifest when passed through `--source-version`.
 
 ```powershell
 dotnet run --project .\PoEnhance.DataTool -- build-package `
@@ -116,6 +116,8 @@ dotnet run --project .\PoEnhance.DataTool -- build-package `
 ```
 
 Generated packages are local artifacts and are not committed. Use local paths such as `artifacts/`, `local-data/`, or `data/repoe/` for generated packages and local source snapshots.
+
+The current active-fork package build imports 4,639 item bases, 38,800 modifiers, 22,774 stats, and 11,060 stat translations with zero validation errors. `Inscribed Ultimatum` and `Card Belt` are still not exact imported item-base names; `Engraved Ultimatum` remains the catalog base for the related Ultimatum map record.
 
 ## Load Local Game-Data Packages
 

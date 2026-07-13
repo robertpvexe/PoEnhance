@@ -173,8 +173,22 @@ public sealed class RePoeStatsImporter
 
         foreach (var alias in aliases.EnumerateObject())
         {
-            if (alias.Name is not "when_in_main_hand" and not "when_in_off_hand" ||
-                alias.Value.ValueKind != JsonValueKind.String ||
+            if (alias.Name is not "when_in_main_hand" and not "when_in_off_hand")
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.StatRecordInvalidAlias,
+                    ImportDiagnosticSeverity.Warning,
+                    sourceRecordId,
+                    "RePoE stat record has an unsupported alias entry and was skipped."));
+                return false;
+            }
+
+            if (alias.Value.ValueKind == JsonValueKind.Null)
+            {
+                continue;
+            }
+
+            if (alias.Value.ValueKind != JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(alias.Value.GetString()))
             {
                 diagnostics.Add(Diagnostic(
