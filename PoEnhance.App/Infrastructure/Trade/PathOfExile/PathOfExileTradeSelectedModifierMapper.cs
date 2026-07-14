@@ -1,20 +1,11 @@
-using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTradeSelectedModifierMapper
 {
-    private readonly IPathOfExileTradeStatMatcher statMatcher;
-
-    public PathOfExileTradeSelectedModifierMapper(IPathOfExileTradeStatMatcher statMatcher)
-    {
-        this.statMatcher = statMatcher ?? throw new ArgumentNullException(nameof(statMatcher));
-    }
-
-    public PathOfExileTradeSelectedModifierMappingResult Map(
-        TradeSearchDraft? draft,
-        PathOfExileTradeStatCatalog? catalog)
+    public PathOfExileTradeSelectedModifierMappingResult Map(TradeSearchDraft? draft)
     {
         var selectedModifiers = (draft?.ModifierFilters ?? [])
             .Select((modifier, index) => new IndexedModifier(index, modifier))
@@ -26,86 +17,129 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             return PathOfExileTradeSelectedModifierMappingResult.Success([]);
         }
 
-        if (catalog is null)
-        {
-            return PathOfExileTradeSelectedModifierMappingResult.Failure(
-            [
-                new PathOfExileTradeSelectedModifierMappingDiagnostic(
-                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.CatalogRequired,
-                    "A Trade stats catalog is required before selected modifiers can be mapped."),
-            ]);
-        }
-
         var filters = new List<PathOfExileTradeSelectedModifierFilter>();
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
-        var traces = new List<PathOfExileTradeStatResolutionTrace>();
         foreach (var selectedModifier in selectedModifiers)
         {
-            var match = statMatcher.Match(
-                ToParsedModifier(selectedModifier.Modifier),
-                catalog,
-                CreateContext(draft, selectedModifier.Modifier));
-            if (match.Trace is not null)
+            if (TryCreateResolvedProviderFilter(
+                    selectedModifier.Index,
+                    selectedModifier.Modifier,
+                    out var resolvedFilter,
+                    out var resolvedDiagnostic))
             {
-                traces.Add(match.Trace);
-            }
-
-            if (match.Status == PathOfExileTradeStatMatchStatus.Exact &&
-                match.ExactCandidate is not null &&
-                !string.IsNullOrWhiteSpace(match.ExactCandidate.StatId))
-            {
-                filters.Add(new PathOfExileTradeSelectedModifierFilter
+                if (resolvedFilter is not null)
                 {
-                    SourceIndex = selectedModifier.Index,
-                    StatId = match.ExactCandidate.StatId,
-                    OriginalText = selectedModifier.Modifier.OriginalText,
-                    NormalizedItemTemplate = match.NormalizedItemTemplate,
-                    ExtractedNumericValues = match.ExtractedNumericValues,
-                });
+                    filters.Add(resolvedFilter);
+                }
+
                 continue;
             }
 
-            diagnostics.Add(ToMappingDiagnostic(
-                selectedModifier.Index,
-                selectedModifier.Modifier,
-                match));
+            if (selectedModifier.Modifier.ProviderResolutionStatus ==
+                    SearchComponentProviderResolutionStatus.Exact &&
+                !CanSerializeProviderResolvedComponent(selectedModifier.Modifier))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+                    MessageFor(
+                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+                        selectedModifier.Modifier.OriginalText),
+                    selectedModifier.Index));
+                continue;
+            }
+
+            if (selectedModifier.Modifier.ProviderResolutionStatus !=
+                SearchComponentProviderResolutionStatus.NotResolved)
+            {
+                diagnostics.Add(resolvedDiagnostic ??
+                    ToProviderResolutionDiagnostic(selectedModifier.Index, selectedModifier.Modifier));
+                continue;
+            }
+
+            if (!CanSerializeSelectedComponent(selectedModifier.Modifier))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+                    MessageFor(
+                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+                        selectedModifier.Modifier.OriginalText),
+                    selectedModifier.Index));
+                continue;
+            }
+
+            diagnostics.Add(resolvedDiagnostic ??
+                ToProviderResolutionDiagnostic(selectedModifier.Index, selectedModifier.Modifier));
         }
 
         return diagnostics.Count == 0
-            ? PathOfExileTradeSelectedModifierMappingResult.Success(filters, traces)
-            : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics, traces);
+            ? PathOfExileTradeSelectedModifierMappingResult.Success(filters)
+            : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
     }
 
-    private static ParsedModifier ToParsedModifier(TradeModifierFilterDraft modifier)
-    {
-        return new ParsedModifier(
-            [modifier.OriginalText],
-            RawMetadataLine: null,
-            modifier.ParsedKind,
-            modifier.ParsedModifierName,
-            Tier: null,
-            Rank: null,
-            modifier.CategoryText,
-            modifier.IsCrafted,
-            modifier.IsFractured,
-            modifier.IsVeiled);
-    }
-
-    private static PathOfExileTradeSelectedModifierMappingDiagnostic ToMappingDiagnostic(
+    private static bool TryCreateResolvedProviderFilter(
         int sourceIndex,
-        TradeModifierFilterDraft modifier,
-        PathOfExileTradeStatMatchResult match)
+        ResolvedSearchComponent modifier,
+        out PathOfExileTradeSelectedModifierFilter? filter,
+        out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
     {
-        var sourceCode = match.Diagnostics.FirstOrDefault()?.Code;
-        var code = match.Status switch
+        filter = null;
+        diagnostic = null;
+
+        if (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed)
         {
-            PathOfExileTradeStatMatchStatus.Ambiguous =>
+            return true;
+        }
+
+        if (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
+            CanSerializeProviderResolvedComponent(modifier))
+        {
+            filter = new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = sourceIndex,
+                StatId = modifier.ProviderStatId.Trim(),
+                OriginalText = modifier.OriginalText,
+                NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
+                ExtractedNumericValues = [],
+            };
+            return true;
+        }
+
+        diagnostic = ToProviderResolutionDiagnostic(sourceIndex, modifier);
+        return false;
+    }
+
+    private static bool CanSerializeSelectedComponent(ResolvedSearchComponent modifier)
+    {
+        return modifier.IsSearchable &&
+            modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+            modifier.ResolvedStatIds.Count > 0;
+    }
+
+    private static bool CanSerializeProviderResolvedComponent(ResolvedSearchComponent modifier)
+    {
+        return CanSerializeSelectedComponent(modifier) ||
+            modifier.ParsedKind == PoEnhance.Core.Items.Parsing.ParsedModifierKind.Implicit;
+    }
+
+    private static PathOfExileTradeSelectedModifierMappingDiagnostic ToProviderResolutionDiagnostic(
+        int sourceIndex,
+        ResolvedSearchComponent modifier)
+    {
+        var code = modifier.ProviderResolutionStatus switch
+        {
+            SearchComponentProviderResolutionStatus.Ambiguous =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
-            PathOfExileTradeStatMatchStatus.NotFound
-                when sourceCode == PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch =>
+            SearchComponentProviderResolutionStatus.NotFound
+                when modifier.ProviderDiagnosticCode == PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
-            PathOfExileTradeStatMatchStatus.NotFound =>
+            SearchComponentProviderResolutionStatus.NotFound =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound,
+            SearchComponentProviderResolutionStatus.Unsupported
+                when modifier.ProviderDiagnosticCode ==
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance =>
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
             _ => PathOfExileTradeSelectedModifierMappingDiagnosticCodes.InvalidInput,
         };
 
@@ -113,7 +147,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             code,
             MessageFor(code, modifier.OriginalText),
             sourceIndex,
-            sourceCode);
+            modifier.ProviderDiagnosticCode);
     }
 
     private static string MessageFor(string code, string modifierText)
@@ -127,22 +161,9 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 $"Selected modifier kind does not match Trade filters: {safeModifierText}",
             PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound =>
                 $"Selected modifier is not available in Trade search: {safeModifierText}",
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance =>
+                $"Selected modifier has no exact GameData Trade provenance: {safeModifierText}",
             _ => $"Selected modifier cannot be mapped to Trade search: {safeModifierText}",
-        };
-    }
-
-    private static PathOfExileTradeStatMatchContext CreateContext(
-        TradeSearchDraft? draft,
-        TradeModifierFilterDraft modifier)
-    {
-        return new PathOfExileTradeStatMatchContext
-        {
-            ItemClass = draft?.ItemClass,
-            ParsedBaseType = draft?.ParsedBaseType,
-            ModifierLocality = modifier.Locality,
-            ResolvedModifierId = modifier.ResolvedModifierId,
-            ResolvedModifierName = modifier.ResolvedModifierName,
-            InternalStatIds = modifier.ResolvedStatIds,
         };
     }
 
@@ -165,7 +186,16 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             : $"{safe[..maximumLength]}...";
     }
 
+    private static string ToProviderTemplate(string canonicalSignature)
+    {
+        return canonicalSignature
+            .ReplaceLineEndings(" ")
+            .Replace("+<number>", "+#", StringComparison.Ordinal)
+            .Replace("-<number>", "-#", StringComparison.Ordinal)
+            .Replace("<number>", "#", StringComparison.Ordinal);
+    }
+
     private sealed record IndexedModifier(
         int Index,
-        TradeModifierFilterDraft Modifier);
+        ResolvedSearchComponent Modifier);
 }

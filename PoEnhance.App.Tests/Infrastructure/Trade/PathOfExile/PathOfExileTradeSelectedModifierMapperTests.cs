@@ -7,14 +7,13 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 public sealed class PathOfExileTradeSelectedModifierMapperTests
 {
-    private readonly PathOfExileTradeSelectedModifierMapper mapper = new(new PathOfExileTradeStatMatcher());
+    private readonly PathOfExileTradeSelectedModifierMapper mapper = new();
 
     [Fact]
     public void Map_NoSelectedModifiersDoesNotRequireCatalog()
     {
         var result = mapper.Map(
-            Draft([Modifier("+55 to maximum Life", isSelected: false)]),
-            catalog: null);
+            Draft([Modifier("+55 to maximum Life", isSelected: false)]));
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Filters);
@@ -22,86 +21,127 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_ExactSelectedModifiersPreservesSelectedOrderIdsAndExtractedValues()
+    public void Map_PreResolvedExactSelectedModifiersPreservesSelectedOrderAndProviderIds()
     {
-        var catalog = Catalog(
-            Entry("explicit.stat_life", "+# to maximum Life", "explicit"),
-            Entry("explicit.stat_fire", "Adds # to # Fire Damage", "explicit"));
-
         var result = mapper.Map(
             Draft([
-                Modifier("+55 to maximum Life"),
-                Modifier("Adds 10 to 20 Fire Damage"),
-            ]),
-            catalog);
+                Modifier("+55 to maximum Life", providerStatId: "explicit.stat_life"),
+                Modifier("Adds 10 to 20 Fire Damage", providerStatId: "explicit.stat_fire"),
+            ]));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(["explicit.stat_life", "explicit.stat_fire"], result.Filters.Select(filter => filter.StatId));
-        Assert.Equal([55m], result.Filters[0].ExtractedNumericValues);
-        Assert.Equal([10m, 20m], result.Filters[1].ExtractedNumericValues);
         Assert.Equal([0, 1], result.Filters.Select(filter => filter.SourceIndex));
+        Assert.All(result.Filters, filter => Assert.Empty(filter.ExtractedNumericValues));
     }
 
     [Fact]
-    public void Map_AdvancedRangeSelectedModifierCreatesOneProviderFilterWithRollValuesOnly()
+    public void Map_PreResolvedExactSelectedModifierConvertsCanonicalSignatureToProviderTemplate()
     {
-        var catalog = Catalog(Entry("explicit.stat_cold", "Adds # to # Cold Damage", "explicit"));
-
         var result = mapper.Map(
-            Draft([Modifier("Adds 46(41-55) to 81(81-95) Cold Damage")]),
-            catalog);
+            Draft([
+                Modifier(
+                    "+55 to maximum Life",
+                    providerStatId: "explicit.stat_life",
+                    canonicalSignature: "+<number> to maximum Life"),
+            ]));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_life", filter.StatId);
+        Assert.Equal("+# to maximum Life", filter.NormalizedItemTemplate);
+        Assert.Empty(filter.ExtractedNumericValues);
+    }
+
+    [Fact]
+    public void Map_PreResolvedAdvancedRangeSelectedModifierSerializesPresenceOnly()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "Adds 46(41-55) to 81(81-95) Cold Damage",
+                    providerStatId: "explicit.stat_cold",
+                    canonicalSignature: "Adds <number> to <number> Cold Damage"),
+            ]));
 
         Assert.True(result.IsSuccess);
         var filter = Assert.Single(result.Filters);
         Assert.Equal("explicit.stat_cold", filter.StatId);
         Assert.Equal("Adds # to # Cold Damage", filter.NormalizedItemTemplate);
-        Assert.Equal([46m, 81m], filter.ExtractedNumericValues);
-        Assert.DoesNotContain(41m, filter.ExtractedNumericValues);
-        Assert.DoesNotContain(55m, filter.ExtractedNumericValues);
-        Assert.DoesNotContain(95m, filter.ExtractedNumericValues);
+        Assert.Empty(filter.ExtractedNumericValues);
     }
 
     [Fact]
-    public void Map_RangerBowFireDamageUsesOfficialLocalStatIdFromDraftContext()
+    public void Map_PreResolvedRangerBowFireDamageUsesResolvedOfficialLocalStatId()
     {
-        var catalog = Catalog(
-            Entry("explicit.stat_321077055", "Adds # to # Fire Damage", "explicit"),
-            Entry("explicit.stat_709508406", "Adds # to # Fire Damage (Local)", "explicit"));
-
         var result = mapper.Map(
             Draft(
                 [
                     Modifier(
                         "Adds 70(63-85) to 139(128-148) Fire Damage",
+                        providerStatId: "explicit.stat_709508406",
+                        canonicalSignature: "Adds <number> to <number> Fire Damage",
                         locality: ModifierLocality.Local,
                         statIds: ["local_minimum_added_fire_damage", "local_maximum_added_fire_damage"]),
                 ],
                 itemClass: "Bows",
-                parsedBaseType: "Ranger Bow"),
-            catalog);
+                parsedBaseType: "Ranger Bow"));
 
         Assert.True(result.IsSuccess);
         var filter = Assert.Single(result.Filters);
         Assert.Equal("explicit.stat_709508406", filter.StatId);
         Assert.Equal("Adds # to # Fire Damage", filter.NormalizedItemTemplate);
-        Assert.Equal([70m, 139m], filter.ExtractedNumericValues);
-        var trace = Assert.Single(result.Traces);
-        Assert.Equal(ModifierLocality.Local, trace.ExpectedLocality);
-        Assert.Equal("explicit:Adds # to # Fire Damage", trace.ProviderCandidateGroupKey);
-        Assert.Equal("explicit.stat_709508406", trace.SelectedProviderStatId);
-        Assert.Equal(["local_maximum_added_fire_damage", "local_minimum_added_fire_damage"], trace.InternalStatIds);
+        Assert.Empty(filter.ExtractedNumericValues);
+        Assert.Empty(result.Traces);
     }
 
     [Fact]
-    public void Map_UnknownLocalityAmbiguityFailsWholeMapping()
+    public void Map_UnselectedModifiersAreNotSerialized()
     {
-        var catalog = Catalog(
-            Entry("explicit.global_fire", "Adds # to # Fire Damage", "explicit"),
-            Entry("explicit.local_fire", "Adds # to # Fire Damage (Local)", "explicit"));
-
         var result = mapper.Map(
-            Draft([Modifier("Adds 10 to 20 Fire Damage")]),
-            catalog);
+            Draft([
+                Modifier("+55 to maximum Life", isSelected: false, providerStatId: "explicit.stat_life"),
+                Modifier("+21 to maximum Life", providerStatId: "explicit.stat_life"),
+            ]));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(1, filter.SourceIndex);
+        Assert.Equal("explicit.stat_life", filter.StatId);
+    }
+
+    [Fact]
+    public void Map_PreResolvedAmbiguousSelectedModifierFailsWholeMappingWithoutChoosingCandidate()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "+55 to maximum Life",
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.Ambiguous,
+                    providerStatId: null,
+                    providerCandidateStatIds: ["explicit.stat_life_one", "explicit.stat_life_two"],
+                    providerDiagnosticCode: PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates),
+            ]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous, diagnostic.Code);
+        Assert.Equal(PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates, diagnostic.SourceCode);
+    }
+
+    [Fact]
+    public void Map_PreResolvedUnknownLocalityAmbiguityPreservesSourceDiagnostic()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "Adds 10 to 20 Fire Damage",
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.Ambiguous,
+                    providerStatId: null,
+                    providerCandidateStatIds: ["explicit.global_fire", "explicit.local_fire"],
+                    providerDiagnosticCode: PathOfExileTradeStatMatchDiagnosticCodes.LocalityAmbiguous),
+            ]));
 
         Assert.False(result.IsSuccess);
         Assert.Empty(result.Filters);
@@ -111,89 +151,84 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_UnselectedModifiersAreNotMatchedOrSerialized()
+    public void Map_PreResolvedNotFoundSelectedModifierFailsWholeMapping()
     {
-        var catalog = Catalog(Entry("explicit.stat_life", "+# to maximum Life", "explicit"));
-
         var result = mapper.Map(
             Draft([
-                Modifier("+55 to maximum Life", isSelected: false),
-                Modifier("+21 to maximum Life"),
-            ]),
-            catalog);
-
-        Assert.True(result.IsSuccess);
-        var filter = Assert.Single(result.Filters);
-        Assert.Equal(1, filter.SourceIndex);
-        Assert.Equal([21m], filter.ExtractedNumericValues);
-    }
-
-    [Fact]
-    public void Map_AmbiguousSelectedModifierFailsWholeMappingWithoutChoosingFirst()
-    {
-        var catalog = Catalog(
-            Entry("explicit.stat_life_one", "+# to maximum Life", "explicit"),
-            Entry("explicit.stat_life_two", "+# to maximum Life", "explicit"));
-
-        var result = mapper.Map(Draft([Modifier("+55 to maximum Life")]), catalog);
+                Modifier(
+                    "+55 to maximum Life",
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.NotFound,
+                    providerStatId: null,
+                    providerDiagnosticCode: PathOfExileTradeStatMatchDiagnosticCodes.NoCandidate),
+            ]));
 
         Assert.False(result.IsSuccess);
         Assert.Empty(result.Filters);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
-            Assert.Single(result.Diagnostics).Code);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound, diagnostic.Code);
+        Assert.Equal(PathOfExileTradeStatMatchDiagnosticCodes.NoCandidate, diagnostic.SourceCode);
     }
 
     [Fact]
-    public void Map_AdvancedRangeAmbiguousSelectedModifierFailsWholeMapping()
-    {
-        var catalog = Catalog(
-            Entry("explicit.stat_life_one", "+# to maximum Life", "explicit"),
-            Entry("explicit.stat_life_two", "+# to maximum Life", "explicit"));
-
-        var result = mapper.Map(Draft([Modifier("+101(100-114) to maximum Life")]), catalog);
-
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Filters);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
-            Assert.Single(result.Diagnostics).Code);
-    }
-
-    [Fact]
-    public void Map_NotFoundSelectedModifierFailsWholeMapping()
-    {
-        var catalog = Catalog(Entry("explicit.stat_mana", "+# to maximum Mana", "explicit"));
-
-        var result = mapper.Map(Draft([Modifier("+55 to maximum Life")]), catalog);
-
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Filters);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound,
-            Assert.Single(result.Diagnostics).Code);
-    }
-
-    [Fact]
-    public void Map_AdvancedRangeGenuineNotFoundSelectedModifierFailsWholeMapping()
-    {
-        var catalog = Catalog(Entry("explicit.stat_mana", "+# to maximum Mana", "explicit"));
-
-        var result = mapper.Map(Draft([Modifier("+101(100-114) to maximum Life")]), catalog);
-
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Filters);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound,
-            Assert.Single(result.Diagnostics).Code);
-    }
-
-    [Fact]
-    public void Map_InvalidSelectedModifierFailsWholeMapping()
+    public void Map_PreResolvedBaseGuaranteedSelectedModifierEmitsNoProviderFilter()
     {
         var result = mapper.Map(
-            Draft([Modifier(" ")]),
-            Catalog(Entry("explicit.stat_life", "+# to maximum Life", "explicit")));
+            Draft([
+                Modifier(
+                    "Cannot roll Caster Modifiers",
+                    kind: ParsedModifierKind.Implicit,
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                    providerStatId: null),
+            ]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Map_PreResolvedKindMismatchFailsWholeMapping()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "+55 to maximum Life",
+                    kind: ParsedModifierKind.Implicit,
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.NotFound,
+                    providerStatId: null,
+                    providerDiagnosticCode: PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch),
+            ]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch, diagnostic.Code);
+        Assert.Equal(PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch, diagnostic.SourceCode);
+    }
+
+    [Fact]
+    public void Map_SelectedModifierWithoutGameDataProvenanceFailsBeforeProviderSerialization()
+    {
+        var result = mapper.Map(
+            Draft([Modifier("+55 to maximum Life", hasGameDataProvenance: false)]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Map_SelectedModifierWithoutProviderResolutionFailsWholeMapping()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "+55 to maximum Life",
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.NotResolved,
+                    providerStatId: null),
+            ]));
 
         Assert.False(result.IsSuccess);
         Assert.Empty(result.Filters);
@@ -203,54 +238,63 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_KindMismatchFailsWholeMapping()
+    public void Map_PreResolvedExactModifierWithoutProviderStatIdFailsWholeMapping()
     {
-        var catalog = Catalog(Entry("explicit.stat_life", "+# to maximum Life", "explicit"));
-
         var result = mapper.Map(
-            Draft([Modifier("+55 to maximum Life", kind: ParsedModifierKind.Implicit)]),
-            catalog);
+            Draft([
+                Modifier(
+                    "+55 to maximum Life",
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.Exact,
+                    providerStatId: null),
+            ]));
 
         Assert.False(result.IsSuccess);
         Assert.Empty(result.Filters);
         Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.InvalidInput,
             Assert.Single(result.Diagnostics).Code);
     }
 
-    [Fact]
-    public void Map_SelectedModifierWithoutCatalogFailsBeforeMatching()
-    {
-        var result = mapper.Map(Draft([Modifier("+55 to maximum Life")]), catalog: null);
-
-        Assert.False(result.IsSuccess);
-        Assert.Empty(result.Filters);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.CatalogRequired,
-            Assert.Single(result.Diagnostics).Code);
-    }
-
-    private static TradeModifierFilterDraft Modifier(
+    private static ResolvedSearchComponent Modifier(
         string originalText,
         bool isSelected = true,
         ParsedModifierKind kind = ParsedModifierKind.Prefix,
         ModifierLocality locality = ModifierLocality.Unknown,
-        IReadOnlyList<string>? statIds = null)
+        IReadOnlyList<string>? statIds = null,
+        SearchComponentProviderResolutionStatus providerResolutionStatus =
+            SearchComponentProviderResolutionStatus.Exact,
+        string? providerStatId = "explicit.stat_test",
+        IReadOnlyList<string>? providerCandidateStatIds = null,
+        string? providerDiagnosticCode = null,
+        string? canonicalSignature = null,
+        bool hasGameDataProvenance = true)
     {
-        return new TradeModifierFilterDraft
+        var resolvedStatIds = statIds ?? ["stat.test"];
+        return new ResolvedSearchComponent
         {
+            ComponentId = "modifier:0:0",
             OriginalText = originalText,
+            CanonicalSignature = canonicalSignature ??
+                PathOfExileTradeStatTemplateNormalizer.NormalizeModifierText(originalText).NormalizedTemplate,
             ParsedKind = kind,
             Locality = locality,
-            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
-            ResolvedModifierId = "mod.test",
-            ResolvedStatIds = statIds ?? [],
+            ResolutionStatus = hasGameDataProvenance
+                ? ModifierCandidateResolutionStatus.Exact
+                : null,
+            ResolvedModifierId = hasGameDataProvenance ? "mod.test" : null,
+            ResolvedStatIds = hasGameDataProvenance ? resolvedStatIds : [],
+            IsSearchable = hasGameDataProvenance,
             IsSelected = isSelected,
+            ProviderResolutionStatus = providerResolutionStatus,
+            ProviderStatId = providerStatId,
+            ProviderStatText = providerStatId is null ? null : originalText,
+            ProviderCandidateStatIds = providerCandidateStatIds ?? [],
+            ProviderDiagnosticCode = providerDiagnosticCode,
         };
     }
 
     private static TradeSearchDraft Draft(
-        IReadOnlyList<TradeModifierFilterDraft> modifiers,
+        IReadOnlyList<ResolvedSearchComponent> modifiers,
         string itemClass = "Body Armours",
         string parsedBaseType = "Titan Plate")
     {
@@ -267,27 +311,6 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
                 ResolvedBaseName = parsedBaseType,
             },
             ModifierFilters = modifiers,
-        };
-    }
-
-    private static PathOfExileTradeStatCatalog Catalog(params PathOfExileTradeStatEntry[] entries)
-    {
-        return new PathOfExileTradeStatCatalog(entries);
-    }
-
-    private static PathOfExileTradeStatEntry Entry(
-        string id,
-        string text,
-        string groupId)
-    {
-        return new PathOfExileTradeStatEntry
-        {
-            ProviderOrder = 0,
-            GroupId = groupId,
-            GroupLabel = groupId,
-            Id = id,
-            Text = text,
-            Type = groupId,
         };
     }
 }

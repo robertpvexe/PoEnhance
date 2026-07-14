@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Trade;
 using Serilog;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -14,14 +15,14 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         PathOfExileTradeStatCatalog? catalog,
         PathOfExileTradeStatMatchContext? context = null)
     {
-        if (catalog is null)
+        if (modifier is null)
         {
             return InvalidInput(
-                PathOfExileTradeStatMatchDiagnosticCodes.NullCatalog,
-                "A Trade stats catalog is required.");
+                PathOfExileTradeStatMatchDiagnosticCodes.BlankModifierText,
+                "Modifier text is required.");
         }
 
-        var modifierText = modifier?.Text;
+        var modifierText = modifier.Text;
         if (string.IsNullOrWhiteSpace(modifierText))
         {
             return InvalidInput(
@@ -30,6 +31,51 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         }
 
         var normalization = PathOfExileTradeStatTemplateNormalizer.NormalizeModifierText(modifierText);
+        var source = StatMatchSource.FromParsedModifier(modifier);
+        return Match(source, normalization, catalog, context);
+    }
+
+    public PathOfExileTradeStatMatchResult Match(
+        ResolvedSearchComponent? component,
+        PathOfExileTradeStatCatalog? catalog,
+        PathOfExileTradeStatMatchContext? context = null)
+    {
+        if (component is null)
+        {
+            return InvalidInput(
+                PathOfExileTradeStatMatchDiagnosticCodes.BlankModifierText,
+                "A resolved search component is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(component.CanonicalSignature))
+        {
+            return InvalidInput(
+                PathOfExileTradeStatMatchDiagnosticCodes.BlankModifierText,
+                "A resolved search component needs a canonical signature.");
+        }
+
+        var normalization = new PathOfExileTradeStatModifierNormalization
+        {
+            NormalizedTemplate = ToProviderTemplate(component.CanonicalSignature),
+            ExtractedNumericValues = [],
+        };
+        var source = StatMatchSource.FromResolvedComponent(component);
+        return Match(source, normalization, catalog, context);
+    }
+
+    private static PathOfExileTradeStatMatchResult Match(
+        StatMatchSource source,
+        PathOfExileTradeStatModifierNormalization normalization,
+        PathOfExileTradeStatCatalog? catalog,
+        PathOfExileTradeStatMatchContext? context)
+    {
+        if (catalog is null)
+        {
+            return InvalidInput(
+                PathOfExileTradeStatMatchDiagnosticCodes.NullCatalog,
+                "A Trade stats catalog is required.");
+        }
+
         if (normalization.Diagnostic is not null)
         {
             return new PathOfExileTradeStatMatchResult
@@ -64,10 +110,10 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             lookupTemplate,
             groups.Length,
             initialCandidates.Length,
-            modifier!.Kind,
-            modifier.IsCrafted,
-            modifier.IsFractured,
-            modifier.IsVeiled,
+            source.Kind,
+            source.IsCrafted,
+            source.IsFractured,
+            source.IsVeiled,
             expectedLocality);
 
         if (groups.Length == 0)
@@ -85,10 +131,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 providerCandidateGroupKey: null);
         }
 
-        var compatibleGroups = ApplyKindConstraints(
-            modifier!,
-            groups,
-            out var mismatchWasCertain);
+        var compatibleGroups = ApplyKindConstraints(source, groups, out var mismatchWasCertain);
         var compatibleCandidates = compatibleGroups
             .SelectMany(group => group.Candidates)
             .ToArray();
@@ -173,7 +216,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 localityCandidates,
                 localityRejections,
                 context,
-                group.Key.ToString());
+                group.Key.ToString(),
+                source.Kind == ParsedModifierKind.Implicit);
         }
 
         return ResolveRemainingCandidates(
@@ -183,7 +227,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             candidatesAfterKind,
             kindRejections,
             context,
-            group.Key.ToString());
+            group.Key.ToString(),
+            source.Kind == ParsedModifierKind.Implicit);
     }
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
@@ -193,41 +238,37 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates,
         IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
         PathOfExileTradeStatMatchContext? context,
-        string providerCandidateGroupKey)
+        string providerCandidateGroupKey,
+        bool allowEquivalentCandidateCollapse)
     {
         if (candidates.Count == 1)
         {
-            var selected = candidates[0];
-            Log.Debug(
-                "Path of Exile Trade stat selected. StatId={StatId}; GroupKey={GroupKey}; GroupId={GroupId}; Type={Type}; ProviderKind={ProviderKind}; ProviderLocality={ProviderLocality}; ExpectedLocality={ExpectedLocality}; CandidateCount={CandidateCount}; NormalizedTemplate={NormalizedTemplate}",
-                selected.StatId,
-                providerCandidateGroupKey,
-                selected.GroupId,
-                selected.Type,
-                selected.ProviderKind,
-                selected.ProviderLocality,
+            return Exact(
+                normalization,
                 expectedLocality,
-                initialCandidates.Count,
-                normalization.NormalizedTemplate);
-            return new PathOfExileTradeStatMatchResult
-            {
-                Status = PathOfExileTradeStatMatchStatus.Exact,
-                NormalizedItemTemplate = normalization.NormalizedTemplate,
-                ExtractedNumericValues = normalization.ExtractedNumericValues,
-                RequestedLocality = expectedLocality,
-                ExactCandidate = selected,
-                InitialCandidates = initialCandidates,
-                Candidates = candidates,
-                RejectedCandidates = rejections.Select(rejection => rejection.Candidate).ToArray(),
-                Trace = CreateTrace(
-                    normalization.NormalizedTemplate,
-                    context,
-                    providerCandidateGroupKey,
-                    candidates,
-                    rejections,
-                    selected.StatId,
-                    finalDiagnosticCode: null),
-            };
+                initialCandidates,
+                candidates,
+                rejections,
+                context,
+                providerCandidateGroupKey,
+                candidates[0]);
+        }
+
+        if (allowEquivalentCandidateCollapse &&
+            AreEquivalentProviderCandidates(candidates))
+        {
+            var selected = candidates
+                .OrderBy(candidate => candidate.StatId, StringComparer.Ordinal)
+                .First();
+            return Exact(
+                normalization,
+                expectedLocality,
+                initialCandidates,
+                candidates,
+                rejections,
+                context,
+                providerCandidateGroupKey,
+                selected);
         }
 
         var diagnosticCode = expectedLocality == ModifierLocality.Unknown &&
@@ -249,13 +290,83 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             providerCandidateGroupKey);
     }
 
+    private static PathOfExileTradeStatMatchResult Exact(
+        PathOfExileTradeStatModifierNormalization normalization,
+        ModifierLocality expectedLocality,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> initialCandidates,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates,
+        IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
+        PathOfExileTradeStatMatchContext? context,
+        string providerCandidateGroupKey,
+        PathOfExileTradeStatMatchCandidate selected)
+    {
+        Log.Debug(
+            "Path of Exile Trade stat selected. StatId={StatId}; GroupKey={GroupKey}; GroupId={GroupId}; Type={Type}; ProviderKind={ProviderKind}; ProviderLocality={ProviderLocality}; ExpectedLocality={ExpectedLocality}; CandidateCount={CandidateCount}; NormalizedTemplate={NormalizedTemplate}",
+            selected.StatId,
+            providerCandidateGroupKey,
+            selected.GroupId,
+            selected.Type,
+            selected.ProviderKind,
+            selected.ProviderLocality,
+            expectedLocality,
+            initialCandidates.Count,
+            normalization.NormalizedTemplate);
+        return new PathOfExileTradeStatMatchResult
+        {
+            Status = PathOfExileTradeStatMatchStatus.Exact,
+            NormalizedItemTemplate = normalization.NormalizedTemplate,
+            ExtractedNumericValues = normalization.ExtractedNumericValues,
+            RequestedLocality = expectedLocality,
+            ExactCandidate = selected,
+            InitialCandidates = initialCandidates,
+            Candidates = candidates,
+            RejectedCandidates = rejections.Select(rejection => rejection.Candidate).ToArray(),
+            Trace = CreateTrace(
+                normalization.NormalizedTemplate,
+                context,
+                providerCandidateGroupKey,
+                candidates,
+                rejections,
+                selected.StatId,
+                finalDiagnosticCode: null),
+        };
+    }
+
+    private static bool AreEquivalentProviderCandidates(
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates)
+    {
+        if (candidates.Count <= 1)
+        {
+            return false;
+        }
+
+        var first = candidates[0];
+        if (string.Equals(
+                first.ProviderKind,
+                PathOfExileTradeStatCandidateClassifier.UnknownProviderKind,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return candidates.All(candidate =>
+            string.Equals(candidate.NormalizedTemplate, first.NormalizedTemplate, StringComparison.Ordinal) &&
+            string.Equals(candidate.LookupTemplate, first.LookupTemplate, StringComparison.Ordinal) &&
+            string.Equals(candidate.GroupId, first.GroupId, StringComparison.Ordinal) &&
+            string.Equals(candidate.GroupLabel, first.GroupLabel, StringComparison.Ordinal) &&
+            string.Equals(candidate.Type, first.Type, StringComparison.Ordinal) &&
+            string.Equals(candidate.ProviderKind, first.ProviderKind, StringComparison.Ordinal) &&
+            candidate.ProviderLocality == first.ProviderLocality &&
+            string.Equals(candidate.Text, first.Text, StringComparison.Ordinal));
+    }
+
     private static PathOfExileTradeStatCandidateGroup[] ApplyKindConstraints(
-        ParsedModifier modifier,
+        StatMatchSource source,
         IReadOnlyList<PathOfExileTradeStatCandidateGroup> groups,
         out bool mismatchWasCertain)
     {
         mismatchWasCertain = false;
-        var requiredKind = RequiredKind(modifier);
+        var requiredKind = RequiredKind(source);
         if (requiredKind is null)
         {
             return groups.ToArray();
@@ -276,24 +387,24 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         return compatible;
     }
 
-    private static string? RequiredKind(ParsedModifier modifier)
+    private static string? RequiredKind(StatMatchSource source)
     {
-        if (modifier.IsCrafted)
+        if (source.IsCrafted)
         {
             return "crafted";
         }
 
-        if (modifier.IsFractured)
+        if (source.IsFractured)
         {
             return "fractured";
         }
 
-        if (modifier.IsVeiled)
+        if (source.IsVeiled)
         {
             return "veiled";
         }
 
-        return modifier.Kind switch
+        return source.Kind switch
         {
             ParsedModifierKind.Implicit => "implicit",
             ParsedModifierKind.Prefix or ParsedModifierKind.Suffix => "explicit",
@@ -405,5 +516,47 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
     {
         var trimmed = value?.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string ToProviderTemplate(string canonicalSignature)
+    {
+        return canonicalSignature
+            .ReplaceLineEndings(" ")
+            .Replace("+<number>", "+#", StringComparison.Ordinal)
+            .Replace("-<number>", "-#", StringComparison.Ordinal)
+            .Replace("<number>", "#", StringComparison.Ordinal);
+    }
+
+    private sealed record StatMatchSource
+    {
+        public required ParsedModifierKind Kind { get; init; }
+
+        public bool IsCrafted { get; init; }
+
+        public bool IsFractured { get; init; }
+
+        public bool IsVeiled { get; init; }
+
+        public static StatMatchSource FromParsedModifier(ParsedModifier modifier)
+        {
+            return new StatMatchSource
+            {
+                Kind = modifier.Kind,
+                IsCrafted = modifier.IsCrafted,
+                IsFractured = modifier.IsFractured,
+                IsVeiled = modifier.IsVeiled,
+            };
+        }
+
+        public static StatMatchSource FromResolvedComponent(ResolvedSearchComponent component)
+        {
+            return new StatMatchSource
+            {
+                Kind = component.ParsedKind,
+                IsCrafted = component.IsCrafted,
+                IsFractured = component.IsFractured,
+                IsVeiled = component.IsVeiled,
+            };
+        }
     }
 }

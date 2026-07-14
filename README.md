@@ -103,15 +103,22 @@ dotnet test
 
 ## Build Local Game-Data Package
 
-`PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network. Current local development packages use the active `repoe-fork/repoe` PoE1 export, with source commit `c50acab2ed660a70511e7f91ee09db4e632089e4` recorded in the package manifest when passed through `--source-version`.
+`PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network. Current local development packages use the active `repoe-fork/repoe` PoE1 export at commit `c50acab2ed660a70511e7f91ee09db4e632089e4`.
+
+Package builds are source-guarded. The command must declare the git checkout root, exported data root, repository URI, branch, and exact source SHA. The build fails before writing output if the local git checkout does not match those values or if any input JSON file is outside the declared data root. The package manifest records the source identity plus SHA-256 fingerprints for the four input files.
 
 ```powershell
 dotnet run --project .\PoEnhance.DataTool -- build-package `
-  --base-items .\data\repoe\base_items.json `
-  --mods .\data\repoe\mods.json `
-  --stats .\data\repoe\stats.json `
-  --translations .\data\repoe\stat_translations.json `
+  --base-items .\artifacts\source-audit\active-poe1\base_items.json `
+  --mods .\artifacts\source-audit\active-poe1\mods.json `
+  --stats .\artifacts\source-audit\active-poe1\stats.json `
+  --translations .\artifacts\source-audit\active-poe1\stat_translations.json `
   --output .\artifacts\poenhance-game-data.json `
+  --source-root .\artifacts\source-audit\repoe-fork `
+  --source-data-root .\artifacts\source-audit\active-poe1 `
+  --source-uri https://github.com/repoe-fork/repoe `
+  --source-branch master `
+  --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 `
   --data-version dev-001
 ```
 
@@ -290,15 +297,22 @@ dotnet test
 
 ## Budowanie Lokalnego Pakietu Game-Data
 
+Obecne lokalne pakiety developerskie uzywaja aktywnego eksportu PoE1 `repoe-fork/repoe` z commita `c50acab2ed660a70511e7f91ee09db4e632089e4`. Budowanie pakietu ma source guard: komenda musi podac root checkoutu git, root wyeksportowanych danych, URI repozytorium, branch i dokladny SHA zrodla. Build konczy sie przed zapisem outputu, jesli lokalny checkout git nie pasuje do tych wartosci albo jesli ktorykolwiek input JSON jest poza zadeklarowanym data root. Manifest pakietu zapisuje tozsamosc zrodla oraz SHA-256 fingerprints czterech plikow input.
+
 `PoEnhance.DataTool` buduje kompletny lokalny pakiet game-data z lokalnych plików RePoE. Narzędzie nie pobiera danych RePoE i nie kontaktuje się z siecią.
 
 ```powershell
 dotnet run --project .\PoEnhance.DataTool -- build-package `
-  --base-items .\data\repoe\base_items.json `
-  --mods .\data\repoe\mods.json `
-  --stats .\data\repoe\stats.json `
-  --translations .\data\repoe\stat_translations.json `
+  --base-items .\artifacts\source-audit\active-poe1\base_items.json `
+  --mods .\artifacts\source-audit\active-poe1\mods.json `
+  --stats .\artifacts\source-audit\active-poe1\stats.json `
+  --translations .\artifacts\source-audit\active-poe1\stat_translations.json `
   --output .\artifacts\poenhance-game-data.json `
+  --source-root .\artifacts\source-audit\repoe-fork `
+  --source-data-root .\artifacts\source-audit\active-poe1 `
+  --source-uri https://github.com/repoe-fork/repoe `
+  --source-branch master `
+  --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 `
   --data-version dev-001
 ```
 

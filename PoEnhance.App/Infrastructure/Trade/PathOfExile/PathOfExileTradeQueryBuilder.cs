@@ -10,10 +10,11 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string RarityRare = "Rare";
     private const string RarityMagic = "Magic";
     private const string RarityNormal = "Normal";
-    private const string StatusMerchantOnly = "online";
+    private const string StatusInstantBuyout = "securable";
     private const string StatusInPerson = "onlineleague";
     private const string TypeFiltersKey = "type_filters";
     private const string ProviderRarityFilterKey = "rarity";
+    private const string ProviderCategoryFilterKey = "category";
     private const string ProviderRarityNormal = "normal";
     private const string ProviderRarityMagic = "magic";
     private const string ProviderRarityRare = "rare";
@@ -25,7 +26,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         TradeSearchValidationResult? validationResult,
         string? leagueIdentifier,
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
-        PathOfExileTradeItemIdentity? providerItemIdentity = null)
+        PathOfExileTradeItemIdentity? providerItemIdentity = null,
+        PathOfExileTradeFilterCatalog? providerFilterCatalog = null)
     {
         if (draft is null)
         {
@@ -57,7 +59,9 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A league identifier is required before building a Path of Exile Trade query.");
         }
 
-        var selectedCount = draft.ModifierFilters.Count(modifier => modifier.IsSelected);
+        var selectedCount = draft.ModifierFilters.Count(modifier =>
+            modifier.IsSelected &&
+            modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed);
         var providerFilters = selectedModifierFilters ?? [];
         if (selectedCount > 0 && providerFilters.Count == 0)
         {
@@ -97,11 +101,19 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         }
 
         var selectedBaseType = SelectBaseType(draft, providerItemIdentity);
-        if (selectedBaseType is null)
+        var categoryOptionResult = SelectProviderCategoryOption(draft, providerFilterCatalog);
+        if (!categoryOptionResult.IsSuccess)
+        {
+            return Failure(
+                categoryOptionResult.DiagnosticCode,
+                categoryOptionResult.DiagnosticMessage);
+        }
+
+        if (selectedBaseType is null && categoryOptionResult.Option is null)
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.MissingBaseIdentity,
-                "A resolved or parsed base identity is required for a base-only Path of Exile Trade query.");
+                "An active category or exact base identity is required for a Path of Exile Trade query.");
         }
 
         var itemNameResult = SelectItemName(draft, providerItemIdentity);
@@ -145,7 +157,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                         Filters = statFilters,
                     },
                 ],
-                Filters = BuildProviderFilters(draft, providerItemIdentity),
+                Filters = BuildProviderFilters(draft, providerItemIdentity, categoryOptionResult.Option),
             },
             Sort = new PathOfExileTradeSearchSort(),
         };
@@ -200,6 +212,18 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             return TrimToNull(providerItemIdentity?.CanonicalType);
         }
 
+        if (draft.Base.ActiveCriterion?.Mode == BaseSearchMode.Category)
+        {
+            return null;
+        }
+
+        if (draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase)
+        {
+            return TrimToNull(draft.Base.ActiveCriterion.ExactBaseName) ??
+                TrimToNull(draft.Base.ResolvedBaseName) ??
+                TrimToNull(draft.ParsedBaseType);
+        }
+
         if (draft.Base.Status is ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable)
         {
             var resolvedBaseName = TrimToNull(draft.Base.ResolvedBaseName);
@@ -210,6 +234,42 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         }
 
         return TrimToNull(draft.ParsedBaseType);
+    }
+
+    private static ProviderCategoryOptionSelectionResult SelectProviderCategoryOption(
+        TradeSearchDraft draft,
+        PathOfExileTradeFilterCatalog? providerFilterCatalog)
+    {
+        if (IsRarity(draft, RarityUnique) ||
+            draft.Base.ActiveCriterion?.Mode != BaseSearchMode.Category)
+        {
+            return ProviderCategoryOptionSelectionResult.Success(null);
+        }
+
+        var category = TrimToNull(draft.Base.ActiveCriterion.Category) ??
+            TrimToNull(draft.Base.Category);
+        if (category is null)
+        {
+            return ProviderCategoryOptionSelectionResult.Failure(
+                PathOfExileTradeQueryDiagnosticCodes.MissingBaseIdentity,
+                "Category mode requires a resolved ordinary item category.");
+        }
+
+        if (providerFilterCatalog is null)
+        {
+            return ProviderCategoryOptionSelectionResult.Failure(
+                PathOfExileTradeQueryDiagnosticCodes.MissingProviderCategoryCatalog,
+                "Category mode requires the current Path of Exile Trade filter catalog.");
+        }
+
+        if (!providerFilterCatalog.TryFindCategoryOption(category, out var option))
+        {
+            return ProviderCategoryOptionSelectionResult.Failure(
+                PathOfExileTradeQueryDiagnosticCodes.UnsupportedProviderCategory,
+                $"The current Path of Exile Trade filters do not contain an exact category option for '{category}'.");
+        }
+
+        return ProviderCategoryOptionSelectionResult.Success(option);
     }
 
     private static UniqueNameSelectionResult SelectItemName(
@@ -235,21 +295,33 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
 
     private static IReadOnlyDictionary<string, object> BuildProviderFilters(
         TradeSearchDraft draft,
-        PathOfExileTradeItemIdentity? providerItemIdentity)
+        PathOfExileTradeItemIdentity? providerItemIdentity,
+        PathOfExileTradeFilterOption? categoryOption)
     {
         var groups = new Dictionary<string, object>(StringComparer.Ordinal);
+        var typeFilters = new Dictionary<string, object>(StringComparer.Ordinal);
         var rarityOption = MapNonUniqueRarityOption(draft);
         if (rarityOption is not null)
         {
+            typeFilters[ProviderRarityFilterKey] = new PathOfExileTradeSearchOptionFilter
+            {
+                Option = rarityOption,
+            };
+        }
+
+        if (categoryOption is not null)
+        {
+            typeFilters[ProviderCategoryFilterKey] = new PathOfExileTradeSearchOptionFilter
+            {
+                Option = categoryOption.Id,
+            };
+        }
+
+        if (typeFilters.Count > 0)
+        {
             groups[TypeFiltersKey] = new PathOfExileTradeSearchFilterGroup
             {
-                Filters = new Dictionary<string, object>(StringComparer.Ordinal)
-                {
-                    [ProviderRarityFilterKey] = new PathOfExileTradeSearchOptionFilter
-                    {
-                        Option = rarityOption,
-                    },
-                },
+                Filters = typeFilters,
             };
         }
 
@@ -280,9 +352,9 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     {
         return listingMode switch
         {
-            TradeListingMode.MerchantOnly => StatusMerchantOnly,
+            TradeListingMode.InstantBuyout => StatusInstantBuyout,
             TradeListingMode.InPerson => StatusInPerson,
-            _ => StatusMerchantOnly,
+            _ => StatusInstantBuyout,
         };
     }
 
@@ -370,6 +442,39 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 DiagnosticCode = code,
                 DiagnosticMessage = message,
                 Decision = decision,
+            };
+        }
+    }
+
+    private sealed record ProviderCategoryOptionSelectionResult
+    {
+        public required bool IsSuccess { get; init; }
+
+        public PathOfExileTradeFilterOption? Option { get; init; }
+
+        public string DiagnosticCode { get; init; } = string.Empty;
+
+        public string DiagnosticMessage { get; init; } = string.Empty;
+
+        public static ProviderCategoryOptionSelectionResult Success(
+            PathOfExileTradeFilterOption? option)
+        {
+            return new ProviderCategoryOptionSelectionResult
+            {
+                IsSuccess = true,
+                Option = option,
+            };
+        }
+
+        public static ProviderCategoryOptionSelectionResult Failure(
+            string code,
+            string message)
+        {
+            return new ProviderCategoryOptionSelectionResult
+            {
+                IsSuccess = false,
+                DiagnosticCode = code,
+                DiagnosticMessage = message,
             };
         }
     }

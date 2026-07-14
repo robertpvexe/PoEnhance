@@ -1,0 +1,914 @@
+Item Class: Body Armours
+Rarity: Normal
+Necrotic Armour
+--------
+Evasion Rating: 828
+Energy Shield: 166
+--------
+Requirements:
+Level: 84
+Dex: 173
+Int: 173 (unmet)
+--------
+Sockets: G-G-B-B G 
+--------
+Item Level: 86
+
+Item Class: One Hand Axes
+Rarity: Magic
+Flaming Reaver Axe of the Marksman
+--------
+One Handed Axe
+Physical Damage: 38-114
+Elemental Damage: 26-57 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.20
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Sockets: R 
+--------
+Item Level: 83
+--------
+{ Prefix Modifier "Flaming" (Tier: 6) — Damage, Elemental, Fire, Attack }
+Adds 26(24-33) to 57(49-57) Fire Damage
+{ Suffix Modifier "of the Marksman" (Tier: 2) — Attack }
++388(326-455) to Accuracy Rating
+
+Item Class: Bows
+Rarity: Rare
+Golem Fletch
+Ranger Bow
+--------
+Bow
+Physical Damage: 56-117
+Elemental Damage: 70-139 (augmented), 46-81 (augmented), 9-155 (augmented)
+Critical Strike Chance: 6.00%
+Attacks per Second: 1.30
+--------
+Requirements:
+Level: 65
+Dex: 212 (unmet)
+--------
+Sockets: W-B G-W-R-G 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Freezing" (Tier: 6) — Damage, Elemental, Cold, Attack }
+Adds 46(41-55) to 81(81-95) Cold Damage
+{ Prefix Modifier "Scorching" (Tier: 5) — Damage, Elemental, Fire, Attack }
+Adds 70(63-85) to 139(128-148) Fire Damage
+{ Prefix Modifier "Sparking" (Tier: 6) — Damage, Elemental, Lightning, Attack }
+Adds 9(8-10) to 155(148-173) Lightning Damage
+{ Suffix Modifier "of the Wind" (Tier: 1) — Attribute }
++53(51-55) to Dexterity
+
+Item Class: One Hand Axes
+Rarity: Rare
+Morbid Bite
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 61-160 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.53 (augmented)
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Sockets: R-R-G 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Flaring" (Tier: 1) — Damage, Physical, Attack }
+Adds 23(22-29) to 46(45-52) Physical Damage
+{ Suffix Modifier "of Celebration" (Tier: 1) — Attack, Speed }
+27(26-27)% increased Attack Speed
+
+Item Class: Wands
+Rarity: Rare
+Wrath Cry
+Blasting Wand
+--------
+Wand
+Physical Damage: 21-39
+Elemental Damage: 52-89 (augmented)
+Critical Strike Chance: 8.50%
+Attacks per Second: 1.60
+--------
+Requirements:
+Level: 41
+Int: 131
+--------
+Sockets: B-B-B 
+--------
+Item Level: 85
+--------
+{ Implicit Modifier }
+Cannot roll Caster Modifiers — Unscalable Value
+--------
+{ Prefix Modifier "Shocking" (Tier: 3) — Damage, Elemental, Lightning, Caster  — 1% Increased }
+Adds 9(2-9) to 110(109-115) Lightning Damage to Spells
+{ Prefix Modifier "Glaciated" (Tier: 4) — Damage, Elemental, Cold, Attack }
+Adds 52(41-57) to 89(83-97) Cold Damage
+{ Suffix Modifier "of Zapping" (Tier: 2) — Elemental, Lightning, Ailment }
+28(25-30)% chance to Shock
+(Shock increases Damage taken by up to 50%, depending on the amount of Lightning Damage in the hit, for 2 seconds)
+{ Suffix Modifier "of Electricity" (Tier: 4) — Damage, Elemental, Lightning }
+16(16-18)% increased Lightning Damage
+{ Suffix Modifier "of Victory" (Tier: 5) — Life }
+Gain 17(12-18) Life per Enemy Killed
+
+Item Class: Jewels
+Rarity: Rare
+Sol Hope
+Viridian Jewel
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Thwarting" (Tier: 1) }
++2(2-3)% Chance to Block Spell Damage while holding a Shield
+{ Suffix Modifier "of Venom" (Tier: 1) — Damage, Chaos, Ailment }
+17(16-20)% increased Damage with Poison
+{ Suffix Modifier "of Runes" (Tier: 1) — Elemental, Resistance }
+Totems gain +10(6-10)% to all Elemental Resistances
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+
+Item Class: Jewels
+Rarity: Magic
+Trapping Cobalt Jewel of Berserking
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Trapping" (Tier: 1) — Damage }
+15(14-16)% increased Trap Damage
+{ Suffix Modifier "of Berserking" (Tier: 1) — Attack, Speed }
+5(3-5)% increased Attack Speed
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+
+Item Class: Rings
+Rarity: Rare
+Eagle Spiral
+Organic Ring
+--------
+Requirements:
+Level: 59
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Physical }
+3% additional Physical Damage Reduction
+Cannot roll Modifiers of Non-Physical Damage Types — Unscalable Value
+(The Damage Types are Physical, Fire, Cold, Lightning, and Chaos)
+--------
+{ Prefix Modifier "Gleaming" (Tier: 2) — Damage, Physical, Attack }
+Adds 6(5-7) to 12(11-12) Physical Damage to Attacks
+{ Prefix Modifier "Acrobat's" (Tier: 5) — Defences, Evasion }
++39(36-60) to Evasion Rating
+{ Prefix Modifier "Mazarine" (Tier: 4) — Mana }
++60(60-64) to maximum Mana
+{ Suffix Modifier "of the Phantom" (Tier: 2) — Attribute }
++47(43-50) to Dexterity
+--------
+Our flesh longs to move as one.
+
+Item Class: Body Armours
+Rarity: Rare
+Dusk Shelter
+Gladiator Plate
+--------
+Armour: 1705 (augmented)
+--------
+Requirements:
+Level: 66
+Str: 177
+--------
+Sockets: R-R-R-R R 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Thickened" (Tier: 4) — Defences, Armour }
+76(68-79)% increased Armour
+{ Prefix Modifier "Crocodile's" (Tier: 1) — Life, Defences, Armour }
++139(97-144) to Armour
++37(34-38) to maximum Life
+{ Suffix Modifier "of Life-giving" (Tier: 2) — Life }
+Regenerate 151.6(128.1-152) Life per second
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++40(36-41)% to Lightning Resistance
+
+Item Class: Boots
+Rarity: Rare
+Skull Road
+Conjurer Boots
+--------
+Quality: +20% (augmented)
+Energy Shield: 57 (augmented)
+--------
+Requirements:
+Level: 67
+Int: 94
+--------
+Sockets: R-G G-B 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Cheetah's" (Tier: 2) — Speed }
+30% increased Movement Speed
+{ Prefix Modifier "Boggart's" (Tier: 4) — Defences, Energy Shield }
+25(21-26)% increased Energy Shield
+10(10-11)% increased Stun and Block Recovery
+{ Prefix Modifier "Cerulean" (Tier: 8) — Mana }
++35(35-39) to maximum Mana
+{ Suffix Modifier "of Ephij" (Tier: 1) — Elemental, Lightning, Resistance }
++46(46-48)% to Lightning Resistance
+{ Suffix Modifier "of the Genius" (Tier: 1) — Attribute }
++53(51-55) to Intelligence
+{ Suffix Modifier "of Tzteosh" (Tier: 1) — Elemental, Fire, Resistance }
++46(46-48)% to Fire Resistance
+
+Item Class: Belts
+Rarity: Rare
+Corruption Bond
+Stygian Vise
+--------
+Requirements:
+Level: 33
+--------
+Sockets: A 
+--------
+Item Level: 85
+--------
+{ Implicit Modifier }
+Has 1 Abyssal Socket — Unscalable Value
+(Only Abyss Jewels can be Socketed in Abyssal Sockets)
+--------
+{ Prefix Modifier "Seething" (Tier: 6) — Defences, Energy Shield }
++23(23-26) to maximum Energy Shield
+{ Prefix Modifier "Sapphire" (Tier: 8) — Mana }
++32(30-34) to maximum Mana
+{ Suffix Modifier "of the Boxer" (Tier: 3) }
+10(10-11)% reduced Enemy Stun Threshold
+(The Stun Threshold determines how much Damage can Stun something)
+{ Suffix Modifier "of the Starfish" (Tier: 6) — Life }
+Regenerate 19.8(16.1-24) Life per second
+{ Suffix Modifier "of Stunning" (Tier: 3) }
+21(21-25)% increased Stun Duration on Enemies
+
+Item Class: Body Armours
+Rarity: Rare
+Gale Wrap
+Marshall's Brigandine
+--------
+Quality: +20% (augmented)
+Armour: 2330 (augmented)
+Evasion Rating: 2349 (augmented)
+--------
+Requirements:
+Level: 78
+Str: 151
+Dex: 151
+Int: 68
+--------
+Sockets: R-R-G-R-B-G 
+--------
+Item Level: 84
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) — Physical, Elemental, Cold }
+10% of Physical Damage from Hits taken as Cold Damage
+{ Searing Exarch Implicit Modifier (Greater) }
++23(22-23)% to Critical Strike Multiplier for Attack Damage
+--------
+{ Prefix Modifier "Adaptable" (Tier: 2) — Defences, Armour, Evasion }
++226(221-300) to Armour
++234(221-300) to Evasion Rating
+{ Prefix Modifier "Elephant's" (Tier: 2) — Defences, Armour, Evasion }
+37(33-38)% increased Armour and Evasion
+15(14-15)% increased Stun and Block Recovery
+{ Prefix Modifier "Duelist's" (Tier: 4) — Defences, Armour, Evasion }
+68(68-79)% increased Armour and Evasion
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++41(36-41)% to Cold Resistance
+{ Suffix Modifier "of the Keeper" (Tier: 3) — Physical }
+6% additional Physical Damage Reduction
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) — Elemental, Lightning, Resistance }
++31(29-35)% to Lightning Resistance
+Searing Exarch Item
+Eater of Worlds Item
+
+Item Class: Rings
+Rarity: Rare
+Woe Coil
+Bone Ring
+--------
+Requirements:
+Level: 65
+--------
+Item Level: 84
+--------
+{ Implicit Modifier — Elemental, Resistance, Minion }
+Minions have +10(10-15)% to all Elemental Resistances
+--------
+{ Prefix Modifier "Polished" (Tier: 4) — Damage, Physical, Attack }
+Adds 4(3-4) to 6(6-7) Physical Damage to Attacks
+{ Suffix Modifier "of the Essence" — Attribute }
++58(51-58) to Intelligence
+{ Suffix Modifier "of Rejuvenation" (Tier: 1) — Life, Attack }
+Gain 2 Life per Enemy Hit with Attacks
+{ Suffix Modifier "of the Volcano" (Tier: 3) — Elemental, Fire, Resistance }
++36(36-41)% to Fire Resistance
+
+Item Class: Shields
+Rarity: Rare
+Miracle Bastion
+Supreme Spiked Shield
+--------
+Chance to Block: 24%
+Evasion Rating: 429 (augmented)
+Energy Shield: 124 (augmented)
+--------
+Requirements:
+Level: 70
+Dex: 85
+Int: 85
+--------
+Sockets: B-B-G 
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++5% chance to Suppress Spell Damage
+(40% of Damage from Suppressed Hits and Ailments they inflict is prevented)
+--------
+{ Prefix Modifier "Prior's" (Tier: 2) — Life, Defences, Energy Shield }
++15(11-15) to maximum Energy Shield
++27(24-28) to maximum Life
+{ Prefix Modifier "Wasp's" (Tier: 3) — Defences, Evasion, Energy Shield }
+28(27-32)% increased Evasion and Energy Shield
+13(12-13)% increased Stun and Block Recovery
+{ Prefix Modifier "Cherub's" (Tier: 4) — Defences, Evasion, Energy Shield }
++59(49-85) to Evasion Rating
++26(23-28) to maximum Energy Shield
+{ Suffix Modifier "of the Wind" (Tier: 1) — Attribute }
++55(51-55) to Dexterity
+
+Item Class: Rings
+Rarity: Rare
+Cryonic Ring
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Elemental, Cold, Resistance }
++2% to maximum Cold Resistance
+(Maximum Resistances cannot be raised above 90%)
+Cannot roll Modifiers of Non-Cold Damage Types — Unscalable Value
+(The Damage Types are Physical, Fire, Cold, Lightning, and Chaos)
+--------
+Unidentified
+
+Item Class: Body Armours
+Rarity: Magic
+Apparition's Necrotic Armour of the Cloud
+--------
+Evasion Rating: 1056 (augmented)
+Energy Shield: 234 (augmented)
+--------
+Requirements:
+Level: 84
+Dex: 173
+Int: 173 (unmet)
+--------
+Sockets: G-G-B-B G 
+--------
+Item Level: 86
+--------
+{ Prefix Modifier "Apparition's" (Tier: 2) — Defences, Evasion, Energy Shield }
++228(221-300) to Evasion Rating
++68(61-72) to maximum Energy Shield
+{ Suffix Modifier "of the Cloud" (Tier: 8) — Elemental, Lightning, Resistance }
++7(6-11)% to Lightning Resistance
+
+Item Class: Body Armours
+Rarity: Magic
+Mosquito's Necrotic Armour of the Philosopher
+--------
+Evasion Rating: 886 (augmented)
+Energy Shield: 178 (augmented)
+--------
+Requirements:
+Level: 84
+Dex: 173
+Int: 173 (unmet)
+--------
+Sockets: G-G-B-B G 
+--------
+Item Level: 86
+--------
+{ Prefix Modifier "Mosquito's" (Tier: 6) — Defences, Evasion, Energy Shield }
+7(6-13)% increased Evasion and Energy Shield
+7(6-7)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Philosopher" (Tier: 5) — Attribute }
++30(28-32) to Intelligence
+
+Item Class: One Hand Axes
+Rarity: Rare
+Morbid Hunger
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 43-123 (augmented)
+Elemental Damage: 20-41 (augmented), 15-23 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30 (augmented)
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Sockets: G-R 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Icy" (Tier: 8) — Damage, Elemental, Cold, Attack }
+Adds 15(11-15) to 23(23-26) Cold Damage
+{ Prefix Modifier "Burnished" (Tier: 8) — Damage, Physical, Attack }
+Adds 5(4-5) to 9(8-9) Physical Damage
+{ Prefix Modifier "Burning" (Tier: 7) — Damage, Elemental, Fire, Attack }
+Adds 20(17-24) to 41(35-41) Fire Damage
+{ Suffix Modifier "of Ease" (Tier: 7) — Attack, Speed }
+8(8-10)% increased Attack Speed
+{ Suffix Modifier "of Dazing" (Tier: 4) }
+19(16-20)% increased Stun Duration on Enemies
+{ Suffix Modifier "of the Wrestler" (Tier: 8) — Attribute }
++17(13-17) to Strength
+
+Item Class: Sceptres
+Rarity: Rare
+Agony Ram
+Platinum Sceptre
+--------
+Sceptre
+Physical Damage: 51-76
+Elemental Damage: 2-28 (augmented)
+Critical Strike Chance: 7.00%
+Attacks per Second: 1.25
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 62
+Str: 113
+Int: 113
+--------
+Sockets: B-R-R 
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Damage, Elemental }
+30% increased Elemental Damage
+--------
+{ Prefix Modifier "Buzzing" (Tier: 9) — Damage, Elemental, Lightning, Attack }
+Adds 2 to 28(25-29) Lightning Damage
+{ Suffix Modifier "of Fury" (Tier: 3) — Damage, Critical }
++28(25-29)% to Global Critical Strike Multiplier
+{ Suffix Modifier "of Melting" (Tier: 2) — Damage }
++23(20-23)% to Damage over Time Multiplier
+{ Suffix Modifier "of Sleet" (Tier: 5) — Damage, Elemental, Cold }
+15(13-15)% increased Cold Damage
+
+Item Class: Helmets
+Rarity: Rare
+Rage Glance
+Silken Hood
+--------
+Evasion Rating: 455 (augmented)
+--------
+Requirements:
+Level: 60
+Dex: 138
+--------
+Sockets: G-G-G-G 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Fleet" (Tier: 5) — Defences, Evasion }
++82(64-82) to Evasion Rating
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+22(20-22)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++36(36-41)% to Lightning Resistance
+{ Suffix Modifier "of Ryslatha" (Tier: 3) — Life }
+Regenerate 60.4(48.1-64) Life per second
+
+Item Class: Helmets
+Rarity: Rare
+Agony Brow
+Necromancer Circlet
+--------
+Quality: +8% (augmented)
+Energy Shield: 83 (augmented)
+--------
+Requirements:
+Level: 57
+Int: 112
+--------
+Sockets: B-B-R 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Naga's" (Tier: 3) — Defences, Energy Shield }
+32(27-32)% increased Energy Shield
+12(12-13)% increased Stun and Block Recovery
+{ Prefix Modifier "Gentian" (Tier: 5) — Mana }
++51(50-54) to maximum Mana
+{ Prefix Modifier "Dragon's" (Tier: 1) — Drop }
+19(19-24)% increased Rarity of Items found
+{ Suffix Modifier "of the Lightning" (Tier: 2) — Elemental, Lightning, Resistance }
++42(42-45)% to Lightning Resistance
+{ Suffix Modifier "of the Marksman" (Tier: 3) — Attack }
++311(251-350) to Accuracy Rating
+
+Item Class: Gloves
+Rarity: Rare
+Kraken Touch
+Carnal Mitts
+--------
+Evasion Rating: 92
+Energy Shield: 19
+--------
+Requirements:
+Level: 54
+Dex: 39
+Int: 39
+--------
+Sockets: B-G-B-G 
+--------
+Item Level: 83
+--------
+{ Prefix Modifier "Honed" (Tier: 1) — Damage, Physical, Attack }
+Adds 4(4-6) to 10(9-10) Physical Damage to Attacks
+{ Prefix Modifier "Opalescent" (Tier: 6) — Mana }
++45(45-49) to maximum Mana
+{ Suffix Modifier "of Dispersal" (Tier: 3) — Defences, Energy Shield }
+30(30-32)% increased Energy Shield Recharge Rate
+{ Suffix Modifier "of the Yeti" (Tier: 5) — Elemental, Cold, Resistance }
++27(24-29)% to Cold Resistance
+
+Item Class: Gloves
+Rarity: Rare
+Honour Hand
+Infiltrator Mitts
+--------
+Evasion Rating: 176
+Energy Shield: 35
+--------
+Requirements:
+Level: 78
+Dex: 70
+Int: 70
+--------
+Sockets: G-G-B-B 
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Zaffre" (Tier: 1) — Mana }
++72(69-73) to maximum Mana
+{ Suffix Modifier "of the Hydra" (Tier: 4) — Life }
+Regenerate 31.8(24.1-32) Life per second
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++38(36-41)% to Cold Resistance
+{ Suffix Modifier "of the Phantom" (Tier: 3) — Attribute }
++44(43-50) to Dexterity
+
+Item Class: Gloves
+Rarity: Rare
+Rage Grasp
+Arcanist Gloves
+--------
+Energy Shield: 85 (augmented)
+--------
+Requirements:
+Level: 60
+Int: 95
+--------
+Sockets: B-B-B-R 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Freezing" (Tier: 2) — Damage, Elemental, Cold, Attack }
+Adds 9(8-11) to 19(16-19) Cold Damage to Attacks
+{ Prefix Modifier "Pulsing" (Tier: 2) — Defences, Energy Shield }
++37(31-38) to maximum Energy Shield
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++38(36-41)% to Cold Resistance
+{ Suffix Modifier "of the Thunderhead" (Tier: 5) — Elemental, Lightning, Resistance }
++26(24-29)% to Lightning Resistance
+
+Item Class: Helmets
+Rarity: Rare
+Skull Horn
+Lacquered Helmet
+--------
+Armour: 216 (augmented)
+Evasion Rating: 216 (augmented)
+--------
+Requirements:
+Level: 62
+Str: 57
+Dex: 57
+--------
+Sockets: G-G-R-G 
+--------
+Item Level: 86
+--------
+{ Prefix Modifier "Mammoth's" (Tier: 1) — Defences, Armour, Evasion }
+40(39-42)% increased Armour and Evasion
+16(16-17)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++40(36-41)% to Lightning Resistance
+{ Suffix Modifier "of Archaeology" (Tier: 2) — Drop }
+20(15-20)% increased Rarity of Items found
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+22(20-22)% increased Stun and Block Recovery
+
+Item Class: Boots
+Rarity: Rare
+Corruption Spur
+Martyr Boots
+--------
+Armour: 220 (augmented)
+Energy Shield: 53 (augmented)
+--------
+Requirements:
+Level: 78
+Str: 85
+Int: 85
+--------
+Sockets: R-B-R-B 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Blue" (Tier: 2) — Mana }
++68(65-68) to maximum Mana
+{ Prefix Modifier "Sanctified" (Tier: 2) — Defences, Armour, Energy Shield }
++31(28-48) to Armour
++15(13-22) to maximum Energy Shield
+{ Suffix Modifier "of the Ice" (Tier: 2) — Elemental, Cold, Resistance }
++44(42-45)% to Cold Resistance
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+21(20-22)% increased Stun and Block Recovery
+
+Item Class: Boots
+Rarity: Rare
+Armageddon Goad
+Antique Greaves
+--------
+Armour: 278 (augmented)
+--------
+Requirements:
+Level: 57
+Str: 67
+--------
+Sockets: R-G-R-B 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Plated" (Tier: 3) — Defences, Armour }
++94(83-101) to Armour
+{ Prefix Modifier "Rhino's" (Tier: 3) — Defences, Armour }
+28(27-32)% increased Armour
+13(12-13)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++37(36-41)% to Cold Resistance
+{ Suffix Modifier "of the Lightning" (Tier: 2) — Elemental, Lightning, Resistance }
++42(42-45)% to Lightning Resistance
+
+Item Class: Boots
+Rarity: Rare
+Armageddon Track
+Slink Boots
+--------
+Quality: +10% (augmented)
+Evasion Rating: 445 (augmented)
+--------
+Requirements:
+Level: 69
+Dex: 120
+--------
+Sockets: G-G-R-G 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Dragonfly's" (Tier: 2) — Defences, Evasion }
+34(33-38)% increased Evasion Rating
+15(14-15)% increased Stun and Block Recovery
+{ Prefix Modifier "Fawn's" (Tier: 1) — Life, Defences, Evasion }
++42(21-42) to Evasion Rating
++24(24-28) to maximum Life
+{ Suffix Modifier "of Iron Skin" (Tier: 4) }
+19(17-19)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++36(36-41)% to Lightning Resistance
+
+Item Class: Shields
+Rarity: Rare
+Gloom Emblem
+Lacewood Spirit Shield
+--------
+Chance to Block: 24%
+Energy Shield: 54
+--------
+Requirements:
+Level: 63
+Int: 134
+--------
+Sockets: B-B-G 
+--------
+Item Level: 84
+--------
+{ Implicit Modifier — Damage, Caster }
+5(5-10)% increased Spell Damage
+--------
+{ Prefix Modifier "Opalescent" (Tier: 6) — Mana }
++48(45-49) to maximum Mana
+{ Prefix Modifier "Jagged" (Tier: 1) — Damage, Physical }
+Reflects 25(25-50) Physical Damage to Melee Attackers
+{ Prefix Modifier "Glyphic" (Tier: 2) — Damage, Caster }
+87(85-99)% increased Spell Damage
+{ Suffix Modifier "of Corundum Skin" (Tier: 1) }
+26(26-28)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Kiln" (Tier: 5) — Elemental, Fire, Resistance }
++29(24-29)% to Fire Resistance
+
+Item Class: Rings
+Rarity: Magic
+Sapphire Ring of Rejuvenation
+--------
+Requirements:
+Level: 8
+--------
+Item Level: 84
+--------
+{ Implicit Modifier — Elemental, Cold, Resistance }
++22(20-30)% to Cold Resistance
+--------
+{ Suffix Modifier "of Rejuvenation" (Tier: 1) — Life, Attack }
+Gain 2 Life per Enemy Hit with Attacks
+
+Item Class: Amulets
+Rarity: Rare
+Storm Scarab
+Amber Amulet
+--------
+Requirements:
+Level: 59
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Attribute }
++27(20-30) to Strength
+--------
+{ Prefix Modifier "Pulsing" (Tier: 7) — Defences, Energy Shield }
++22(20-22) to maximum Energy Shield
+{ Prefix Modifier "Chalybeous" (Tier: 5) — Mana }
++57(55-59) to maximum Mana
+{ Suffix Modifier "of the Walrus" (Tier: 4) — Elemental, Cold, Resistance }
++31(30-35)% to Cold Resistance
+{ Suffix Modifier "of Ferocity" (Tier: 2) — Damage, Critical }
++33(30-34)% to Global Critical Strike Multiplier
+{ Suffix Modifier "of the Virtuoso" (Tier: 2) — Attribute }
++49(43-50) to Intelligence
+
+Item Class: Belts
+Rarity: Rare
+Miracle Harness
+Chain Belt
+--------
+Requirements:
+Level: 46
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Defences, Energy Shield }
++17(9-20) to maximum Energy Shield
+--------
+{ Prefix Modifier "Athlete's" (Tier: 2) — Life }
++128(115-129) to maximum Life
+{ Prefix Modifier "Opalescent" (Tier: 5) — Mana }
++46(45-49) to maximum Mana
+{ Suffix Modifier "of the Gladiator" (Tier: 1) }
+14(14-15)% reduced Enemy Stun Threshold
+(The Stun Threshold determines how much Damage can Stun something)
+{ Suffix Modifier "of the Hydra" (Tier: 5) — Life }
+Regenerate 28.3(24.1-32) Life per second
+
+Item Class: Rings
+Rarity: Rare
+Eagle Spiral
+Organic Ring
+--------
+Requirements:
+Level: 59
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Physical }
+3% additional Physical Damage Reduction
+Cannot roll Modifiers of Non-Physical Damage Types — Unscalable Value
+(The Damage Types are Physical, Fire, Cold, Lightning, and Chaos)
+--------
+{ Prefix Modifier "Gleaming" (Tier: 2) — Damage, Physical, Attack }
+Adds 6(5-7) to 12(11-12) Physical Damage to Attacks
+{ Prefix Modifier "Acrobat's" (Tier: 5) — Defences, Evasion }
++39(36-60) to Evasion Rating
+{ Prefix Modifier "Mazarine" (Tier: 4) — Mana }
++60(60-64) to maximum Mana
+{ Suffix Modifier "of the Phantom" (Tier: 2) — Attribute }
++47(43-50) to Dexterity
+--------
+Our flesh longs to move as one.
+
+Item Class: Boots
+Rarity: Rare
+Cataclysm League
+Slink Boots
+--------
+Quality: +10% (augmented)
+Evasion Rating: 326 (augmented)
+--------
+Requirements:
+Level: 69
+Dex: 120
+--------
+Sockets: G-G-R-G 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Moth's" (Tier: 5) — Defences, Evasion }
+14(14-20)% increased Evasion Rating
+9(8-9)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Troll" (Tier: 3) — Life }
+Regenerate 46.8(32.1-48) Life per second
+{ Suffix Modifier "of the Whelpling" (Tier: 8) — Elemental, Fire, Resistance }
++6(6-11)% to Fire Resistance
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+22(20-22)% increased Stun and Block Recovery
+
+Item Class: Boots
+Rarity: Normal
+Antique Greaves
+--------
+Armour: 123
+--------
+Requirements:
+Level: 37
+Str: 67
+--------
+Sockets: R-G-R-B 
+--------
+Item Level: 84
+
+Item Class: Boots
+Rarity: Magic
+Antique Greaves of the Penguin
+--------
+Armour: 123
+--------
+Requirements:
+Level: 37
+Str: 67
+--------
+Sockets: R-G-R-B 
+--------
+Item Level: 84
+--------
+{ Suffix Modifier "of the Penguin" (Tier: 6) — Elemental, Cold, Resistance }
++23(18-23)% to Cold Resistance
+
+Item Class: Boots
+Rarity: Magic
+Rotund Antique Greaves
+--------
+Armour: 123
+--------
+Requirements:
+Level: 37
+Str: 67
+--------
+Sockets: R-G-R-B 
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Rotund" (Tier: 3) — Life }
++90(85-99) to maximum Life
+

@@ -22,6 +22,29 @@
     ],
     "type": "ItemFoundRarityIncrease"
   },
+  "LocalMaimOnHit2HImplicit_1": {
+    "adds_tags": [],
+    "domain": "item",
+    "generation_type": "unique",
+    "generation_weights": [],
+    "grants_effects": [],
+    "groups": [
+      "LocalMaimOnHit"
+    ],
+    "implicit_tags": [],
+    "is_essence_only": false,
+    "name": "",
+    "required_level": 1,
+    "spawn_weights": [],
+    "stats": [
+      {
+        "id": "local_accuracy_rating",
+        "max": 25,
+        "min": 10
+      }
+    ],
+    "type": "LocalMaimOnHit"
+  },
   "AbyssJewelAddedLife1": {
     "adds_tags": [],
     "domain": "abyss_jewel",

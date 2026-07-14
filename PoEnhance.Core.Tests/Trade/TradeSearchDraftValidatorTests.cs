@@ -337,23 +337,23 @@ Item Level: 82
     }
 
     [Fact]
-    public void Validate_MerchantOnlyAndInPerson_ProduceSameOutcome()
+    public void Validate_InstantBuyoutAndInPerson_ProduceSameOutcome()
     {
-        var merchantOnlyDraft = ValidDraft() with
+        var instantBuyoutDraft = ValidDraft() with
         {
-            ListingMode = TradeListingMode.MerchantOnly,
+            ListingMode = TradeListingMode.InstantBuyout,
         };
-        var inPersonDraft = merchantOnlyDraft with
+        var inPersonDraft = instantBuyoutDraft with
         {
             ListingMode = TradeListingMode.InPerson,
         };
 
-        var merchantOnlyResult = validator.Validate(merchantOnlyDraft);
+        var instantBuyoutResult = validator.Validate(instantBuyoutDraft);
         var inPersonResult = validator.Validate(inPersonDraft);
 
-        Assert.Equal(merchantOnlyResult.IsValid, inPersonResult.IsValid);
+        Assert.Equal(instantBuyoutResult.IsValid, inPersonResult.IsValid);
         Assert.Equal(
-            merchantOnlyResult.Diagnostics.Select(DiagnosticSignature),
+            instantBuyoutResult.Diagnostics.Select(DiagnosticSignature),
             inPersonResult.Diagnostics.Select(DiagnosticSignature));
     }
 
@@ -427,7 +427,7 @@ Item Level: 82
     }
 
     private static TradeSearchDraft ValidDraft(
-        IReadOnlyList<TradeModifierFilterDraft>? modifiers = null)
+        IReadOnlyList<ResolvedSearchComponent>? modifiers = null)
     {
         return new TradeSearchDraft
         {
@@ -443,32 +443,39 @@ Item Level: 82
             },
             ItemLevel = 84,
             ModifierFilters = modifiers ?? [],
-            ListingMode = TradeListingMode.MerchantOnly,
+            ListingMode = TradeListingMode.InstantBuyout,
         };
     }
 
-    private static TradeModifierFilterDraft ExactModifier()
+    private static ResolvedSearchComponent ExactModifier()
     {
-        return new TradeModifierFilterDraft
+        return new ResolvedSearchComponent
         {
+            ComponentId = "modifier:0:0",
             OriginalText = "+55(50-59) to maximum Life",
+            CanonicalSignature = "+<number> to maximum Life",
             ParsedKind = ParsedModifierKind.Prefix,
             ParsedModifierName = "Hale",
             ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
             ResolvedModifierId = "mod.prefix.hale",
             ResolvedModifierName = "Hale",
+            ResolvedStatIds = ["base_maximum_life"],
+            IsSearchable = true,
             IsSelected = false,
         };
     }
 
-    private static TradeModifierFilterDraft UnknownModifier()
+    private static ResolvedSearchComponent UnknownModifier()
     {
-        return new TradeModifierFilterDraft
+        return new ResolvedSearchComponent
         {
+            ComponentId = "modifier:0:0",
             OriginalText = "+12(11-13)% to all Elemental Resistances",
+            CanonicalSignature = "+<number>% to all Elemental Resistances",
             ParsedKind = ParsedModifierKind.Suffix,
             ParsedModifierName = "of the Rainbow",
             ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+            IsSearchable = false,
             IsSelected = false,
         };
     }

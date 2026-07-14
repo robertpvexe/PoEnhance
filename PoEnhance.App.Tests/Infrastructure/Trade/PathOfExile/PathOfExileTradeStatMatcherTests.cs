@@ -214,6 +214,175 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_WeaponAttackSpeedUsesOfficialLocalExplicitStatIdAndRejectsUnmarkedDuplicate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.stat_681332047", "#% increased Attack Speed", "explicit"),
+            Entry("explicit.stat_210067635", "#% increased Attack Speed (Local)", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("26(26-27)% increased Attack Speed", ParsedModifierKind.Suffix),
+            catalog,
+            Context(
+                itemClass: "One Hand Axes",
+                parsedBaseType: "Reaver Axe",
+                locality: ModifierLocality.Local,
+                internalStatIds: ["local_attack_speed_+%"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.stat_210067635", result.ExactCandidate?.StatId);
+        Assert.Equal("#% increased Attack Speed (Local)", result.ExactCandidate?.Text);
+        Assert.Equal(PathOfExileTradeProviderStatLocality.Local, result.ExactCandidate?.ProviderLocality);
+        Assert.Contains(result.InitialCandidates, candidate => candidate.StatId == "explicit.stat_681332047");
+        Assert.Contains(result.RejectedCandidates, candidate => candidate.StatId == "explicit.stat_681332047");
+        Assert.Equal([26m], result.ExtractedNumericValues);
+    }
+
+    [Fact]
+    public void Match_AttackSpeedProviderCandidateOrderReversalDoesNotChangeLocalWeaponResult()
+    {
+        var forward = Catalog(
+            Entry("explicit.stat_681332047", "#% increased Attack Speed", "explicit", providerOrder: 0),
+            Entry("explicit.stat_210067635", "#% increased Attack Speed (Local)", "explicit", providerOrder: 1));
+        var reversed = Catalog(
+            Entry("explicit.stat_210067635", "#% increased Attack Speed (Local)", "explicit", providerOrder: 0),
+            Entry("explicit.stat_681332047", "#% increased Attack Speed", "explicit", providerOrder: 1));
+        var modifier = Modifier("26% increased Attack Speed", ParsedModifierKind.Suffix);
+
+        var first = matcher.Match(
+            modifier,
+            forward,
+            Context(
+                itemClass: "One Hand Axes",
+                parsedBaseType: "Reaver Axe",
+                locality: ModifierLocality.Local,
+                internalStatIds: ["local_attack_speed_+%"]));
+        var second = matcher.Match(
+            modifier,
+            reversed,
+            Context(
+                itemClass: "One Hand Axes",
+                parsedBaseType: "Reaver Axe",
+                locality: ModifierLocality.Local,
+                internalStatIds: ["local_attack_speed_+%"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, first.Status);
+        Assert.Equal(first.ExactCandidate?.StatId, second.ExactCandidate?.StatId);
+        Assert.Equal("explicit.stat_210067635", second.ExactCandidate?.StatId);
+    }
+
+    [Fact]
+    public void Match_GlobalAttackSpeedDoesNotForceLocalWeaponCandidate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.stat_681332047", "#% increased Attack Speed", "explicit"),
+            Entry("explicit.stat_210067635", "#% increased Attack Speed (Local)", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("8% increased Attack Speed", ParsedModifierKind.Suffix),
+            catalog,
+            Context(
+                itemClass: "One Hand Axes",
+                parsedBaseType: "Reaver Axe",
+                locality: ModifierLocality.Global,
+                internalStatIds: ["attack_speed_+%"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.stat_681332047", result.ExactCandidate?.StatId);
+        Assert.Equal(PathOfExileTradeProviderStatLocality.Unmarked, result.ExactCandidate?.ProviderLocality);
+        Assert.Contains(result.RejectedCandidates, candidate => candidate.StatId == "explicit.stat_210067635");
+    }
+
+    [Fact]
+    public void Match_AttackSpeedWithoutLocalityEvidenceIsAmbiguousAndDoesNotChooseFirstCandidate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.stat_681332047", "#% increased Attack Speed", "explicit"),
+            Entry("explicit.stat_210067635", "#% increased Attack Speed (Local)", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("26% increased Attack Speed", ParsedModifierKind.Suffix),
+            catalog,
+            Context(itemClass: "One Hand Axes", parsedBaseType: "Reaver Axe"));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.LocalityAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Match_ImplicitProvenanceSelectsImplicitProviderGroupInsteadOfExplicitDuplicate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.caster", "Cannot roll Caster Modifiers", "explicit"),
+            Entry("implicit.caster", "Cannot roll Caster Modifiers", "implicit"),
+            Entry("crafted.caster", "Cannot roll Caster Modifiers", "crafted"));
+
+        var result = matcher.Match(
+            Modifier("Cannot roll Caster Modifiers", ParsedModifierKind.Implicit),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("implicit.caster", result.ExactCandidate?.StatId);
+        Assert.Equal("implicit", result.ExactCandidate?.ProviderKind);
+        Assert.Contains(result.RejectedCandidates, candidate => candidate.StatId == "explicit.caster");
+    }
+
+    [Fact]
+    public void Match_ImplicitProviderCandidateOrderingDoesNotAffectGroupSelection()
+    {
+        var forward = Catalog(
+            Entry("explicit.phys", "#% additional Physical Damage Reduction", "explicit", providerOrder: 0),
+            Entry("implicit.phys", "#% additional Physical Damage Reduction", "implicit", providerOrder: 1));
+        var reversed = Catalog(
+            Entry("implicit.phys", "#% additional Physical Damage Reduction", "implicit", providerOrder: 0),
+            Entry("explicit.phys", "#% additional Physical Damage Reduction", "explicit", providerOrder: 1));
+        var modifier = Modifier("3% additional Physical Damage Reduction", ParsedModifierKind.Implicit);
+
+        var first = matcher.Match(modifier, forward);
+        var second = matcher.Match(modifier, reversed);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, first.Status);
+        Assert.Equal(first.ExactCandidate?.StatId, second.ExactCandidate?.StatId);
+        Assert.Equal("implicit.phys", second.ExactCandidate?.StatId);
+    }
+
+    [Fact]
+    public void Match_EquivalentDuplicateImplicitProviderCandidatesSelectStableCanonicalId()
+    {
+        var catalog = Catalog(
+            Entry("implicit.suppress.one", "+#% chance to Suppress Spell Damage", "implicit"),
+            Entry("implicit.suppress.two", "+#% chance to Suppress Spell Damage", "implicit"));
+
+        var result = matcher.Match(
+            Modifier("+5% chance to Suppress Spell Damage", ParsedModifierKind.Implicit),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("implicit.suppress.one", result.ExactCandidate?.StatId);
+    }
+
+    [Fact]
+    public void Match_NonEquivalentImplicitProviderCandidatesRemainAmbiguous()
+    {
+        var catalog = Catalog(
+            Entry("implicit.unmarked.suppress", "+#% chance to Suppress Spell Damage", "implicit"),
+            Entry("implicit.local.suppress", "+#% chance to Suppress Spell Damage (Local)", "implicit"));
+
+        var result = matcher.Match(
+            Modifier("+5% chance to Suppress Spell Damage", ParsedModifierKind.Implicit),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.LocalityAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Match_ProviderCandidateOrderReversalDoesNotChangeLocalWeaponResult()
     {
         var forward = Catalog(

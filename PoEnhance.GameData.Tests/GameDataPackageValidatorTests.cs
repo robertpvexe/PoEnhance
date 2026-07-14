@@ -76,6 +76,26 @@ public sealed class GameDataPackageValidatorTests
     }
 
     [Fact]
+    public void Validate_ItemBaseImplicitModifierIdUnknown_ReturnsUnknownError()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var invalidItemBase = package.ItemBases[0] with
+        {
+            ImplicitModifierIds = ["missing.implicit.modifier"],
+        };
+
+        var invalidPackage = package with
+        {
+            ItemBases = [invalidItemBase],
+        };
+
+        var result = GameDataPackageValidator.Validate(invalidPackage);
+
+        Assert.False(result.IsValid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseImplicitModifierIdUnknown);
+    }
+
+    [Fact]
     public void Validate_UnknownSourceReferenceId_ReturnsUnknownSourceError()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();

@@ -25,7 +25,7 @@ internal static class GameDataPackageFixtures
                         {
                             SourceId = "repoe",
                             ExternalId = "Metadata/Items/Rings/Ring5",
-                            ExternalUri = "https://github.com/brather1ng/RePoE",
+                            ExternalUri = "https://github.com/repoe-fork/repoe",
                         },
                         new GameDataSourceReference
                         {
@@ -49,7 +49,7 @@ internal static class GameDataPackageFixtures
                         {
                             SourceId = "repoe",
                             ExternalId = "Metadata/Items/Flasks/FlaskUtility5",
-                            ExternalUri = "https://github.com/brather1ng/RePoE",
+                            ExternalUri = "https://github.com/repoe-fork/repoe",
                         },
                         new GameDataSourceReference
                         {

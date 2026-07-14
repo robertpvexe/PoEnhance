@@ -95,6 +95,13 @@ internal sealed class PathOfExileTradeEndpointBuilder
             "/api/trade/data/items");
     }
 
+    public PathOfExileTradeEndpointBuildResult BuildFiltersEndpoint()
+    {
+        return PathOfExileTradeEndpointBuildResult.Success(
+            baseHost,
+            "/api/trade/data/filters");
+    }
+
     private static string? TrimToNull(string? value)
     {
         var trimmed = value?.Trim();

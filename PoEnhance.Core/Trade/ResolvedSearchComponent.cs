@@ -4,9 +4,19 @@ using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Trade;
 
-public sealed record TradeModifierFilterDraft
+public sealed record ResolvedSearchComponent
 {
+    public required string ComponentId { get; init; }
+
+    public int SourceModifierIndex { get; init; } = -1;
+
+    public int SourceLineIndex { get; init; } = -1;
+
+    public int SourceComponentIndex { get; init; }
+
     public string OriginalText { get; init; } = string.Empty;
+
+    public string CanonicalSignature { get; init; } = string.Empty;
 
     public ParsedModifierKind ParsedKind { get; init; }
 
@@ -24,6 +34,8 @@ public sealed record TradeModifierFilterDraft
 
     public bool IsVeiled { get; init; }
 
+    public bool IsBaseImplicit { get; init; }
+
     public ModifierCandidateResolutionStatus? ResolutionStatus { get; init; }
 
     public string? ResolvedModifierId { get; init; }
@@ -32,9 +44,24 @@ public sealed record TradeModifierFilterDraft
 
     public IReadOnlyList<string> ResolvedStatIds { get; init; } = [];
 
+    public bool IsSearchable { get; init; }
+
+    public string? NotSearchableReason { get; init; }
+
     public decimal? RequestedMinimum { get; init; }
 
     public decimal? RequestedMaximum { get; init; }
 
     public bool IsSelected { get; init; }
+
+    public SearchComponentProviderResolutionStatus ProviderResolutionStatus { get; init; } =
+        SearchComponentProviderResolutionStatus.NotResolved;
+
+    public string? ProviderStatId { get; init; }
+
+    public string? ProviderStatText { get; init; }
+
+    public IReadOnlyList<string> ProviderCandidateStatIds { get; init; } = [];
+
+    public string? ProviderDiagnosticCode { get; init; }
 }

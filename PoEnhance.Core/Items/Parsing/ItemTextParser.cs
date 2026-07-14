@@ -12,6 +12,8 @@ public sealed class ItemTextParser
     private const string RankPrefix = "(Rank:";
     private const string VeiledPrefixLine = "Veiled Prefix";
     private const string VeiledSuffixLine = "Veiled Suffix";
+    private const char EmDash = '\u2014';
+    private static readonly string UnscalableValueSuffix = $" {EmDash} Unscalable Value";
 
     public ParsedItem Parse(string? rawText)
     {
@@ -83,26 +85,26 @@ public sealed class ItemTextParser
             itemLevelSectionIndex,
             classifiedLines,
             isFlask);
+        var hasAdvancedModifierMetadata = ContainsAdvancedModifierMetadata(sections);
         var flavourTextLines = ReadFlavourTextLines(
             sections,
             raritySectionIndex,
             itemLevelSectionIndex,
             classifiedLines,
-            rarity);
+            rarity,
+            hasAdvancedModifierMetadata);
         var propertyLines = new List<string>();
         var enchantments = new List<ParsedEnchantment>();
         var modifiers = new List<ParsedModifier>();
         var uniqueModifiers = new List<ParsedModifier>();
-        var modifierLines = new List<string>();
         var descriptionLines = new List<string>();
         var unclassifiedLines = new List<string>();
-        var hasAdvancedModifierMetadata = false;
 
         foreach (var section in sections)
         {
             var isModifierSection = itemLevelSectionIndex.HasValue
                 && section.Index > itemLevelSectionIndex.Value
-                && !IsFlavourTextSection(section, rarity);
+                && !IsFlavourTextSection(section, rarity, hasAdvancedModifierMetadata);
             PendingAdvancedModifier? pendingAdvancedModifier = null;
 
             for (var lineIndex = 0; lineIndex < section.Lines.Count; lineIndex++)
@@ -121,7 +123,6 @@ public sealed class ItemTextParser
 
                 if (IsModifierMetadataLine(line))
                 {
-                    hasAdvancedModifierMetadata = true;
                     FlushPendingAdvancedModifier(
                         pendingAdvancedModifier,
                         modifiers,
@@ -155,7 +156,6 @@ public sealed class ItemTextParser
                     }
 
                     pendingAdvancedModifier = null;
-                    modifierLines.Add(rawLine);
                 }
                 else if (TryCreateEnchantment(line, out var enchantment))
                 {
@@ -178,8 +178,6 @@ public sealed class ItemTextParser
                 }
                 else if (isModifierSection)
                 {
-                    modifierLines.Add(rawLine);
-
                     if (pendingAdvancedModifier is not null)
                     {
                         pendingAdvancedModifier.ValueLines.Add(rawLine);
@@ -247,7 +245,7 @@ public sealed class ItemTextParser
             suffixModifiers,
             uniqueModifiers,
             explicitModifiersWithUnknownKind,
-            modifierLines,
+            modifiers.SelectMany(modifier => modifier.ValueLines).ToArray(),
             flavourTextLines,
             enchantments,
             descriptionLines,
@@ -561,7 +559,8 @@ public sealed class ItemTextParser
         int? raritySectionIndex,
         int? itemLevelSectionIndex,
         ISet<LineLocation> classifiedLines,
-        string? rarity)
+        string? rarity,
+        bool hasAdvancedModifierMetadata)
     {
         var firstCandidateSectionIndex = itemLevelSectionIndex ?? raritySectionIndex;
         if (!firstCandidateSectionIndex.HasValue)
@@ -572,7 +571,7 @@ public sealed class ItemTextParser
         var flavourTextLines = new List<string>();
         foreach (var section in sections.Where(section => section.Index > firstCandidateSectionIndex.Value))
         {
-            if (!IsFlavourTextSection(section, rarity))
+            if (!IsFlavourTextSection(section, rarity, hasAdvancedModifierMetadata))
             {
                 continue;
             }
@@ -639,10 +638,16 @@ public sealed class ItemTextParser
 
     private static ParsedModifier CreateParsedModifier(IReadOnlyList<string> valueLines, PendingModifierMetadata? metadata)
     {
+        var effects = CreateModifierEffects(valueLines);
+        var cleanedValueLines = effects
+            .Select(effect => effect.Text)
+            .Where(line => line.Length > 0)
+            .ToArray();
+
         if (metadata is not null)
         {
             return new ParsedModifier(
-                valueLines,
+                cleanedValueLines,
                 metadata.RawLine,
                 metadata.Kind,
                 metadata.Name,
@@ -651,12 +656,15 @@ public sealed class ItemTextParser
                 metadata.CategoryText,
                 metadata.IsCrafted,
                 metadata.IsFractured,
-                metadata.IsVeiled);
+                metadata.IsVeiled)
+            {
+                Effects = effects,
+            };
         }
 
-        var text = string.Join(Environment.NewLine, valueLines);
+        var text = string.Join(Environment.NewLine, cleanedValueLines);
         return new ParsedModifier(
-            valueLines,
+            cleanedValueLines,
             RawMetadataLine: null,
             InferNormalModifierKind(text),
             Name: null,
@@ -665,7 +673,58 @@ public sealed class ItemTextParser
             CategoryText: null,
             IsCrafted: false,
             IsFractured: false,
-            IsVeiled: false);
+            IsVeiled: false)
+        {
+            Effects = effects,
+        };
+    }
+
+    private static IReadOnlyList<ParsedModifierEffect> CreateModifierEffects(IReadOnlyList<string> valueLines)
+    {
+        var effects = new List<PendingModifierEffect>();
+        foreach (var rawLine in valueLines)
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            if (IsReminderLine(line) && effects.Count > 0)
+            {
+                effects[^1].ReminderLines.Add(line);
+                continue;
+            }
+
+            var cleanedLine = RemoveTerminalUnscalableValue(line, out var hasUnscalableValue);
+            effects.Add(new PendingModifierEffect(cleanedLine, hasUnscalableValue));
+        }
+
+        return effects
+            .Select(effect => new ParsedModifierEffect(
+                effect.Text,
+                effect.ReminderLines.ToArray(),
+                effect.HasUnscalableValue))
+            .ToArray();
+    }
+
+    private static bool IsReminderLine(string line)
+    {
+        return line.Length >= 2 &&
+            line[0] == '(' &&
+            line[^1] == ')';
+    }
+
+    private static string RemoveTerminalUnscalableValue(string line, out bool hasUnscalableValue)
+    {
+        if (line.EndsWith(UnscalableValueSuffix, StringComparison.Ordinal))
+        {
+            hasUnscalableValue = true;
+            return line[..^UnscalableValueSuffix.Length].TrimEnd();
+        }
+
+        hasUnscalableValue = false;
+        return line;
     }
 
     private static bool TryReadVeiledModifierKind(string line, out ParsedModifierKind kind)
@@ -970,6 +1029,11 @@ public sealed class ItemTextParser
         return trimmedLine.Length > 0 && trimmedLine.All(character => character == '-');
     }
 
+    private static bool ContainsAdvancedModifierMetadata(IReadOnlyList<ItemTextSection> sections)
+    {
+        return sections.Any(section => section.Lines.Any(line => IsModifierMetadataLine(line.Trim())));
+    }
+
     private static bool LooksLikeFlavorText(ItemTextSection section)
     {
         return section.Lines.Any(line =>
@@ -979,9 +1043,17 @@ public sealed class ItemTextParser
         });
     }
 
-    private static bool IsFlavourTextSection(ItemTextSection section, string? rarity)
+    private static bool IsFlavourTextSection(
+        ItemTextSection section,
+        string? rarity,
+        bool hasAdvancedModifierMetadata)
     {
         if (LooksLikeFlavorText(section))
+        {
+            return true;
+        }
+
+        if (hasAdvancedModifierMetadata && LooksLikeAdvancedTerminalFlavourText(section))
         {
             return true;
         }
@@ -1000,6 +1072,24 @@ public sealed class ItemTextParser
                 });
     }
 
+    private static bool LooksLikeAdvancedTerminalFlavourText(ItemTextSection section)
+    {
+        var nonEmptyLines = section.Lines
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToArray();
+        return nonEmptyLines.Length > 0 &&
+            nonEmptyLines.All(line =>
+                !line.Contains(':') &&
+                !IsDescriptionLine(line) &&
+                !IsItemStateLine(line) &&
+                !IsTraditionalInfluenceLine(line) &&
+                !IsEldritchInfluenceLine(line) &&
+                !IsModifierMetadataLine(line) &&
+                !IsEnchantmentLine(line) &&
+                !IsClearlyNumericModifierLine(line));
+    }
+
     private sealed record ItemTextSection(int Index, IReadOnlyList<string> Lines);
 
     private sealed record PendingModifierMetadata(
@@ -1016,6 +1106,11 @@ public sealed class ItemTextParser
     private sealed record PendingAdvancedModifier(PendingModifierMetadata Metadata)
     {
         public List<string> ValueLines { get; } = [];
+    }
+
+    private sealed record PendingModifierEffect(string Text, bool HasUnscalableValue)
+    {
+        public List<string> ReminderLines { get; } = [];
     }
 
     private readonly record struct LineLocation(int SectionIndex, int LineIndex);

@@ -177,13 +177,82 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
-    public void CreateDraft_DefaultListingPreferenceIsMerchantOnly()
+    public void CreateDraft_DefaultListingPreferenceIsInstantBuyout()
     {
         var item = ParseSample("rare-onyx-amulet.txt");
 
         var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
 
-        Assert.Equal(TradeListingMode.MerchantOnly, draft.ListingMode);
+        Assert.Equal(TradeListingMode.InstantBuyout, draft.ListingMode);
+    }
+
+    [Theory]
+    [InlineData("Bows", "Ranger Bow", "Bow", "Bow")]
+    [InlineData("Wands", "Blasting Wand", "Wand", "Wand")]
+    [InlineData("Body Armours", "Titan Plate", "Body Armour", "Body Armour")]
+    [InlineData("Rings", "Vermillion Ring", "Ring", "Ring")]
+    public void CreateDraft_OrdinaryExactBaseDefaultsToCategoryCriterion(
+        string itemClass,
+        string baseName,
+        string gameDataItemClass,
+        string expectedCategory)
+    {
+        var item = ParseOrdinaryItem(itemClass, baseName);
+        var baseRecord = Base($"base.{baseName.Replace(' ', '-').ToLowerInvariant()}", baseName, gameDataItemClass);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ExactBase(baseRecord)));
+
+        Assert.Equal(baseRecord.Id, draft.Base.Observed?.ExactBaseId);
+        Assert.Equal(baseName, draft.Base.Observed?.ExactBaseName);
+        Assert.Equal(expectedCategory, draft.Base.Observed?.Category);
+        Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal(expectedCategory, draft.Base.ActiveCriterion?.Category);
+        Assert.Equal(BaseSearchMode.ExactBase, draft.Base.AvailableCriteria.ExactBase?.Mode);
+        Assert.Equal(baseName, draft.Base.AvailableCriteria.ExactBase?.ExactBaseName);
+    }
+
+    [Fact]
+    public void CreateDraft_OneHybridSourceModifierCreatesIndependentComponents()
+    {
+        var item = parser.Parse("""
+Item Class: Body Armours
+Rarity: Rare
+Dragon Shelter
+Titan Plate
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Layered" (Tier: 5) - Defences }
+25% increased Armour
+11% increased Stun and Block Recovery
+""");
+        var resolution = ModifierResolution(
+            item,
+            modifierIndex: 0,
+            ModifierCandidateResolutionStatus.Exact,
+            ModifierGenerationType.Prefix,
+            [Modifier(
+                "mod.prefix.layered",
+                "Layered",
+                ModifierGenerationType.Prefix,
+                "local_armour_+%",
+                "base_stun_recovery_+%")],
+            ModifierLocality.Unknown);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, modifierResolutions: [resolution]));
+
+        Assert.Equal(2, draft.ModifierFilters.Count);
+        Assert.All(draft.ModifierFilters, component =>
+        {
+            Assert.Equal(0, component.SourceModifierIndex);
+            Assert.Equal("mod.prefix.layered", component.ResolvedModifierId);
+        });
+        Assert.Equal(["25% increased Armour", "11% increased Stun and Block Recovery"],
+            draft.ModifierFilters.Select(component => component.OriginalText));
+        Assert.Equal(["local_armour_+%"], draft.ModifierFilters[0].ResolvedStatIds);
+        Assert.Equal(["base_stun_recovery_+%"], draft.ModifierFilters[1].ResolvedStatIds);
+        Assert.NotEqual(draft.ModifierFilters[0].ComponentId, draft.ModifierFilters[1].ComponentId);
+        Assert.Equal([0, 1], draft.ModifierFilters.Select(component => component.SourceLineIndex));
     }
 
     [Fact]
@@ -320,6 +389,20 @@ Item Level: 84
     {
         var path = Path.Combine(AppContext.BaseDirectory, "TestData", "Items", fileName);
         return parser.Parse(File.ReadAllText(path));
+    }
+
+    private ParsedItem ParseOrdinaryItem(
+        string itemClass,
+        string baseName)
+    {
+        return parser.Parse($$"""
+Item Class: {{itemClass}}
+Rarity: Rare
+Storm Shell
+{{baseName}}
+--------
+Item Level: 84
+""");
     }
 
     private static TradeSearchDraft AssertSuccessfulDraft(TradeSearchDraftResult result)

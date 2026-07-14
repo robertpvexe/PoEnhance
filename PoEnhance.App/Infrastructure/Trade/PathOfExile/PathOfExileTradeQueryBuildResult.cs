@@ -22,7 +22,7 @@ internal sealed record PathOfExileTradeQueryBuildResult
         string leagueIdentifier,
         PathOfExileTradeSearchRequest request,
         string serializedJson,
-        string selectedBaseType,
+        string? selectedBaseType,
         ItemBaseResolutionStatus? selectedBaseResolutionStatus)
     {
         return new PathOfExileTradeQueryBuildResult

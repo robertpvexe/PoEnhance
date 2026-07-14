@@ -252,7 +252,7 @@
                                      Background="#101010"
                                      BorderBrush="#404040"
                                      Foreground="#EEEEEE"
-                                     Text="Standard" />
+                                     Text="Mirage" />
                             <Button x:Name="SearchButton"
                                     Grid.Column="2"
                                     MinWidth="68"

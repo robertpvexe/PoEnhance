@@ -15,9 +15,11 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         IPathOfExileTradeFetchClient tradeFetchClient,
         IPathOfExileTradeStatsClient tradeStatsClient,
         IPathOfExileTradeItemsClient tradeItemsClient,
+        IPathOfExileTradeFiltersClient tradeFiltersClient,
         IPathOfExileTradeStatMatcher tradeStatMatcher,
         IPathOfExileTradeStatCatalogProvider tradeStatCatalogProvider,
         IPathOfExileTradeItemCatalogProvider tradeItemCatalogProvider,
+        IPathOfExileTradeFilterCatalogProvider tradeFilterCatalogProvider,
         IPathOfExileTradeSelectedModifierMapper tradeSelectedModifierMapper,
         IPathOfExileTradeItemIdentityMapper tradeItemIdentityMapper,
         IPathOfExileTradePriceCheckService priceCheckService,
@@ -30,9 +32,11 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         TradeFetchClient = tradeFetchClient;
         TradeStatsClient = tradeStatsClient;
         TradeItemsClient = tradeItemsClient;
+        TradeFiltersClient = tradeFiltersClient;
         TradeStatMatcher = tradeStatMatcher;
         TradeStatCatalogProvider = tradeStatCatalogProvider;
         TradeItemCatalogProvider = tradeItemCatalogProvider;
+        TradeFilterCatalogProvider = tradeFilterCatalogProvider;
         TradeSelectedModifierMapper = tradeSelectedModifierMapper;
         TradeItemIdentityMapper = tradeItemIdentityMapper;
         PriceCheckService = priceCheckService;
@@ -53,11 +57,15 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public IPathOfExileTradeItemsClient TradeItemsClient { get; }
 
+    public IPathOfExileTradeFiltersClient TradeFiltersClient { get; }
+
     public IPathOfExileTradeStatMatcher TradeStatMatcher { get; }
 
     public IPathOfExileTradeStatCatalogProvider TradeStatCatalogProvider { get; }
 
     public IPathOfExileTradeItemCatalogProvider TradeItemCatalogProvider { get; }
+
+    public IPathOfExileTradeFilterCatalogProvider TradeFilterCatalogProvider { get; }
 
     public IPathOfExileTradeSelectedModifierMapper TradeSelectedModifierMapper { get; }
 
@@ -74,19 +82,23 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var fetchClient = new PathOfExileTradeFetchClient(tradeHttpClient);
         var statsClient = new PathOfExileTradeStatsClient(tradeHttpClient);
         var itemsClient = new PathOfExileTradeItemsClient(tradeHttpClient);
+        var filtersClient = new PathOfExileTradeFiltersClient(tradeHttpClient);
         var statMatcher = new PathOfExileTradeStatMatcher();
         var statCatalogProvider = new PathOfExileTradeStatCatalogProvider(statsClient);
         var itemCatalogProvider = new PathOfExileTradeItemCatalogProvider(itemsClient);
-        var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper(statMatcher);
+        var filterCatalogProvider = new PathOfExileTradeFilterCatalogProvider(filtersClient);
+        var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper();
         var itemIdentityMapper = new PathOfExileTradeItemIdentityMapper();
         var priceCheckService = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
+            statMatcher,
             statCatalogProvider,
             itemCatalogProvider,
             selectedModifierMapper,
             itemIdentityMapper,
             searchClient,
-            fetchClient);
+            fetchClient,
+            filterCatalogProvider);
         var priceCheckerWindowController = new PriceCheckerWindowController(
             new PriceCheckerWindowFactory(),
             priceCheckService);
@@ -101,9 +113,11 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             fetchClient,
             statsClient,
             itemsClient,
+            filtersClient,
             statMatcher,
             statCatalogProvider,
             itemCatalogProvider,
+            filterCatalogProvider,
             selectedModifierMapper,
             itemIdentityMapper,
             priceCheckService,

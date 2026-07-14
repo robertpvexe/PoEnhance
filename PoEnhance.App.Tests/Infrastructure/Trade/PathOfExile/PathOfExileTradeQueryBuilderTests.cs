@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
@@ -186,6 +187,164 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_CategoryMode_OmitsExactTypeAndSerializesOfficialCategoryFilter()
+    {
+        var result = BuildSuccessful(
+            WithCategoryMode(Draft(
+                parsedBaseType: "Ranger Bow",
+                resolvedBaseName: "Ranger Bow",
+                itemClass: "Bows"), "Bow"),
+            providerFilterCatalog: CategoryCatalog(("weapon.bow", "Bow")));
+
+        Assert.Null(result.Request?.Query.Type);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.Equal("weapon.bow", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+        AssertRarityFilter(result.SerializedJson!, "rare");
+    }
+
+    [Fact]
+    public void Build_TradeCategoryOneHandAxes_ResolvesProviderCategoryWithoutExactBase()
+    {
+        var result = BuildSuccessful(
+            WithCategoryMode(Draft(
+                rarity: "Magic",
+                displayName: "Reaver Axe of Celebration",
+                parsedBaseType: null,
+                status: ItemBaseResolutionStatus.Probable,
+                resolvedBaseName: "Reaver Axe",
+                itemClass: "One Hand Axes",
+                listingMode: TradeListingMode.InstantBuyout), "One Hand Axes"),
+            providerFilterCatalog: CategoryCatalog(
+                ("weapon.bow", "Bow"),
+                ("weapon.oneaxe", "One-Handed Axe"),
+                ("armour.shield", "Shield")));
+
+        Assert.NotNull(result.Request);
+        Assert.Null(result.Request.Query.Type);
+        Assert.Null(result.Request.Query.Name);
+        Assert.Empty(result.Request.Query.Stats[0].Filters);
+        Assert.Equal("securable", result.Request.Query.Status.Option);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal("magic", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+        Assert.Equal("weapon.oneaxe", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+        Assert.Empty(query
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.DoesNotContain("Reaver Axe", result.SerializedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reaver Axe of Celebration", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("one hand axes")]
+    [InlineData("ONE HAND AXE")]
+    public void Build_TradeCategoryOneHandAxes_DoesNotDependOnDisplayCasingOrCatalogOrdering(string category)
+    {
+        var result = BuildSuccessful(
+            WithCategoryMode(Draft(
+                rarity: "Magic",
+                displayName: "Decorated Axe",
+                parsedBaseType: null,
+                status: ItemBaseResolutionStatus.Probable,
+                resolvedBaseName: "Test Axe",
+                itemClass: "One Hand Axes"), category),
+            providerFilterCatalog: CategoryCatalog(
+                ("armour.shield", "Shield"),
+                ("weapon.oneaxe", "One-Handed Axe"),
+                ("weapon.bow", "Bow")));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal("weapon.oneaxe", document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+    }
+
+    [Fact]
+    public void Build_ExactBaseMode_SerializesExactTypeWithoutProviderCategoryCatalog()
+    {
+        var result = BuildSuccessful(Draft(
+            parsedBaseType: "Ranger Bow",
+            resolvedBaseName: "Ranger Bow",
+            itemClass: "Bows"));
+
+        Assert.Equal("Ranger Bow", result.Request?.Query.Type);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.False(document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .TryGetProperty("category", out _));
+    }
+
+    [Fact]
+    public void Build_CategoryModeUnknownCategoryFailsWithoutFallingBackToExactBase()
+    {
+        var result = builder.Build(
+            WithCategoryMode(Draft(
+                parsedBaseType: "Ranger Bow",
+                resolvedBaseName: "Ranger Bow",
+                itemClass: "Bows"), "Unknown Category"),
+            ValidValidation(),
+            League,
+            providerFilterCatalog: CategoryCatalog(("weapon.bow", "Bow")));
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.UnsupportedProviderCategory);
+    }
+
+    [Fact]
+    public void Build_CategoryModeUsesExactProviderLabelIndependentOfOptionOrder()
+    {
+        var result = BuildSuccessful(
+            WithCategoryMode(Draft(
+                parsedBaseType: "Prototype Base",
+                resolvedBaseName: "Prototype Base",
+                itemClass: "Prototype Category"), "Prototype Category"),
+            providerFilterCatalog: CategoryCatalog(
+                ("weapon.bow", "Bow"),
+                ("prototype.category", "Prototype Category"),
+                ("accessory.ring", "Ring")));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal("prototype.category", document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+    }
+
+    [Fact]
     public void Build_ProbableResolvedBaseName_MayBeUsedWithoutChangingConfidence()
     {
         var result = BuildSuccessful(Draft(
@@ -222,11 +381,11 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_MerchantOnly_MapsToOnline()
+    public void Build_InstantBuyout_MapsToSecurable()
     {
-        var result = BuildSuccessful(Draft(listingMode: TradeListingMode.MerchantOnly));
+        var result = BuildSuccessful(Draft(listingMode: TradeListingMode.InstantBuyout));
 
-        Assert.Equal("online", result.Request?.Query.Status.Option);
+        Assert.Equal("securable", result.Request?.Query.Status.Option);
     }
 
     [Fact]
@@ -307,6 +466,28 @@ public sealed class PathOfExileTradeQueryBuilderTests
             League);
 
         AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping);
+    }
+
+    [Fact]
+    public void Build_BaseGuaranteedSelectedModifierDoesNotRequireProviderMapping()
+    {
+        var result = BuildSuccessful(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact) with
+                {
+                    ParsedKind = ParsedModifierKind.Implicit,
+                    IsBaseImplicit = true,
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                },
+            ]));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Empty(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
     }
 
     [Fact]
@@ -393,7 +574,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
         var query = document.RootElement.GetProperty("query");
         Assert.False(query.TryGetProperty("name", out _));
         Assert.Equal("Ranger Bow", query.GetProperty("type").GetString());
-        Assert.Equal("online", query.GetProperty("status").GetProperty("option").GetString());
+        Assert.Equal("securable", query.GetProperty("status").GetProperty("option").GetString());
         Assert.False(query.TryGetProperty("rarity", out _));
         AssertRarityFilter(result.SerializedJson!, "rare");
 
@@ -602,7 +783,8 @@ public sealed class PathOfExileTradeQueryBuilderTests
     private PathOfExileTradeQueryBuildResult BuildSuccessful(
         TradeSearchDraft draft,
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
-        PathOfExileTradeItemIdentity? providerItemIdentity = null)
+        PathOfExileTradeItemIdentity? providerItemIdentity = null,
+        PathOfExileTradeFilterCatalog? providerFilterCatalog = null)
     {
         providerItemIdentity ??= DefaultIdentityFor(draft);
         var result = builder.Build(
@@ -610,7 +792,8 @@ public sealed class PathOfExileTradeQueryBuilderTests
             ValidValidation(),
             League,
             selectedModifierFilters,
-            providerItemIdentity);
+            providerItemIdentity,
+            providerFilterCatalog);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Diagnostics);
@@ -641,10 +824,23 @@ public sealed class PathOfExileTradeQueryBuilderTests
         string? parsedBaseType = "Titan Plate",
         ItemBaseResolutionStatus? status = ItemBaseResolutionStatus.Exact,
         string? resolvedBaseName = "Titan Plate",
-        TradeListingMode listingMode = TradeListingMode.MerchantOnly,
-        IReadOnlyList<TradeModifierFilterDraft>? modifiers = null,
+        TradeListingMode listingMode = TradeListingMode.InstantBuyout,
+        IReadOnlyList<ResolvedSearchComponent>? modifiers = null,
         string itemClass = "Body Armours")
     {
+        var exactBaseName = status == ItemBaseResolutionStatus.Unknown
+            ? parsedBaseType
+            : resolvedBaseName ?? parsedBaseType;
+        var category = itemClass switch
+        {
+            "Bows" => "Bow",
+            "Wands" => "Wand",
+            "Body Armours" => "Body Armour",
+            "Rings" => "Ring",
+            "Belts" => "Belt",
+            "Amulets" => "Amulet",
+            _ => itemClass,
+        };
         return new TradeSearchDraft
         {
             ItemClass = itemClass,
@@ -656,23 +852,62 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 Status = status,
                 ResolvedBaseId = resolvedBaseName is null ? null : "base.test",
                 ResolvedBaseName = resolvedBaseName,
+                Category = category,
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = status,
+                    ExactBaseId = resolvedBaseName is null ? null : "base.test",
+                    ExactBaseName = resolvedBaseName,
+                    Category = category,
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = category,
+                    },
+                    ExactBase = exactBaseName is null
+                        ? null
+                        : new BaseSearchCriterion
+                        {
+                            Mode = BaseSearchMode.ExactBase,
+                            Category = category,
+                            ExactBaseName = exactBaseName,
+                        },
+                },
+                ActiveCriterion = exactBaseName is null
+                    ? null
+                    : new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.ExactBase,
+                        Category = category,
+                        ExactBaseName = exactBaseName,
+                    },
             },
             ModifierFilters = modifiers ?? [],
             ListingMode = listingMode,
         };
     }
 
-    private static TradeModifierFilterDraft Modifier(
+    private static ResolvedSearchComponent Modifier(
         bool isSelected,
         ModifierCandidateResolutionStatus status)
     {
-        return new TradeModifierFilterDraft
+        return new ResolvedSearchComponent
         {
+            ComponentId = "modifier:0:0",
             OriginalText = "+55 to maximum Life",
+            CanonicalSignature = "+<number> to maximum Life",
+            ParsedKind = ParsedModifierKind.Prefix,
             ResolutionStatus = status,
             ResolvedModifierId = status == ModifierCandidateResolutionStatus.Exact
                 ? "mod.test"
                 : null,
+            ResolvedStatIds = status == ModifierCandidateResolutionStatus.Exact
+                ? ["base_maximum_life"]
+                : [],
+            IsSearchable = status == ModifierCandidateResolutionStatus.Exact,
             IsSelected = isSelected,
         };
     }
@@ -690,6 +925,55 @@ public sealed class PathOfExileTradeQueryBuilderTests
             NormalizedItemTemplate = "+# to maximum Life",
             ExtractedNumericValues = extractedNumericValues ?? [],
         };
+    }
+
+    private static TradeSearchDraft WithCategoryMode(
+        TradeSearchDraft draft,
+        string category)
+    {
+        var exactBaseName = draft.Base.ResolvedBaseName ?? draft.ParsedBaseType;
+        return draft with
+        {
+            Base = draft.Base with
+            {
+                Category = category,
+                ActiveCriterion = new BaseSearchCriterion
+                {
+                    Mode = BaseSearchMode.Category,
+                    Category = category,
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = category,
+                    },
+                    ExactBase = exactBaseName is null
+                        ? null
+                        : new BaseSearchCriterion
+                        {
+                            Mode = BaseSearchMode.ExactBase,
+                            Category = category,
+                            ExactBaseName = exactBaseName,
+                        },
+                },
+            },
+        };
+    }
+
+    private static PathOfExileTradeFilterCatalog CategoryCatalog(
+        params (string Id, string Text)[] categories)
+    {
+        return new PathOfExileTradeFilterCatalog(categories
+            .Select((category, index) => new PathOfExileTradeFilterOption
+            {
+                ProviderOrder = index,
+                GroupId = "type_filters",
+                FilterId = "category",
+                Id = category.Id,
+                Text = category.Text,
+            }));
     }
 
     private static TradeSearchValidationResult ValidValidation()

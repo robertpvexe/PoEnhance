@@ -17,9 +17,13 @@ public static class ItemBaseClassCompatibility
             ["Hybrid Flasks"] = ["HybridFlask"],
             ["Maps"] = ["Map"],
             ["Rings"] = ["Ring"],
+            ["Sceptres"] = ["Sceptre"],
+            ["Shields"] = ["Shield"],
             ["Stackable Currency"] = ["StackableCurrency", "Currency"],
+            ["One Hand Axes"] = ["One Hand Axe"],
             ["Two Hand Axes"] = ["Two Hand Axe"],
             ["Utility Flasks"] = ["UtilityFlask"],
+            ["Wands"] = ["Wand"],
         };
 
     public static bool AreCompatible(string? parsedItemClass, string? catalogItemClass)

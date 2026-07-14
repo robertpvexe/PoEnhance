@@ -482,7 +482,8 @@ public partial class MainWindow : Window
             modifierCandidateResolutions.Results
                 .Select(display => display.Result)
                 .OfType<PoEnhance.Core.Items.GameData.ModifierCandidateResolutionResult>()
-                .ToArray());
+                .ToArray(),
+            runtimeGameDataService.Current.Catalog);
 
         if (!result.IsSuccess)
         {

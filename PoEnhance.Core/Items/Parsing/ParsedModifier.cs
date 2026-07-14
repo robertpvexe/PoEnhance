@@ -12,5 +12,15 @@ public sealed record ParsedModifier(
     bool IsFractured,
     bool IsVeiled)
 {
+    public IReadOnlyList<ParsedModifierEffect> Effects { get; init; } = ValueLines
+        .Select(line => new ParsedModifierEffect(line, [], HasUnscalableValue: false))
+        .ToArray();
+
+    public IReadOnlyList<string> ReminderLines => Effects
+        .SelectMany(effect => effect.ReminderLines)
+        .ToArray();
+
+    public bool HasUnscalableValue => Effects.Any(effect => effect.HasUnscalableValue);
+
     public string Text => string.Join(Environment.NewLine, ValueLines);
 }

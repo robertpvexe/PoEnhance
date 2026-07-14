@@ -14,8 +14,8 @@ public sealed class RePoeModifierImporterTests
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
-        Assert.Equal(3, result.SourceRecordsRead);
-        Assert.Equal(3, result.RecordsImported);
+        Assert.Equal(4, result.SourceRecordsRead);
+        Assert.Equal(4, result.RecordsImported);
         Assert.Equal(0, result.RecordsSkipped);
         Assert.Equal(
             result.ImportedRecords.OrderBy(modifier => modifier.Id, StringComparer.Ordinal).Select(modifier => modifier.Id),

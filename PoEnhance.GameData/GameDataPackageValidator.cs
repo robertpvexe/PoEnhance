@@ -18,18 +18,6 @@ public static class GameDataPackageValidator
         errors.AddRange(GameDataPackageManifestValidator.Validate(package.Manifest).Errors);
         var manifestSourceIds = GetManifestSourceIds(package.Manifest);
 
-        if (package.ItemBases is null)
-        {
-            errors.Add(Error(
-                GameDataValidationErrorCodes.PackageItemBasesRequired,
-                "itemBases",
-                "ItemBases collection is required."));
-        }
-        else
-        {
-            ValidateItemBases(package.ItemBases, manifestSourceIds, errors);
-        }
-
         HashSet<string>? knownStatIds = null;
         if (package.Stats is null)
         {
@@ -43,6 +31,7 @@ public static class GameDataPackageValidator
             knownStatIds = ValidateStatDefinitions(package.Stats, manifestSourceIds, errors);
         }
 
+        HashSet<string>? knownModifierIds = null;
         if (package.Modifiers is null)
         {
             errors.Add(Error(
@@ -52,7 +41,19 @@ public static class GameDataPackageValidator
         }
         else
         {
-            ValidateModifiers(package.Modifiers, manifestSourceIds, knownStatIds, errors);
+            knownModifierIds = ValidateModifiers(package.Modifiers, manifestSourceIds, knownStatIds, errors);
+        }
+
+        if (package.ItemBases is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageItemBasesRequired,
+                "itemBases",
+                "ItemBases collection is required."));
+        }
+        else
+        {
+            ValidateItemBases(package.ItemBases, manifestSourceIds, knownModifierIds, errors);
         }
 
         if (package.StatTranslations is null)
@@ -73,6 +74,7 @@ public static class GameDataPackageValidator
     private static void ValidateItemBases(
         IReadOnlyList<ItemBaseRecord> itemBases,
         ISet<string> manifestSourceIds,
+        ISet<string>? knownModifierIds,
         List<GameDataValidationError> errors)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -138,11 +140,13 @@ public static class GameDataPackageValidator
                 "Item base tag",
                 errors);
 
+            ValidateImplicitModifierIds(itemBase.ImplicitModifierIds, $"{path}.implicitModifierIds", knownModifierIds, errors);
+
             ValidateSourceReferences(itemBase.Sources, $"{path}.sources", manifestSourceIds, errors);
         }
     }
 
-    private static void ValidateModifiers(
+    private static HashSet<string> ValidateModifiers(
         IReadOnlyList<ModifierDefinition> modifiers,
         ISet<string> manifestSourceIds,
         ISet<string>? knownStatIds,
@@ -214,6 +218,51 @@ public static class GameDataPackageValidator
             ValidateSourceReferences(modifier.Sources, $"{path}.sources", manifestSourceIds, errors);
             ValidateStats(modifier.Stats, $"{path}.stats", index, knownStatIds, errors);
             ValidateSpawnWeights(modifier.SpawnWeights, $"{path}.spawnWeights", index, errors);
+        }
+
+        return ids;
+    }
+
+    private static void ValidateImplicitModifierIds(
+        IReadOnlyList<string>? implicitModifierIds,
+        string path,
+        ISet<string>? knownModifierIds,
+        List<GameDataValidationError> errors)
+    {
+        if (implicitModifierIds is null || implicitModifierIds.Count == 0)
+        {
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < implicitModifierIds.Count; index++)
+        {
+            var implicitId = implicitModifierIds[index]?.Trim();
+            var implicitPath = $"{path}[{index}]";
+            if (string.IsNullOrWhiteSpace(implicitId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemBaseImplicitModifierIdRequired,
+                    implicitPath,
+                    $"Item base implicit modifier id at {implicitPath} is required."));
+                continue;
+            }
+
+            if (!seen.Add(implicitId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemBaseImplicitModifierIdDuplicate,
+                    implicitPath,
+                    $"Item base implicit modifier id '{implicitId}' is duplicated."));
+            }
+
+            if (knownModifierIds is { Count: > 0 } && !knownModifierIds.Contains(implicitId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemBaseImplicitModifierIdUnknown,
+                    implicitPath,
+                    $"Item base implicit modifier id '{implicitId}' is not declared in package modifiers."));
+            }
         }
     }
 

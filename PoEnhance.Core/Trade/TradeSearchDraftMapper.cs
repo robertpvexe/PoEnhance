@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Trade;
 
@@ -9,7 +10,8 @@ public sealed class TradeSearchDraftMapper
         ParsedItem? parsedItem,
         ItemBaseResolutionResult? itemBaseResolution = null,
         IReadOnlyList<ModifierCandidateResolutionResult>? modifierResolutions = null,
-        TradeListingMode listingMode = TradeListingMode.MerchantOnly)
+        GameDataCatalog? gameDataCatalog = null,
+        TradeListingMode listingMode = TradeListingMode.InstantBuyout)
     {
         if (parsedItem is null)
         {
@@ -30,15 +32,15 @@ public sealed class TradeSearchDraftMapper
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
             ItemStates = parsedItem.ItemStates.ToArray(),
             IsCorrupted = parsedItem.IsCorrupted,
-            Base = CreateBaseDraft(itemBaseResolution),
+            Base = CreateBaseDraft(parsedItem, itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
-            ModifierFilters = parsedItem.Modifiers
-                .Select((modifier, index) => CreateModifierFilterDraft(
-                    modifier,
-                    modifierResolutionByIndex.GetValueOrDefault(index)))
-                .Where(filter => !string.IsNullOrWhiteSpace(filter.OriginalText))
+            ModifierFilters = CreateSearchComponents(
+                    parsedItem,
+                    itemBaseResolution,
+                    modifierResolutionByIndex,
+                    gameDataCatalog)
                 .ToArray(),
             ListingMode = listingMode,
         };
@@ -86,58 +88,536 @@ public sealed class TradeSearchDraftMapper
         return results;
     }
 
-    private static TradeSearchBaseDraft CreateBaseDraft(ItemBaseResolutionResult? itemBaseResolution)
+    private static TradeSearchBaseDraft CreateBaseDraft(
+        ParsedItem parsedItem,
+        ItemBaseResolutionResult? itemBaseResolution)
     {
+        var parsedBaseName = TrimToNull(parsedItem.BaseType);
+        var exactBaseId = itemBaseResolution?.Status == ItemBaseResolutionStatus.Unknown
+            ? null
+            : TrimToNull(itemBaseResolution?.ResolvedBaseId);
+        var exactBaseName = itemBaseResolution?.Status == ItemBaseResolutionStatus.Unknown
+            ? null
+            : TrimToNull(itemBaseResolution?.ResolvedBaseName);
+        var observedExactBaseName = exactBaseName ?? parsedBaseName;
+        var category = CanonicalizeOrdinaryCategory(
+            parsedItem.ItemClass ?? itemBaseResolution?.MatchedItemBase?.ItemClass);
+
+        var observed = new ObservedBaseIdentity
+        {
+            Status = itemBaseResolution?.Status,
+            ExactBaseId = exactBaseId,
+            ExactBaseName = observedExactBaseName,
+            Category = category,
+        };
+        var categoryCriterion = category is null
+            ? null
+            : new BaseSearchCriterion
+            {
+                Mode = BaseSearchMode.Category,
+                Category = category,
+            };
+        var exactBaseCriterion = exactBaseName is null
+            ? null
+            : new BaseSearchCriterion
+            {
+                Mode = BaseSearchMode.ExactBase,
+                Category = category,
+                ExactBaseName = exactBaseName,
+            };
+
         if (itemBaseResolution is null)
         {
-            return new TradeSearchBaseDraft();
+            return new TradeSearchBaseDraft
+            {
+                Category = category,
+                Observed = observed,
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = categoryCriterion,
+                },
+                ActiveCriterion = categoryCriterion,
+            };
         }
 
         return new TradeSearchBaseDraft
         {
             Status = itemBaseResolution.Status,
-            ResolvedBaseId = itemBaseResolution.Status == ItemBaseResolutionStatus.Unknown
-                ? null
-                : TrimToNull(itemBaseResolution.ResolvedBaseId),
-            ResolvedBaseName = itemBaseResolution.Status == ItemBaseResolutionStatus.Unknown
-                ? null
-                : TrimToNull(itemBaseResolution.ResolvedBaseName),
+            ResolvedBaseId = exactBaseId,
+            ResolvedBaseName = exactBaseName,
+            Category = category,
+            Observed = observed,
+            AvailableCriteria = new AvailableBaseSearchCriteria
+            {
+                Category = categoryCriterion,
+                ExactBase = exactBaseCriterion,
+            },
+            ActiveCriterion = categoryCriterion ?? exactBaseCriterion,
         };
     }
 
-    private static TradeModifierFilterDraft CreateModifierFilterDraft(
+    private static IEnumerable<ResolvedSearchComponent> CreateSearchComponents(
+        ParsedItem parsedItem,
+        ItemBaseResolutionResult? itemBaseResolution,
+        IReadOnlyDictionary<int, ModifierCandidateResolutionResult> modifierResolutionByIndex,
+        GameDataCatalog? catalog)
+    {
+        for (var modifierIndex = 0; modifierIndex < parsedItem.Modifiers.Count; modifierIndex++)
+        {
+            var modifier = parsedItem.Modifiers[modifierIndex];
+            foreach (var component in CreateModifierComponents(
+                         modifierIndex,
+                         modifier,
+                         modifierResolutionByIndex.GetValueOrDefault(modifierIndex),
+                         itemBaseResolution,
+                         catalog))
+            {
+                yield return component;
+            }
+        }
+
+        if (parsedItem.ImplicitModifiers.Count > 0 ||
+            catalog is null ||
+            itemBaseResolution?.Status is not (ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable) ||
+            itemBaseResolution.MatchedItemBase?.ImplicitModifierIds.Count is not > 0)
+        {
+            yield break;
+        }
+
+        var implicitIndex = 0;
+        foreach (var implicitModifierId in itemBaseResolution.MatchedItemBase.ImplicitModifierIds)
+        {
+            var implicitModifier = catalog.FindModifiersById(implicitModifierId).SingleOrDefault();
+            if (implicitModifier is null ||
+                !TryRenderModifierText(implicitModifier, catalog, out var text))
+            {
+                continue;
+            }
+
+            var statIds = StatIds(implicitModifier.Stats).ToArray();
+            yield return new ResolvedSearchComponent
+            {
+                ComponentId = $"base-implicit:{implicitIndex}:{implicitModifier.Id}",
+                SourceModifierIndex = -1,
+                SourceLineIndex = 0,
+                SourceComponentIndex = implicitIndex,
+                OriginalText = text,
+                CanonicalSignature = NormalizeComponentSignature([text]),
+                ParsedKind = ParsedModifierKind.Implicit,
+                GenerationType = implicitModifier.GenerationType,
+                Locality = DetermineLocality(implicitModifier.Stats, catalog),
+                IsBaseImplicit = true,
+                ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+                ResolvedModifierId = TrimToNull(implicitModifier.Id),
+                ResolvedModifierName = TrimToNull(implicitModifier.Name),
+                ResolvedStatIds = statIds,
+                IsSearchable = statIds.Length > 0,
+                NotSearchableReason = statIds.Length == 0
+                    ? "The base implicit modifier has no retained stat ids."
+                    : null,
+            };
+            implicitIndex++;
+        }
+    }
+
+    private static IEnumerable<ResolvedSearchComponent> CreateModifierComponents(
+        int modifierIndex,
         ParsedModifier modifier,
-        ModifierCandidateResolutionResult? resolution)
+        ModifierCandidateResolutionResult? resolution,
+        ItemBaseResolutionResult? itemBaseResolution,
+        GameDataCatalog? catalog)
     {
         var exactCandidate = resolution?.Status == ModifierCandidateResolutionStatus.Exact &&
             resolution.Candidates.Count == 1
             ? resolution.Candidates[0]
             : null;
-
-        return new TradeModifierFilterDraft
+        var valueLines = modifier.ValueLines
+            .Select(TrimToNull)
+            .Where(line => line is not null)
+            .Select(line => line!)
+            .ToArray();
+        if (valueLines.Length == 0)
         {
-            OriginalText = modifier.Text,
+            yield break;
+        }
+
+        if (exactCandidate is null)
+        {
+            if (TryResolveParsedBaseImplicit(
+                    modifier,
+                    valueLines,
+                    itemBaseResolution,
+                    catalog,
+                    out var baseImplicitCandidate,
+                    out var matchedLineStats))
+            {
+                for (var index = 0; index < valueLines.Length; index++)
+                {
+                    yield return CreateComponent(
+                        modifierIndex,
+                        modifier,
+                        resolution,
+                        baseImplicitCandidate,
+                        [matchedLineStats[index]],
+                        sourceLineIndex: index,
+                        sourceComponentIndex: index,
+                        componentLines: [valueLines[index]],
+                        catalog);
+                }
+
+                yield break;
+            }
+
+            for (var index = 0; index < valueLines.Length; index++)
+            {
+                yield return CreateComponent(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate: null,
+                    stats: [],
+                    sourceLineIndex: index,
+                    sourceComponentIndex: index,
+                    componentLines: [valueLines[index]],
+                    catalog);
+            }
+
+            yield break;
+        }
+
+        if (TryMatchStatsToParsedLines(
+                exactCandidate,
+                valueLines,
+                catalog,
+                out var exactMatchedLineStats))
+        {
+            for (var index = 0; index < valueLines.Length; index++)
+            {
+                yield return CreateComponent(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate,
+                    [exactMatchedLineStats[index]],
+                    sourceLineIndex: index,
+                    sourceComponentIndex: index,
+                    componentLines: [valueLines[index]],
+                    catalog);
+            }
+
+            yield break;
+        }
+
+        var orderedStats = exactCandidate.Stats
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (valueLines.Length > 1 && orderedStats.Length >= valueLines.Length)
+        {
+            for (var index = 0; index < valueLines.Length; index++)
+            {
+                yield return CreateComponent(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate,
+                    [orderedStats[index]],
+                    sourceLineIndex: index,
+                    sourceComponentIndex: index,
+                    componentLines: [valueLines[index]],
+                    catalog);
+            }
+
+            yield break;
+        }
+
+        yield return CreateComponent(
+            modifierIndex,
+            modifier,
+            resolution,
+            exactCandidate,
+            orderedStats,
+            sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
+            sourceComponentIndex: 0,
+            componentLines: valueLines,
+            catalog);
+    }
+
+    private static ResolvedSearchComponent CreateComponent(
+        int modifierIndex,
+        ParsedModifier modifier,
+        ModifierCandidateResolutionResult? resolution,
+        ModifierDefinition? exactCandidate,
+        IReadOnlyList<ModifierStat> stats,
+        int sourceLineIndex,
+        int sourceComponentIndex,
+        IReadOnlyList<string> componentLines,
+        GameDataCatalog? catalog)
+    {
+        var statIds = StatIds(stats).ToArray();
+        var isSearchable = exactCandidate is not null && statIds.Length > 0;
+
+        return new ResolvedSearchComponent
+        {
+            ComponentId = $"modifier:{modifierIndex}:{sourceComponentIndex}",
+            SourceModifierIndex = modifierIndex,
+            SourceLineIndex = sourceLineIndex,
+            SourceComponentIndex = sourceComponentIndex,
+            OriginalText = string.Join(Environment.NewLine, componentLines),
+            CanonicalSignature = NormalizeComponentSignature(componentLines),
             ParsedKind = modifier.Kind,
             GenerationType = resolution?.GenerationType,
             Locality = exactCandidate is null
                 ? ModifierLocality.Unknown
-                : resolution?.Locality ?? ModifierLocality.Unknown,
+                : DetermineLocality(stats, catalog) is ModifierLocality.Unknown
+                    ? resolution?.Locality ?? ModifierLocality.Unknown
+                    : DetermineLocality(stats, catalog),
             ParsedModifierName = TrimToNull(modifier.Name ?? resolution?.ParsedModifierName),
             CategoryText = TrimToNull(modifier.CategoryText),
             IsCrafted = modifier.IsCrafted,
             IsFractured = modifier.IsFractured,
             IsVeiled = modifier.IsVeiled,
+            IsBaseImplicit = false,
             ResolutionStatus = resolution?.Status,
             ResolvedModifierId = TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
-            ResolvedStatIds = exactCandidate is null
-                ? []
-                : exactCandidate.Stats
-                    .Select(stat => TrimToNull(stat.StatId))
-                    .Where(statId => statId is not null)
-                    .Select(statId => statId!)
-                    .ToArray(),
+            ResolvedStatIds = statIds,
+            IsSearchable = isSearchable,
+            NotSearchableReason = isSearchable
+                ? null
+                : exactCandidate is null
+                    ? "The source modifier did not resolve to one exact GameData modifier."
+                    : "The resolved component has no retained stat ids.",
             IsSelected = false,
+        };
+    }
+
+    private static bool TryResolveParsedBaseImplicit(
+        ParsedModifier modifier,
+        IReadOnlyList<string> valueLines,
+        ItemBaseResolutionResult? itemBaseResolution,
+        GameDataCatalog? catalog,
+        out ModifierDefinition candidate,
+        out IReadOnlyList<ModifierStat> matchedLineStats)
+    {
+        candidate = null!;
+        matchedLineStats = [];
+        if (modifier.Kind != ParsedModifierKind.Implicit ||
+            catalog is null ||
+            valueLines.Count == 0 ||
+            itemBaseResolution?.Status is not (ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable) ||
+            itemBaseResolution.MatchedItemBase?.ImplicitModifierIds.Count is not > 0)
+        {
+            return false;
+        }
+
+        var matches = itemBaseResolution.MatchedItemBase.ImplicitModifierIds
+            .Select(id => catalog.FindModifiersById(id).SingleOrDefault())
+            .Where(modifierDefinition => modifierDefinition is not null)
+            .Select(modifierDefinition => modifierDefinition!)
+            .Select(modifierDefinition => new
+            {
+                Candidate = modifierDefinition,
+                IsMatch = TryMatchStatsToParsedLines(
+                    modifierDefinition,
+                    valueLines,
+                    catalog,
+                    out var stats),
+                Stats = stats,
+            })
+            .Where(match => match.IsMatch)
+            .ToArray();
+
+        if (matches.Length != 1)
+        {
+            return false;
+        }
+
+        candidate = matches[0].Candidate;
+        matchedLineStats = matches[0].Stats;
+        return true;
+    }
+
+    private static bool TryMatchStatsToParsedLines(
+        ModifierDefinition candidate,
+        IReadOnlyList<string> valueLines,
+        GameDataCatalog? catalog,
+        out IReadOnlyList<ModifierStat> matchedLineStats)
+    {
+        matchedLineStats = [];
+        if (catalog is null || valueLines.Count == 0)
+        {
+            return false;
+        }
+
+        var stats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (stats.Length < valueLines.Count)
+        {
+            return false;
+        }
+
+        var matcher = new ModifierTextSignatureMatcher();
+        var matchedStats = new List<ModifierStat>();
+        foreach (var valueLine in valueLines)
+        {
+            var lineMatches = stats
+                .Where(stat => !matchedStats.Any(matched => EqualsStat(matched, stat)))
+                .Where(stat => matcher.Match(
+                        candidate with { Stats = [stat] },
+                        catalog,
+                        [valueLine])
+                    .Outcome == ModifierTextSignatureMatchOutcome.Match)
+                .ToArray();
+            if (lineMatches.Length != 1)
+            {
+                return false;
+            }
+
+            matchedStats.Add(lineMatches[0]);
+        }
+
+        matchedLineStats = matchedStats;
+        return true;
+    }
+
+    private static bool EqualsStat(ModifierStat left, ModifierStat right)
+    {
+        return left.Index == right.Index &&
+            string.Equals(left.StatId, right.StatId, StringComparison.Ordinal);
+    }
+
+    private static IEnumerable<string> StatIds(IEnumerable<ModifierStat> stats)
+    {
+        return stats
+            .Select(stat => TrimToNull(stat.StatId))
+            .Where(statId => statId is not null)
+            .Select(statId => statId!);
+    }
+
+    private static ModifierLocality DetermineLocality(
+        IReadOnlyList<ModifierStat> stats,
+        GameDataCatalog? catalog)
+    {
+        if (catalog is null || stats.Count == 0)
+        {
+            return ModifierLocality.Unknown;
+        }
+
+        var localCount = 0;
+        var globalCount = 0;
+        foreach (var modifierStat in stats)
+        {
+            var stat = catalog.FindStatsById(modifierStat.StatId).SingleOrDefault();
+            if (stat is null)
+            {
+                return ModifierLocality.Unknown;
+            }
+
+            if (stat.IsLocal)
+            {
+                localCount++;
+            }
+            else
+            {
+                globalCount++;
+            }
+        }
+
+        return (localCount, globalCount) switch
+        {
+            (> 0, 0) => ModifierLocality.Local,
+            (0, > 0) => ModifierLocality.Global,
+            _ => ModifierLocality.Unknown,
+        };
+    }
+
+    private static string NormalizeComponentSignature(IReadOnlyList<string> lines)
+    {
+        return string.Join(
+            "\n",
+            lines.Select(ModifierTextSignatureNormalizer.NormalizeLine));
+    }
+
+    private static bool TryRenderModifierText(
+        ModifierDefinition modifier,
+        GameDataCatalog catalog,
+        out string text)
+    {
+        text = string.Empty;
+        var statIds = StatIds(modifier.Stats.OrderBy(stat => stat.Index)).ToArray();
+        if (statIds.Length == 0)
+        {
+            return false;
+        }
+
+        var translation = catalog.FindStatTranslationsByStatIdGroup(statIds).SingleOrDefault();
+        var variant = translation?.Variants.FirstOrDefault();
+        if (variant is null)
+        {
+            return false;
+        }
+
+        var lines = variant.FormatLines
+            .Select(line => RenderFormatLine(line, variant.ValueFormats))
+            .Select(TrimToNull)
+            .Where(line => line is not null)
+            .Select(line => line!)
+            .ToArray();
+        if (lines.Length == 0)
+        {
+            return false;
+        }
+
+        text = string.Join(Environment.NewLine, lines);
+        return true;
+    }
+
+    private static string RenderFormatLine(
+        string line,
+        IReadOnlyList<string> valueFormats)
+    {
+        var rendered = line;
+        for (var index = 0; index < valueFormats.Count; index++)
+        {
+            var replacement = valueFormats[index] switch
+            {
+                "+#" => "+#",
+                "#" => "#",
+                "ignore" => string.Empty,
+                _ => "#",
+            };
+            rendered = rendered.Replace($"{{{index}}}", replacement, StringComparison.Ordinal);
+        }
+
+        return rendered;
+    }
+
+    private static string? CanonicalizeOrdinaryCategory(string? itemClass)
+    {
+        var normalized = TrimToNull(itemClass);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized switch
+        {
+            "Bows" => "Bow",
+            "Wands" => "Wand",
+            "Body Armours" => "Body Armour",
+            "Helmets" => "Helmet",
+            "Gloves" => "Gloves",
+            "Boots" => "Boots",
+            "Rings" => "Ring",
+            "Sceptres" => "Sceptre",
+            "Amulets" => "Amulet",
+            "Belts" => "Belt",
+            "Shields" => "Shield",
+            "Quivers" => "Quiver",
+            "Jewels" => "Jewel",
+            _ => normalized,
         };
     }
 

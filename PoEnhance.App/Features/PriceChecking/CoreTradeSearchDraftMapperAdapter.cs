@@ -1,6 +1,7 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
@@ -11,11 +12,13 @@ internal sealed class CoreTradeSearchDraftMapperAdapter : ITradeSearchDraftMappe
     public TradeSearchDraftResult CreateDraft(
         ParsedItem parsedItem,
         ItemBaseResolutionResult? itemBaseResolution,
-        IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions)
+        IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
+        GameDataCatalog? gameDataCatalog)
     {
         return mapper.CreateDraft(
             parsedItem,
             itemBaseResolution,
-            modifierResolutions);
+            modifierResolutions,
+            gameDataCatalog);
     }
 }

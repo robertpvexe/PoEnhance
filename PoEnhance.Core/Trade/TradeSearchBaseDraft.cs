@@ -9,4 +9,12 @@ public sealed record TradeSearchBaseDraft
     public string? ResolvedBaseId { get; init; }
 
     public string? ResolvedBaseName { get; init; }
+
+    public string? Category { get; init; }
+
+    public ObservedBaseIdentity? Observed { get; init; }
+
+    public AvailableBaseSearchCriteria AvailableCriteria { get; init; } = new();
+
+    public BaseSearchCriterion? ActiveCriterion { get; init; }
 }

@@ -2,13 +2,20 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Runtime.InteropServices;
+using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
-internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
+internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceCheckerNativeResizeWindow
 {
+    private const uint SetWindowPosNoZOrder = 0x0004;
+    private const uint SetWindowPosNoActivate = 0x0010;
     private const string NotDetectedText = "Not detected";
     private bool isClosed;
+    private bool isHorizontalResizeActive;
 
     public PriceCheckerWindow()
     {
@@ -25,10 +32,13 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         HorizontalDragThumb.DragCompleted += (_, _) =>
             HorizontalDragCompleted?.Invoke(this, EventArgs.Empty);
         HorizontalResizeThumb.DragStarted += (_, _) =>
+        {
+            isHorizontalResizeActive = true;
             HorizontalResizeStarted?.Invoke(this, EventArgs.Empty);
+        };
         HorizontalResizeThumb.DragDelta += OnHorizontalResizeDelta;
-        HorizontalResizeThumb.DragCompleted += (_, _) =>
-            HorizontalResizeCompleted?.Invoke(this, EventArgs.Empty);
+        HorizontalResizeThumb.DragCompleted += (_, _) => CompleteHorizontalResize();
+        HorizontalResizeThumb.LostMouseCapture += (_, _) => CompleteHorizontalResize();
         PinToggleButton.Checked += OnPinStateChanged;
         PinToggleButton.Unchecked += OnPinStateChanged;
         LeagueTextBox.TextChanged += OnLeagueTextChanged;
@@ -101,10 +111,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
 
         var draft = state.Draft;
         DisplayNameText.Text = DisplayValue(draft.DisplayName);
-        BaseTypeText.Text = DisplayValue(draft.ParsedBaseType);
+        BaseTypeText.Text = DisplayValue(draft.Base.Observed?.ExactBaseName ?? draft.ParsedBaseType);
         RarityText.Text = DisplayValue(draft.Rarity);
         ItemLevelText.Text = draft.ItemLevel?.ToString() ?? NotDetectedText;
-        BaseResolutionStatusText.Text = draft.Base.Status?.ToString() ?? "Parser only";
+        BaseResolutionStatusText.Text = FormatBaseStatus(draft.Base);
         ModifierCountText.Text = FormatModifierCount(
             draft.ModifierFilters.Count(modifier => modifier.IsSelected),
             draft.ModifierFilters.Count);
@@ -144,6 +154,77 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         Height = placement.Height;
     }
 
+    public bool TryGetNativeBounds(out PriceCheckerNativeRectangle bounds)
+    {
+        bounds = default!;
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero ||
+            !GetWindowRect(handle, out var rect))
+        {
+            return false;
+        }
+
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        bounds = new PriceCheckerNativeRectangle(
+            rect.Left,
+            rect.Top,
+            width,
+            height);
+        return true;
+    }
+
+    public bool TryGetCursorScreenX(out double screenX)
+    {
+        screenX = 0d;
+        if (!GetCursorPos(out var point))
+        {
+            return false;
+        }
+
+        screenX = point.X;
+        return true;
+    }
+
+    public bool TrySetNativeBounds(PriceCheckerNativeRectangle bounds)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var left = (int)Math.Round(bounds.Left);
+        var top = (int)Math.Round(bounds.Top);
+        var width = Math.Max(1, (int)Math.Round(bounds.Width));
+        var height = Math.Max(1, (int)Math.Round(bounds.Height));
+        var applied = SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            left,
+            top,
+            width,
+            height,
+            SetWindowPosNoZOrder | SetWindowPosNoActivate);
+        if (!applied)
+        {
+            return false;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(this);
+        CurrentPlacement = new PriceCheckerPlacement(
+            bounds.Left / dpi.DpiScaleX,
+            bounds.Top / dpi.DpiScaleY,
+            bounds.Width / dpi.DpiScaleX,
+            bounds.Height / dpi.DpiScaleY);
+        return true;
+    }
+
     public void ShowInactive()
     {
         ShowActivated = false;
@@ -165,9 +246,25 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
     private void OnHorizontalResizeDelta(object sender, DragDeltaEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
+        if (!TryGetCursorScreenX(out var cursorScreenX))
+        {
+            return;
+        }
+
         HorizontalResizeDelta?.Invoke(
             this,
-            new PriceCheckerHorizontalResizeEventArgs(e.HorizontalChange));
+            new PriceCheckerHorizontalResizeEventArgs(e.HorizontalChange, cursorScreenX));
+    }
+
+    private void CompleteHorizontalResize()
+    {
+        if (!isHorizontalResizeActive)
+        {
+            return;
+        }
+
+        isHorizontalResizeActive = false;
+        HorizontalResizeCompleted?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnPinStateChanged(object sender, RoutedEventArgs e)
@@ -251,6 +348,22 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
+    private static string FormatBaseStatus(TradeSearchBaseDraft baseDraft)
+    {
+        var status = baseDraft.Status?.ToString() ?? "Parser only";
+        return $"{status}; Search: {FormatActiveCriterion(baseDraft.ActiveCriterion)}";
+    }
+
+    private static string FormatActiveCriterion(BaseSearchCriterion? criterion)
+    {
+        return criterion?.Mode switch
+        {
+            BaseSearchMode.Category => DisplayValue(criterion.Category),
+            BaseSearchMode.ExactBase => DisplayValue(criterion.ExactBaseName),
+            _ => NotDetectedText,
+        };
+    }
+
     private static double? SelectRenderedDimension(double actualValue, double requestedValue)
     {
         if (double.IsFinite(actualValue) && actualValue > 0d)
@@ -268,5 +381,41 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         int totalCount)
     {
         return $"{selectedCount} selected of {totalCount}";
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint uFlags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+
+        public int Top;
+
+        public int Right;
+
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+
+        public int Y;
     }
 }

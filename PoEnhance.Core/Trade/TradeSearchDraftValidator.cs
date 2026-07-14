@@ -33,12 +33,17 @@ public sealed class TradeSearchDraftValidator
         var hasResolvedBaseIdentity =
             !string.IsNullOrWhiteSpace(draft.Base?.ResolvedBaseId) ||
             !string.IsNullOrWhiteSpace(draft.Base?.ResolvedBaseName);
+        var hasActiveBaseCriterion =
+            draft.Base?.ActiveCriterion?.Mode == BaseSearchMode.Category &&
+            !string.IsNullOrWhiteSpace(draft.Base.ActiveCriterion.Category) ||
+            draft.Base?.ActiveCriterion?.Mode == BaseSearchMode.ExactBase &&
+            !string.IsNullOrWhiteSpace(draft.Base.ActiveCriterion.ExactBaseName);
 
-        if (!hasParsedBaseType && !hasResolvedBaseIdentity)
+        if (!hasParsedBaseType && !hasResolvedBaseIdentity && !hasActiveBaseCriterion)
         {
             diagnostics.Add(Error(
                 TradeSearchValidationDiagnosticCodes.MissingBaseIdentity,
-                "The draft needs parsed base text or a resolved base identity."));
+                "The draft needs an active base search criterion or a resolved base identity."));
             return;
         }
 

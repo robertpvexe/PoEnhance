@@ -13,6 +13,10 @@ public static class BuildPackageCommandLineParser
         "--stats",
         "--translations",
         "--output",
+        "--source-root",
+        "--source-data-root",
+        "--source-uri",
+        "--source-branch",
         "--data-version",
         "--league",
         "--patch",
@@ -81,6 +85,11 @@ public static class BuildPackageCommandLineParser
         AddMissingRequiredOption(values, "--stats", errors);
         AddMissingRequiredOption(values, "--translations", errors);
         AddMissingRequiredOption(values, "--output", errors);
+        AddMissingRequiredOption(values, "--source-root", errors);
+        AddMissingRequiredOption(values, "--source-data-root", errors);
+        AddMissingRequiredOption(values, "--source-uri", errors);
+        AddMissingRequiredOption(values, "--source-branch", errors);
+        AddMissingRequiredOption(values, "--source-version", errors);
         AddMissingRequiredOption(values, "--data-version", errors);
 
         if (errors.Count > 0)
@@ -100,6 +109,10 @@ public static class BuildPackageCommandLineParser
                 StatsPath = values["--stats"],
                 TranslationsPath = values["--translations"],
                 OutputPath = values["--output"],
+                SourceRootPath = values["--source-root"],
+                SourceDataRootPath = values["--source-data-root"],
+                SourceUri = values["--source-uri"],
+                SourceBranch = values["--source-branch"],
                 DataVersion = values["--data-version"],
                 League = values.GetValueOrDefault("--league"),
                 Patch = values.GetValueOrDefault("--patch"),
@@ -121,10 +134,10 @@ public static class BuildPackageCommandLineParser
     {
         return """
             Usage:
-              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --output <path> --data-version <value> [--league <value>] [--patch <value>] [--source-version <value>] [--verbose-diagnostics]
+              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--league <value>] [--patch <value>] [--verbose-diagnostics]
 
             Example:
-              dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --output .\artifacts\poenhance-game-data.json --data-version dev-001
+              dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --output .\artifacts\poenhance-game-data.json --source-root .\local-data\repoe --source-data-root .\data\repoe --source-uri https://github.com/repoe-fork/repoe --source-branch master --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 --data-version dev-001
             """;
     }
 

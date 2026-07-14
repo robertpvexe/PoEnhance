@@ -24,7 +24,7 @@ public sealed record TradeSearchDraft
 
     public TradeItemVariantCriteria ItemVariantCriteria { get; init; } = new();
 
-    public IReadOnlyList<TradeModifierFilterDraft> ModifierFilters { get; init; } = [];
+    public IReadOnlyList<ResolvedSearchComponent> ModifierFilters { get; init; } = [];
 
-    public TradeListingMode ListingMode { get; init; } = TradeListingMode.MerchantOnly;
+    public TradeListingMode ListingMode { get; init; } = TradeListingMode.InstantBuyout;
 }

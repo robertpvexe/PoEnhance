@@ -2,31 +2,36 @@ using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using Serilog;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
 internal sealed class PriceCheckerSearchController
 {
-    public const string DefaultLeagueIdentifier = "Standard";
+    public const string DefaultLeagueIdentifier = "Mirage";
     private const int MaximumSafeProviderMessageLength = 160;
     private const int MaximumModifierTextLength = 120;
 
     private readonly IPathOfExileTradePriceCheckService priceCheckService;
     private readonly ITradeSearchDraftValidator draftValidator;
+    private readonly IPriceCheckerLeaguePreferenceStore leaguePreferenceStore;
     private IPriceCheckerWindow? window;
     private TradeSearchDraft? currentDraft;
     private TradeSearchValidationResult? currentValidationResult;
     private CancellationTokenSource? activeRequestCancellation;
-    private string leagueIdentifier = DefaultLeagueIdentifier;
+    private string leagueIdentifier;
     private int generation;
     private bool isLoading;
 
     public PriceCheckerSearchController(
         IPathOfExileTradePriceCheckService priceCheckService,
-        ITradeSearchDraftValidator? draftValidator = null)
+        ITradeSearchDraftValidator? draftValidator = null,
+        IPriceCheckerLeaguePreferenceStore? leaguePreferenceStore = null)
     {
         this.priceCheckService = priceCheckService ?? throw new ArgumentNullException(nameof(priceCheckService));
         this.draftValidator = draftValidator ?? new CoreTradeSearchDraftValidatorAdapter();
+        this.leaguePreferenceStore = leaguePreferenceStore ?? NullPriceCheckerLeaguePreferenceStore.Instance;
+        leagueIdentifier = LoadInitialLeagueIdentifier(this.leaguePreferenceStore);
         CurrentViewState = CreateIdleOrValidationState();
     }
 
@@ -111,6 +116,9 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
+        leagueIdentifier = trimmedLeague;
+        PersistLeagueIdentifier(trimmedLeague);
+
         var requestGeneration = ++generation;
         using var requestCancellation = new CancellationTokenSource();
         activeRequestCancellation = requestCancellation;
@@ -118,7 +126,7 @@ internal sealed class PriceCheckerSearchController
         ApplyState(new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Loading,
-            LeagueIdentifier = leagueIdentifier,
+            LeagueIdentifier = trimmedLeague,
             CanSearch = false,
             Message = "Searching...",
             Modifiers = CreateModifierRows(),
@@ -468,7 +476,7 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private static string SectionLabel(TradeModifierFilterDraft modifier)
+    private static string SectionLabel(ResolvedSearchComponent modifier)
     {
         if (modifier.IsFractured)
         {
@@ -589,6 +597,31 @@ internal sealed class PriceCheckerSearchController
     private static string? TrimLeague(string? value)
     {
         return TrimToNull(value);
+    }
+
+    private static string LoadInitialLeagueIdentifier(IPriceCheckerLeaguePreferenceStore preferenceStore)
+    {
+        try
+        {
+            return TrimLeague(preferenceStore.LoadLeagueIdentifier()) ?? DefaultLeagueIdentifier;
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "Price Checker league preference could not be loaded");
+            return DefaultLeagueIdentifier;
+        }
+    }
+
+    private void PersistLeagueIdentifier(string trimmedLeagueIdentifier)
+    {
+        try
+        {
+            leaguePreferenceStore.SaveLeagueIdentifier(trimmedLeagueIdentifier);
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "Price Checker league preference could not be saved");
+        }
     }
 
     private static string? TrimToNull(string? value)

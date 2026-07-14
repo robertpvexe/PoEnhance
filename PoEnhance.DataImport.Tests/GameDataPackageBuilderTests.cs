@@ -114,6 +114,56 @@ public sealed class GameDataPackageBuilderTests
                     },
                 ],
             },
+            new ModifierDefinition
+            {
+                Id = "ItemFoundRarityIncreaseImplicitRing1",
+                GroupId = "ItemFoundRarityIncrease",
+                Name = "",
+                GenerationType = ModifierGenerationType.Implicit,
+                Stats =
+                [
+                    new ModifierStat
+                    {
+                        Index = 0,
+                        StatId = "base_item_found_rarity_+%",
+                        MinValue = 6m,
+                        MaxValue = 15m,
+                    },
+                ],
+                Sources =
+                [
+                    new GameDataSourceReference
+                    {
+                        SourceId = "repoe",
+                        ExternalId = "ItemFoundRarityIncreaseImplicitRing1",
+                    },
+                ],
+            },
+            new ModifierDefinition
+            {
+                Id = "LocalMaimOnHit2HImplicit_1",
+                GroupId = "LocalMaimOnHit",
+                Name = "",
+                GenerationType = ModifierGenerationType.Implicit,
+                Stats =
+                [
+                    new ModifierStat
+                    {
+                        Index = 0,
+                        StatId = "local_accuracy_rating",
+                        MinValue = 10m,
+                        MaxValue = 25m,
+                    },
+                ],
+                Sources =
+                [
+                    new GameDataSourceReference
+                    {
+                        SourceId = "repoe",
+                        ExternalId = "LocalMaimOnHit2HImplicit_1",
+                    },
+                ],
+            },
         };
 
         var result = _builder.CreatePackage(
@@ -127,9 +177,36 @@ public sealed class GameDataPackageBuilderTests
         Assert.Empty(result.Diagnostics);
         Assert.NotNull(result.Package);
         Assert.Equal(6, result.Package.ItemBases.Count);
-        Assert.Single(result.Package.Modifiers);
+        Assert.Equal(3, result.Package.Modifiers.Count);
         Assert.Equal(19, result.Package.Stats.Count);
         Assert.Equal(6, result.Package.StatTranslations.Count);
+        Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
+    }
+
+    [Fact]
+    public void CreatePackage_MissingBaseImplicitReference_DropsReferenceWithDiagnostic()
+    {
+        var baseItem = new ItemBaseRecord
+        {
+            Id = "base.test",
+            Name = "Test Base",
+            ItemClass = "Ring",
+            ImplicitModifierIds = ["missing.implicit.modifier"],
+        };
+
+        var result = _builder.CreatePackage(
+            RePoeImportTestFixtures.CreateManifestWithRePoeSource(),
+            [baseItem],
+            modifiers: [],
+            stats: [],
+            statTranslations: []);
+
+        Assert.False(result.HasErrors);
+        Assert.NotNull(result.Package);
+        Assert.Empty(Assert.Single(result.Package.ItemBases).ImplicitModifierIds);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.PackageBaseImplicitModifierReferenceMissing &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Warning);
         Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
     }
 

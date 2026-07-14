@@ -160,6 +160,7 @@ public sealed class RePoeBaseItemImporter
             RequiredLevel = requiredLevel,
             Domain = ReadOptionalString(record, "domain"),
             Tags = ReadTags(record, sourceRecordId, diagnostics),
+            ImplicitModifierIds = ReadImplicits(record, sourceRecordId, diagnostics),
             Sources = [CreateSourceReference(sourceRecordId)],
         };
     }
@@ -270,6 +271,55 @@ public sealed class RePoeBaseItemImporter
         return normalizedTags.Values
             .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase)
             .ThenBy(tag => tag, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ReadImplicits(
+        JsonElement record,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!record.TryGetProperty("implicits", out var implicits) ||
+            implicits.ValueKind == JsonValueKind.Null)
+        {
+            return [];
+        }
+
+        if (implicits.ValueKind != JsonValueKind.Array)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.RecordInvalidImplicits,
+                ImportDiagnosticSeverity.Warning,
+                sourceRecordId,
+                "RePoE base item record has a non-array implicits value; implicits were ignored."));
+            return [];
+        }
+
+        var normalizedIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var implicitId in implicits.EnumerateArray())
+        {
+            if (implicitId.ValueKind != JsonValueKind.String)
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.RecordInvalidImplicits,
+                    ImportDiagnosticSeverity.Warning,
+                    sourceRecordId,
+                    "RePoE base item record has a non-string implicit modifier id; that implicit was ignored."));
+                continue;
+            }
+
+            var normalizedId = implicitId.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedId))
+            {
+                continue;
+            }
+
+            normalizedIds.TryAdd(normalizedId, normalizedId);
+        }
+
+        return normalizedIds.Values
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(id => id, StringComparer.Ordinal)
             .ToArray();
     }
 

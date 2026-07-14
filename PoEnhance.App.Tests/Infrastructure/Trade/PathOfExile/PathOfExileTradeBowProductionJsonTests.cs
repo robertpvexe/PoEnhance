@@ -1,0 +1,440 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.GameData;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
+
+namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
+
+public sealed class PathOfExileTradeBowProductionJsonTests
+{
+    private const string League = "Mercenaries";
+
+    public static IEnumerable<object[]> CumulativeSelections()
+    {
+        yield return [Array.Empty<string>(), Array.Empty<string>()];
+        yield return [new[] { "Cold Damage" }, new[] { "explicit.stat_1037193709" }];
+        yield return [new[] { "Cold Damage", "Fire Damage" }, new[] { "explicit.stat_1037193709", "explicit.stat_709508406" }];
+        yield return
+        [
+            new[] { "Cold Damage", "Fire Damage", "Lightning Damage" },
+            new[] { "explicit.stat_1037193709", "explicit.stat_709508406", "explicit.stat_3336890334" },
+        ];
+        yield return
+        [
+            new[] { "Cold Damage", "Fire Damage", "Lightning Damage", "Dexterity" },
+            new[]
+            {
+                "explicit.stat_1037193709",
+                "explicit.stat_709508406",
+                "explicit.stat_3336890334",
+                "explicit.stat_3261801346",
+            },
+        ];
+    }
+
+    [Theory]
+    [MemberData(nameof(CumulativeSelections))]
+    public async Task SearchAsync_RangerBowCumulativeSelectionsReachFinalJsonPresenceOnly(
+        IReadOnlyList<string> selectedRowFragments,
+        IReadOnlyList<string> expectedProviderStatIds)
+    {
+        var fixture = ProductionTradeFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(fixture.RangerBowDraft, fixture.RangerBowValidation);
+
+        foreach (var selectedRowFragment in selectedRowFragments)
+        {
+            var row = Assert.Single(
+                fixture.Window.CurrentSearchState!.Modifiers,
+                modifier => modifier.Text.Contains(selectedRowFragment, StringComparison.Ordinal));
+            fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+        }
+
+        var selectedCount = fixture.Window.CurrentSearchState!.SelectedModifierCount;
+
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        Assert.Equal(League, call.LeagueIdentifier);
+        Assert.NotNull(call.Request);
+        var json = PathOfExileTradeJson.SerializeSearchRequest(call.Request!);
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.False(json.Contains("Ranger Bow", StringComparison.Ordinal));
+        Assert.Equal("securable", query.GetProperty("status").GetProperty("option").GetString());
+        Assert.Equal("asc", document.RootElement.GetProperty("sort").GetProperty("price").GetString());
+        Assert.Equal("rare", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+        Assert.Equal("weapon.bow", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+
+        var statsGroup = Assert.Single(query.GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+        var filters = statsGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(selectedRowFragments.Count, selectedCount);
+        Assert.Equal(selectedCount, filters.Length);
+        var providerStatIds = filters
+            .Select(filter => filter.GetProperty("id").GetString())
+            .OfType<string>()
+            .ToArray();
+        Assert.Equal(expectedProviderStatIds, providerStatIds);
+        Assert.Equal(filters.Length, providerStatIds.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(filters, filter =>
+        {
+            Assert.False(filter.TryGetProperty("value", out _));
+            Assert.False(filter.TryGetProperty("min", out _));
+            Assert.False(filter.TryGetProperty("max", out _));
+            Assert.False(filter.TryGetProperty("pseudo", out _));
+            Assert.False(filter.TryGetProperty("disabled", out _));
+            Assert.Single(filter.EnumerateObject());
+        });
+    }
+
+    private sealed class ProductionTradeFixture
+    {
+        private ProductionTradeFixture(
+            TradeSearchDraft rangerBowDraft,
+            TradeSearchValidationResult rangerBowValidation,
+            FakeWindow window,
+            PriceCheckerSearchController controller,
+            FakeSearchClient searchClient)
+        {
+            RangerBowDraft = rangerBowDraft;
+            RangerBowValidation = rangerBowValidation;
+            Window = window;
+            Controller = controller;
+            SearchClient = searchClient;
+        }
+
+        public TradeSearchDraft RangerBowDraft { get; }
+
+        public TradeSearchValidationResult RangerBowValidation { get; }
+
+        public FakeWindow Window { get; }
+
+        public PriceCheckerSearchController Controller { get; }
+
+        public FakeSearchClient SearchClient { get; }
+
+        public static ProductionTradeFixture Create()
+        {
+            var catalog = LoadGameDataCatalog();
+            var parsed = new ItemTextParser().Parse(CopiedItemCorpus.LoadItems()[2]);
+            var displayService = new ParsedItemGameDataDisplayService();
+            var baseResolution = displayService.ResolveItemBase(parsed, catalog).Result;
+            Assert.NotNull(baseResolution);
+            var modifierResolutions = displayService
+                .ResolveModifierCandidates(parsed, catalog, baseResolution)
+                .Results
+                .Select(display => display.Result)
+                .OfType<ModifierCandidateResolutionResult>()
+                .ToArray();
+            var draftResult = new TradeSearchDraftMapper().CreateDraft(
+                parsed,
+                baseResolution,
+                modifierResolutions,
+                catalog);
+            Assert.True(draftResult.IsSuccess);
+            Assert.NotNull(draftResult.Draft);
+            Assert.Equal("Bow", draftResult.Draft!.Base.ActiveCriterion?.Category);
+            Assert.Equal(BaseSearchMode.Category, draftResult.Draft.Base.ActiveCriterion?.Mode);
+            Assert.Equal(
+                ["Adds 46(41-55) to 81(81-95) Cold Damage",
+                    "Adds 70(63-85) to 139(128-148) Fire Damage",
+                    "Adds 9(8-10) to 155(148-173) Lightning Damage",
+                    "+53(51-55) to Dexterity"],
+                draftResult.Draft.ModifierFilters.Select(modifier => modifier.OriginalText).ToArray());
+
+            var searchClient = new FakeSearchClient();
+            var service = new PathOfExileTradePriceCheckService(
+                new PathOfExileTradeQueryBuilder(),
+                new PathOfExileTradeStatMatcher(),
+                new FakeStatCatalogProvider(BowStatCatalog()),
+                new FakeItemCatalogProvider(),
+                new PathOfExileTradeSelectedModifierMapper(),
+                new FakeItemIdentityMapper(),
+                searchClient,
+                new FakeFetchClient(),
+                new FakeFilterCatalogProvider(BowFilterCatalog()));
+            var window = new FakeWindow();
+            var controller = new PriceCheckerSearchController(service);
+            controller.AttachWindow(window);
+            window.SetLeague(League);
+
+            return new ProductionTradeFixture(
+                draftResult.Draft,
+                new TradeSearchDraftValidator().Validate(draftResult.Draft),
+                window,
+                controller,
+                searchClient);
+        }
+    }
+
+    private static PathOfExileTradeStatCatalog BowStatCatalog()
+    {
+        return new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.stat_2387423236", "Adds # to # Cold Damage"),
+            Entry(1, "explicit.stat_1037193709", "Adds # to # Cold Damage (Local)"),
+            Entry(2, "explicit.stat_321077055", "Adds # to # Fire Damage"),
+            Entry(3, "explicit.stat_709508406", "Adds # to # Fire Damage (Local)"),
+            Entry(4, "explicit.stat_1334060246", "Adds # to # Lightning Damage"),
+            Entry(5, "explicit.stat_3336890334", "Adds # to # Lightning Damage (Local)"),
+            Entry(6, "explicit.stat_3261801346", "+# to Dexterity"),
+        ]);
+    }
+
+    private static PathOfExileTradeStatEntry Entry(
+        int order,
+        string id,
+        string text)
+    {
+        return new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = order,
+            GroupId = "explicit",
+            GroupLabel = "Explicit",
+            Id = id,
+            Text = text,
+            Type = "explicit",
+        };
+    }
+
+    private static PathOfExileTradeFilterCatalog BowFilterCatalog()
+    {
+        return new PathOfExileTradeFilterCatalog(
+        [
+            new PathOfExileTradeFilterOption
+            {
+                ProviderOrder = 0,
+                GroupId = "type_filters",
+                FilterId = "category",
+                Id = "weapon.bow",
+                Text = "Bow",
+            },
+        ]);
+    }
+
+    private static GameDataCatalog LoadGameDataCatalog()
+    {
+        var packagePath = FindRepoFile("artifacts", "poenhance-game-data.json");
+        var result = GameDataPackageLoader
+            .LoadFromFileAsync(packagePath)
+            .GetAwaiter()
+            .GetResult();
+
+        Assert.True(result.IsSuccess, string.Join(", ", result.Diagnostics.Select(diagnostic => diagnostic.Code)));
+        Assert.NotNull(result.Package);
+        return GameDataCatalog.FromPackage(result.Package!);
+    }
+
+    private static string FindRepoFile(params string[] relativeParts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine([directory.FullName, .. relativeParts]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find repo file: {Path.Combine(relativeParts)}");
+    }
+
+    private static class CopiedItemCorpus
+    {
+        private static readonly Regex ItemBoundary = new(
+            @"\r?\n\s*\r?\n(?=Item Class:)",
+            RegexOptions.CultureInvariant);
+
+        public static IReadOnlyList<string> LoadItems()
+        {
+            var corpusPath = FindRepoFile("PoEnhance.Core.Tests", "TestData", "Items", "advanced-real-items-corpus.txt");
+            var corpus = File.ReadAllText(corpusPath);
+            var items = ItemBoundary
+                .Split(corpus.TrimEnd('\r', '\n'))
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
+
+            Assert.Equal(15, items.Length);
+            return items;
+        }
+    }
+
+    private sealed record SearchCall(
+        PathOfExileTradeSearchRequest? Request,
+        string? LeagueIdentifier);
+
+    private sealed class FakeStatCatalogProvider : IPathOfExileTradeStatCatalogProvider
+    {
+        private readonly PathOfExileTradeStatCatalog catalog;
+
+        public FakeStatCatalogProvider(PathOfExileTradeStatCatalog catalog)
+        {
+            this.catalog = catalog;
+        }
+
+        public Task<PathOfExileTradeStatCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(PathOfExileTradeStatCatalogProviderResult.Success(catalog));
+        }
+    }
+
+    private sealed class FakeFilterCatalogProvider : IPathOfExileTradeFilterCatalogProvider
+    {
+        private readonly PathOfExileTradeFilterCatalog catalog;
+
+        public FakeFilterCatalogProvider(PathOfExileTradeFilterCatalog catalog)
+        {
+            this.catalog = catalog;
+        }
+
+        public Task<PathOfExileTradeFilterCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(PathOfExileTradeFilterCatalogProviderResult.Success(catalog));
+        }
+    }
+
+    private sealed class FakeSearchClient : IPathOfExileTradeSearchClient
+    {
+        public List<SearchCall> Calls { get; } = [];
+
+        public Task<PathOfExileTradeSearchExecutionResult> SearchAsync(
+            PathOfExileTradeSearchRequest? request,
+            string? leagueIdentifier,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new SearchCall(request, leagueIdentifier));
+            return Task.FromResult(new PathOfExileTradeSearchExecutionResult
+            {
+                IsSuccess = true,
+                Response = new PathOfExileTradeSearchResponse
+                {
+                    Id = $"query-{Calls.Count}",
+                    Result = [],
+                    Total = 100 - Calls.Count,
+                },
+            });
+        }
+    }
+
+    private sealed class FakeFetchClient : IPathOfExileTradeFetchClient
+    {
+        public Task<PathOfExileTradeFetchExecutionResult> FetchAsync(
+            string? queryId,
+            IReadOnlyList<string?>? resultIds,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Fetch is not expected for zero-result fake Search responses.");
+        }
+    }
+
+    private sealed class FakeItemCatalogProvider : IPathOfExileTradeItemCatalogProvider
+    {
+        public Task<PathOfExileTradeItemCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Item catalog is not expected for ordinary Bow searches.");
+        }
+    }
+
+    private sealed class FakeItemIdentityMapper : IPathOfExileTradeItemIdentityMapper
+    {
+        public PathOfExileTradeItemIdentityMappingResult Map(
+            TradeSearchDraft? draft,
+            PathOfExileTradeItemCatalog? catalog)
+        {
+            throw new InvalidOperationException("Item identity mapping is not expected for ordinary Bow searches.");
+        }
+    }
+
+#pragma warning disable CS0067
+    private sealed class FakeWindow : IPriceCheckerWindow
+    {
+        public event EventHandler? Closed;
+        public event EventHandler? PanelActivated;
+        public event EventHandler? PanelDeactivated;
+        public event EventHandler? PanelInteraction;
+        public event EventHandler? SearchRequested;
+        public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+        public event EventHandler<bool>? PinStateChanged;
+        public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
+        public event EventHandler? HorizontalDragCompleted;
+        public event EventHandler? HorizontalResizeStarted;
+        public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
+        public event EventHandler? HorizontalResizeCompleted;
+        public event EventHandler? ResetPositionRequested;
+
+        public bool IsClosed { get; private set; }
+
+        public bool IsPinned { get; private set; }
+
+        public PriceCheckerWindowState? CurrentState { get; private set; }
+
+        public PriceCheckerPlacement? CurrentPlacement { get; private set; }
+
+        public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
+
+        public PriceCheckerPlacement? GetDisplayedPlacement() => CurrentPlacement;
+
+        public void UpdateContent(PriceCheckerWindowState state)
+        {
+            CurrentState = state;
+        }
+
+        public void UpdateSearch(PriceCheckerSearchViewState state)
+        {
+            CurrentSearchState = state;
+        }
+
+        public void ApplyPlacement(PriceCheckerPlacement placement)
+        {
+            CurrentPlacement = placement;
+        }
+
+        public void ShowInactive()
+        {
+        }
+
+        public void Close()
+        {
+            IsClosed = true;
+            Closed?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void SetLeague(string leagueIdentifier)
+        {
+            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
+        }
+
+        public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)
+        {
+            ModifierSelectionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
+        }
+    }
+#pragma warning restore CS0067
+}

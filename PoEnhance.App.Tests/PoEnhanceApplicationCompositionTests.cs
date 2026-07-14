@@ -51,6 +51,11 @@ public sealed class PoEnhanceApplicationCompositionTests
                 composition.PriceCheckService,
                 "statCatalogProvider"));
         Assert.Same(
+            composition.TradeStatMatcher,
+            PrivateField<IPathOfExileTradeStatMatcher>(
+                composition.PriceCheckService,
+                "statMatcher"));
+        Assert.Same(
             composition.TradeItemCatalogProvider,
             PrivateField<IPathOfExileTradeItemCatalogProvider>(
                 composition.PriceCheckService,
@@ -82,11 +87,6 @@ public sealed class PoEnhanceApplicationCompositionTests
             PrivateField<IPathOfExileTradeItemsClient>(
                 composition.TradeItemCatalogProvider,
                 "itemsClient"));
-        Assert.Same(
-            composition.TradeStatMatcher,
-            PrivateField<IPathOfExileTradeStatMatcher>(
-                composition.TradeSelectedModifierMapper,
-                "statMatcher"));
     }
 
     [Fact]

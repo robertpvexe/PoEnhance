@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using PoEnhance.GameData;
 
@@ -27,6 +28,12 @@ public sealed class RePoeGameDataPackageBuildService
         }
 
         var inputFiles = BuildInputFileList(request);
+        ValidateSourceGuard(request, inputFiles, diagnostics);
+        if (HasErrors(diagnostics))
+        {
+            return Failure(GameDataPackageBuildExitCode.InvalidArguments, diagnostics);
+        }
+
         foreach (var inputFile in inputFiles)
         {
             if (!File.Exists(inputFile.Path))
@@ -45,7 +52,7 @@ public sealed class RePoeGameDataPackageBuildService
         }
 
         var createdAtUtc = NormalizeCreatedAtUtc(request.CreatedAtUtc ?? DateTimeOffset.UtcNow);
-        var manifest = CreateManifest(request, createdAtUtc);
+        var manifest = CreateManifest(request, createdAtUtc, inputFiles);
 
         var baseItems = _baseItemImporter.Import(request.BaseItemsPath!);
         var modifiers = _modifierImporter.Import(request.ModsPath!);
@@ -135,6 +142,11 @@ public sealed class RePoeGameDataPackageBuildService
         AddRequiredArgumentDiagnostic(request.StatsPath, "--stats", diagnostics);
         AddRequiredArgumentDiagnostic(request.TranslationsPath, "--translations", diagnostics);
         AddRequiredArgumentDiagnostic(request.OutputPath, "--output", diagnostics);
+        AddRequiredArgumentDiagnostic(request.SourceRootPath, "--source-root", diagnostics);
+        AddRequiredArgumentDiagnostic(request.SourceDataRootPath, "--source-data-root", diagnostics);
+        AddRequiredArgumentDiagnostic(request.SourceUri, "--source-uri", diagnostics);
+        AddRequiredArgumentDiagnostic(request.SourceBranch, "--source-branch", diagnostics);
+        AddRequiredArgumentDiagnostic(request.SourceVersion, "--source-version", diagnostics);
         AddRequiredArgumentDiagnostic(request.DataVersion, "--data-version", diagnostics);
 
         if (!string.IsNullOrWhiteSpace(request.OutputPath) && IsInsidePoEnhanceAppDirectory(request.OutputPath))
@@ -175,7 +187,8 @@ public sealed class RePoeGameDataPackageBuildService
 
     private static GameDataPackageManifest CreateManifest(
         GameDataPackageBuildRequest request,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        IReadOnlyList<(string Label, string Path)> inputFiles)
     {
         return new GameDataPackageManifest
         {
@@ -191,10 +204,198 @@ public sealed class RePoeGameDataPackageBuildService
                     SourceId = RePoeBaseItemImporter.SourceId,
                     RetrievedAtUtc = createdAtUtc,
                     SourceVersion = TrimToNull(request.SourceVersion),
-                    SourceUri = RePoeSourceUri,
+                    SourceUri = TrimToNull(request.SourceUri) ?? RePoeSourceUri,
+                    SourceBranch = TrimToNull(request.SourceBranch),
+                    SourceRoot = NormalizePathOrNull(request.SourceRootPath),
+                    SourceDataRoot = NormalizePathOrNull(request.SourceDataRootPath),
+                    InputFiles = CreateInputFingerprints(request.SourceDataRootPath!, inputFiles),
                 },
             ],
         };
+    }
+
+    private static void ValidateSourceGuard(
+        GameDataPackageBuildRequest request,
+        IReadOnlyList<(string Label, string Path)> inputFiles,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (string.IsNullOrWhiteSpace(request.SourceRootPath) ||
+            string.IsNullOrWhiteSpace(request.SourceDataRootPath) ||
+            string.IsNullOrWhiteSpace(request.SourceUri) ||
+            string.IsNullOrWhiteSpace(request.SourceBranch) ||
+            string.IsNullOrWhiteSpace(request.SourceVersion))
+        {
+            return;
+        }
+
+        var sourceRoot = Path.GetFullPath(request.SourceRootPath);
+        var sourceDataRoot = Path.GetFullPath(request.SourceDataRootPath);
+        if (!Directory.Exists(sourceRoot))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-root",
+                "Source root directory does not exist."));
+            return;
+        }
+
+        if (!Directory.Exists(sourceDataRoot))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-data-root",
+                "Source data root directory does not exist."));
+        }
+
+        var remote = RunGit(sourceRoot, "remote get-url origin", diagnostics, "--source-uri");
+        if (remote is not null &&
+            !string.Equals(
+                NormalizeRepositoryUri(remote),
+                NormalizeRepositoryUri(request.SourceUri),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-uri",
+                $"Source repository mismatch. Expected '{request.SourceUri}', actual '{remote}'."));
+        }
+
+        var branch = RunGit(sourceRoot, "branch --show-current", diagnostics, "--source-branch");
+        if (branch is not null &&
+            !string.Equals(branch.Trim(), request.SourceBranch.Trim(), StringComparison.Ordinal))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-branch",
+                $"Source branch mismatch. Expected '{request.SourceBranch}', actual '{branch}'."));
+        }
+
+        var head = RunGit(sourceRoot, "rev-parse HEAD", diagnostics, "--source-version");
+        if (head is not null &&
+            !string.Equals(head.Trim(), request.SourceVersion.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-version",
+                $"Source SHA mismatch. Expected '{request.SourceVersion}', actual '{head}'."));
+        }
+
+        foreach (var inputFile in inputFiles)
+        {
+            var fullPath = Path.GetFullPath(inputFile.Path);
+            if (!IsUnderDirectory(fullPath, sourceDataRoot))
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                    ImportDiagnosticSeverity.Error,
+                    inputFile.Label,
+                    $"Input file '{inputFile.Label}' is outside the declared source data root."));
+            }
+        }
+    }
+
+    private static IReadOnlyList<GameDataPackageInputFileFingerprint> CreateInputFingerprints(
+        string sourceDataRootPath,
+        IReadOnlyList<(string Label, string Path)> inputFiles)
+    {
+        var sourceDataRoot = Path.GetFullPath(sourceDataRootPath);
+        return inputFiles
+            .Where(inputFile => File.Exists(inputFile.Path))
+            .Select(inputFile =>
+            {
+                var fullPath = Path.GetFullPath(inputFile.Path);
+                return new GameDataPackageInputFileFingerprint
+                {
+                    Label = inputFile.Label,
+                    RelativePath = Path.GetRelativePath(sourceDataRoot, fullPath),
+                    SizeBytes = new FileInfo(fullPath).Length,
+                    Sha256 = ComputeSha256(fullPath),
+                };
+            })
+            .ToArray();
+    }
+
+    private static string? RunGit(
+        string sourceRoot,
+        string arguments,
+        List<ImportDiagnostic> diagnostics,
+        string sourceRecordId)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = $"-C \"{sourceRoot}\" {arguments}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            if (process is null)
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                    ImportDiagnosticSeverity.Error,
+                    sourceRecordId,
+                    "Could not start git to validate source provenance."));
+                return null;
+            }
+
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            var error = process.StandardError.ReadToEnd().Trim();
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                    ImportDiagnosticSeverity.Error,
+                    sourceRecordId,
+                    $"Git source provenance check failed: {error}"));
+                return null;
+            }
+
+            return output;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                sourceRecordId,
+                $"Git source provenance check failed: {exception.Message}"));
+            return null;
+        }
+    }
+
+    private static bool IsUnderDirectory(string fullPath, string directory)
+    {
+        var normalizedDirectory = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        return fullPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeRepositoryUri(string value)
+    {
+        var normalized = value.Trim().Replace('\\', '/').TrimEnd('/');
+        if (normalized.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^4];
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizePathOrNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : Path.GetFullPath(value);
     }
 
     private static DateTimeOffset NormalizeCreatedAtUtc(DateTimeOffset value)

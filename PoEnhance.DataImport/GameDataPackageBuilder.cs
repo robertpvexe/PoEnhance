@@ -68,11 +68,22 @@ public sealed class GameDataPackageBuilder
             };
         }
 
+        var modifierRecords = modifiers.ToArray();
+        var modifierIds = modifierRecords
+            .Where(modifier => modifier is not null)
+            .Select(modifier => modifier.Id?.Trim())
+            .Where(modifierId => !string.IsNullOrWhiteSpace(modifierId))
+            .Select(modifierId => modifierId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var itemBaseRecords = requireCompleteStatReferences
+            ? FilterItemBaseImplicitReferences(itemBases, modifierIds, diagnostics)
+            : itemBases.ToArray();
+
         var package = new GameDataPackage
         {
             Manifest = manifest,
-            ItemBases = itemBases.ToArray(),
-            Modifiers = modifiers.ToArray(),
+            ItemBases = itemBaseRecords,
+            Modifiers = modifierRecords,
             Stats = stats.ToArray(),
             StatTranslations = statTranslations.ToArray(),
         };
@@ -109,7 +120,6 @@ public sealed class GameDataPackageBuilder
             .Where(stat => !string.IsNullOrWhiteSpace(stat.Id))
             .Select(stat => stat.Id!.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
         foreach (var stat in package.Stats)
         {
             if (stat is null)
@@ -165,6 +175,52 @@ public sealed class GameDataPackageBuilder
                 }
             }
         }
+    }
+
+    private static ItemBaseRecord[] FilterItemBaseImplicitReferences(
+        IEnumerable<ItemBaseRecord> itemBases,
+        ISet<string> modifierIds,
+        List<ImportDiagnostic> diagnostics)
+    {
+        return itemBases
+            .Select(itemBase => FilterItemBaseImplicitReferences(itemBase, modifierIds, diagnostics))
+            .ToArray();
+    }
+
+    private static ItemBaseRecord FilterItemBaseImplicitReferences(
+        ItemBaseRecord itemBase,
+        ISet<string> modifierIds,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (itemBase.ImplicitModifierIds.Count == 0)
+        {
+            return itemBase;
+        }
+
+        var retained = new List<string>(itemBase.ImplicitModifierIds.Count);
+        foreach (var implicitModifierIdValue in itemBase.ImplicitModifierIds)
+        {
+            var implicitModifierId = implicitModifierIdValue?.Trim();
+            if (string.IsNullOrWhiteSpace(implicitModifierId))
+            {
+                continue;
+            }
+
+            if (modifierIds.Contains(implicitModifierId))
+            {
+                retained.Add(implicitModifierId);
+                continue;
+            }
+
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.PackageBaseImplicitModifierReferenceMissing,
+                ImportDiagnosticSeverity.Warning,
+                $"Item base '{itemBase.Id}' references implicit modifier id '{implicitModifierId}', but the assembled package does not contain that modifier; the runtime package will not retain this implicit reference."));
+        }
+
+        return retained.Count == itemBase.ImplicitModifierIds.Count
+            ? itemBase
+            : itemBase with { ImplicitModifierIds = retained };
     }
 
     private static void AddMissingAliasDiagnostic(

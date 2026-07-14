@@ -14,6 +14,8 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Contains("\"schemaVersion\": 1", json);
         Assert.Contains("\"dataVersion\": \"dev-2026-01-15\"", json);
         Assert.Contains("\"sourceId\": \"repoe\"", json);
+        Assert.Contains("\"sourceBranch\": \"master\"", json);
+        Assert.Contains("\"inputFiles\": [", json);
         Assert.Contains("\n", json);
         Assert.Contains("  \"sources\": [", json);
     }
@@ -32,7 +34,7 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Equal(manifest.CreatedAtUtc, roundTrippedManifest.CreatedAtUtc);
         Assert.Equal(manifest.League, roundTrippedManifest.League);
         Assert.Equal(manifest.Patch, roundTrippedManifest.Patch);
-        Assert.Equal(manifest.Sources, roundTrippedManifest.Sources);
+        Assert.Equal(manifest.Sources.Count, roundTrippedManifest.Sources.Count);
     }
 
     [Fact]
@@ -49,8 +51,17 @@ public sealed class GameDataPackageManifestJsonTests
         var repoe = roundTrippedManifest.Sources[0];
         Assert.Equal("repoe", repoe.SourceId);
         Assert.Equal(new DateTimeOffset(2026, 1, 15, 12, 5, 0, TimeSpan.Zero), repoe.RetrievedAtUtc);
-        Assert.Equal("repoe-dev-snapshot", repoe.SourceVersion);
-        Assert.Equal("https://github.com/brather1ng/RePoE", repoe.SourceUri);
+        Assert.Equal("c50acab2ed660a70511e7f91ee09db4e632089e4", repoe.SourceVersion);
+        Assert.Equal("https://github.com/repoe-fork/repoe", repoe.SourceUri);
+        Assert.Equal("master", repoe.SourceBranch);
+        Assert.Equal("/sources/repoe-fork", repoe.SourceRoot);
+        Assert.Equal("/sources/active-poe1", repoe.SourceDataRoot);
+        Assert.Equal(2, repoe.InputFiles.Count);
+        var baseItems = repoe.InputFiles[0];
+        Assert.Equal("base_items.json", baseItems.Label);
+        Assert.Equal("base_items.json", baseItems.RelativePath);
+        Assert.Equal(1_024, baseItems.SizeBytes);
+        Assert.Equal("96669bd7d4d7552e8cb2f15ee5fd0173580c7b14ca17583f55645b275a4d6ad1", baseItems.Sha256);
 
         var poedb = roundTrippedManifest.Sources[1];
         Assert.Equal("poedb", poedb.SourceId);

@@ -26,6 +26,9 @@ public static class GameDataValidationErrorCodes
     public const string ItemBaseRequiredLevelNegative = "itemBase.requiredLevel.negative";
     public const string ItemBaseTagRequired = "itemBase.tag.required";
     public const string ItemBaseTagDuplicate = "itemBase.tag.duplicate";
+    public const string ItemBaseImplicitModifierIdRequired = "itemBase.implicitModifierId.required";
+    public const string ItemBaseImplicitModifierIdDuplicate = "itemBase.implicitModifierId.duplicate";
+    public const string ItemBaseImplicitModifierIdUnknown = "itemBase.implicitModifierId.unknown";
 
     public const string ModifierRequired = "modifier.required";
     public const string ModifierIdRequired = "modifier.id.required";

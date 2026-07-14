@@ -20,7 +20,7 @@ internal sealed record PathOfExileTradeSearchQuery
     public string? Name { get; init; }
 
     [JsonPropertyOrder(2)]
-    public required string Type { get; init; }
+    public string? Type { get; init; }
 
     [JsonPropertyOrder(3)]
     public IReadOnlyList<PathOfExileTradeSearchStatsGroup> Stats { get; init; } =

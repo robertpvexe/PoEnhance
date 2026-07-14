@@ -4,6 +4,7 @@ using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -91,10 +92,58 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.Single(fixture.CatalogProvider.Calls);
         Assert.Empty(fixture.ItemCatalogProvider.Calls);
         var mappingCall = Assert.Single(fixture.SelectedModifierMapper.Calls);
-        Assert.Same(catalog, mappingCall.Catalog);
+        var resolvedComponent = Assert.Single(mappingCall.Draft!.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolvedComponent.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_life", resolvedComponent.ProviderStatId);
+        Assert.Equal("+# to maximum Life", resolvedComponent.ProviderStatText);
         Assert.Same(providerFilters, Assert.Single(fixture.QueryBuilder.Calls).SelectedModifierFilters);
         Assert.Single(fixture.SearchClient.Calls);
         Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_ExactBaseSelectedBaseImplicitMarksComponentBaseGuaranteedBeforeMapping()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.CatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(ImplicitCatalog()));
+        fixture.SelectedModifierMapper.Result =
+            PathOfExileTradeSelectedModifierMappingResult.Success([]);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var result = await fixture.Service.CheckAsync(
+            BaseImplicitDraft(BaseSearchMode.ExactBase),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var mappingCall = Assert.Single(fixture.SelectedModifierMapper.Calls);
+        var component = Assert.Single(mappingCall.Draft!.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.BaseGuaranteed, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+    }
+
+    [Fact]
+    public async Task CheckAsync_CategorySelectedBaseImplicitResolvesProviderStatBeforeMapping()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.CatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(ImplicitCatalog()));
+        fixture.SelectedModifierMapper.Result =
+            PathOfExileTradeSelectedModifierMappingResult.Success(
+            [
+                ProviderFilter(0, "implicit.stat_4082780964"),
+            ]);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var result = await fixture.Service.CheckAsync(
+            BaseImplicitDraft(BaseSearchMode.Category),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var mappingCall = Assert.Single(fixture.SelectedModifierMapper.Calls);
+        var component = Assert.Single(mappingCall.Draft!.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("implicit.stat_4082780964", component.ProviderStatId);
     }
 
     [Fact]
@@ -262,9 +311,10 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         fetchClient.Enqueue(FetchSuccess([Offer("id-1")]));
         var service = new PathOfExileTradePriceCheckService(
             queryBuilder,
+            new PathOfExileTradeStatMatcher(),
             catalogProvider,
             new FakeItemCatalogProvider(),
-            new PathOfExileTradeSelectedModifierMapper(new PathOfExileTradeStatMatcher()),
+            new PathOfExileTradeSelectedModifierMapper(),
             new FakeItemIdentityMapper(),
             searchClient,
             fetchClient);
@@ -279,7 +329,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         var providerFilter = Assert.Single(queryBuildCall.SelectedModifierFilters ?? []);
         Assert.Equal("explicit.stat_life", providerFilter.StatId);
         Assert.Equal("+# to maximum Life", providerFilter.NormalizedItemTemplate);
-        Assert.Equal([101m], providerFilter.ExtractedNumericValues);
+        Assert.Empty(providerFilter.ExtractedNumericValues);
         Assert.Single(searchClient.Calls);
         Assert.Single(fetchClient.Calls);
     }
@@ -717,12 +767,83 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         {
             ModifierFilters =
             [
-                new TradeModifierFilterDraft
+                new ResolvedSearchComponent
                 {
+                    ComponentId = "modifier:0:0",
                     OriginalText = originalText,
+                    CanonicalSignature = "+# to maximum Life",
                     ParsedKind = PoEnhance.Core.Items.Parsing.ParsedModifierKind.Prefix,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.life",
+                    ResolvedStatIds = ["base_maximum_life"],
+                    IsSearchable = true,
+                    IsSelected = true,
+                },
+            ],
+        };
+    }
+
+    private static TradeSearchDraft BaseImplicitDraft(BaseSearchMode activeMode)
+    {
+        var category = "Wand";
+        var exactBaseName = "Blasting Wand";
+        var categoryCriterion = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = category,
+        };
+        var exactBaseCriterion = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.ExactBase,
+            Category = category,
+            ExactBaseName = exactBaseName,
+        };
+
+        return new TradeSearchDraft
+        {
+            ItemClass = "Wands",
+            Rarity = "Rare",
+            DisplayName = "Glyph Needle",
+            ParsedBaseType = exactBaseName,
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseId = "base.blasting-wand",
+                ResolvedBaseName = exactBaseName,
+                Category = category,
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = ItemBaseResolutionStatus.Exact,
+                    ExactBaseId = "base.blasting-wand",
+                    ExactBaseName = exactBaseName,
+                    Category = category,
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = categoryCriterion,
+                    ExactBase = exactBaseCriterion,
+                },
+                ActiveCriterion = activeMode == BaseSearchMode.ExactBase
+                    ? exactBaseCriterion
+                    : categoryCriterion,
+            },
+            ModifierFilters =
+            [
+                new ResolvedSearchComponent
+                {
+                    ComponentId = "base-implicit:0:mod.implicit.caster",
+                    SourceModifierIndex = -1,
+                    SourceComponentIndex = 0,
+                    OriginalText = "Cannot roll Caster Modifiers",
+                    CanonicalSignature = "Cannot roll Caster Modifiers",
+                    ParsedKind = PoEnhance.Core.Items.Parsing.ParsedModifierKind.Implicit,
+                    GenerationType = ModifierGenerationType.Implicit,
+                    Locality = ModifierLocality.Global,
+                    IsBaseImplicit = true,
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+                    ResolvedModifierId = "mod.implicit.caster",
+                    ResolvedStatIds = ["kinetic_wand_implicit_cannot_roll_caster_modifiers"],
+                    IsSearchable = true,
                     IsSelected = true,
                 },
             ],
@@ -847,6 +968,22 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         ]);
     }
 
+    private static PathOfExileTradeStatCatalog ImplicitCatalog()
+    {
+        return new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "implicit",
+                GroupLabel = "Implicit",
+                Id = "implicit.stat_4082780964",
+                Text = "Cannot roll Caster Modifiers",
+                Type = "implicit",
+            },
+        ]);
+    }
+
     private static PathOfExileTradeItemCatalog ItemCatalog()
     {
         return new PathOfExileTradeItemCatalog(
@@ -904,7 +1041,8 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         TradeSearchValidationResult? ValidationResult,
         string? LeagueIdentifier,
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? SelectedModifierFilters,
-        PathOfExileTradeItemIdentity? ProviderItemIdentity);
+        PathOfExileTradeItemIdentity? ProviderItemIdentity,
+        PathOfExileTradeFilterCatalog? ProviderFilterCatalog);
 
     private sealed record CatalogCall(CancellationToken CancellationToken);
 
@@ -912,9 +1050,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         TradeSearchDraft? Draft,
         PathOfExileTradeItemCatalog? Catalog);
 
-    private sealed record MappingCall(
-        TradeSearchDraft? Draft,
-        PathOfExileTradeStatCatalog? Catalog);
+    private sealed record MappingCall(TradeSearchDraft? Draft);
 
     private sealed record SearchCall(
         PathOfExileTradeSearchRequest? Request,
@@ -946,6 +1082,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             FetchClient = fetchClient;
             Service = new PathOfExileTradePriceCheckService(
                 queryBuilder,
+                new PathOfExileTradeStatMatcher(),
                 catalogProvider,
                 itemCatalogProvider,
                 selectedModifierMapper,
@@ -1005,14 +1142,16 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             TradeSearchValidationResult? validationResult,
             string? leagueIdentifier,
             IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
-            PathOfExileTradeItemIdentity? providerItemIdentity = null)
+            PathOfExileTradeItemIdentity? providerItemIdentity = null,
+            PathOfExileTradeFilterCatalog? providerFilterCatalog = null)
         {
             Calls.Add(new QueryBuildCall(
                 draft,
                 validationResult,
                 leagueIdentifier,
                 selectedModifierFilters,
-                providerItemIdentity));
+                providerItemIdentity,
+                providerFilterCatalog));
             return Result;
         }
     }
@@ -1094,11 +1233,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         public PathOfExileTradeSelectedModifierMappingResult Result { get; set; } =
             PathOfExileTradeSelectedModifierMappingResult.Success([ProviderFilter(0, "explicit.stat_life")]);
 
-        public PathOfExileTradeSelectedModifierMappingResult Map(
-            TradeSearchDraft? draft,
-            PathOfExileTradeStatCatalog? catalog)
+        public PathOfExileTradeSelectedModifierMappingResult Map(TradeSearchDraft? draft)
         {
-            Calls.Add(new MappingCall(draft, catalog));
+            Calls.Add(new MappingCall(draft));
             return Result;
         }
     }

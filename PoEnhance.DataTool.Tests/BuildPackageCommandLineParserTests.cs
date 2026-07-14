@@ -18,6 +18,14 @@ public sealed class BuildPackageCommandLineParserTests
             "stat_translations.json",
             "--output",
             "package.json",
+            "--source-root",
+            "repoe",
+            "--source-data-root",
+            "repoe-data",
+            "--source-uri",
+            "https://github.com/repoe-fork/repoe",
+            "--source-branch",
+            "master",
             "--data-version",
             "dev-001",
             "--league",
@@ -36,6 +44,10 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("stats.json", result.Request.StatsPath);
         Assert.Equal("stat_translations.json", result.Request.TranslationsPath);
         Assert.Equal("package.json", result.Request.OutputPath);
+        Assert.Equal("repoe", result.Request.SourceRootPath);
+        Assert.Equal("repoe-data", result.Request.SourceDataRootPath);
+        Assert.Equal("https://github.com/repoe-fork/repoe", result.Request.SourceUri);
+        Assert.Equal("master", result.Request.SourceBranch);
         Assert.Equal("dev-001", result.Request.DataVersion);
         Assert.Equal("Mercenaries", result.Request.League);
         Assert.Equal("3.26.0", result.Request.Patch);
@@ -77,6 +89,16 @@ public sealed class BuildPackageCommandLineParserTests
             "stat_translations.json",
             "--output",
             "package.json",
+            "--source-root",
+            "repoe",
+            "--source-data-root",
+            "repoe-data",
+            "--source-uri",
+            "https://github.com/repoe-fork/repoe",
+            "--source-branch",
+            "master",
+            "--source-version",
+            "repoe-commit",
             "--data-version",
             "dev-001",
             "--wat",
@@ -102,6 +124,16 @@ public sealed class BuildPackageCommandLineParserTests
             "stat_translations.json",
             "--output",
             "package.json",
+            "--source-root",
+            "repoe",
+            "--source-data-root",
+            "repoe-data",
+            "--source-uri",
+            "https://github.com/repoe-fork/repoe",
+            "--source-branch",
+            "master",
+            "--source-version",
+            "repoe-commit",
             "--data-version",
             "dev-001",
         ]);
@@ -122,6 +154,7 @@ public sealed class BuildPackageCommandLineParserTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Contains("--mods", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("--source-root", StringComparison.Ordinal));
         Assert.Contains(result.Errors, error => error.Contains("--data-version", StringComparison.Ordinal));
     }
 }

@@ -19,8 +19,28 @@ internal static class GameDataPackageManifestFixtures
                 {
                     SourceId = "repoe",
                     RetrievedAtUtc = new DateTimeOffset(2026, 1, 15, 12, 5, 0, TimeSpan.Zero),
-                    SourceVersion = "repoe-dev-snapshot",
-                    SourceUri = "https://github.com/brather1ng/RePoE",
+                    SourceVersion = "c50acab2ed660a70511e7f91ee09db4e632089e4",
+                    SourceUri = "https://github.com/repoe-fork/repoe",
+                    SourceBranch = "master",
+                    SourceRoot = "/sources/repoe-fork",
+                    SourceDataRoot = "/sources/active-poe1",
+                    InputFiles =
+                    [
+                        new GameDataPackageInputFileFingerprint
+                        {
+                            Label = "base_items.json",
+                            RelativePath = "base_items.json",
+                            SizeBytes = 1_024,
+                            Sha256 = "96669bd7d4d7552e8cb2f15ee5fd0173580c7b14ca17583f55645b275a4d6ad1",
+                        },
+                        new GameDataPackageInputFileFingerprint
+                        {
+                            Label = "mods.json",
+                            RelativePath = "mods.json",
+                            SizeBytes = 2_048,
+                            Sha256 = "785bf97bc7c0d4485e38355bc880887177904aae14bd38271d788b1e5611b26d",
+                        },
+                    ],
                 },
                 new GameDataPackageSource
                 {

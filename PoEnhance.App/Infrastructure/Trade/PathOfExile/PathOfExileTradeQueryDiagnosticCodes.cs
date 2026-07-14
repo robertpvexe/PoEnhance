@@ -12,6 +12,10 @@ internal static class PathOfExileTradeQueryDiagnosticCodes
 
     public const string MissingBaseIdentity = "POE_TRADE_QUERY_MISSING_BASE_IDENTITY";
 
+    public const string MissingProviderCategoryCatalog = "POE_TRADE_QUERY_MISSING_PROVIDER_CATEGORY_CATALOG";
+
+    public const string UnsupportedProviderCategory = "POE_TRADE_QUERY_UNSUPPORTED_PROVIDER_CATEGORY";
+
     public const string SelectedModifiersMissingProviderMapping = "POE_TRADE_QUERY_SELECTED_MODIFIERS_MISSING_PROVIDER_MAPPING";
 
     public const string SelectedModifierMappingMismatch = "POE_TRADE_QUERY_SELECTED_MODIFIER_MAPPING_MISMATCH";

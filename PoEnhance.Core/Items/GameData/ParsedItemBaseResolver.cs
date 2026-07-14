@@ -83,45 +83,51 @@ public sealed class ParsedItemBaseResolver
                 "The magic item display name is empty.");
         }
 
-        var candidates = catalog.ItemBases
-            .Where(itemBase => IsMagicBaseNameCandidate(displayName, itemBase.Name))
+        var normalizedDisplayName = NormalizeWhitespace(displayName);
+        var nameMatches = catalog.ItemBases
+            .Select(itemBase => new MagicBaseNameCandidate(itemBase, NormalizeWhitespace(itemBase.Name ?? string.Empty)))
+            .Where(candidate =>
+                candidate.NormalizedName.Length > 0 &&
+                ContainsCompleteTokenPhrase(normalizedDisplayName, candidate.NormalizedName))
             .ToArray();
-        if (candidates.Length == 0)
+        if (nameMatches.Length == 0)
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseNotFound,
                 "No catalog item base matched the magic item display name.");
         }
 
-        var longestCandidateNameLength = candidates
-            .Select(candidate => candidate.Name?.Trim().Length ?? 0)
-            .Max();
-        var longestCandidates = candidates
-            .Where(candidate => (candidate.Name?.Trim().Length ?? 0) == longestCandidateNameLength)
+        var compatibleMatches = nameMatches
+            .Where(candidate => IsCompatibleWithParsedItemClass(candidate.ItemBase, parsedItem.ItemClass))
             .ToArray();
-
-        var classMatches = NarrowByItemClass(longestCandidates, parsedItem.ItemClass);
-        if (classMatches.Count == 0)
+        if (compatibleMatches.Length == 0)
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseItemClassMismatch,
                 "Magic-name item base candidates were found, but none matched the parsed item class.",
-                longestCandidates);
+                nameMatches.Select(candidate => candidate.ItemBase).ToArray());
         }
 
-        if (classMatches.Count > 1)
+        var longestCandidateNameLength = compatibleMatches
+            .Select(candidate => candidate.NormalizedName.Length)
+            .Max();
+        var longestCandidates = compatibleMatches
+            .Where(candidate => candidate.NormalizedName.Length == longestCandidateNameLength)
+            .ToArray();
+
+        if (longestCandidates.Length > 1)
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
                 "Multiple equally specific magic-name item base candidates remain.",
-                classMatches);
+                longestCandidates.Select(candidate => candidate.ItemBase).ToArray());
         }
 
         return Matched(
             ItemBaseResolutionStatus.Probable,
-            classMatches[0],
+            longestCandidates[0].ItemBase,
             ItemBaseResolutionDiagnosticCodes.BaseProbableMagicSuffixMatch,
-            "The magic item display name matched one catalog item base by token-boundary suffix.");
+            "The magic item display name contained one compatible catalog item base as a complete token phrase.");
     }
 
     private static bool TryResolveGenericCategoryDisplayName(
@@ -261,45 +267,63 @@ public sealed class ParsedItemBaseResolver
         return true;
     }
 
-    private static bool IsMagicBaseNameCandidate(string displayName, string? baseName)
-    {
-        baseName = baseName?.Trim();
-        if (string.IsNullOrEmpty(baseName))
-        {
-            return false;
-        }
-
-        if (EndsWithTokenBoundary(displayName, baseName))
-        {
-            return true;
-        }
-
-        var suffixStart = displayName.LastIndexOf(" of ", StringComparison.OrdinalIgnoreCase);
-        return suffixStart > 0 && EndsWithTokenBoundary(displayName[..suffixStart], baseName);
-    }
-
-    private static bool EndsWithTokenBoundary(string text, string suffix)
-    {
-        text = text.Trim();
-        suffix = suffix.Trim();
-
-        if (text.Length < suffix.Length)
-        {
-            return false;
-        }
-
-        if (!text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var startIndex = text.Length - suffix.Length;
-        return startIndex == 0 || char.IsWhiteSpace(text[startIndex - 1]);
-    }
-
     private static bool IsMagic(ParsedItem parsedItem)
     {
         return string.Equals(parsedItem.Rarity?.Trim(), MagicRarity, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeWhitespace(string value)
+    {
+        return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static bool ContainsCompleteTokenPhrase(string text, string phrase)
+    {
+        if (phrase.Length == 0 || text.Length < phrase.Length)
+        {
+            return false;
+        }
+
+        var searchStart = 0;
+        while (searchStart <= text.Length - phrase.Length)
+        {
+            var matchStart = text.IndexOf(phrase, searchStart, StringComparison.OrdinalIgnoreCase);
+            if (matchStart < 0)
+            {
+                return false;
+            }
+
+            var matchEnd = matchStart + phrase.Length;
+            if (HasTokenBoundaryBefore(text, matchStart) && HasTokenBoundaryAfter(text, matchEnd))
+            {
+                return true;
+            }
+
+            searchStart = matchStart + 1;
+        }
+
+        return false;
+    }
+
+    private static bool HasTokenBoundaryBefore(string text, int matchStart)
+    {
+        return matchStart == 0 || !IsTokenCharacter(text[matchStart - 1]);
+    }
+
+    private static bool HasTokenBoundaryAfter(string text, int matchEnd)
+    {
+        return matchEnd == text.Length || !IsTokenCharacter(text[matchEnd]);
+    }
+
+    private static bool IsTokenCharacter(char character)
+    {
+        return char.IsLetterOrDigit(character);
+    }
+
+    private static bool IsCompatibleWithParsedItemClass(ItemBaseRecord candidate, string? itemClass)
+    {
+        return string.IsNullOrWhiteSpace(itemClass) ||
+            ItemBaseClassCompatibility.AreCompatible(itemClass, candidate.ItemClass);
     }
 
     private static IReadOnlyList<ItemBaseRecord> NarrowByItemClass(
@@ -354,4 +378,6 @@ public sealed class ParsedItemBaseResolver
     {
         return new ReadOnlyCollection<T>(values.ToArray());
     }
+
+    private sealed record MagicBaseNameCandidate(ItemBaseRecord ItemBase, string NormalizedName);
 }

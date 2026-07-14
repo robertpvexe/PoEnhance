@@ -54,7 +54,7 @@ public sealed class GameDataPackageJsonTests
             {
                 Assert.Equal("repoe", repoe.SourceId);
                 Assert.Equal("Metadata/Items/Rings/Ring5", repoe.ExternalId);
-                Assert.Equal("https://github.com/brather1ng/RePoE", repoe.ExternalUri);
+                Assert.Equal("https://github.com/repoe-fork/repoe", repoe.ExternalUri);
             },
             poedb =>
             {
@@ -163,8 +163,9 @@ public sealed class GameDataPackageJsonTests
                   {
                     "sourceId": "repoe",
                     "retrievedAtUtc": "2026-01-15T12:05:00+00:00",
-                    "sourceVersion": "repoe-dev-snapshot",
-                    "sourceUri": "https://github.com/brather1ng/RePoE"
+                    "sourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4",
+                    "sourceUri": "https://github.com/repoe-fork/repoe",
+                    "sourceBranch": "master"
                   }
                 ]
               }

@@ -2,6 +2,6 @@ namespace PoEnhance.Core.Trade;
 
 public enum TradeListingMode
 {
-    MerchantOnly,
+    InstantBuyout,
     InPerson,
 }

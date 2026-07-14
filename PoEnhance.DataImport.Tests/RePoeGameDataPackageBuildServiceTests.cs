@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using PoEnhance.GameData;
 
@@ -6,6 +7,7 @@ namespace PoEnhance.DataImport.Tests;
 public sealed class RePoeGameDataPackageBuildServiceTests
 {
     private static readonly DateTimeOffset FixedCreatedAtUtc = new(2026, 7, 12, 10, 30, 0, TimeSpan.Zero);
+    private static readonly Lazy<TestSource> SharedTestSource = new(CreateSharedTestSource);
 
     private readonly RePoeGameDataPackageBuildService _service = new();
 
@@ -24,7 +26,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.NotNull(result.Package);
         Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
         Assert.Equal(6, result.FinalCounts.ItemBases);
-        Assert.Equal(3, result.FinalCounts.Modifiers);
+        Assert.Equal(4, result.FinalCounts.Modifiers);
         Assert.Equal(19, result.FinalCounts.Stats);
         Assert.Equal(6, result.FinalCounts.StatTranslations);
         Assert.Equal(new FileInfo(outputPath).Length, result.OutputFileSizeBytes);
@@ -49,7 +51,15 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         var source = Assert.Single(package.Manifest.Sources);
         Assert.Equal("repoe", source.SourceId);
         Assert.Equal("https://github.com/repoe-fork/repoe", source.SourceUri);
-        Assert.Equal("c50acab2ed660a70511e7f91ee09db4e632089e4", source.SourceVersion);
+        Assert.Equal("master", source.SourceBranch);
+        Assert.Equal(SharedTestSource.Value.SourceVersion, source.SourceVersion);
+        Assert.Equal(4, source.InputFiles.Count);
+        Assert.All(source.InputFiles, input =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(input.RelativePath));
+            Assert.False(string.IsNullOrWhiteSpace(input.Sha256));
+            Assert.True(input.SizeBytes > 0);
+        });
         Assert.True(GameDataPackageValidator.Validate(package).IsValid);
     }
 
@@ -75,9 +85,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     {
         using var workspace = TemporaryWorkspace.Create();
         var outputPath = workspace.PathFor("package.json");
-        var request = CreateRequest(outputPath) with
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
         {
-            ModsPath = workspace.PathFor("missing-mods.json"),
+            ModsPath = workspace.PathFor("source-data", "missing-mods.json"),
         };
 
         var result = _service.Build(request);
@@ -101,12 +111,56 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     }
 
     [Fact]
+    public void Build_SourceVersionMismatch_ReturnsInvalidArgumentsAndDoesNotWriteOutput()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.PathFor("package.json");
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            SourceVersion = "8023a1d696dbddc836c05ac3fcedd072da1767d2",
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.InvalidArguments, result.ExitCode);
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.BuildArgumentInvalid &&
+            diagnostic.SourceRecordId == "--source-version" &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Build_InputOutsideDeclaredSourceDataRoot_ReturnsInvalidArguments()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.PathFor("package.json");
+        var outsideModsPath = workspace.WriteText(
+            "outside-mods.json",
+            File.ReadAllText(RePoeImportTestFixtures.ReducedModsPath));
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            ModsPath = outsideModsPath,
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.InvalidArguments, result.ExitCode);
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.BuildArgumentInvalid &&
+            diagnostic.SourceRecordId == "mods.json" &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
+    }
+
+    [Fact]
     public void Build_MalformedSourceFile_ReturnsSourceImportFailureAndDoesNotWriteOutput()
     {
         using var workspace = TemporaryWorkspace.Create();
-        var malformedBaseItemsPath = workspace.WriteText("base_items.bad.json", "[]");
         var outputPath = workspace.PathFor("package.json");
-        var request = CreateRequest(outputPath) with
+        var request = CreateWorkspaceRequest(workspace, outputPath);
+        var malformedBaseItemsPath = workspace.WriteText(Path.Combine("source-data", "base_items.bad.json"), "[]");
+        request = request with
         {
             BaseItemsPath = malformedBaseItemsPath,
         };
@@ -124,9 +178,10 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     public void Build_ImportWithErrorDiagnostics_DoesNotWriteOutput()
     {
         using var workspace = TemporaryWorkspace.Create();
-        var malformedStatsPath = workspace.WriteText("stats.bad.json", "[]");
         var outputPath = workspace.PathFor("package.json");
-        var request = CreateRequest(outputPath) with
+        var request = CreateWorkspaceRequest(workspace, outputPath);
+        var malformedStatsPath = workspace.WriteText(Path.Combine("source-data", "stats.bad.json"), "[]");
+        request = request with
         {
             StatsPath = malformedStatsPath,
         };
@@ -144,8 +199,10 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     public void Build_ValidationFailure_DoesNotOverwriteExistingOutputOrLeaveTempFile()
     {
         using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.WriteText("package.json", "existing valid package");
+        var request = CreateWorkspaceRequest(workspace, outputPath);
         var badModsPath = workspace.WriteText(
-            "mods.unknown-stat.json",
+            Path.Combine("source-data", "mods.unknown-stat.json"),
             """
             {
               "BadUnknownStatMod": {
@@ -162,8 +219,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
               }
             }
             """);
-        var outputPath = workspace.WriteText("package.json", "existing valid package");
-        var request = CreateRequest(outputPath) with
+        request = request with
         {
             ModsPath = badModsPath,
         };
@@ -201,7 +257,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Collection(
             result.SourceSummaries,
             itemBases => AssertSummary(itemBases, "ItemBases", 6, 6, 0),
-            modifiers => AssertSummary(modifiers, "Modifiers", 3, 3, 0),
+            modifiers => AssertSummary(modifiers, "Modifiers", 4, 4, 0),
             stats => AssertSummary(stats, "Stats", 19, 19, 0),
             translations => AssertSummary(translations, "StatTranslations", 6, 6, 0));
     }
@@ -227,6 +283,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
 
     private static GameDataPackageBuildRequest CreateRequest(string outputPath)
     {
+        var testSource = SharedTestSource.Value;
         return new GameDataPackageBuildRequest
         {
             BaseItemsPath = RePoeImportTestFixtures.ReducedBaseItemsPath,
@@ -234,12 +291,90 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             StatsPath = RePoeImportTestFixtures.ReducedStatsPath,
             TranslationsPath = RePoeImportTestFixtures.ReducedStatTranslationsPath,
             OutputPath = outputPath,
+            SourceRootPath = testSource.SourceRoot,
+            SourceDataRootPath = testSource.DataRoot,
+            SourceUri = testSource.SourceUri,
+            SourceBranch = testSource.SourceBranch,
             DataVersion = "dev-test",
             League = "Mercenaries",
             Patch = "3.26.0",
-            SourceVersion = "c50acab2ed660a70511e7f91ee09db4e632089e4",
+            SourceVersion = testSource.SourceVersion,
             CreatedAtUtc = FixedCreatedAtUtc,
         };
+    }
+
+    private static GameDataPackageBuildRequest CreateWorkspaceRequest(
+        TemporaryWorkspace workspace,
+        string outputPath)
+    {
+        var dataRoot = workspace.PathFor("source-data");
+        Directory.CreateDirectory(dataRoot);
+
+        var baseItemsPath = CopyFixture(RePoeImportTestFixtures.ReducedBaseItemsPath, dataRoot, "base_items.json");
+        var modsPath = CopyFixture(RePoeImportTestFixtures.ReducedModsPath, dataRoot, "mods.json");
+        var statsPath = CopyFixture(RePoeImportTestFixtures.ReducedStatsPath, dataRoot, "stats.json");
+        var translationsPath = CopyFixture(
+            RePoeImportTestFixtures.ReducedStatTranslationsPath,
+            dataRoot,
+            "stat_translations.json");
+
+        return CreateRequest(outputPath) with
+        {
+            BaseItemsPath = baseItemsPath,
+            ModsPath = modsPath,
+            StatsPath = statsPath,
+            TranslationsPath = translationsPath,
+            SourceDataRootPath = dataRoot,
+        };
+    }
+
+    private static string CopyFixture(string sourcePath, string dataRoot, string fileName)
+    {
+        var destinationPath = Path.Combine(dataRoot, fileName);
+        File.Copy(sourcePath, destinationPath, overwrite: true);
+        return destinationPath;
+    }
+
+    private static TestSource CreateSharedTestSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "PoEnhance.DataImport.Tests", "source-" + Guid.NewGuid().ToString("N"));
+        var sourceRoot = Path.Combine(root, "repoe");
+        Directory.CreateDirectory(sourceRoot);
+
+        File.WriteAllText(Path.Combine(sourceRoot, "README.md"), "PoEnhance test source provenance repository.");
+        RunGit(sourceRoot, "init");
+        RunGit(sourceRoot, "checkout -B master");
+        RunGit(sourceRoot, "remote add origin https://github.com/repoe-fork/repoe");
+        RunGit(sourceRoot, "add README.md");
+        RunGit(sourceRoot, "-c user.name=PoEnhance -c user.email=poenhance@example.invalid commit -m init");
+        var sourceVersion = RunGit(sourceRoot, "rev-parse HEAD");
+
+        return new TestSource(
+            sourceRoot,
+            Path.GetDirectoryName(RePoeImportTestFixtures.ReducedBaseItemsPath)!,
+            "https://github.com/repoe-fork/repoe",
+            "master",
+            sourceVersion);
+    }
+
+    private static string RunGit(string workingDirectory, string arguments)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = $"-C \"{workingDirectory}\" {arguments}",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        Assert.NotNull(process);
+
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        var error = process.StandardError.ReadToEnd().Trim();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"git {arguments} failed: {error}");
+        return output;
     }
 
     private static void AssertSummary(
@@ -268,6 +403,13 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         var hash = SHA256.HashData(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    private sealed record TestSource(
+        string SourceRoot,
+        string DataRoot,
+        string SourceUri,
+        string SourceBranch,
+        string SourceVersion);
 
     private sealed class TemporaryWorkspace : IDisposable
     {
