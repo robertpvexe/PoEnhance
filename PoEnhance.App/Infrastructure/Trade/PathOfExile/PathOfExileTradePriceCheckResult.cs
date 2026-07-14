@@ -14,6 +14,8 @@ internal sealed record PathOfExileTradePriceCheckResult
 
     public IReadOnlyList<PathOfExileTradeFetchedOffer> Offers { get; init; } = [];
 
+    public PathOfExileTradeRateLimitSnapshot? CatalogRateLimitSnapshot { get; init; }
+
     public PathOfExileTradeRateLimitSnapshot? SearchRateLimitSnapshot { get; init; }
 
     public PathOfExileTradeRateLimitSnapshot? FetchRateLimitSnapshot { get; init; }

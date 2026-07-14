@@ -161,25 +161,78 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_SelectedExactModifier_BlocksBaseOnlyBuilder()
+    public void Build_SelectedModifierWithoutProviderMapping_FailsBeforeSerialization()
     {
         var result = builder.Build(
             Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
             ValidValidation(),
             League);
 
-        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersUnsupported);
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping);
     }
 
     [Fact]
-    public void Build_SelectedUnknownModifier_BlocksBaseOnlyBuilder()
+    public void Build_SelectedModifierMappingCountMismatch_FailsBeforeSerialization()
     {
         var result = builder.Build(
-            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Unknown)]),
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
             ValidValidation(),
-            League);
+            League,
+            [
+                ProviderFilter(0, "explicit.stat_one"),
+                ProviderFilter(1, "explicit.stat_two"),
+            ]);
 
-        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersUnsupported);
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifierMappingMismatch);
+    }
+
+    [Fact]
+    public void Build_InvalidSelectedModifierMapping_FailsBeforeSerialization()
+    {
+        var result = builder.Build(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            ValidValidation(),
+            League,
+            [ProviderFilter(0, " ")]);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedModifierMapping);
+    }
+
+    [Fact]
+    public void Build_SelectedProviderFilters_AreSerializedAsPresenceOnlyIdsInSelectedOrder()
+    {
+        var result = BuildSuccessful(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+            ]),
+            [
+                ProviderFilter(0, "explicit.stat_life", [55m]),
+                ProviderFilter(1, "explicit.stat_resistance", [38m]),
+            ]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+
+        Assert.Equal(["explicit.stat_life", "explicit.stat_resistance"], filters.Select(filter =>
+            filter.GetProperty("id").GetString()));
+        Assert.All(filters, filter =>
+        {
+            Assert.False(filter.TryGetProperty("value", out _));
+            Assert.False(filter.TryGetProperty("min", out _));
+            Assert.False(filter.TryGetProperty("max", out _));
+            Assert.False(filter.TryGetProperty("disabled", out _));
+            Assert.False(filter.TryGetProperty("pseudo", out _));
+            Assert.False(filter.TryGetProperty("count", out _));
+            Assert.False(filter.TryGetProperty("weighted", out _));
+            Assert.Single(filter.EnumerateObject());
+        });
     }
 
     [Fact]
@@ -333,9 +386,11 @@ public sealed class PathOfExileTradeQueryBuilderTests
             type => Contains(type, "CurrencyExchange") || Contains(type, "PublicStash"));
     }
 
-    private PathOfExileTradeQueryBuildResult BuildSuccessful(TradeSearchDraft draft)
+    private PathOfExileTradeQueryBuildResult BuildSuccessful(
+        TradeSearchDraft draft,
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
     {
-        var result = builder.Build(draft, ValidValidation(), League);
+        var result = builder.Build(draft, ValidValidation(), League, selectedModifierFilters);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Diagnostics);
@@ -384,6 +439,21 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 ? "mod.test"
                 : null,
             IsSelected = isSelected,
+        };
+    }
+
+    private static PathOfExileTradeSelectedModifierFilter ProviderFilter(
+        int sourceIndex,
+        string statId,
+        IReadOnlyList<decimal>? extractedNumericValues = null)
+    {
+        return new PathOfExileTradeSelectedModifierFilter
+        {
+            SourceIndex = sourceIndex,
+            StatId = statId,
+            OriginalText = "+55 to maximum Life",
+            NormalizedItemTemplate = "+# to maximum Life",
+            ExtractedNumericValues = extractedNumericValues ?? [],
         };
     }
 

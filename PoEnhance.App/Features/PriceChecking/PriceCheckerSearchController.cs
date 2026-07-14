@@ -217,17 +217,12 @@ internal sealed class PriceCheckerSearchController
 
         if (currentDraft is null || currentValidationResult is null)
         {
-            return ValidationState("Select a supported base-only search.");
+            return ValidationState("Select a supported Trade search.");
         }
 
         if (!currentValidationResult.IsValid)
         {
-            return ValidationState("Select a supported base-only search.");
-        }
-
-        if (currentDraft.ModifierFilters.Any(modifier => modifier.IsSelected))
-        {
-            return ValidationState("Select a supported base-only search.");
+            return ValidationState(LocalValidationMessage(currentValidationResult));
         }
 
         return null;
@@ -259,7 +254,9 @@ internal sealed class PriceCheckerSearchController
 
         if (!result.IsSuccess)
         {
-            var status = result.Stage == PathOfExileTradePriceCheckStage.QueryBuild
+            var status = result.Stage is
+                    PathOfExileTradePriceCheckStage.QueryBuild or
+                    PathOfExileTradePriceCheckStage.ModifierMapping
                 ? PriceCheckerSearchViewStatus.ValidationError
                 : PriceCheckerSearchViewStatus.ProviderOrTransportError;
             return new PriceCheckerSearchViewState
@@ -267,9 +264,7 @@ internal sealed class PriceCheckerSearchController
                 Status = status,
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
-                Message = status == PriceCheckerSearchViewStatus.ValidationError
-                    ? "Select a supported base-only search."
-                    : FailureMessage(result),
+                Message = FailureMessage(result),
             };
         }
 
@@ -314,6 +309,21 @@ internal sealed class PriceCheckerSearchController
 
     private static string FailureMessage(PathOfExileTradePriceCheckResult result)
     {
+        if (result.Stage == PathOfExileTradePriceCheckStage.QueryBuild)
+        {
+            return "Select a supported Trade search.";
+        }
+
+        if (result.Stage == PathOfExileTradePriceCheckStage.CatalogLoad)
+        {
+            return "Could not load Trade modifier definitions.";
+        }
+
+        if (result.Stage == PathOfExileTradePriceCheckStage.ModifierMapping)
+        {
+            return ModifierMappingFailureMessage(result);
+        }
+
         var diagnostic = result.Diagnostics.FirstOrDefault();
         if (diagnostic?.SourceCode == PathOfExileTradeHttpDiagnosticCodes.ProviderDeclaredError)
         {
@@ -331,6 +341,33 @@ internal sealed class PriceCheckerSearchController
         }
 
         return "Trade request failed. Try again later.";
+    }
+
+    private static string LocalValidationMessage(TradeSearchValidationResult validationResult)
+    {
+        if (validationResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error &&
+                diagnostic.Code is TradeSearchValidationDiagnosticCodes.SelectedModifierMissingText or
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved))
+        {
+            return "Selected modifier is not available in Trade search.";
+        }
+
+        return "Select a supported Trade search.";
+    }
+
+    private static string ModifierMappingFailureMessage(PathOfExileTradePriceCheckResult result)
+    {
+        var sourceCode = result.Diagnostics.FirstOrDefault(diagnostic =>
+                diagnostic.Code == PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed)
+            ?.SourceCode;
+
+        return sourceCode switch
+        {
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous =>
+                "Selected modifier matches multiple Trade filters.",
+            _ => "Selected modifier is not available in Trade search.",
+        };
     }
 
     private static PriceCheckerOfferViewModel MapOffer(PathOfExileTradeFetchedOffer offer)

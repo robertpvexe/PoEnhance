@@ -41,8 +41,30 @@ public sealed class PoEnhanceApplicationCompositionTests
             PrivateField<IPathOfExileTradeFetchClient>(
                 composition.PriceCheckService,
                 "fetchClient"));
+        Assert.Same(
+            composition.TradeStatCatalogProvider,
+            PrivateField<IPathOfExileTradeStatCatalogProvider>(
+                composition.PriceCheckService,
+                "statCatalogProvider"));
+        Assert.Same(
+            composition.TradeSelectedModifierMapper,
+            PrivateField<IPathOfExileTradeSelectedModifierMapper>(
+                composition.PriceCheckService,
+                "selectedModifierMapper"));
         Assert.IsType<PathOfExileTradeStatsClient>(composition.TradeStatsClient);
         Assert.IsType<PathOfExileTradeStatMatcher>(composition.TradeStatMatcher);
+        Assert.IsType<PathOfExileTradeStatCatalogProvider>(composition.TradeStatCatalogProvider);
+        Assert.IsType<PathOfExileTradeSelectedModifierMapper>(composition.TradeSelectedModifierMapper);
+        Assert.Same(
+            composition.TradeStatsClient,
+            PrivateField<IPathOfExileTradeStatsClient>(
+                composition.TradeStatCatalogProvider,
+                "statsClient"));
+        Assert.Same(
+            composition.TradeStatMatcher,
+            PrivateField<IPathOfExileTradeStatMatcher>(
+                composition.TradeSelectedModifierMapper,
+                "statMatcher"));
     }
 
     [Fact]
@@ -96,18 +118,16 @@ public sealed class PoEnhanceApplicationCompositionTests
     }
 
     [Fact]
-    public void CreateDefault_DoesNotCallStatsClientFromPriceCheckerServices()
+    public void CreateDefault_PriceCheckerWindowControllerDoesNotReferenceStatsCatalogOrMapperServices()
     {
         using var composition = PoEnhanceApplicationComposition.CreateDefault();
 
         Assert.DoesNotContain(
-            ReferencedMemberTypes(composition.PriceCheckService.GetType()),
-            type => Contains(type, "PathOfExileTradeStatsClient") ||
-                Contains(type, "PathOfExileTradeStatMatcher"));
-        Assert.DoesNotContain(
             ReferencedMemberTypes(composition.PriceCheckerWindowController.GetType()),
             type => Contains(type, "PathOfExileTradeStatsClient") ||
-                Contains(type, "PathOfExileTradeStatMatcher"));
+                Contains(type, "PathOfExileTradeStatMatcher") ||
+                Contains(type, "PathOfExileTradeStatCatalogProvider") ||
+                Contains(type, "PathOfExileTradeSelectedModifierMapper"));
     }
 
     private static T PrivateField<T>(object instance, string fieldName)

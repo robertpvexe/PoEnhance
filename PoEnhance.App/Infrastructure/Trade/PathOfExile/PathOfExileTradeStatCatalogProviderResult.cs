@@ -1,0 +1,56 @@
+using System.Net;
+
+namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
+
+internal sealed record PathOfExileTradeStatCatalogProviderResult
+{
+    public bool IsSuccess { get; init; }
+
+    public HttpStatusCode? HttpStatusCode { get; init; }
+
+    public PathOfExileTradeStatCatalog? Catalog { get; init; }
+
+    public PathOfExileTradeRateLimitSnapshot? RateLimitSnapshot { get; init; }
+
+    public IReadOnlyList<PathOfExileTradeQueryDiagnostic> RateLimitDiagnostics { get; init; } = [];
+
+    public IReadOnlyList<PathOfExileTradeHttpDiagnostic> Diagnostics { get; init; } = [];
+
+    public bool IsCancelled { get; init; }
+
+    public bool IsTimeout { get; init; }
+
+    public static PathOfExileTradeStatCatalogProviderResult Success(
+        PathOfExileTradeStatCatalog catalog,
+        HttpStatusCode? httpStatusCode = null,
+        PathOfExileTradeRateLimitSnapshot? rateLimitSnapshot = null,
+        IReadOnlyList<PathOfExileTradeQueryDiagnostic>? rateLimitDiagnostics = null,
+        IReadOnlyList<PathOfExileTradeHttpDiagnostic>? diagnostics = null)
+    {
+        return new PathOfExileTradeStatCatalogProviderResult
+        {
+            IsSuccess = true,
+            HttpStatusCode = httpStatusCode,
+            Catalog = catalog,
+            RateLimitSnapshot = rateLimitSnapshot,
+            RateLimitDiagnostics = rateLimitDiagnostics ?? [],
+            Diagnostics = diagnostics ?? [],
+        };
+    }
+
+    public static PathOfExileTradeStatCatalogProviderResult FromStatsResult(
+        PathOfExileTradeStatsExecutionResult result)
+    {
+        return new PathOfExileTradeStatCatalogProviderResult
+        {
+            IsSuccess = result.IsSuccess && result.Catalog is not null,
+            HttpStatusCode = result.HttpStatusCode,
+            Catalog = result.Catalog,
+            RateLimitSnapshot = result.RateLimitSnapshot,
+            RateLimitDiagnostics = result.RateLimitDiagnostics,
+            Diagnostics = result.Diagnostics,
+            IsCancelled = result.IsCancelled,
+            IsTimeout = result.IsTimeout,
+        };
+    }
+}

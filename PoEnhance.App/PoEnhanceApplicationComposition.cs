@@ -15,6 +15,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         IPathOfExileTradeFetchClient tradeFetchClient,
         IPathOfExileTradeStatsClient tradeStatsClient,
         IPathOfExileTradeStatMatcher tradeStatMatcher,
+        IPathOfExileTradeStatCatalogProvider tradeStatCatalogProvider,
+        IPathOfExileTradeSelectedModifierMapper tradeSelectedModifierMapper,
         IPathOfExileTradePriceCheckService priceCheckService,
         PriceCheckerWindowController priceCheckerWindowController)
     {
@@ -25,6 +27,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         TradeFetchClient = tradeFetchClient;
         TradeStatsClient = tradeStatsClient;
         TradeStatMatcher = tradeStatMatcher;
+        TradeStatCatalogProvider = tradeStatCatalogProvider;
+        TradeSelectedModifierMapper = tradeSelectedModifierMapper;
         PriceCheckService = priceCheckService;
         PriceCheckerWindowController = priceCheckerWindowController;
     }
@@ -43,6 +47,10 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public IPathOfExileTradeStatMatcher TradeStatMatcher { get; }
 
+    public IPathOfExileTradeStatCatalogProvider TradeStatCatalogProvider { get; }
+
+    public IPathOfExileTradeSelectedModifierMapper TradeSelectedModifierMapper { get; }
+
     public IPathOfExileTradePriceCheckService PriceCheckService { get; }
 
     public PriceCheckerWindowController PriceCheckerWindowController { get; }
@@ -54,8 +62,12 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var fetchClient = new PathOfExileTradeFetchClient(tradeHttpClient);
         var statsClient = new PathOfExileTradeStatsClient(tradeHttpClient);
         var statMatcher = new PathOfExileTradeStatMatcher();
+        var statCatalogProvider = new PathOfExileTradeStatCatalogProvider(statsClient);
+        var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper(statMatcher);
         var priceCheckService = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
+            statCatalogProvider,
+            selectedModifierMapper,
             searchClient,
             fetchClient);
         var priceCheckerWindowController = new PriceCheckerWindowController(
@@ -72,6 +84,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             fetchClient,
             statsClient,
             statMatcher,
+            statCatalogProvider,
+            selectedModifierMapper,
             priceCheckService,
             priceCheckerWindowController);
     }

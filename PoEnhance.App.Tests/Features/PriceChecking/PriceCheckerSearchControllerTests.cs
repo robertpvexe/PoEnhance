@@ -69,19 +69,41 @@ public sealed class PriceCheckerSearchControllerTests
         await fixture.Controller.SearchAsync();
 
         Assert.Empty(fixture.PriceCheckService.Calls);
-        Assert.Equal("Select a supported base-only search.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal("Select a supported Trade search.", fixture.Window.CurrentSearchState?.Message);
     }
 
     [Fact]
-    public async Task SearchAsync_SelectedModifierPreventsExecution()
+    public async Task SearchAsync_SelectedModifierCallsServiceWhenDraftIsLocallyValid()
     {
         var fixture = SearchFixture.Create();
         fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell", selectedModifier: true), ValidationSuccess());
 
         await fixture.Controller.SearchAsync();
 
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+    }
+
+    [Fact]
+    public async Task SearchAsync_SelectedModifierLocalValidationFailureUsesSafeModifierMessage()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", selectedModifier: true),
+            TradeSearchValidationResult.FromDiagnostics(
+            [
+                new TradeSearchValidationDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
+                    TradeSearchValidationSeverity.Error,
+                    "Selected modifier unresolved.",
+                    ModifierFilterIndex: 0),
+            ]));
+
+        await fixture.Controller.SearchAsync();
+
         Assert.Empty(fixture.PriceCheckService.Calls);
-        Assert.Equal("Select a supported base-only search.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Selected modifier is not available in Trade search.", fixture.Window.CurrentSearchState?.Message);
     }
 
     [Fact]
@@ -270,6 +292,77 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task SearchAsync_CatalogFailureUsesTradeDefinitionsMessage()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.CatalogLoad,
+            Diagnostics =
+            [
+                new PathOfExileTradePriceCheckDiagnostic(
+                    PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadFailed,
+                    "Stats failed.",
+                    PathOfExileTradePriceCheckStage.CatalogLoad),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell", selectedModifier: true), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ProviderOrTransportError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Could not load Trade modifier definitions.", fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_AmbiguousSelectedModifierUsesSafeMappingMessage()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
+            Diagnostics =
+            [
+                new PathOfExileTradePriceCheckDiagnostic(
+                    PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
+                    "Ambiguous.",
+                    PathOfExileTradePriceCheckStage.ModifierMapping,
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell", selectedModifier: true), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Selected modifier matches multiple Trade filters.", fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_UnmatchedSelectedModifierUsesSafeMappingMessage()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
+            Diagnostics =
+            [
+                new PathOfExileTradePriceCheckDiagnostic(
+                    PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
+                    "Not found.",
+                    PathOfExileTradePriceCheckStage.ModifierMapping,
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell", selectedModifier: true), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Selected modifier is not available in Trade search.", fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
     public async Task SearchAsync_SearchBecomesAvailableAgainAfterCompletionWhenInputIsValid()
     {
         var fixture = SearchFixture.Create();
@@ -312,6 +405,8 @@ public sealed class PriceCheckerSearchControllerTests
                     new TradeModifierFilterDraft
                     {
                         OriginalText = "+10 to maximum Life",
+                        ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+                        ResolvedModifierId = "mod.life",
                         IsSelected = true,
                     },
                 ]

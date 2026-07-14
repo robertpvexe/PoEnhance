@@ -15,7 +15,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     public PathOfExileTradeQueryBuildResult Build(
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
-        string? leagueIdentifier)
+        string? leagueIdentifier,
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
     {
         if (draft is null)
         {
@@ -47,11 +48,27 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A league identifier is required before building a Path of Exile Trade query.");
         }
 
-        if (draft.ModifierFilters.Any(modifier => modifier.IsSelected))
+        var selectedCount = draft.ModifierFilters.Count(modifier => modifier.IsSelected);
+        var providerFilters = selectedModifierFilters ?? [];
+        if (selectedCount > 0 && providerFilters.Count == 0)
         {
             return Failure(
-                PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersUnsupported,
-                "Selected modifiers cannot be serialized until Path of Exile Trade stat mapping exists.");
+                PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping,
+                "Selected modifiers require provider Trade stat mappings before query serialization.");
+        }
+
+        if (selectedCount != providerFilters.Count)
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.SelectedModifierMappingMismatch,
+                "Selected modifier provider mappings must match the selected modifier count.");
+        }
+
+        if (providerFilters.Any(filter => TrimToNull(filter.StatId) is null))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedModifierMapping,
+                "Selected modifier provider mappings need non-empty Trade stat identifiers.");
         }
 
         if (!IsSupportedBaseOnlyIndividualItemPath(draft))
@@ -77,6 +94,13 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A Unique item needs its unique display name for this Trade query shape.");
         }
 
+        var statFilters = providerFilters
+            .Select(filter => new PathOfExileTradeSearchStatFilter
+            {
+                Id = filter.StatId.Trim(),
+            })
+            .ToArray();
+
         var request = new PathOfExileTradeSearchRequest
         {
             Query = new PathOfExileTradeSearchQuery
@@ -87,6 +111,13 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 },
                 Name = itemName,
                 Type = selectedBaseType,
+                Stats =
+                [
+                    new PathOfExileTradeSearchStatsGroup
+                    {
+                        Filters = statFilters,
+                    },
+                ],
             },
             Sort = new PathOfExileTradeSearchSort(),
         };

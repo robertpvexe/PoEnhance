@@ -5,15 +5,21 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePriceCheckService
 {
     private readonly IPathOfExileTradeQueryBuilder queryBuilder;
+    private readonly IPathOfExileTradeStatCatalogProvider statCatalogProvider;
+    private readonly IPathOfExileTradeSelectedModifierMapper selectedModifierMapper;
     private readonly IPathOfExileTradeSearchClient searchClient;
     private readonly IPathOfExileTradeFetchClient fetchClient;
 
     public PathOfExileTradePriceCheckService(
         IPathOfExileTradeQueryBuilder queryBuilder,
+        IPathOfExileTradeStatCatalogProvider statCatalogProvider,
+        IPathOfExileTradeSelectedModifierMapper selectedModifierMapper,
         IPathOfExileTradeSearchClient searchClient,
         IPathOfExileTradeFetchClient fetchClient)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
+        this.statCatalogProvider = statCatalogProvider ?? throw new ArgumentNullException(nameof(statCatalogProvider));
+        this.selectedModifierMapper = selectedModifierMapper ?? throw new ArgumentNullException(nameof(selectedModifierMapper));
         this.searchClient = searchClient ?? throw new ArgumentNullException(nameof(searchClient));
         this.fetchClient = fetchClient ?? throw new ArgumentNullException(nameof(fetchClient));
     }
@@ -24,23 +30,60 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         string? leagueIdentifier,
         CancellationToken cancellationToken = default)
     {
-        var buildResult = queryBuilder.Build(draft, validationResult, leagueIdentifier);
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot = null;
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics = [];
+
+        if (CanMapSelectedModifiers(draft, validationResult, leagueIdentifier))
+        {
+            var catalogResult = await statCatalogProvider
+                .GetCatalogAsync(cancellationToken)
+                .ConfigureAwait(false);
+            catalogRateLimitSnapshot = catalogResult.RateLimitSnapshot;
+            catalogDiagnostics = CatalogSuccessDiagnostics(catalogResult);
+            if (!catalogResult.IsSuccess || catalogResult.Catalog is null)
+            {
+                return CatalogFailure(catalogResult);
+            }
+
+            var mappingResult = selectedModifierMapper.Map(draft!.ModifierFilters, catalogResult.Catalog);
+            if (!mappingResult.IsSuccess)
+            {
+                return MappingFailure(
+                    mappingResult,
+                    catalogRateLimitSnapshot,
+                    catalogDiagnostics);
+            }
+
+            providerModifierFilters = mappingResult.Filters;
+        }
+
+        var buildResult = queryBuilder.Build(
+            draft,
+            validationResult,
+            leagueIdentifier,
+            providerModifierFilters);
         if (!buildResult.IsSuccess || buildResult.Request is null)
         {
             return new PathOfExileTradePriceCheckResult
             {
                 Stage = PathOfExileTradePriceCheckStage.QueryBuild,
-                Diagnostics = MapQueryDiagnostics(
-                    buildResult.Diagnostics,
-                    PathOfExileTradePriceCheckDiagnosticCodes.QueryBuildFailed,
-                    PathOfExileTradePriceCheckStage.QueryBuild,
-                    "The Path of Exile Trade search request could not be built."),
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+                Diagnostics = catalogDiagnostics.Concat(MapQueryDiagnostics(
+                        buildResult.Diagnostics,
+                        PathOfExileTradePriceCheckDiagnosticCodes.QueryBuildFailed,
+                        PathOfExileTradePriceCheckStage.QueryBuild,
+                        "The Path of Exile Trade search request could not be built."))
+                    .ToArray(),
             };
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            return CancelledBeforeHttp(PathOfExileTradePriceCheckStage.Search);
+            return CancelledBeforeHttp(
+                PathOfExileTradePriceCheckStage.Search,
+                catalogRateLimitSnapshot,
+                catalogDiagnostics);
         }
 
         var searchResult = await searchClient.SearchAsync(
@@ -56,8 +99,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchResult.Response?.Id,
                 ProviderTotal = searchResult.Response?.Total,
                 Inexact = searchResult.Response?.Inexact,
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
-                Diagnostics = SearchFailureDiagnostics(searchResult),
+                Diagnostics = catalogDiagnostics.Concat(SearchFailureDiagnostics(searchResult)).ToArray(),
                 IsCancelled = searchResult.IsCancelled,
                 IsTimeout = searchResult.IsTimeout,
             };
@@ -81,9 +125,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 Stage = PathOfExileTradePriceCheckStage.Search,
                 ProviderTotal = searchResponse?.Total,
                 Inexact = searchResponse?.Inexact,
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 Diagnostics =
                 [
+                    .. catalogDiagnostics,
                     new PathOfExileTradePriceCheckDiagnostic(
                         PathOfExileTradePriceCheckDiagnosticCodes.MissingSearchQueryId,
                         "The Path of Exile Trade Search response did not include a query identifier.",
@@ -104,8 +150,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchQueryId,
                 ProviderTotal = searchResponse.Total,
                 Inexact = searchResponse.Inexact,
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
-                Diagnostics = searchDiagnostics,
+                Diagnostics = catalogDiagnostics.Concat(searchDiagnostics).ToArray(),
             };
         }
 
@@ -115,7 +162,12 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
         if (cancellationToken.IsCancellationRequested)
         {
-            return CancelledBeforeFetch(searchResult, searchQueryId, searchDiagnostics);
+            return CancelledBeforeFetch(
+                searchResult,
+                searchQueryId,
+                catalogRateLimitSnapshot,
+                catalogDiagnostics,
+                searchDiagnostics);
         }
 
         var fetchResult = await fetchClient.FetchAsync(searchQueryId, fetchIds, cancellationToken);
@@ -127,9 +179,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchQueryId,
                 ProviderTotal = searchResponse.Total,
                 Inexact = searchResponse.Inexact,
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
-                Diagnostics = searchDiagnostics.Concat(FetchFailureDiagnostics(fetchResult)).ToArray(),
+                Diagnostics = catalogDiagnostics
+                    .Concat(searchDiagnostics)
+                    .Concat(FetchFailureDiagnostics(fetchResult))
+                    .ToArray(),
                 IsCancelled = fetchResult.IsCancelled,
                 IsTimeout = fetchResult.IsTimeout,
             };
@@ -153,20 +209,115 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderTotal = searchResponse.Total,
             Inexact = searchResponse.Inexact,
             Offers = fetchResult.Response?.Result ?? [],
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
             FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
-            Diagnostics = searchDiagnostics.Concat(fetchDiagnostics).ToArray(),
+            Diagnostics = catalogDiagnostics.Concat(searchDiagnostics).Concat(fetchDiagnostics).ToArray(),
         };
     }
 
+    private static bool CanMapSelectedModifiers(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier)
+    {
+        return draft?.ModifierFilters.Any(modifier => modifier.IsSelected) == true &&
+            validationResult is not null &&
+            !validationResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
+            !string.IsNullOrWhiteSpace(leagueIdentifier);
+    }
+
+    private static PathOfExileTradePriceCheckResult CatalogFailure(
+        PathOfExileTradeStatCatalogProviderResult result)
+    {
+        var code = result.IsCancelled
+            ? PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadCancelled
+            : result.IsTimeout
+                ? PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadTimeout
+                : PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadFailed;
+
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.CatalogLoad,
+            CatalogRateLimitSnapshot = result.RateLimitSnapshot,
+            Diagnostics = MapFailureDiagnostics(
+                result.Diagnostics,
+                result.RateLimitDiagnostics,
+                code,
+                PathOfExileTradePriceCheckStage.CatalogLoad,
+                result.IsCancelled
+                    ? "The Trade stats catalog load was cancelled."
+                    : result.IsTimeout
+                        ? "The Trade stats catalog load timed out."
+                        : "The Trade stats catalog could not be loaded."),
+            IsCancelled = result.IsCancelled,
+            IsTimeout = result.IsTimeout,
+        };
+    }
+
+    private static PathOfExileTradePriceCheckResult MappingFailure(
+        PathOfExileTradeSelectedModifierMappingResult result,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics)
+    {
+        var mappingDiagnostics = result.Diagnostics
+            .Select(diagnostic => new PathOfExileTradePriceCheckDiagnostic(
+                PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
+                diagnostic.Message,
+                PathOfExileTradePriceCheckStage.ModifierMapping,
+                diagnostic.Code))
+            .ToArray();
+
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+            Diagnostics = catalogDiagnostics
+                .Concat(mappingDiagnostics.Length == 0
+                    ?
+                    [
+                        new PathOfExileTradePriceCheckDiagnostic(
+                            PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
+                            "Selected modifiers could not be mapped to Trade filters.",
+                            PathOfExileTradePriceCheckStage.ModifierMapping),
+                    ]
+                    : mappingDiagnostics)
+                .ToArray(),
+        };
+    }
+
+    private static IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> CatalogSuccessDiagnostics(
+        PathOfExileTradeStatCatalogProviderResult result)
+    {
+        if (!result.IsSuccess)
+        {
+            return [];
+        }
+
+        return MapHttpDiagnostics(
+                result.Diagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadDiagnostic,
+                PathOfExileTradePriceCheckStage.CatalogLoad)
+            .Concat(MapQueryDiagnostics(
+                result.RateLimitDiagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadDiagnostic,
+                PathOfExileTradePriceCheckStage.CatalogLoad))
+            .ToArray();
+    }
+
     private static PathOfExileTradePriceCheckResult CancelledBeforeHttp(
-        PathOfExileTradePriceCheckStage stage)
+        PathOfExileTradePriceCheckStage stage,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics)
     {
         return new PathOfExileTradePriceCheckResult
         {
             Stage = stage,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             Diagnostics =
             [
+                .. catalogDiagnostics,
                 new PathOfExileTradePriceCheckDiagnostic(
                     PathOfExileTradePriceCheckDiagnosticCodes.SearchCancelled,
                     "The price check was cancelled before Search was requested.",
@@ -179,6 +330,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private static PathOfExileTradePriceCheckResult CancelledBeforeFetch(
         PathOfExileTradeSearchExecutionResult searchResult,
         string searchQueryId,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics,
         IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> searchDiagnostics)
     {
         return new PathOfExileTradePriceCheckResult
@@ -187,9 +340,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             SearchQueryId = searchQueryId,
             ProviderTotal = searchResult.Response?.Total,
             Inexact = searchResult.Response?.Inexact,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
             Diagnostics =
             [
+                .. catalogDiagnostics,
                 .. searchDiagnostics,
                 new PathOfExileTradePriceCheckDiagnostic(
                     PathOfExileTradePriceCheckDiagnosticCodes.FetchCancelled,
