@@ -256,6 +256,80 @@ Item Level: 84
     }
 
     [Fact]
+    public void CreateDraft_IdenticalEffectTemplatesFromDifferentSourcesDoNotOverwriteProvenance()
+    {
+        var item = parser.Parse("""
+Item Class: One Hand Axes
+Rarity: Rare
+Test Item
+Test Weapon
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Pure Source" (Tier: 7) - Damage, Physical, Attack }
+52(50-64)% increased Physical Damage
+{ Prefix Modifier "Hybrid Source" (Tier: 5) - Damage, Physical, Attack }
+39(35-44)% increased Physical Damage
++93(73-97) to Accuracy Rating
+""");
+        var pureModifier = Modifier(
+            "mod.pure-physical",
+            "Pure Source",
+            ModifierGenerationType.Prefix,
+            "local_physical_damage_percent");
+        var hybridModifier = Modifier(
+            "mod.hybrid-physical-accuracy",
+            "Hybrid Source",
+            ModifierGenerationType.Prefix,
+            "local_physical_damage_percent",
+            "local_accuracy");
+        var resolutions = new[]
+        {
+            ModifierResolution(
+                item,
+                modifierIndex: 0,
+                ModifierCandidateResolutionStatus.Exact,
+                ModifierGenerationType.Prefix,
+                [pureModifier],
+                ModifierLocality.Local),
+            ModifierResolution(
+                item,
+                modifierIndex: 1,
+                ModifierCandidateResolutionStatus.Exact,
+                ModifierGenerationType.Prefix,
+                [hybridModifier],
+                ModifierLocality.Local),
+        };
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, modifierResolutions: resolutions));
+        var physical = draft.ModifierFilters
+            .Where(component => component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.Equal(2, physical.Length);
+        Assert.Equal([0, 1], physical.Select(component => component.SourceModifierIndex));
+        Assert.Equal([0, 0], physical.Select(component => component.SourceComponentIndex));
+        Assert.Equal(2, physical.Select(component => component.ComponentId).Distinct().Count());
+        Assert.Equal(1, physical.Select(component => component.CanonicalSignature).Distinct().Count());
+        Assert.Equal(
+            ["mod.pure-physical", "mod.hybrid-physical-accuracy"],
+            physical.Select(component => component.ResolvedModifierId));
+        Assert.All(physical, component =>
+        {
+            Assert.Equal(["local_physical_damage_percent"], component.ResolvedStatIds);
+            Assert.Equal(ModifierLocality.Local, component.Locality);
+            Assert.True(component.IsSearchable);
+        });
+
+        var accuracy = Assert.Single(draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
+        Assert.Equal(1, accuracy.SourceModifierIndex);
+        Assert.Equal(1, accuracy.SourceComponentIndex);
+        Assert.Equal("mod.hybrid-physical-accuracy", accuracy.ResolvedModifierId);
+        Assert.Equal(["local_accuracy"], accuracy.ResolvedStatIds);
+    }
+
+    [Fact]
     public void CreateDraft_CanStoreInPersonListingPreferenceWithoutNetworkBehavior()
     {
         var item = ParseSample("rare-onyx-amulet.txt");

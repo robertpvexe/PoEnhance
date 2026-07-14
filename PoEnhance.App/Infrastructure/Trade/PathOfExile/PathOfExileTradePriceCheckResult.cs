@@ -1,3 +1,5 @@
+using PoEnhance.Core.Trade;
+
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed record PathOfExileTradePriceCheckResult
@@ -11,6 +13,8 @@ internal sealed record PathOfExileTradePriceCheckResult
     public int? ProviderTotal { get; init; }
 
     public bool? Inexact { get; init; }
+
+    public TradeSearchDraft? EffectiveDraft { get; init; }
 
     public IReadOnlyList<PathOfExileTradeFetchedOffer> Offers { get; init; } = [];
 

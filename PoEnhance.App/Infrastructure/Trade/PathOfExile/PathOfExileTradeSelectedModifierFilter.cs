@@ -4,6 +4,8 @@ internal sealed record PathOfExileTradeSelectedModifierFilter
 {
     public required int SourceIndex { get; init; }
 
+    public IReadOnlyList<int> SourceIndexes { get; init; } = [];
+
     public required string StatId { get; init; }
 
     public required string OriginalText { get; init; }

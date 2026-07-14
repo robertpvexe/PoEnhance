@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Items.GameData;
 
-public sealed class ParsedItemModifierCandidateResolver
+public sealed partial class ParsedItemModifierCandidateResolver
 {
     private readonly ParsedItemBaseResolver baseResolver = new();
     private readonly ModifierEligibilityEvaluator eligibilityEvaluator = new();
@@ -80,6 +82,18 @@ public sealed class ParsedItemModifierCandidateResolver
             nameCandidates.Where(candidate => candidate.GenerationType == generationType));
         if (kindCandidates.Count == 0)
         {
+            if (TryResolveStructurally(
+                    index,
+                    modifier,
+                    catalog,
+                    eligibilityContext,
+                    generationType,
+                    nameCandidates.Count,
+                    out var structuralResult))
+            {
+                return structuralResult;
+            }
+
             return Unknown(
                 index,
                 modifier,
@@ -154,6 +168,26 @@ public sealed class ParsedItemModifierCandidateResolver
 
         if (eligibleCandidates.Count == 0)
         {
+            var structurallyCompatibleCandidates = ToReadOnly(evaluations
+                .Where(evaluation => IsStructurallyCompatibleDespiteSpawnWeight(evaluation.Candidate, eligibilityContext))
+                .Select(evaluation => evaluation.Candidate));
+            if (structurallyCompatibleCandidates.Count > 0)
+            {
+                var structuralResult = ResolveTextSignatures(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    nameCandidates.Count,
+                    kindCandidates.Count,
+                    structurallyCompatibleCandidates,
+                    excludedCandidates);
+                if (structuralResult.Status == ModifierCandidateResolutionStatus.Exact)
+                {
+                    return structuralResult;
+                }
+            }
+
             return Unknown(
                 index,
                 modifier,
@@ -254,6 +288,50 @@ public sealed class ParsedItemModifierCandidateResolver
                 Locality: DetermineLocality(retainedEvaluations[0].Candidate, catalog));
         }
 
+        if (TrySelectOneByAdvancedRange(
+                modifier,
+                finalCandidates,
+                out var rangeSelectedCandidate,
+                out var rangeExcludedCandidates))
+        {
+            return MatchedByStructuralEvidence(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                rangeSelectedCandidate,
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                allExcludedCandidates.Concat(rangeExcludedCandidates).ToArray(),
+                finalCandidates.Count,
+                textExcludedCandidates.Length,
+                textResults,
+                "Exactly one candidate remained after Advanced Item Description stat-range matching.");
+        }
+
+        if (TrySelectOneByDisplayedTier(
+                modifier,
+                finalCandidates,
+                out var tierSelectedCandidate,
+                out var tierExcludedCandidates))
+        {
+            return MatchedByStructuralEvidence(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                tierSelectedCandidate,
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                allExcludedCandidates.Concat(tierExcludedCandidates).ToArray(),
+                finalCandidates.Count,
+                textExcludedCandidates.Length,
+                textResults,
+                "Exactly one candidate remained after displayed tier disambiguation.");
+        }
+
         var allRetainedUnknown = retainedEvaluations.All(evaluation =>
             evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.Unknown);
         return Unknown(
@@ -274,6 +352,238 @@ public sealed class ParsedItemModifierCandidateResolver
             textSignatureCandidateCount: finalCandidates.Count,
             excludedByTextCandidateCount: textExcludedCandidates.Length,
             textResults);
+    }
+
+    private bool TryResolveStructurally(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        ItemModifierEligibilityContext? eligibilityContext,
+        ModifierGenerationType generationType,
+        int nameCandidateCount,
+        out ModifierCandidateResolutionResult result)
+    {
+        result = default!;
+        if (eligibilityContext is null)
+        {
+            return false;
+        }
+
+        var kindCandidates = ToReadOnly(catalog.FindModifiersByGenerationType(generationType));
+        if (kindCandidates.Count == 0)
+        {
+            return false;
+        }
+
+        var evaluations = kindCandidates
+            .Select(candidate => new
+            {
+                Candidate = candidate,
+                Result = eligibilityEvaluator.Evaluate(candidate, eligibilityContext),
+            })
+            .ToArray();
+        if (evaluations.Any(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Unknown))
+        {
+            return false;
+        }
+
+        var eligibleCandidates = ToReadOnly(evaluations
+            .Where(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Eligible)
+            .Select(evaluation => evaluation.Candidate));
+        if (eligibleCandidates.Count == 0)
+        {
+            return false;
+        }
+
+        var excludedCandidates = ToReadOnly(evaluations
+            .Where(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Ineligible)
+            .Select(evaluation => evaluation.Candidate));
+
+        result = ResolveTextSignatures(
+            index,
+            modifier,
+            catalog,
+            generationType,
+            nameCandidateCount,
+            kindCandidates.Count,
+            eligibleCandidates,
+            excludedCandidates);
+        return result.Status == ModifierCandidateResolutionStatus.Exact;
+    }
+
+    private static ModifierCandidateResolutionResult MatchedByStructuralEvidence(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        ModifierGenerationType generationType,
+        ModifierDefinition candidate,
+        int nameCandidateCount,
+        int generationKindCandidateCount,
+        int eligibilityCandidateCount,
+        IReadOnlyList<ModifierDefinition> excludedCandidates,
+        int textSignatureCandidateCount,
+        int excludedByTextCandidateCount,
+        IReadOnlyList<ModifierTextSignatureMatchResult> textResults,
+        string reason)
+    {
+        return new ModifierCandidateResolutionResult(
+            index,
+            modifier,
+            modifier.Name,
+            modifier.Kind,
+            generationType,
+            ModifierCandidateResolutionStatus.Exact,
+            ToReadOnly([candidate]),
+            Diagnostics(ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch, reason),
+            nameCandidateCount,
+            generationKindCandidateCount,
+            eligibilityCandidateCount,
+            excludedCandidates.Count,
+            excludedCandidates,
+            textSignatureCandidateCount,
+            excludedByTextCandidateCount,
+            textResults,
+            DetermineLocality(candidate, catalog));
+    }
+
+    private static bool TrySelectOneByAdvancedRange(
+        ParsedModifier modifier,
+        IReadOnlyList<ModifierDefinition> candidates,
+        out ModifierDefinition selectedCandidate,
+        out IReadOnlyList<ModifierDefinition> excludedCandidates)
+    {
+        selectedCandidate = default!;
+        excludedCandidates = [];
+        var ranges = ExtractAdvancedStatRanges(modifier.ValueLines);
+        if (ranges.Count == 0)
+        {
+            return false;
+        }
+
+        var retained = candidates
+            .Where(candidate => CandidateRangesMatch(candidate, ranges))
+            .ToArray();
+        if (retained.Length != 1)
+        {
+            return false;
+        }
+
+        var selected = retained[0];
+        selectedCandidate = selected;
+        excludedCandidates = candidates
+            .Where(candidate => !ReferenceEquals(candidate, selected))
+            .ToArray();
+        return true;
+    }
+
+    private static bool TrySelectOneByDisplayedTier(
+        ParsedModifier modifier,
+        IReadOnlyList<ModifierDefinition> candidates,
+        out ModifierDefinition selectedCandidate,
+        out IReadOnlyList<ModifierDefinition> excludedCandidates)
+    {
+        selectedCandidate = default!;
+        excludedCandidates = [];
+        if (!modifier.Tier.HasValue)
+        {
+            return false;
+        }
+
+        var retained = candidates
+            .Where(candidate => candidate.Tier == modifier.Tier.Value)
+            .ToArray();
+        if (retained.Length != 1)
+        {
+            return false;
+        }
+
+        var selected = retained[0];
+        selectedCandidate = selected;
+        excludedCandidates = candidates
+            .Where(candidate => !ReferenceEquals(candidate, selected))
+            .ToArray();
+        return true;
+    }
+
+    private static bool CandidateRangesMatch(
+        ModifierDefinition candidate,
+        IReadOnlyList<AdvancedStatRange> ranges)
+    {
+        var stats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (stats.Length != ranges.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < stats.Length; index++)
+        {
+            var minimum = stats[index].MinValue;
+            var maximum = stats[index].MaxValue;
+            if (!minimum.HasValue ||
+                !maximum.HasValue ||
+                minimum.Value != ranges[index].Minimum ||
+                maximum.Value != ranges[index].Maximum)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<AdvancedStatRange> ExtractAdvancedStatRanges(
+        IReadOnlyList<string> valueLines)
+    {
+        var ranges = new List<AdvancedStatRange>();
+        foreach (var line in valueLines)
+        {
+            foreach (Match match in AdvancedRangePattern().Matches(line))
+            {
+                if (!decimal.TryParse(
+                        match.Groups["minimum"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var minimum) ||
+                    !decimal.TryParse(
+                        match.Groups["maximum"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var maximum))
+                {
+                    return [];
+                }
+
+                ranges.Add(new AdvancedStatRange(minimum, maximum));
+            }
+        }
+
+        return ranges;
+    }
+
+    private static bool IsStructurallyCompatibleDespiteSpawnWeight(
+        ModifierDefinition candidate,
+        ItemModifierEligibilityContext context)
+    {
+        var modifierDomain = Normalize(candidate.Domain);
+        var itemBaseDomain = Normalize(context.ItemBase.Domain);
+        return modifierDomain is not null &&
+            itemBaseDomain is not null &&
+            string.Equals(modifierDomain, itemBaseDomain, StringComparison.OrdinalIgnoreCase) &&
+            HasOnlyZeroDefaultSpawnWeights(candidate);
+    }
+
+    private static bool HasOnlyZeroDefaultSpawnWeights(ModifierDefinition candidate)
+    {
+        return candidate.SpawnWeights.Count > 0 &&
+            candidate.SpawnWeights.All(spawnWeight =>
+                string.Equals(
+                    Normalize(spawnWeight.Tag),
+                    "default",
+                    StringComparison.OrdinalIgnoreCase) &&
+                spawnWeight.Weight == 0);
     }
 
     private static bool HasCandidateDiscoverySignal(ParsedModifier modifier)
@@ -312,6 +622,12 @@ public sealed class ParsedItemModifierCandidateResolver
 
         itemBase = baseResolution.MatchedItemBase;
         return true;
+    }
+
+    private static string? Normalize(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
     private static ModifierCandidateResolutionResult MatchedWithoutEligibility(
@@ -454,4 +770,9 @@ public sealed class ParsedItemModifierCandidateResolver
     {
         return new ReadOnlyCollection<T>(values.ToArray());
     }
+
+    private sealed record AdvancedStatRange(decimal Minimum, decimal Maximum);
+
+    [GeneratedRegex(@"[+-]?\d+(?:\.\d+)?\((?<minimum>[+-]?\d+(?:\.\d+)?)-(?<maximum>[+-]?\d+(?:\.\d+)?)\)", RegexOptions.CultureInvariant)]
+    private static partial Regex AdvancedRangePattern();
 }

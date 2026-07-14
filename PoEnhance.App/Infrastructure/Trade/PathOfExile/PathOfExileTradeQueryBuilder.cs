@@ -59,22 +59,31 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A league identifier is required before building a Path of Exile Trade query.");
         }
 
-        var selectedCount = draft.ModifierFilters.Count(modifier =>
-            modifier.IsSelected &&
-            modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed);
+        var selectedSourceIndexes = draft.ModifierFilters
+            .Select((modifier, index) => new { Modifier = modifier, Index = index })
+            .Where(indexed =>
+                indexed.Modifier.IsSelected &&
+                indexed.Modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed)
+            .Select(indexed => indexed.Index)
+            .ToHashSet();
         var providerFilters = selectedModifierFilters ?? [];
-        if (selectedCount > 0 && providerFilters.Count == 0)
+        if (selectedSourceIndexes.Count > 0 && providerFilters.Count == 0)
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping,
                 "Selected modifiers require provider Trade stat mappings before query serialization.");
         }
 
-        if (selectedCount != providerFilters.Count)
+        var mappedSourceIndexes = providerFilters
+            .SelectMany(filter => filter.SourceIndexes.Count > 0
+                ? filter.SourceIndexes
+                : [filter.SourceIndex])
+            .ToHashSet();
+        if (!selectedSourceIndexes.SetEquals(mappedSourceIndexes))
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.SelectedModifierMappingMismatch,
-                "Selected modifier provider mappings must match the selected modifier count.");
+                "Selected modifier provider mappings must cover exactly the selected modifiers.");
         }
 
         if (providerFilters.Any(filter => TrimToNull(filter.StatId) is null))

@@ -259,6 +259,168 @@ Adds 1 to 2 Physical Damage
     }
 
     [Fact]
+    public void Resolve_MissingNameUsesEligibleTextAndAdvancedRangeToSelectAttributeCandidate()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.bone-ring", "Bone Ring", "Rings", "item", ["default", "ring"])],
+            [Translation(["intelligence"], Variant(["{0} to Intelligence"], ["+#"]))],
+            ModifierWithStat(
+                "mod.intelligence.lower",
+                "of the Essence",
+                ModifierGenerationType.Suffix,
+                "item",
+                "intelligence",
+                SpawnWeight("default", 0)) with
+            {
+                Tier = 8,
+                Stats = [StatRef("intelligence", 43, 50)],
+            },
+            ModifierWithStat(
+                "mod.intelligence.essence",
+                "of the Essence",
+                ModifierGenerationType.Suffix,
+                "item",
+                "intelligence",
+                SpawnWeight("default", 0)) with
+            {
+                Stats = [StatRef("intelligence", 51, 58)],
+            });
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of the Essence" - Attribute }
++58(51-58) to Intelligence
+""");
+        var baseResolution = ExactBase(catalog, "base.bone-ring");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.intelligence.essence", Assert.Single(result.Candidates).Id);
+        Assert.Equal(2, result.NameCandidateCount);
+        Assert.Equal(2, result.TextSignatureCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_DuplicateWeaponSpeedNameUsesDisplayedTierAndPreservesLocality()
+    {
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [Base("base.reaver-axe", "Reaver Axe", "One Hand Axes", "item", ["default", "axe"])],
+            [Stat("local_attack_speed_+%", isLocal: true)],
+            [Translation(["local_attack_speed_+%"], Variant(["{0}% increased Attack Speed"], ["#"]))],
+            ModifierWithStat(
+                "mod.attack-speed.t7",
+                "of Ease",
+                ModifierGenerationType.Suffix,
+                "item",
+                "local_attack_speed_+%",
+                SpawnWeight("axe", 1000)) with
+            {
+                Tier = 7,
+                Stats = [StatRef("local_attack_speed_+%", 8, 10)],
+            },
+            ModifierWithStat(
+                "mod.attack-speed.t8",
+                "of Ease",
+                ModifierGenerationType.Suffix,
+                "item",
+                "local_attack_speed_+%",
+                SpawnWeight("axe", 1000)) with
+            {
+                Tier = 8,
+                Stats = [StatRef("local_attack_speed_+%", 8, 10)],
+            });
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of Ease" (Tier: 7) - Attack, Speed }
+8(8-10)% increased Attack Speed
+""");
+        var baseResolution = ExactBase(catalog, "base.reaver-axe");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.attack-speed.t7", Assert.Single(result.Candidates).Id);
+        Assert.Equal(ModifierLocality.Local, result.Locality);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_DifferentSourcesSharingOneStatRetainIndependentModifierProvenance()
+    {
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [Base("base.test-weapon", "Test Weapon", "One Hand Axes", "item", ["default", "axe"])],
+            [
+                Stat("local_physical_damage_percent", isLocal: true),
+                Stat("local_accuracy", isLocal: true),
+            ],
+            [
+                Translation(
+                    ["local_physical_damage_percent"],
+                    Variant(["{0}% increased Physical Damage"], ["#"])),
+                Translation(
+                    ["local_physical_damage_percent", "local_accuracy"],
+                    Variant(
+                        ["{0}% increased Physical Damage", "{1} to Accuracy Rating"],
+                        ["#", "+#"])),
+            ],
+            ModifierWithStat(
+                "mod.pure-physical",
+                "Pure Source",
+                ModifierGenerationType.Prefix,
+                "item",
+                "local_physical_damage_percent",
+                SpawnWeight("axe", 1000)) with
+            {
+                Stats = [StatRef("local_physical_damage_percent", 50, 64)],
+            },
+            ModifierWithStat(
+                "mod.hybrid-physical-accuracy",
+                "Hybrid Source",
+                ModifierGenerationType.Prefix,
+                "item",
+                "local_physical_damage_percent",
+                SpawnWeight("axe", 1000)) with
+            {
+                Stats =
+                [
+                    StatRef("local_physical_damage_percent", 35, 44),
+                    StatRef("local_accuracy", 73, 97) with { Index = 1 },
+                ],
+            });
+        var item = parser.Parse("""
+Item Class: One Hand Axes
+Rarity: Rare
+Test Item
+Test Weapon
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Pure Source" (Tier: 7) - Damage, Physical, Attack }
+52(50-64)% increased Physical Damage
+{ Prefix Modifier "Hybrid Source" (Tier: 5) - Damage, Physical, Attack }
+39(35-44)% increased Physical Damage
++93(73-97) to Accuracy Rating
+""");
+        var baseResolution = ExactBase(catalog, "base.test-weapon");
+
+        var results = resolver.Resolve(item, catalog, baseResolution);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal([0, 1], results.Select(result => result.ParsedModifierIndex));
+        Assert.Equal(
+            ["mod.pure-physical", "mod.hybrid-physical-accuracy"],
+            results.Select(result => Assert.Single(result.Candidates).Id));
+        Assert.All(results, result =>
+        {
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+            Assert.Equal(ModifierLocality.Local, result.Locality);
+        });
+    }
+
+    [Fact]
     public void Resolve_UnknownTextCandidateIsRetainedWithMatchingCandidate()
     {
         var catalog = CreateCatalogWithTranslations(
@@ -988,6 +1150,22 @@ Item Level: 80
             ItemBases = itemBases,
             Modifiers = modifiers,
             Stats = statIds.Select(statId => Stat(statId)).ToArray(),
+            StatTranslations = translations,
+        });
+    }
+
+    private static GameDataCatalog CreateCatalogWithTranslationsAndStats(
+        IReadOnlyList<ItemBaseRecord> itemBases,
+        IReadOnlyList<StatDefinition> stats,
+        IReadOnlyList<StatTranslationDefinition> translations,
+        params ModifierDefinition[] modifiers)
+    {
+        return GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = CreateManifest(),
+            ItemBases = itemBases,
+            Modifiers = modifiers,
+            Stats = stats,
             StatTranslations = translations,
         });
     }

@@ -142,7 +142,14 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
 
-            if (modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
+            if (IsRepresentedByExactBase(draft, modifier, out var exactBaseName))
+            {
+                diagnostics.Add(Info(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierRepresentedByExactBase,
+                    $"Selected base implicit is represented by Exact Base: {exactBaseName}.",
+                    index));
+            }
+            else if (modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
                 string.IsNullOrWhiteSpace(modifier.ResolvedModifierId))
             {
                 diagnostics.Add(Warning(
@@ -161,6 +168,29 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
         }
+    }
+
+    private static bool IsRepresentedByExactBase(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent modifier,
+        out string exactBaseName)
+    {
+        exactBaseName = string.Empty;
+        if (!modifier.IsBaseImplicit ||
+            modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed ||
+            draft.Base.ActiveCriterion?.Mode != BaseSearchMode.ExactBase)
+        {
+            return false;
+        }
+
+        var activeExactBase = draft.Base.ActiveCriterion.ExactBaseName?.Trim();
+        if (string.IsNullOrWhiteSpace(activeExactBase))
+        {
+            return false;
+        }
+
+        exactBaseName = activeExactBase;
+        return true;
     }
 
     private static bool IsOrdinaryNonUniqueRarity(string? rarity)
@@ -185,6 +215,18 @@ public sealed class TradeSearchDraftValidator
         return new TradeSearchValidationDiagnostic(
             code,
             TradeSearchValidationSeverity.Warning,
+            message,
+            modifierFilterIndex);
+    }
+
+    private static TradeSearchValidationDiagnostic Info(
+        string code,
+        string message,
+        int? modifierFilterIndex = null)
+    {
+        return new TradeSearchValidationDiagnostic(
+            code,
+            TradeSearchValidationSeverity.Info,
             message,
             modifierFilterIndex);
     }

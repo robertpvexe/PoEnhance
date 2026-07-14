@@ -70,6 +70,42 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
+    public void Validate_SelectedBaseGuaranteedImplicit_IsRepresentedByExactBaseInfoWithoutUnresolvedWarning()
+    {
+        var draft = ValidDraft(modifiers:
+        [
+            UnknownModifier() with
+            {
+                IsSelected = true,
+                IsBaseImplicit = true,
+                ParsedKind = ParsedModifierKind.Implicit,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+            },
+        ]) with
+        {
+            Base = ValidDraft().Base with
+            {
+                ActiveCriterion = new BaseSearchCriterion
+                {
+                    Mode = BaseSearchMode.ExactBase,
+                    ExactBaseName = "Stygian Vise",
+                },
+            },
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.SelectedModifierRepresentedByExactBase,
+            TradeSearchValidationSeverity.Info,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
     public void Validate_SelectedProbableModifier_RemainsValidWithWarning()
     {
         var draft = ValidDraft(modifiers:

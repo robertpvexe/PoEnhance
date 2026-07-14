@@ -36,6 +36,59 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_SelectedComponentsSharingPresenceStatProduceOneFilterWithBothSources()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "52% increased Physical Damage",
+                    providerStatId: "explicit.physical",
+                    canonicalSignature: "<number>% increased Physical Damage"),
+                Modifier(
+                    "39% increased Physical Damage",
+                    providerStatId: "explicit.physical",
+                    canonicalSignature: "<number>% increased Physical Damage"),
+            ]));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.physical", filter.StatId);
+        Assert.Equal(0, filter.SourceIndex);
+        Assert.Equal([0, 1], filter.SourceIndexes);
+        Assert.Equal("#% increased Physical Damage", filter.NormalizedItemTemplate);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Map_SharedPresenceFilterIsIndependentOfSelectionSequence()
+    {
+        var components = new[]
+        {
+            Modifier("52% increased Physical Damage", providerStatId: "explicit.physical"),
+            Modifier("39% increased Physical Damage", providerStatId: "explicit.physical"),
+        };
+
+        var selectedSecondThenFirst = mapper.Map(Draft([
+            components[0] with { IsSelected = false },
+            components[1],
+        ]));
+        selectedSecondThenFirst = mapper.Map(Draft(components));
+
+        var selectedFirstThenSecond = mapper.Map(Draft([
+            components[0],
+            components[1] with { IsSelected = false },
+        ]));
+        selectedFirstThenSecond = mapper.Map(Draft(components));
+
+        var secondThenFirstFilter = Assert.Single(selectedSecondThenFirst.Filters);
+        var firstThenSecondFilter = Assert.Single(selectedFirstThenSecond.Filters);
+        Assert.Equal(secondThenFirstFilter.StatId, firstThenSecondFilter.StatId);
+        Assert.Equal(secondThenFirstFilter.SourceIndex, firstThenSecondFilter.SourceIndex);
+        Assert.Equal(secondThenFirstFilter.SourceIndexes, firstThenSecondFilter.SourceIndexes);
+        Assert.Equal([0, 1], secondThenFirstFilter.SourceIndexes);
+    }
+
+    [Fact]
     public void Map_PreResolvedExactSelectedModifierConvertsCanonicalSignatureToProviderTemplate()
     {
         var result = mapper.Map(

@@ -362,7 +362,12 @@ internal static partial class OrdinaryItemCorpusAuditRunner
         for (var index = 0; index < draft.ModifierFilters.Count; index++)
         {
             var original = draft.ModifierFilters[index];
-            var resolved = resolvedDraft.ModifierFilters[index];
+            var singleResolvedDraft = SelectAndResolveDraft(
+                draft,
+                [index],
+                service,
+                tradeStatCatalog);
+            var resolved = singleResolvedDraft.ModifierFilters[index];
             var match = CanResolveProviderComponent(original)
                 ? statMatcher.Match(original, tradeStatCatalog, CreateMatchContext(draft, original))
                 : new PathOfExileTradeStatMatchResult
@@ -377,12 +382,12 @@ internal static partial class OrdinaryItemCorpusAuditRunner
                     ],
                 };
             var single = BuildSelectedQuery(
-                resolvedDraft,
+                singleResolvedDraft,
                 validation,
-                index,
+                selectedEffectCount: 1,
                 selectedMapper,
                 queryBuilder);
-            var result = ResultLabel(match, original);
+            var result = ResultLabel(match, original, resolved);
 
             if (block.SourceIndex != 11 &&
                 match.Status == PathOfExileTradeStatMatchStatus.Exact &&
@@ -439,21 +444,21 @@ internal static partial class OrdinaryItemCorpusAuditRunner
             .Select(item => item.index)
             .ToArray();
         var combined = BuildSelectedQuery(
-            resolvedDraft,
+            SelectAndResolveDraft(draft, uniqueIndexes, service, tradeStatCatalog),
             validation,
-            uniqueIndexes,
+            uniqueIndexes.Length,
             selectedMapper,
             queryBuilder);
         if (block.SourceIndex != 11 &&
             combined.MappingSucceeded && combined.QuerySucceeded &&
-            combined.SelectedEffectCount != combined.EnabledFilterCount)
+            !uniqueIndexes.Order().SequenceEqual(combined.MappingSourceIndexes.Order()))
         {
             failures.Add(new AuditFailure(
                 "QueryBuild",
                 block.SourceIndex,
                 null,
-                "Selected-count versus final-filter-count mismatch.",
-                $"Selected {combined.SelectedEffectCount}; serialized {combined.EnabledFilterCount}."));
+                "Selected component source coverage does not match the provider filter mapping.",
+                $"Selected [{string.Join(", ", uniqueIndexes)}]; mapped [{string.Join(", ", combined.MappingSourceIndexes)}]."));
         }
 
         return new LiveItemAudit
@@ -465,45 +470,41 @@ internal static partial class OrdinaryItemCorpusAuditRunner
     }
 
     private static SelectedQueryAudit BuildSelectedQuery(
-        TradeSearchDraft resolvedDraft,
+        TradeSearchDraft selectedResolvedDraft,
         TradeSearchValidationResult validation,
-        int selectedIndex,
+        int selectedEffectCount,
         PathOfExileTradeSelectedModifierMapper mapper,
         PathOfExileTradeQueryBuilder builder)
     {
-        return BuildSelectedQuery(resolvedDraft, validation, [selectedIndex], mapper, builder);
-    }
-
-    private static SelectedQueryAudit BuildSelectedQuery(
-        TradeSearchDraft resolvedDraft,
-        TradeSearchValidationResult validation,
-        IReadOnlyCollection<int> selectedIndexes,
-        PathOfExileTradeSelectedModifierMapper mapper,
-        PathOfExileTradeQueryBuilder builder)
-    {
-        var selectedSet = selectedIndexes.ToHashSet();
-        var selectedDraft = resolvedDraft with
-        {
-            ModifierFilters = resolvedDraft.ModifierFilters
-                .Select((effect, index) => effect with { IsSelected = selectedSet.Contains(index) })
-                .ToArray(),
-        };
-        var mapping = mapper.Map(selectedDraft);
+        var mapping = mapper.Map(selectedResolvedDraft);
         var build = builder.Build(
-            selectedDraft,
+            selectedResolvedDraft,
             validation,
             LiveLeague,
             mapping.IsSuccess ? mapping.Filters : [],
             providerFilterCatalog: TestFilterCatalog());
         var filters = build.Request?.Query.Stats.SelectMany(group => group.Filters).ToArray() ?? [];
+        var mappingSourceIndexes = mapping.Filters
+            .SelectMany(filter => filter.SourceIndexes.Count > 0
+                ? filter.SourceIndexes
+                : [filter.SourceIndex])
+            .OrderBy(index => index)
+            .ToArray();
+        var baseGuaranteedCriterionCount = build.Request?.Query.Type is not null &&
+            selectedResolvedDraft.ModifierFilters.Any(effect =>
+                effect.IsSelected &&
+                effect.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed)
+            ? 1
+            : 0;
         return new SelectedQueryAudit
         {
-            SelectedEffectCount = selectedIndexes.Count,
+            SelectedEffectCount = selectedEffectCount,
             MappingSucceeded = mapping.IsSuccess,
             MappingDiagnosticCodes = mapping.Diagnostics.Select(diagnostic => diagnostic.Code).ToArray(),
+            MappingSourceIndexes = mappingSourceIndexes,
             QuerySucceeded = build.IsSuccess,
             QueryDiagnosticCodes = build.Diagnostics.Select(diagnostic => diagnostic.Code).ToArray(),
-            EnabledFilterCount = filters.Length,
+            EnabledFilterCount = filters.Length + baseGuaranteedCriterionCount,
             SerializedStatIds = filters.Select(filter => filter.Id).ToArray(),
             SerializedMinValues = [],
             SerializedMaxValues = [],
@@ -517,6 +518,22 @@ internal static partial class OrdinaryItemCorpusAuditRunner
             SerializedJson = build.SerializedJson,
             OmittedEffects = mapping.Diagnostics.Select(diagnostic => diagnostic.SourceIndex?.ToString() ?? "<unknown>").ToArray(),
         };
+    }
+
+    private static TradeSearchDraft SelectAndResolveDraft(
+        TradeSearchDraft draft,
+        IReadOnlyCollection<int> selectedIndexes,
+        PathOfExileTradePriceCheckService service,
+        PathOfExileTradeStatCatalog tradeStatCatalog)
+    {
+        var selectedSet = selectedIndexes.ToHashSet();
+        var selectedDraft = draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select((effect, index) => effect with { IsSelected = selectedSet.Contains(index) })
+                .ToArray(),
+        };
+        return service.ResolveProviderComponents(selectedDraft, tradeStatCatalog);
     }
 
     private static IReadOnlyList<AuditFailure> FindRequiredStageFailures(AuditItem item)
@@ -690,8 +707,14 @@ internal static partial class OrdinaryItemCorpusAuditRunner
 
     private static string ResultLabel(
         PathOfExileTradeStatMatchResult match,
-        ResolvedSearchComponent component)
+        ResolvedSearchComponent component,
+        ResolvedSearchComponent resolvedComponent)
     {
+        if (resolvedComponent.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed)
+        {
+            return "BaseGuaranteed";
+        }
+
         if (!CanResolveProviderComponent(component))
         {
             return "UnsupportedSpecial";
@@ -1812,6 +1835,8 @@ internal sealed record SelectedQueryAudit
     public bool MappingSucceeded { get; init; }
 
     public IReadOnlyList<string> MappingDiagnosticCodes { get; init; } = [];
+
+    public IReadOnlyList<int> MappingSourceIndexes { get; init; } = [];
 
     public bool QuerySucceeded { get; init; }
 

@@ -147,6 +147,34 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
+    public async Task CheckAsync_CategorySelectedBaseImplicitWithoutProviderStatActivatesExactBaseBeforeMapping()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.CatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(EmptyStatCatalog()));
+        fixture.SelectedModifierMapper.Result =
+            PathOfExileTradeSelectedModifierMappingResult.Success([]);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var result = await fixture.Service.CheckAsync(
+            StygianViseBaseImplicitDraft(),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var mappingCall = Assert.Single(fixture.SelectedModifierMapper.Calls);
+        Assert.Equal(BaseSearchMode.ExactBase, mappingCall.Draft!.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Stygian Vise", mappingCall.Draft.Base.ActiveCriterion?.ExactBaseName);
+        var component = Assert.Single(mappingCall.Draft.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.BaseGuaranteed, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        var queryCall = Assert.Single(fixture.QueryBuilder.Calls);
+        Assert.Equal(BaseSearchMode.ExactBase, queryCall.Draft!.Base.ActiveCriterion?.Mode);
+        Assert.Equal(BaseSearchMode.ExactBase, result.EffectiveDraft?.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Stygian Vise", result.EffectiveDraft?.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Empty(queryCall.SelectedModifierFilters!);
+    }
+
+    [Fact]
     public async Task CheckAsync_UniqueLoadsItemCatalogMapsIdentityAndPassesProviderIdentityToQueryBuilder()
     {
         var fixture = ServiceFixture.Create();
@@ -332,6 +360,86 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.Empty(providerFilter.ExtractedNumericValues);
         Assert.Single(searchClient.Calls);
         Assert.Single(fetchClient.Calls);
+    }
+
+    [Theory]
+    [InlineData(0, "explicit.physical")]
+    [InlineData(1, "explicit.physical")]
+    [InlineData(2, "explicit.accuracy.local")]
+    public async Task CheckAsync_EachDuplicateEffectComponentResolvesFromItsOwnProvenance(
+        int selectedIndex,
+        string expectedProviderStatId)
+    {
+        var queryBuilder = SuccessfulQueryBuilder();
+        var catalogProvider = new FakeCatalogProvider();
+        catalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(DuplicateEffectCatalog()));
+        var searchClient = new FakeSearchClient();
+        searchClient.Enqueue(SearchSuccess(["id-1"], total: 1));
+        var fetchClient = new FakeFetchClient();
+        fetchClient.Enqueue(FetchSuccess([Offer("id-1")]));
+        var service = new PathOfExileTradePriceCheckService(
+            queryBuilder,
+            new PathOfExileTradeStatMatcher(),
+            catalogProvider,
+            new FakeItemCatalogProvider(),
+            new PathOfExileTradeSelectedModifierMapper(),
+            new FakeItemIdentityMapper(),
+            searchClient,
+            fetchClient);
+
+        var result = await service.CheckAsync(
+            DuplicateEffectDraft(selectedIndex),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var effectiveDraft = Assert.IsType<TradeSearchDraft>(result.EffectiveDraft);
+        Assert.Equal(3, effectiveDraft.ModifierFilters.Count);
+        Assert.True(effectiveDraft.ModifierFilters[selectedIndex].IsSelected);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Exact,
+            effectiveDraft.ModifierFilters[selectedIndex].ProviderResolutionStatus);
+        Assert.Equal(expectedProviderStatId, effectiveDraft.ModifierFilters[selectedIndex].ProviderStatId);
+        var providerFilter = Assert.Single(Assert.Single(queryBuilder.Calls).SelectedModifierFilters ?? []);
+        Assert.Equal(expectedProviderStatId, providerFilter.StatId);
+        Assert.Equal([selectedIndex], providerFilter.SourceIndexes);
+    }
+
+    [Fact]
+    public async Task CheckAsync_TwoSelectedSourcesSharingPresenceStatStaySelectedAndSerializeOnce()
+    {
+        var queryBuilder = SuccessfulQueryBuilder();
+        var catalogProvider = new FakeCatalogProvider();
+        catalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(DuplicateEffectCatalog()));
+        var searchClient = new FakeSearchClient();
+        searchClient.Enqueue(SearchSuccess(["id-1"], total: 1));
+        var fetchClient = new FakeFetchClient();
+        fetchClient.Enqueue(FetchSuccess([Offer("id-1")]));
+        var service = new PathOfExileTradePriceCheckService(
+            queryBuilder,
+            new PathOfExileTradeStatMatcher(),
+            catalogProvider,
+            new FakeItemCatalogProvider(),
+            new PathOfExileTradeSelectedModifierMapper(),
+            new FakeItemIdentityMapper(),
+            searchClient,
+            fetchClient);
+
+        var result = await service.CheckAsync(
+            DuplicateEffectDraft(0, 1),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var effectiveDraft = Assert.IsType<TradeSearchDraft>(result.EffectiveDraft);
+        Assert.True(effectiveDraft.ModifierFilters[0].IsSelected);
+        Assert.True(effectiveDraft.ModifierFilters[1].IsSelected);
+        Assert.NotEqual(
+            effectiveDraft.ModifierFilters[0].ResolvedModifierId,
+            effectiveDraft.ModifierFilters[1].ResolvedModifierId);
+        var providerFilter = Assert.Single(Assert.Single(queryBuilder.Calls).SelectedModifierFilters ?? []);
+        Assert.Equal("explicit.physical", providerFilter.StatId);
+        Assert.Equal([0, 1], providerFilter.SourceIndexes);
     }
 
     [Fact]
@@ -783,6 +891,74 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         };
     }
 
+    private static TradeSearchDraft DuplicateEffectDraft(params int[] selectedIndexes)
+    {
+        var selected = selectedIndexes.ToHashSet();
+        return Draft() with
+        {
+            ItemClass = "One Hand Axes",
+            ParsedBaseType = "Test Weapon",
+            ModifierFilters =
+            [
+                DuplicateEffectComponent(
+                    "modifier:0:0",
+                    sourceModifierIndex: 0,
+                    sourceComponentIndex: 0,
+                    "52% increased Physical Damage",
+                    "<number>% increased Physical Damage",
+                    "mod.pure-physical",
+                    "local_physical_damage_percent",
+                    selected.Contains(0)),
+                DuplicateEffectComponent(
+                    "modifier:1:0",
+                    sourceModifierIndex: 1,
+                    sourceComponentIndex: 0,
+                    "39% increased Physical Damage",
+                    "<number>% increased Physical Damage",
+                    "mod.hybrid-physical-accuracy",
+                    "local_physical_damage_percent",
+                    selected.Contains(1)),
+                DuplicateEffectComponent(
+                    "modifier:1:1",
+                    sourceModifierIndex: 1,
+                    sourceComponentIndex: 1,
+                    "+93 to Accuracy Rating",
+                    "+<number> to Accuracy Rating",
+                    "mod.hybrid-physical-accuracy",
+                    "local_accuracy",
+                    selected.Contains(2)),
+            ],
+        };
+    }
+
+    private static ResolvedSearchComponent DuplicateEffectComponent(
+        string componentId,
+        int sourceModifierIndex,
+        int sourceComponentIndex,
+        string originalText,
+        string canonicalSignature,
+        string modifierId,
+        string statId,
+        bool isSelected)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = componentId,
+            SourceModifierIndex = sourceModifierIndex,
+            SourceComponentIndex = sourceComponentIndex,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ParsedKind = PoEnhance.Core.Items.Parsing.ParsedModifierKind.Prefix,
+            GenerationType = PoEnhance.GameData.ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Local,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = modifierId,
+            ResolvedStatIds = [statId],
+            IsSearchable = true,
+            IsSelected = isSelected,
+        };
+    }
+
     private static TradeSearchDraft BaseImplicitDraft(BaseSearchMode activeMode)
     {
         var category = "Wand";
@@ -845,6 +1021,61 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     ResolvedStatIds = ["kinetic_wand_implicit_cannot_roll_caster_modifiers"],
                     IsSearchable = true,
                     IsSelected = true,
+                },
+            ],
+        };
+    }
+
+    private static TradeSearchDraft StygianViseBaseImplicitDraft()
+    {
+        var draft = BaseImplicitDraft(BaseSearchMode.Category);
+        var category = "Belt";
+        var exactBaseName = "Stygian Vise";
+        var categoryCriterion = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = category,
+        };
+        var exactBaseCriterion = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.ExactBase,
+            Category = category,
+            ExactBaseName = exactBaseName,
+        };
+
+        return draft with
+        {
+            ItemClass = "Belts",
+            DisplayName = "Corruption Bond",
+            ParsedBaseType = exactBaseName,
+            Base = draft.Base with
+            {
+                ResolvedBaseId = "base.stygian-vise",
+                ResolvedBaseName = exactBaseName,
+                Category = category,
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = ItemBaseResolutionStatus.Exact,
+                    ExactBaseId = "base.stygian-vise",
+                    ExactBaseName = exactBaseName,
+                    Category = category,
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = categoryCriterion,
+                    ExactBase = exactBaseCriterion,
+                },
+                ActiveCriterion = categoryCriterion,
+            },
+            ModifierFilters =
+            [
+                draft.ModifierFilters[0] with
+                {
+                    ComponentId = "base-implicit:0:StygianBeltImplicit1",
+                    OriginalText = "Has 1 Abyssal Socket",
+                    CanonicalSignature = "Has # Abyssal Socket",
+                    ResolvedModifierId = "StygianBeltImplicit1",
+                    ResolvedStatIds = ["local_has_X_abyss_sockets"],
                 },
             ],
         };
@@ -968,6 +1199,53 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         ]);
     }
 
+    private static PathOfExileTradeStatCatalog DuplicateEffectCatalog()
+    {
+        return new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.physical",
+                Text = "#% increased Physical Damage",
+                Type = "explicit",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 1,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.accuracy.global",
+                Text = "+# to Accuracy Rating",
+                Type = "explicit",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 2,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.accuracy.local",
+                Text = "+# to Accuracy Rating (Local)",
+                Type = "explicit",
+            },
+        ]);
+    }
+
+    private static FakeQueryBuilder SuccessfulQueryBuilder()
+    {
+        return new FakeQueryBuilder
+        {
+            Result = PathOfExileTradeQueryBuildResult.Success(
+                League,
+                SearchRequest(),
+                "{}",
+                "Test Weapon",
+                ItemBaseResolutionStatus.Exact),
+        };
+    }
+
     private static PathOfExileTradeStatCatalog ImplicitCatalog()
     {
         return new PathOfExileTradeStatCatalog(
@@ -982,6 +1260,11 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                 Type = "implicit",
             },
         ]);
+    }
+
+    private static PathOfExileTradeStatCatalog EmptyStatCatalog()
+    {
+        return new PathOfExileTradeStatCatalog([]);
     }
 
     private static PathOfExileTradeItemCatalog ItemCatalog()

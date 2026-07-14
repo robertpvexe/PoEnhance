@@ -348,18 +348,18 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
-    private static string FormatBaseStatus(TradeSearchBaseDraft baseDraft)
+    internal static string FormatBaseStatus(TradeSearchBaseDraft baseDraft)
     {
         var status = baseDraft.Status?.ToString() ?? "Parser only";
         return $"{status}; Search: {FormatActiveCriterion(baseDraft.ActiveCriterion)}";
     }
 
-    private static string FormatActiveCriterion(BaseSearchCriterion? criterion)
+    internal static string FormatActiveCriterion(BaseSearchCriterion? criterion)
     {
         return criterion?.Mode switch
         {
-            BaseSearchMode.Category => DisplayValue(criterion.Category),
-            BaseSearchMode.ExactBase => DisplayValue(criterion.ExactBaseName),
+            BaseSearchMode.Category => $"Category: {DisplayValue(criterion.Category)}",
+            BaseSearchMode.ExactBase => $"Exact Base: {DisplayValue(criterion.ExactBaseName)}",
             _ => NotDetectedText,
         };
     }

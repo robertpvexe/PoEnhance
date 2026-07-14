@@ -72,7 +72,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         }
 
         return diagnostics.Count == 0
-            ? PathOfExileTradeSelectedModifierMappingResult.Success(filters)
+            ? PathOfExileTradeSelectedModifierMappingResult.Success(CollapseSharedPresenceFilters(filters))
             : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
     }
 
@@ -97,6 +97,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             filter = new PathOfExileTradeSelectedModifierFilter
             {
                 SourceIndex = sourceIndex,
+                SourceIndexes = [sourceIndex],
                 StatId = modifier.ProviderStatId.Trim(),
                 OriginalText = modifier.OriginalText,
                 NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
@@ -107,6 +108,33 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
 
         diagnostic = ToProviderResolutionDiagnostic(sourceIndex, modifier);
         return false;
+    }
+
+    private static IReadOnlyList<PathOfExileTradeSelectedModifierFilter> CollapseSharedPresenceFilters(
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter> filters)
+    {
+        return filters
+            .GroupBy(filter => filter.StatId, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var first = group.First();
+                return first with
+                {
+                    SourceIndexes = group
+                        .SelectMany(SourceIndexes)
+                        .Distinct()
+                        .OrderBy(index => index)
+                        .ToArray(),
+                };
+            })
+            .ToArray();
+    }
+
+    private static IEnumerable<int> SourceIndexes(PathOfExileTradeSelectedModifierFilter filter)
+    {
+        return filter.SourceIndexes.Count > 0
+            ? filter.SourceIndexes
+            : [filter.SourceIndex];
     }
 
     private static bool CanSerializeSelectedComponent(ResolvedSearchComponent modifier)

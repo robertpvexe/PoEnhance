@@ -171,7 +171,15 @@ internal sealed class PriceCheckerSearchController
 
         activeRequestCancellation = null;
         isLoading = false;
-        ApplyState(MapResult(result));
+        var effectiveDraft = result.EffectiveDraft;
+        if (effectiveDraft is not null)
+        {
+            window?.UpdateContent(new PriceCheckerWindowState(
+                effectiveDraft,
+                draftValidator.Validate(effectiveDraft)));
+        }
+
+        ApplyState(MapResult(result, effectiveDraft));
     }
 
     public void UpdateModifierSelection(
@@ -297,7 +305,9 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private PriceCheckerSearchViewState MapResult(PathOfExileTradePriceCheckResult result)
+    private PriceCheckerSearchViewState MapResult(
+        PathOfExileTradePriceCheckResult result,
+        TradeSearchDraft? effectiveDraft)
     {
         if (result.IsCancelled)
         {
@@ -307,7 +317,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = "Search cancelled.",
-                Modifiers = CreateModifierRows(),
+                Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
 
@@ -324,7 +334,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = FailureMessage(result),
-                Modifiers = CreateModifierRows(),
+                Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
 
@@ -338,7 +348,7 @@ internal sealed class PriceCheckerSearchController
                 CanSearch = CanStartSearch(),
                 Message = "No offers found.",
                 Summary = string.Empty,
-                Modifiers = CreateModifierRows(),
+                Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
 
@@ -349,7 +359,7 @@ internal sealed class PriceCheckerSearchController
             CanSearch = CanStartSearch(),
             Message = "Search complete.",
             Summary = CreateSuccessSummary(offers.Length, result.ProviderTotal, result.Inexact),
-            Modifiers = CreateModifierRows(),
+            Modifiers = CreateModifierRows(effectiveDraft),
             Offers = offers,
         };
     }
@@ -443,14 +453,15 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private IReadOnlyList<PriceCheckerModifierViewModel> CreateModifierRows()
+    private IReadOnlyList<PriceCheckerModifierViewModel> CreateModifierRows(TradeSearchDraft? draft = null)
     {
-        if (currentDraft is null)
+        draft ??= currentDraft;
+        if (draft is null)
         {
             return [];
         }
 
-        return currentDraft.ModifierFilters
+        return draft.ModifierFilters
             .Select((modifier, index) => new PriceCheckerModifierViewModel
             {
                 SourceIndex = index,

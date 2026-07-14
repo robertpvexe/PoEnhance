@@ -13,6 +13,73 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerProductionPathCorpusTests
 {
     [Fact]
+    public void ShowOrUpdate_TwoPhysicalPrefixesPreserveIndependentGameDataProvenance()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText("""
+Item Class: One Hand Axes
+Rarity: Rare
+Armageddon Thirst
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 85-254 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.50 (augmented)
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Serrated" (Tier: 7) - Damage, Physical, Attack }
+52(50-64)% increased Physical Damage
+{ Prefix Modifier "Mercenary's" (Tier: 5) - Damage, Physical, Attack }
+39(35-44)% increased Physical Damage
++93(73-97) to Accuracy Rating
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
+20(16-20)% increased Attack Speed
+""");
+
+        var physicalComponents = snapshot.Draft.ModifierFilters
+            .Where(component => component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.Equal(2, physicalComponents.Length);
+        Assert.Equal([0, 1], physicalComponents.Select(component => component.SourceModifierIndex));
+        Assert.Equal([0, 0], physicalComponents.Select(component => component.SourceComponentIndex));
+        Assert.Equal(2, physicalComponents.Select(component => component.ComponentId).Distinct().Count());
+        Assert.Single(physicalComponents.Select(component => component.CanonicalSignature).Distinct());
+        Assert.All(physicalComponents, component =>
+        {
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+            Assert.False(string.IsNullOrWhiteSpace(component.ResolvedModifierId));
+            Assert.Equal(["local_physical_damage_+%"], component.ResolvedStatIds);
+            Assert.Equal(ModifierLocality.Local, component.Locality);
+            Assert.True(component.IsSearchable);
+        });
+        Assert.Equal(2, physicalComponents.Select(component => component.ResolvedModifierId).Distinct().Count());
+
+        var accuracy = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
+        Assert.Equal(1, accuracy.SourceModifierIndex);
+        Assert.Equal(1, accuracy.SourceComponentIndex);
+        Assert.Equal(["local_accuracy_rating"], accuracy.ResolvedStatIds);
+        Assert.Equal(physicalComponents[1].ResolvedModifierId, accuracy.ResolvedModifierId);
+        Assert.Equal(ModifierLocality.Local, accuracy.Locality);
+
+        var craftedAttackSpeed = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, craftedAttackSpeed.ResolutionStatus);
+        Assert.Null(craftedAttackSpeed.ResolvedModifierId);
+        Assert.Empty(craftedAttackSpeed.ResolvedStatIds);
+    }
+
+    [Fact]
     public void ShowOrUpdate_MorbidBiteReaverAxe_PreservesCopiedRareIdentityAndBothModifiers()
     {
         using var harness = ProductionPathHarness.Create();

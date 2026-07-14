@@ -569,6 +569,64 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_ExactLocalGameDataProvenanceUsesSoleUnmarkedProviderPresenceCandidate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.physical", "#% increased Physical Damage", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("52% increased Physical Damage", ParsedModifierKind.Prefix),
+            catalog,
+            Context(
+                locality: ModifierLocality.Local,
+                internalStatIds: ["local_physical_damage_percent"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.physical", result.ExactCandidate?.StatId);
+        Assert.Equal(PathOfExileTradeProviderStatLocality.Unmarked, result.ExactCandidate?.ProviderLocality);
+        Assert.Equal(ModifierLocality.Local, result.RequestedLocality);
+        Assert.Equal(["local_physical_damage_percent"], result.Trace?.InternalStatIds);
+    }
+
+    [Fact]
+    public void Match_LocalSourceWithoutExactStatProvenanceDoesNotUseUnmarkedCandidate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.physical", "#% increased Physical Damage", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("52% increased Physical Damage", ParsedModifierKind.Prefix),
+            catalog,
+            Context(locality: ModifierLocality.Local));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.ExpectedLocalCandidateMissing,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Match_ExactLocalGameDataProvenanceDoesNotGuessBetweenUnmarkedCandidates()
+    {
+        var catalog = Catalog(
+            Entry("explicit.physical.one", "#% increased Physical Damage", "explicit"),
+            Entry("explicit.physical.two", "#% increased Physical Damage", "explicit"));
+
+        var result = matcher.Match(
+            Modifier("52% increased Physical Damage", ParsedModifierKind.Prefix),
+            catalog,
+            Context(
+                locality: ModifierLocality.Local,
+                internalStatIds: ["local_physical_damage_percent"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.ExpectedLocalCandidateMissing,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Match_MissingExpectedUnmarkedCandidateReturnsStableDiagnostic()
     {
         var catalog = Catalog(
@@ -660,6 +718,29 @@ public sealed class PathOfExileTradeStatMatcherTests
         Assert.Equal("explicit.stat_3261801346", result.ExactCandidate?.StatId);
         Assert.Equal(ModifierLocality.Global, result.RequestedLocality);
         Assert.Equal([53m], result.ExtractedNumericValues);
+    }
+
+    [Fact]
+    public void Match_BoneRingIntelligenceUsesObservedExplicitStatId()
+    {
+        var catalog = Catalog(
+            Entry("explicit.stat_328541901", "+# to Intelligence", "explicit"),
+            Entry("implicit.stat_328541901", "+# to Intelligence", "implicit"),
+            Entry("crafted.stat_328541901", "+# to Intelligence", "crafted"));
+
+        var result = matcher.Match(
+            Modifier("+58(51-58) to Intelligence", ParsedModifierKind.Suffix),
+            catalog,
+            Context(
+                itemClass: "Rings",
+                parsedBaseType: "Bone Ring",
+                locality: ModifierLocality.Global,
+                internalStatIds: ["intelligence"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.stat_328541901", result.ExactCandidate?.StatId);
+        Assert.Equal(ModifierLocality.Global, result.RequestedLocality);
+        Assert.Equal([58m], result.ExtractedNumericValues);
     }
 
     [Fact]

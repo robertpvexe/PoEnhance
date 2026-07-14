@@ -103,6 +103,67 @@ public sealed class PathOfExileTradeImplicitProductionTests
     }
 
     [Fact]
+    public async Task StygianViseSelectedAbyssalSocketUsesExactBaseFallbackWithoutStatFilter()
+    {
+        var fixture = Fixture.Create(Catalog());
+        fixture.OpenText(CorpusItem(10));
+        fixture.SelectRow("Has 1 Abyssal Socket");
+
+        await fixture.SearchAsync();
+
+        var json = fixture.SingleSearchJson();
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("rare", Rarity(query));
+        Assert.Equal("Stygian Vise", query.GetProperty("type").GetString());
+        Assert.False(query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .TryGetProperty("category", out _));
+        Assert.Empty(StatIds(query));
+
+        var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
+        Assert.Equal(BaseSearchMode.ExactBase, state.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Stygian Vise", state.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal(
+            "Exact; Search: Exact Base: Stygian Vise",
+            PriceCheckerWindow.FormatBaseStatus(state.Draft.Base));
+        var component = Assert.Single(state.Draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("Has 1 Abyssal Socket", StringComparison.Ordinal));
+        Assert.True(component.IsSelected);
+        Assert.Equal(SearchComponentProviderResolutionStatus.BaseGuaranteed, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.DoesNotContain(state.ValidationResult.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+        Assert.Contains(state.ValidationResult.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierRepresentedByExactBase &&
+            diagnostic.Severity == TradeSearchValidationSeverity.Info);
+    }
+
+    [Fact]
+    public async Task StygianViseUnselectedAbyssalSocketRemainsCategoryBeltSearch()
+    {
+        var fixture = Fixture.Create(Catalog());
+        var draft = fixture.OpenText(CorpusItem(10));
+
+        await fixture.SearchAsync();
+
+        Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
+        var json = fixture.SingleSearchJson();
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.Equal("accessory.belt", Category(query));
+        Assert.Empty(StatIds(query));
+        var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
+        Assert.Equal(BaseSearchMode.Category, state.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal(
+            "Exact; Search: Category: Belt",
+            PriceCheckerWindow.FormatBaseStatus(state.Draft.Base));
+    }
+
+    [Fact]
     public void ParsedOrdinaryImplicitsCarryBaseImplicitProvenanceWithoutReminderOrUnscalableText()
     {
         var fixture = Fixture.Create(OrganicCatalog());
@@ -366,6 +427,7 @@ Item Level: 84
                 Category(0, "weapon.wand", "Wand"),
                 Category(1, "armour.shield", "Shield"),
                 Category(2, "accessory.ring", "Ring"),
+                Category(3, "accessory.belt", "Belt"),
             ]);
         }
 

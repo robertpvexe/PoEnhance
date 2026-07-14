@@ -555,6 +555,48 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_SharedPresenceFilterCoversTwoSelectedComponentsAndSerializesOnce()
+    {
+        var sharedFilter = ProviderFilter(0, "explicit.physical") with
+        {
+            SourceIndexes = [0, 1],
+        };
+        var result = BuildSuccessful(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+            ]),
+            [sharedFilter]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var statFilter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+
+        Assert.Equal("explicit.physical", statFilter.GetProperty("id").GetString());
+        Assert.Single(statFilter.EnumerateObject());
+    }
+
+    [Fact]
+    public void Build_SharedPresenceFilterMissingSelectedSourceStillBlocks()
+    {
+        var result = builder.Build(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+            ]),
+            ValidValidation(),
+            League,
+            [ProviderFilter(0, "explicit.physical")]);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.SelectedModifierMappingMismatch);
+    }
+
+    [Fact]
     public void Build_RangerBowFireLocalSelectedModifierRequestMatchesPresenceOnlyParityShape()
     {
         var result = BuildSuccessful(

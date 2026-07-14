@@ -43,6 +43,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         string? leagueIdentifier,
         CancellationToken cancellationToken = default)
     {
+        var effectiveDraft = draft;
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
         PathOfExileTradeItemIdentity? providerItemIdentity = null;
         PathOfExileTradeFilterCatalog? providerFilterCatalog = null;
@@ -104,13 +105,15 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             }
 
             draft = ResolveProviderComponents(draft!, catalogResult.Catalog);
+            effectiveDraft = draft;
             var mappingResult = selectedModifierMapper.Map(draft);
             if (!mappingResult.IsSuccess)
             {
                 return MappingFailure(
                     mappingResult,
                     catalogRateLimitSnapshot,
-                    catalogDiagnostics);
+                    catalogDiagnostics,
+                    effectiveDraft);
             }
 
             providerModifierFilters = mappingResult.Filters;
@@ -128,6 +131,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return new PathOfExileTradePriceCheckResult
             {
                 Stage = PathOfExileTradePriceCheckStage.QueryBuild,
+                EffectiveDraft = effectiveDraft,
                 CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 Diagnostics = catalogDiagnostics.Concat(MapQueryDiagnostics(
                         buildResult.Diagnostics,
@@ -159,6 +163,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchResult.Response?.Id,
                 ProviderTotal = searchResult.Response?.Total,
                 Inexact = searchResult.Response?.Inexact,
+                EffectiveDraft = effectiveDraft,
                 CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 Diagnostics = catalogDiagnostics.Concat(SearchFailureDiagnostics(searchResult)).ToArray(),
@@ -185,6 +190,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 Stage = PathOfExileTradePriceCheckStage.Search,
                 ProviderTotal = searchResponse?.Total,
                 Inexact = searchResponse?.Inexact,
+                EffectiveDraft = effectiveDraft,
                 CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 Diagnostics =
@@ -210,6 +216,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchQueryId,
                 ProviderTotal = searchResponse.Total,
                 Inexact = searchResponse.Inexact,
+                EffectiveDraft = effectiveDraft,
                 CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 Diagnostics = catalogDiagnostics.Concat(searchDiagnostics).ToArray(),
@@ -239,6 +246,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 SearchQueryId = searchQueryId,
                 ProviderTotal = searchResponse.Total,
                 Inexact = searchResponse.Inexact,
+                EffectiveDraft = effectiveDraft,
                 CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
                 SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
                 FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
@@ -268,6 +276,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             SearchQueryId = searchQueryId,
             ProviderTotal = searchResponse.Total,
             Inexact = searchResponse.Inexact,
+            EffectiveDraft = effectiveDraft,
             Offers = fetchResult.Response?.Result ?? [],
             CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
@@ -297,12 +306,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return draft;
         }
 
-        return draft with
+        var resolvedComponents = draft.ModifierFilters
+            .Select(component => ResolveProviderComponent(draft, component, catalog))
+            .ToArray();
+        var resolvedDraft = draft with
         {
-            ModifierFilters = draft.ModifierFilters
-                .Select(component => ResolveProviderComponent(draft, component, catalog))
-                .ToArray(),
+            ModifierFilters = resolvedComponents,
         };
+
+        return resolvedComponents.Any(component =>
+                component.IsSelected &&
+                component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed &&
+                CanUseAvailableExactBaseFallback(draft, component))
+            ? ActivateAvailableExactBase(resolvedDraft)
+            : resolvedDraft;
     }
 
     private ResolvedSearchComponent ResolveProviderComponent(
@@ -336,6 +353,23 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component,
             catalog,
             CreateMatchContext(draft, component));
+        if (component.IsSelected &&
+            match.Status == PathOfExileTradeStatMatchStatus.NotFound &&
+            CanUseAvailableExactBaseFallback(draft, component))
+        {
+            return component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                ProviderCandidateStatIds = match.InitialCandidates
+                    .Select(candidate => candidate.StatId)
+                    .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(statId => statId, StringComparer.Ordinal)
+                    .ToArray(),
+                ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
+            };
+        }
+
         var providerStatus = match.Status switch
         {
             PathOfExileTradeStatMatchStatus.Exact => SearchComponentProviderResolutionStatus.Exact,
@@ -408,6 +442,56 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return activeExactBase is not null &&
             observedExactBase is not null &&
             string.Equals(activeExactBase, observedExactBase, StringComparison.Ordinal);
+    }
+
+    private static bool IsGuaranteedByAvailableExactBase(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component)
+    {
+        if (!component.IsBaseImplicit)
+        {
+            return false;
+        }
+
+        var availableExactBase = TrimToNull(draft.Base.AvailableCriteria.ExactBase?.ExactBaseName);
+        var observedExactBase = TrimToNull(draft.Base.Observed?.ExactBaseName) ??
+            TrimToNull(draft.Base.ResolvedBaseName);
+        return availableExactBase is not null &&
+            observedExactBase is not null &&
+            string.Equals(availableExactBase, observedExactBase, StringComparison.Ordinal);
+    }
+
+    private static bool CanUseAvailableExactBaseFallback(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component)
+    {
+        return IsGuaranteedByAvailableExactBase(draft, component) &&
+            IsKnownProviderlessDeterministicBaseIntrinsic(component);
+    }
+
+    private static bool IsKnownProviderlessDeterministicBaseIntrinsic(
+        ResolvedSearchComponent component)
+    {
+        return component.ResolvedStatIds.Any(statId =>
+                string.Equals(statId, "local_has_X_abyss_sockets", StringComparison.Ordinal)) ||
+            string.Equals(
+                component.CanonicalSignature?.Trim(),
+                "Has # Abyssal Socket",
+                StringComparison.Ordinal);
+    }
+
+    private static TradeSearchDraft ActivateAvailableExactBase(TradeSearchDraft draft)
+    {
+        var exactBase = draft.Base.AvailableCriteria.ExactBase;
+        return exactBase is null
+            ? draft
+            : draft with
+            {
+                Base = draft.Base with
+                {
+                    ActiveCriterion = exactBase,
+                },
+            };
     }
 
     private static bool CanMapCategoryCriteria(
@@ -521,7 +605,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private static PathOfExileTradePriceCheckResult MappingFailure(
         PathOfExileTradeSelectedModifierMappingResult result,
         PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
-        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics)
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics,
+        TradeSearchDraft? effectiveDraft)
     {
         var mappingDiagnostics = result.Diagnostics
             .Select(diagnostic => new PathOfExileTradePriceCheckDiagnostic(
@@ -534,6 +619,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return new PathOfExileTradePriceCheckResult
         {
             Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
+            EffectiveDraft = effectiveDraft,
             CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             Diagnostics = catalogDiagnostics
                 .Concat(mappingDiagnostics.Length == 0

@@ -262,7 +262,8 @@ public sealed class TradeSearchDraftMapper
                         sourceLineIndex: index,
                         sourceComponentIndex: index,
                         componentLines: [valueLines[index]],
-                        catalog);
+                        catalog,
+                        isBaseImplicit: true);
                 }
 
                 yield break;
@@ -351,7 +352,8 @@ public sealed class TradeSearchDraftMapper
         int sourceLineIndex,
         int sourceComponentIndex,
         IReadOnlyList<string> componentLines,
-        GameDataCatalog? catalog)
+        GameDataCatalog? catalog,
+        bool isBaseImplicit = false)
     {
         var statIds = StatIds(stats).ToArray();
         var isSearchable = exactCandidate is not null && statIds.Length > 0;
@@ -376,7 +378,7 @@ public sealed class TradeSearchDraftMapper
             IsCrafted = modifier.IsCrafted,
             IsFractured = modifier.IsFractured,
             IsVeiled = modifier.IsVeiled,
-            IsBaseImplicit = false,
+            IsBaseImplicit = isBaseImplicit,
             ResolutionStatus = resolution?.Status,
             ResolvedModifierId = TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
