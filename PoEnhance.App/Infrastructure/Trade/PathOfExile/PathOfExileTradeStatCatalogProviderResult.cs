@@ -14,6 +14,8 @@ internal sealed record PathOfExileTradeStatCatalogProviderResult
 
     public IReadOnlyList<PathOfExileTradeQueryDiagnostic> RateLimitDiagnostics { get; init; } = [];
 
+    public IReadOnlyList<PathOfExileTradeQueryDiagnostic> ParserDiagnostics { get; init; } = [];
+
     public IReadOnlyList<PathOfExileTradeHttpDiagnostic> Diagnostics { get; init; } = [];
 
     public bool IsCancelled { get; init; }
@@ -25,6 +27,7 @@ internal sealed record PathOfExileTradeStatCatalogProviderResult
         HttpStatusCode? httpStatusCode = null,
         PathOfExileTradeRateLimitSnapshot? rateLimitSnapshot = null,
         IReadOnlyList<PathOfExileTradeQueryDiagnostic>? rateLimitDiagnostics = null,
+        IReadOnlyList<PathOfExileTradeQueryDiagnostic>? parserDiagnostics = null,
         IReadOnlyList<PathOfExileTradeHttpDiagnostic>? diagnostics = null)
     {
         return new PathOfExileTradeStatCatalogProviderResult
@@ -34,6 +37,7 @@ internal sealed record PathOfExileTradeStatCatalogProviderResult
             Catalog = catalog,
             RateLimitSnapshot = rateLimitSnapshot,
             RateLimitDiagnostics = rateLimitDiagnostics ?? [],
+            ParserDiagnostics = parserDiagnostics ?? [],
             Diagnostics = diagnostics ?? [],
         };
     }
@@ -48,6 +52,7 @@ internal sealed record PathOfExileTradeStatCatalogProviderResult
             Catalog = result.Catalog,
             RateLimitSnapshot = result.RateLimitSnapshot,
             RateLimitDiagnostics = result.RateLimitDiagnostics,
+            ParserDiagnostics = result.ParserDiagnostics,
             Diagnostics = result.Diagnostics,
             IsCancelled = result.IsCancelled,
             IsTimeout = result.IsTimeout,

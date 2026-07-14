@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
+using Serilog;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
@@ -9,14 +10,22 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string RarityRare = "Rare";
     private const string RarityMagic = "Magic";
     private const string RarityNormal = "Normal";
-    private const string StatusMerchantOnly = "securable";
-    private const string StatusInPerson = "available";
+    private const string StatusMerchantOnly = "online";
+    private const string StatusInPerson = "onlineleague";
+    private const string TypeFiltersKey = "type_filters";
+    private const string ProviderRarityFilterKey = "rarity";
+    private const string ProviderRarityNormal = "normal";
+    private const string ProviderRarityMagic = "magic";
+    private const string ProviderRarityRare = "rare";
+    private const string MiscFiltersKey = "misc_filters";
+    private const string ProviderFoulbornFilterKey = "mutated";
 
     public PathOfExileTradeQueryBuildResult Build(
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
         string? leagueIdentifier,
-        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
+        PathOfExileTradeItemIdentity? providerItemIdentity = null)
     {
         if (draft is null)
         {
@@ -78,7 +87,16 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "This item cannot be represented safely by the base-only individual-item Trade query builder.");
         }
 
-        var selectedBaseType = SelectBaseType(draft);
+        if (IsRarity(draft, RarityUnique) &&
+            (TrimToNull(providerItemIdentity?.CanonicalName) is null ||
+                TrimToNull(providerItemIdentity?.CanonicalType) is null))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.MissingProviderUniqueIdentity,
+                "A Unique item needs a resolved provider item identity before query serialization.");
+        }
+
+        var selectedBaseType = SelectBaseType(draft, providerItemIdentity);
         if (selectedBaseType is null)
         {
             return Failure(
@@ -86,12 +104,21 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A resolved or parsed base identity is required for a base-only Path of Exile Trade query.");
         }
 
-        var itemName = SelectItemName(draft);
-        if (IsRarity(draft, RarityUnique) && itemName is null)
+        var itemNameResult = SelectItemName(draft, providerItemIdentity);
+        if (!itemNameResult.IsSuccess)
         {
             return Failure(
-                PathOfExileTradeQueryDiagnosticCodes.MissingUniqueName,
-                "A Unique item needs its unique display name for this Trade query shape.");
+                itemNameResult.DiagnosticCode,
+                itemNameResult.DiagnosticMessage);
+        }
+
+        if (IsRarity(draft, RarityUnique))
+        {
+            Log.Debug(
+                "Path of Exile Trade unique name decision. Decision={Decision}; BaseType={BaseType}; CanonicalNamePresent={CanonicalNamePresent}",
+                itemNameResult.Decision,
+                selectedBaseType,
+                itemNameResult.Name is not null);
         }
 
         var statFilters = providerFilters
@@ -109,7 +136,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 {
                     Option = MapListingStatus(draft.ListingMode),
                 },
-                Name = itemName,
+                Name = itemNameResult.Name,
                 Type = selectedBaseType,
                 Stats =
                 [
@@ -118,6 +145,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                         Filters = statFilters,
                     },
                 ],
+                Filters = BuildProviderFilters(draft, providerItemIdentity),
             },
             Sort = new PathOfExileTradeSearchSort(),
         };
@@ -147,23 +175,31 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private static bool HasUnsupportedSpecialItemSignal(TradeSearchDraft draft)
     {
         var itemClass = draft.ItemClass?.Trim();
+        var isUnique = IsRarity(draft, RarityUnique);
         if (EqualsOrdinalIgnoreCase(itemClass, "Currency") ||
             EqualsOrdinalIgnoreCase(itemClass, "Stackable Currency") ||
             EqualsOrdinalIgnoreCase(itemClass, "Gems") ||
             EqualsOrdinalIgnoreCase(itemClass, "Maps") ||
             EqualsOrdinalIgnoreCase(itemClass, "Map Fragments") ||
             EqualsOrdinalIgnoreCase(itemClass, "Divination Cards") ||
-            EqualsOrdinalIgnoreCase(itemClass, "Cluster Jewels"))
+            (!isUnique && EqualsOrdinalIgnoreCase(itemClass, "Cluster Jewels")))
         {
             return true;
         }
 
-        return ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Cluster Jewel") ||
+        return (!isUnique && ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Cluster Jewel")) ||
             ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Timeless Jewel");
     }
 
-    private static string? SelectBaseType(TradeSearchDraft draft)
+    private static string? SelectBaseType(
+        TradeSearchDraft draft,
+        PathOfExileTradeItemIdentity? providerItemIdentity)
     {
+        if (IsRarity(draft, RarityUnique))
+        {
+            return TrimToNull(providerItemIdentity?.CanonicalType);
+        }
+
         if (draft.Base.Status is ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable)
         {
             var resolvedBaseName = TrimToNull(draft.Base.ResolvedBaseName);
@@ -176,11 +212,68 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         return TrimToNull(draft.ParsedBaseType);
     }
 
-    private static string? SelectItemName(TradeSearchDraft draft)
+    private static UniqueNameSelectionResult SelectItemName(
+        TradeSearchDraft draft,
+        PathOfExileTradeItemIdentity? providerItemIdentity)
     {
-        return IsRarity(draft, RarityUnique)
-            ? TrimToNull(draft.DisplayName)
-            : null;
+        if (!IsRarity(draft, RarityUnique))
+        {
+            return UniqueNameSelectionResult.Success(null, "NonUnique");
+        }
+
+        var canonicalName = TrimToNull(providerItemIdentity?.CanonicalName);
+        if (canonicalName is null)
+        {
+            return UniqueNameSelectionResult.Failure(
+                PathOfExileTradeQueryDiagnosticCodes.MissingProviderUniqueIdentity,
+                "A Unique item needs a resolved provider item identity before query serialization.",
+                "MissingProviderIdentity");
+        }
+
+        return UniqueNameSelectionResult.Success(canonicalName, "ProviderItemIdentity");
+    }
+
+    private static IReadOnlyDictionary<string, object> BuildProviderFilters(
+        TradeSearchDraft draft,
+        PathOfExileTradeItemIdentity? providerItemIdentity)
+    {
+        var groups = new Dictionary<string, object>(StringComparer.Ordinal);
+        var rarityOption = MapNonUniqueRarityOption(draft);
+        if (rarityOption is not null)
+        {
+            groups[TypeFiltersKey] = new PathOfExileTradeSearchFilterGroup
+            {
+                Filters = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    [ProviderRarityFilterKey] = new PathOfExileTradeSearchOptionFilter
+                    {
+                        Option = rarityOption,
+                    },
+                },
+            };
+        }
+
+        if (providerItemIdentity is null ||
+            providerItemIdentity.Foulborn is TradeTriState.Auto or TradeTriState.Any)
+        {
+            return groups;
+        }
+
+        var option = providerItemIdentity.Foulborn == TradeTriState.Yes
+            ? "true"
+            : "false";
+
+        groups[MiscFiltersKey] = new PathOfExileTradeSearchFilterGroup
+        {
+            Filters = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [ProviderFoulbornFilterKey] = new PathOfExileTradeSearchOptionFilter
+                {
+                    Option = option,
+                },
+            },
+        };
+        return groups;
     }
 
     private static string MapListingStatus(TradeListingMode listingMode)
@@ -191,6 +284,26 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             TradeListingMode.InPerson => StatusInPerson,
             _ => StatusMerchantOnly,
         };
+    }
+
+    private static string? MapNonUniqueRarityOption(TradeSearchDraft draft)
+    {
+        if (IsRarity(draft, RarityNormal))
+        {
+            return ProviderRarityNormal;
+        }
+
+        if (IsRarity(draft, RarityMagic))
+        {
+            return ProviderRarityMagic;
+        }
+
+        if (IsRarity(draft, RarityRare))
+        {
+            return ProviderRarityRare;
+        }
+
+        return null;
     }
 
     private static bool IsRarity(TradeSearchDraft draft, string rarity)
@@ -220,5 +333,44 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     {
         return PathOfExileTradeQueryBuildResult.Failure(
             new PathOfExileTradeQueryDiagnostic(code, message));
+    }
+
+    private sealed record UniqueNameSelectionResult
+    {
+        public required bool IsSuccess { get; init; }
+
+        public string? Name { get; init; }
+
+        public string Decision { get; init; } = string.Empty;
+
+        public string DiagnosticCode { get; init; } = string.Empty;
+
+        public string DiagnosticMessage { get; init; } = string.Empty;
+
+        public static UniqueNameSelectionResult Success(
+            string? name,
+            string decision)
+        {
+            return new UniqueNameSelectionResult
+            {
+                IsSuccess = true,
+                Name = name,
+                Decision = decision,
+            };
+        }
+
+        public static UniqueNameSelectionResult Failure(
+            string code,
+            string message,
+            string decision)
+        {
+            return new UniqueNameSelectionResult
+            {
+                IsSuccess = false,
+                DiagnosticCode = code,
+                DiagnosticMessage = message,
+                Decision = decision,
+            };
+        }
     }
 }

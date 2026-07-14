@@ -6,20 +6,26 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 {
     private readonly IPathOfExileTradeQueryBuilder queryBuilder;
     private readonly IPathOfExileTradeStatCatalogProvider statCatalogProvider;
+    private readonly IPathOfExileTradeItemCatalogProvider itemCatalogProvider;
     private readonly IPathOfExileTradeSelectedModifierMapper selectedModifierMapper;
+    private readonly IPathOfExileTradeItemIdentityMapper itemIdentityMapper;
     private readonly IPathOfExileTradeSearchClient searchClient;
     private readonly IPathOfExileTradeFetchClient fetchClient;
 
     public PathOfExileTradePriceCheckService(
         IPathOfExileTradeQueryBuilder queryBuilder,
         IPathOfExileTradeStatCatalogProvider statCatalogProvider,
+        IPathOfExileTradeItemCatalogProvider itemCatalogProvider,
         IPathOfExileTradeSelectedModifierMapper selectedModifierMapper,
+        IPathOfExileTradeItemIdentityMapper itemIdentityMapper,
         IPathOfExileTradeSearchClient searchClient,
         IPathOfExileTradeFetchClient fetchClient)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
         this.statCatalogProvider = statCatalogProvider ?? throw new ArgumentNullException(nameof(statCatalogProvider));
+        this.itemCatalogProvider = itemCatalogProvider ?? throw new ArgumentNullException(nameof(itemCatalogProvider));
         this.selectedModifierMapper = selectedModifierMapper ?? throw new ArgumentNullException(nameof(selectedModifierMapper));
+        this.itemIdentityMapper = itemIdentityMapper ?? throw new ArgumentNullException(nameof(itemIdentityMapper));
         this.searchClient = searchClient ?? throw new ArgumentNullException(nameof(searchClient));
         this.fetchClient = fetchClient ?? throw new ArgumentNullException(nameof(fetchClient));
     }
@@ -31,22 +37,49 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         CancellationToken cancellationToken = default)
     {
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
+        PathOfExileTradeItemIdentity? providerItemIdentity = null;
         PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot = null;
         IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics = [];
+
+        if (CanMapUniqueIdentity(draft, validationResult, leagueIdentifier))
+        {
+            var itemCatalogResult = await itemCatalogProvider
+                .GetCatalogAsync(cancellationToken)
+                .ConfigureAwait(false);
+            catalogRateLimitSnapshot = itemCatalogResult.RateLimitSnapshot;
+            catalogDiagnostics = ItemCatalogSuccessDiagnostics(itemCatalogResult);
+            if (!itemCatalogResult.IsSuccess || itemCatalogResult.Catalog is null)
+            {
+                return ItemCatalogFailure(itemCatalogResult);
+            }
+
+            var identityResult = itemIdentityMapper.Map(draft, itemCatalogResult.Catalog);
+            if (!identityResult.IsSuccess || identityResult.Identity is null)
+            {
+                return ItemIdentityFailure(
+                    identityResult,
+                    catalogRateLimitSnapshot,
+                    catalogDiagnostics);
+            }
+
+            providerItemIdentity = identityResult.Identity;
+        }
 
         if (CanMapSelectedModifiers(draft, validationResult, leagueIdentifier))
         {
             var catalogResult = await statCatalogProvider
                 .GetCatalogAsync(cancellationToken)
                 .ConfigureAwait(false);
-            catalogRateLimitSnapshot = catalogResult.RateLimitSnapshot;
-            catalogDiagnostics = CatalogSuccessDiagnostics(catalogResult);
+            catalogRateLimitSnapshot = catalogResult.RateLimitSnapshot ?? catalogRateLimitSnapshot;
+            catalogDiagnostics = catalogDiagnostics
+                .Concat(CatalogSuccessDiagnostics(catalogResult))
+                .ToArray();
             if (!catalogResult.IsSuccess || catalogResult.Catalog is null)
             {
                 return CatalogFailure(catalogResult);
             }
 
-            var mappingResult = selectedModifierMapper.Map(draft!.ModifierFilters, catalogResult.Catalog);
+            var mappingResult = selectedModifierMapper.Map(draft, catalogResult.Catalog);
             if (!mappingResult.IsSuccess)
             {
                 return MappingFailure(
@@ -62,7 +95,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             draft,
             validationResult,
             leagueIdentifier,
-            providerModifierFilters);
+            providerModifierFilters,
+            providerItemIdentity);
         if (!buildResult.IsSuccess || buildResult.Request is null)
         {
             return new PathOfExileTradePriceCheckResult
@@ -228,6 +262,18 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             !string.IsNullOrWhiteSpace(leagueIdentifier);
     }
 
+    private static bool CanMapUniqueIdentity(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier)
+    {
+        return draft?.Rarity?.Trim().Equals("Unique", StringComparison.OrdinalIgnoreCase) == true &&
+            validationResult is not null &&
+            !validationResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
+            !string.IsNullOrWhiteSpace(leagueIdentifier);
+    }
+
     private static PathOfExileTradePriceCheckResult CatalogFailure(
         PathOfExileTradeStatCatalogProviderResult result)
     {
@@ -243,7 +289,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             CatalogRateLimitSnapshot = result.RateLimitSnapshot,
             Diagnostics = MapFailureDiagnostics(
                 result.Diagnostics,
-                result.RateLimitDiagnostics,
+                result.RateLimitDiagnostics.Concat(result.ParserDiagnostics).ToArray(),
                 code,
                 PathOfExileTradePriceCheckStage.CatalogLoad,
                 result.IsCancelled
@@ -251,6 +297,34 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     : result.IsTimeout
                         ? "The Trade stats catalog load timed out."
                         : "The Trade stats catalog could not be loaded."),
+            IsCancelled = result.IsCancelled,
+            IsTimeout = result.IsTimeout,
+        };
+    }
+
+    private static PathOfExileTradePriceCheckResult ItemCatalogFailure(
+        PathOfExileTradeItemCatalogProviderResult result)
+    {
+        var code = result.IsCancelled
+            ? PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadCancelled
+            : result.IsTimeout
+                ? PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadTimeout
+                : PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadFailed;
+
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.CatalogLoad,
+            CatalogRateLimitSnapshot = result.RateLimitSnapshot,
+            Diagnostics = MapFailureDiagnostics(
+                result.Diagnostics,
+                result.RateLimitDiagnostics.Concat(result.ParserDiagnostics).ToArray(),
+                code,
+                PathOfExileTradePriceCheckStage.CatalogLoad,
+                result.IsCancelled
+                    ? "The Trade items catalog load was cancelled."
+                    : result.IsTimeout
+                        ? "The Trade items catalog load timed out."
+                        : "The Trade items catalog could not be loaded."),
             IsCancelled = result.IsCancelled,
             IsTimeout = result.IsTimeout,
         };
@@ -287,8 +361,58 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         };
     }
 
+    private static PathOfExileTradePriceCheckResult ItemIdentityFailure(
+        PathOfExileTradeItemIdentityMappingResult result,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics)
+    {
+        var diagnostics = result.Diagnostics
+            .Select(diagnostic => new PathOfExileTradePriceCheckDiagnostic(
+                PathOfExileTradePriceCheckDiagnosticCodes.QueryBuildFailed,
+                diagnostic.Message,
+                PathOfExileTradePriceCheckStage.QueryBuild,
+                diagnostic.Code))
+            .ToArray();
+
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.QueryBuild,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+            Diagnostics = catalogDiagnostics
+                .Concat(diagnostics.Length == 0
+                    ?
+                    [
+                        new PathOfExileTradePriceCheckDiagnostic(
+                            PathOfExileTradePriceCheckDiagnosticCodes.QueryBuildFailed,
+                            "The Unique item identity could not be mapped to Trade search.",
+                            PathOfExileTradePriceCheckStage.QueryBuild),
+                    ]
+                    : diagnostics)
+                .ToArray(),
+        };
+    }
+
     private static IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> CatalogSuccessDiagnostics(
         PathOfExileTradeStatCatalogProviderResult result)
+    {
+        if (!result.IsSuccess)
+        {
+            return [];
+        }
+
+        return MapHttpDiagnostics(
+                result.Diagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadDiagnostic,
+                PathOfExileTradePriceCheckStage.CatalogLoad)
+            .Concat(MapQueryDiagnostics(
+                result.RateLimitDiagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadDiagnostic,
+                PathOfExileTradePriceCheckStage.CatalogLoad))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> ItemCatalogSuccessDiagnostics(
+        PathOfExileTradeItemCatalogProviderResult result)
     {
         if (!result.IsSuccess)
         {

@@ -53,6 +53,17 @@ internal sealed record PathOfExileTradeSearchStatFilter
     public required string Id { get; init; }
 }
 
+internal sealed record PathOfExileTradeSearchFilterGroup
+{
+    public IReadOnlyDictionary<string, object> Filters { get; init; } =
+        new Dictionary<string, object>();
+}
+
+internal sealed record PathOfExileTradeSearchOptionFilter
+{
+    public required string Option { get; init; }
+}
+
 internal sealed record PathOfExileTradeSearchSort
 {
     public string Price { get; init; } = "asc";

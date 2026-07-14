@@ -8,5 +8,6 @@ internal interface IPathOfExileTradeQueryBuilder
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
         string? leagueIdentifier,
-        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null);
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
+        PathOfExileTradeItemIdentity? providerItemIdentity = null);
 }

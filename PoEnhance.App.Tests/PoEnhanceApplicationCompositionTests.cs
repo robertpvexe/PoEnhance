@@ -7,7 +7,7 @@ namespace PoEnhance.App.Tests;
 public sealed class PoEnhanceApplicationCompositionTests
 {
     [Fact]
-    public void CreateDefault_UsesOneSharedHttpClientForSearchAndFetch()
+    public void CreateDefault_UsesOneSharedHttpClientForTradeClients()
     {
         using var composition = PoEnhanceApplicationComposition.CreateDefault();
 
@@ -20,10 +20,14 @@ public sealed class PoEnhanceApplicationCompositionTests
         var statsHttpClient = PrivateField<HttpClient>(
             composition.TradeStatsClient,
             "httpClient");
+        var itemsHttpClient = PrivateField<HttpClient>(
+            composition.TradeItemsClient,
+            "httpClient");
 
         Assert.Same(composition.PathOfExileTradeHttpClient, searchHttpClient);
         Assert.Same(searchHttpClient, fetchHttpClient);
         Assert.Same(searchHttpClient, statsHttpClient);
+        Assert.Same(searchHttpClient, itemsHttpClient);
     }
 
     [Fact]
@@ -47,24 +51,61 @@ public sealed class PoEnhanceApplicationCompositionTests
                 composition.PriceCheckService,
                 "statCatalogProvider"));
         Assert.Same(
+            composition.TradeItemCatalogProvider,
+            PrivateField<IPathOfExileTradeItemCatalogProvider>(
+                composition.PriceCheckService,
+                "itemCatalogProvider"));
+        Assert.Same(
             composition.TradeSelectedModifierMapper,
             PrivateField<IPathOfExileTradeSelectedModifierMapper>(
                 composition.PriceCheckService,
                 "selectedModifierMapper"));
+        Assert.Same(
+            composition.TradeItemIdentityMapper,
+            PrivateField<IPathOfExileTradeItemIdentityMapper>(
+                composition.PriceCheckService,
+                "itemIdentityMapper"));
         Assert.IsType<PathOfExileTradeStatsClient>(composition.TradeStatsClient);
+        Assert.IsType<PathOfExileTradeItemsClient>(composition.TradeItemsClient);
         Assert.IsType<PathOfExileTradeStatMatcher>(composition.TradeStatMatcher);
         Assert.IsType<PathOfExileTradeStatCatalogProvider>(composition.TradeStatCatalogProvider);
+        Assert.IsType<PathOfExileTradeItemCatalogProvider>(composition.TradeItemCatalogProvider);
         Assert.IsType<PathOfExileTradeSelectedModifierMapper>(composition.TradeSelectedModifierMapper);
+        Assert.IsType<PathOfExileTradeItemIdentityMapper>(composition.TradeItemIdentityMapper);
         Assert.Same(
             composition.TradeStatsClient,
             PrivateField<IPathOfExileTradeStatsClient>(
                 composition.TradeStatCatalogProvider,
                 "statsClient"));
         Assert.Same(
+            composition.TradeItemsClient,
+            PrivateField<IPathOfExileTradeItemsClient>(
+                composition.TradeItemCatalogProvider,
+                "itemsClient"));
+        Assert.Same(
             composition.TradeStatMatcher,
             PrivateField<IPathOfExileTradeStatMatcher>(
                 composition.TradeSelectedModifierMapper,
                 "statMatcher"));
+    }
+
+    [Fact]
+    public void CreateDefault_UsesDedicatedStatsResponseBoundAndGenericSearchFetchBounds()
+    {
+        using var composition = PoEnhanceApplicationComposition.CreateDefault();
+
+        Assert.Equal(
+            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes,
+            PrivateField<int>(composition.TradeSearchClient, "maximumResponseBodyBytes"));
+        Assert.Equal(
+            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes,
+            PrivateField<int>(composition.TradeFetchClient, "maximumResponseBodyBytes"));
+        Assert.Equal(
+            PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes,
+            PrivateField<int>(composition.TradeStatsClient, "maximumResponseBodyBytes"));
+        Assert.Equal(
+            PathOfExileTradeItemsClient.MaximumItemsResponseBodyBytes,
+            PrivateField<int>(composition.TradeItemsClient, "maximumResponseBodyBytes"));
     }
 
     [Fact]
@@ -98,6 +139,7 @@ public sealed class PoEnhanceApplicationCompositionTests
             .Where(type => type.Namespace == "PoEnhance.App.Features.PriceChecking")
             .Where(type =>
                 type.Name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+                type.Name.Contains("Modifier", StringComparison.OrdinalIgnoreCase) ||
                 type.Name.Contains("Offer", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
@@ -127,7 +169,10 @@ public sealed class PoEnhanceApplicationCompositionTests
             type => Contains(type, "PathOfExileTradeStatsClient") ||
                 Contains(type, "PathOfExileTradeStatMatcher") ||
                 Contains(type, "PathOfExileTradeStatCatalogProvider") ||
-                Contains(type, "PathOfExileTradeSelectedModifierMapper"));
+                Contains(type, "PathOfExileTradeSelectedModifierMapper") ||
+                Contains(type, "PathOfExileTradeItemsClient") ||
+                Contains(type, "PathOfExileTradeItemCatalogProvider") ||
+                Contains(type, "PathOfExileTradeItemIdentityMapper"));
     }
 
     private static T PrivateField<T>(object instance, string fieldName)

@@ -12,6 +12,8 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? SearchRequested;
 
+    event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
     event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
 
     event EventHandler<bool>? PinStateChanged;
@@ -19,6 +21,12 @@ internal interface IPriceCheckerWindow
     event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
 
     event EventHandler? HorizontalDragCompleted;
+
+    event EventHandler? HorizontalResizeStarted;
+
+    event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
+
+    event EventHandler? HorizontalResizeCompleted;
 
     event EventHandler? ResetPositionRequested;
 
@@ -29,6 +37,8 @@ internal interface IPriceCheckerWindow
     PriceCheckerWindowState? CurrentState { get; }
 
     PriceCheckerPlacement? CurrentPlacement { get; }
+
+    PriceCheckerPlacement? GetDisplayedPlacement();
 
     void UpdateContent(PriceCheckerWindowState state);
 

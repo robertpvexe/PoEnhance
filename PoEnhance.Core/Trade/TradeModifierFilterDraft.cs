@@ -12,6 +12,8 @@ public sealed record TradeModifierFilterDraft
 
     public ModifierGenerationType? GenerationType { get; init; }
 
+    public ModifierLocality Locality { get; init; } = ModifierLocality.Unknown;
+
     public string? ParsedModifierName { get; init; }
 
     public string? CategoryText { get; init; }
@@ -27,6 +29,8 @@ public sealed record TradeModifierFilterDraft
     public string? ResolvedModifierId { get; init; }
 
     public string? ResolvedModifierName { get; init; }
+
+    public IReadOnlyList<string> ResolvedStatIds { get; init; } = [];
 
     public decimal? RequestedMinimum { get; init; }
 

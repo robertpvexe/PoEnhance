@@ -75,6 +75,52 @@ public sealed class PriceCheckerPlacementStoreTests
     }
 
     [Fact]
+    public void SaveAndReload_PreservesPanelWidth()
+    {
+        using var temp = TempDirectory.Create();
+        var path = Path.Combine(temp.Path, "placement.json");
+        var key = Key();
+
+        new PriceCheckerPlacementStore(path).SavePanelWidth(key, 444.5);
+        var panelWidth = new PriceCheckerPlacementStore(path).LoadPanelWidth(key);
+
+        Assert.Equal(444.5, panelWidth);
+    }
+
+    [Fact]
+    public void LoadPanelWidth_MissingPlacementDataReturnsNull()
+    {
+        using var temp = TempDirectory.Create();
+        var store = new PriceCheckerPlacementStore(Path.Combine(temp.Path, "missing.json"));
+
+        var panelWidth = store.LoadPanelWidth(Key());
+
+        Assert.Null(panelWidth);
+    }
+
+    [Fact]
+    public void LoadPanelWidth_OldCorrectionOnlyJsonUsesResponsiveDefault()
+    {
+        using var temp = TempDirectory.Create();
+        var path = Path.Combine(temp.Path, "placement.json");
+        var key = Key();
+        var escapedKey = key.ToStorageKey().Replace("\\", "\\\\", StringComparison.Ordinal);
+        File.WriteAllText(
+            path,
+            $$"""
+            {
+              "HorizontalCorrections": {
+                "{{escapedKey}}": -30
+              }
+            }
+            """);
+        var store = new PriceCheckerPlacementStore(path);
+
+        Assert.Null(store.LoadPanelWidth(key));
+        Assert.Equal(-30, store.LoadHorizontalCorrection(key));
+    }
+
+    [Fact]
     public void ResetHorizontalCorrection_ClearsCorrection()
     {
         using var temp = TempDirectory.Create();
@@ -86,6 +132,22 @@ public sealed class PriceCheckerPlacementStoreTests
         store.ResetHorizontalCorrection(key);
 
         Assert.Equal(0, store.LoadHorizontalCorrection(key));
+    }
+
+    [Fact]
+    public void ResetHorizontalCorrection_DoesNotClearPanelWidth()
+    {
+        using var temp = TempDirectory.Create();
+        var path = Path.Combine(temp.Path, "placement.json");
+        var store = new PriceCheckerPlacementStore(path);
+        var key = Key();
+        store.SaveHorizontalCorrection(key, 31);
+        store.SavePanelWidth(key, 420);
+
+        store.ResetHorizontalCorrection(key);
+
+        Assert.Equal(0, store.LoadHorizontalCorrection(key));
+        Assert.Equal(420, store.LoadPanelWidth(key));
     }
 
     [Fact]

@@ -5,6 +5,6 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 internal interface IPathOfExileTradeSelectedModifierMapper
 {
     PathOfExileTradeSelectedModifierMappingResult Map(
-        IReadOnlyList<TradeModifierFilterDraft>? modifierFilters,
+        TradeSearchDraft? draft,
         PathOfExileTradeStatCatalog? catalog);
 }

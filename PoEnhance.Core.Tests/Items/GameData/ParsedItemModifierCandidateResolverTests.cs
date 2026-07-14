@@ -29,6 +29,28 @@ public sealed class ParsedItemModifierCandidateResolverTests
     }
 
     [Fact]
+    public void Resolve_ExactModifierWithLocalStatDefinitionReportsLocality()
+    {
+        var catalog = CreateCatalogWithStats(
+            [Stat("local_added_fire", isLocal: true)],
+            ModifierWithStat(
+                "mod.prefix.burning",
+                "Burning",
+                ModifierGenerationType.Prefix,
+                "item",
+                "local_added_fire"));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Burning" (Tier: 5) - Fire, Damage }
+Adds 10 to 20 Fire Damage
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(ModifierLocality.Local, result.Locality);
+    }
+
+    [Fact]
     public void Resolve_ImplicitNameAndGenerationType_ReturnsExactCandidate()
     {
         var catalog = CreateCatalog(Modifier(
@@ -933,6 +955,20 @@ Item Level: 80
         });
     }
 
+    private static GameDataCatalog CreateCatalogWithStats(
+        IReadOnlyList<StatDefinition> stats,
+        params ModifierDefinition[] modifiers)
+    {
+        return GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = CreateManifest(),
+            ItemBases = [],
+            Modifiers = modifiers,
+            Stats = stats,
+            StatTranslations = [],
+        });
+    }
+
     private static GameDataCatalog CreateCatalogWithTranslations(
         IReadOnlyList<ItemBaseRecord> itemBases,
         IReadOnlyList<StatTranslationDefinition> translations,
@@ -951,7 +987,7 @@ Item Level: 80
             Manifest = CreateManifest(),
             ItemBases = itemBases,
             Modifiers = modifiers,
-            Stats = statIds.Select(Stat).ToArray(),
+            Stats = statIds.Select(statId => Stat(statId)).ToArray(),
             StatTranslations = translations,
         });
     }
@@ -1196,11 +1232,12 @@ Item Level: 80
         };
     }
 
-    private static StatDefinition Stat(string id)
+    private static StatDefinition Stat(string id, bool isLocal = false)
     {
         return new StatDefinition
         {
             Id = id,
+            IsLocal = isLocal,
             Sources =
             [
                 new GameDataSourceReference

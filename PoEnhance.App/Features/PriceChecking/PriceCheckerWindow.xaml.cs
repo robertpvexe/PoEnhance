@@ -24,6 +24,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         HorizontalDragThumb.DragDelta += OnHorizontalDragDelta;
         HorizontalDragThumb.DragCompleted += (_, _) =>
             HorizontalDragCompleted?.Invoke(this, EventArgs.Empty);
+        HorizontalResizeThumb.DragStarted += (_, _) =>
+            HorizontalResizeStarted?.Invoke(this, EventArgs.Empty);
+        HorizontalResizeThumb.DragDelta += OnHorizontalResizeDelta;
+        HorizontalResizeThumb.DragCompleted += (_, _) =>
+            HorizontalResizeCompleted?.Invoke(this, EventArgs.Empty);
         PinToggleButton.Checked += OnPinStateChanged;
         PinToggleButton.Unchecked += OnPinStateChanged;
         LeagueTextBox.TextChanged += OnLeagueTextChanged;
@@ -45,11 +50,19 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
 
     public event EventHandler? SearchRequested;
 
+    public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
     public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
 
     public event EventHandler<bool>? PinStateChanged;
 
     public event EventHandler? HorizontalDragCompleted;
+
+    public event EventHandler? HorizontalResizeStarted;
+
+    public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
+
+    public event EventHandler? HorizontalResizeCompleted;
 
     public event EventHandler? ResetPositionRequested;
 
@@ -63,6 +76,25 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
 
     public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
 
+    public PriceCheckerPlacement? GetDisplayedPlacement()
+    {
+        var width = SelectRenderedDimension(ActualWidth, Width);
+        var height = SelectRenderedDimension(ActualHeight, Height);
+        if (!double.IsFinite(Left) ||
+            !double.IsFinite(Top) ||
+            width is null ||
+            height is null)
+        {
+            return CurrentPlacement;
+        }
+
+        return new PriceCheckerPlacement(
+            Left,
+            Top,
+            width.Value,
+            height.Value);
+    }
+
     public void UpdateContent(PriceCheckerWindowState state)
     {
         CurrentState = state;
@@ -73,7 +105,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         RarityText.Text = DisplayValue(draft.Rarity);
         ItemLevelText.Text = draft.ItemLevel?.ToString() ?? NotDetectedText;
         BaseResolutionStatusText.Text = draft.Base.Status?.ToString() ?? "Parser only";
-        ModifierCountText.Text = draft.ModifierFilters.Count.ToString();
+        ModifierCountText.Text = FormatModifierCount(
+            draft.ModifierFilters.Count(modifier => modifier.IsSelected),
+            draft.ModifierFilters.Count);
         ListingModeText.Text = draft.ListingMode.ToString();
         ValidationTextBox.Text = FormatValidation(state.ValidationResult);
     }
@@ -91,6 +125,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
         SearchButton.IsEnabled = state.CanSearch;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
+        ModifierCountText.Text = FormatModifierCount(
+            state.SelectedModifierCount,
+            state.ModifierCount);
+        ModifierListBox.ItemsSource = state.Modifiers;
         OfferListBox.ItemsSource = state.Offers;
         OfferListBox.Visibility = state.Offers.Count == 0
             ? Visibility.Collapsed
@@ -124,6 +162,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
             new PriceCheckerHorizontalDragEventArgs(e.HorizontalChange));
     }
 
+    private void OnHorizontalResizeDelta(object sender, DragDeltaEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        HorizontalResizeDelta?.Invoke(
+            this,
+            new PriceCheckerHorizontalResizeEventArgs(e.HorizontalChange));
+    }
+
     private void OnPinStateChanged(object sender, RoutedEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
@@ -145,6 +191,21 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         SearchRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnModifierSelectionClick(object sender, RoutedEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        if (sender is not CheckBox { DataContext: PriceCheckerModifierViewModel modifier })
+        {
+            return;
+        }
+
+        ModifierSelectionChanged?.Invoke(
+            this,
+            new PriceCheckerModifierSelectionChangedEventArgs(
+                modifier.SourceIndex,
+                ((CheckBox)sender).IsChecked == true));
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -188,5 +249,24 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow
     private static string DisplayValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
+    }
+
+    private static double? SelectRenderedDimension(double actualValue, double requestedValue)
+    {
+        if (double.IsFinite(actualValue) && actualValue > 0d)
+        {
+            return actualValue;
+        }
+
+        return double.IsFinite(requestedValue) && requestedValue > 0d
+            ? requestedValue
+            : null;
+    }
+
+    private static string FormatModifierCount(
+        int selectedCount,
+        int totalCount)
+    {
+        return $"{selectedCount} selected of {totalCount}";
     }
 }

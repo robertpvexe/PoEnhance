@@ -144,6 +144,7 @@ internal sealed class PathOfExileTradeStatsResponseParser
                 entryIndex,
                 $"Duplicate Trade stats id '{id}' was observed; exact-id lookup keeps the first entry.",
                 PathOfExileTradeStatsDiagnosticCodes.DuplicateStatId));
+            return false;
         }
 
         entry = new PathOfExileTradeStatEntry

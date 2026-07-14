@@ -5,7 +5,19 @@ internal static class PathOfExileTradeStatMatchDiagnosticCodes
     public const string NullCatalog = "POE_TRADE_STAT_MATCH_NULL_CATALOG";
     public const string BlankModifierText = "POE_TRADE_STAT_MATCH_BLANK_MODIFIER_TEXT";
     public const string UnsupportedNumericTokenFormat = "POE_TRADE_STAT_MATCH_UNSUPPORTED_NUMERIC_TOKEN_FORMAT";
+    public const string MalformedAdvancedRangeAnnotation =
+        "POE_TRADE_STAT_MATCH_MALFORMED_ADVANCED_RANGE_ANNOTATION";
     public const string NoCandidate = "POE_TRADE_STAT_MATCH_NO_CANDIDATE";
     public const string AmbiguousCandidates = "POE_TRADE_STAT_MATCH_AMBIGUOUS_CANDIDATES";
     public const string ModifierKindMismatch = "POE_TRADE_STAT_MATCH_MODIFIER_KIND_MISMATCH";
+    public const string LocalityAmbiguous = "POE_TRADE_STAT_MATCH_LOCALITY_AMBIGUOUS";
+    public const string ExpectedLocalCandidateMissing =
+        "POE_TRADE_STAT_MATCH_EXPECTED_LOCAL_CANDIDATE_MISSING";
+    public const string ExpectedGlobalCandidateMissing =
+        "POE_TRADE_STAT_MATCH_EXPECTED_GLOBAL_CANDIDATE_MISSING";
+    public const string ExpectedUnmarkedCandidateMissing =
+        "POE_TRADE_STAT_MATCH_EXPECTED_UNMARKED_CANDIDATE_MISSING";
+    public const string IncompatibleLocality = "POE_TRADE_STAT_MATCH_INCOMPATIBLE_LOCALITY";
+    public const string OfficialRequestStructuralMismatch =
+        "POE_TRADE_STAT_MATCH_OFFICIAL_REQUEST_STRUCTURAL_MISMATCH";
 }

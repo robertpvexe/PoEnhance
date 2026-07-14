@@ -77,6 +77,20 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
+    public void ModifierSelection_DoesNotInvokePriceCheckSearchOrChangePlacement()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var placement = window.CurrentPlacement;
+
+        window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+        Assert.Equal(placement, window.CurrentPlacement);
+    }
+
+    [Fact]
     public void ShowOrUpdate_UnavailablePathOfExileBoundsDoesNotThrowOrCreateWindow()
     {
         using var fixture = ControllerFixture.Create(boundsAvailable: false);
@@ -326,6 +340,212 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
+    public void HorizontalResizeCompletion_PersistsPanelWidthWithoutInvokingSearch()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var originalRight = window.CurrentPlacement?.Right;
+
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+
+        var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
+        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(originalRight, window.CurrentPlacement?.Right);
+        Assert.Equal(410, fixture.PlacementStore.LoadPanelWidth(key));
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void HorizontalResizeStarted_DoesNotMoveWindowOrReloadPlacement()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var displayedPlacement = new PriceCheckerPlacement(
+            Left: 180,
+            Top: fixture.Bounds.Top,
+            Width: 430,
+            Height: fixture.Bounds.Height);
+        window.SetDisplayedPlacement(displayedPlacement);
+        File.WriteAllText(fixture.PlacementStore.FilePath, """
+            {
+              "PanelWidths": {
+                "ignored": 320
+              }
+            }
+            """);
+        var applyCount = window.ApplyPlacementCount;
+
+        window.RaiseHorizontalResizeStarted();
+
+        Assert.Equal(applyCount, window.ApplyPlacementCount);
+        Assert.Equal(displayedPlacement, window.GetDisplayedPlacement());
+    }
+
+    [Fact]
+    public void HorizontalResize_FirstDeltaUsesActualDisplayedBoundsWithoutJump()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.SetDisplayedPlacement(new PriceCheckerPlacement(
+            Left: 180,
+            Top: fixture.Bounds.Top,
+            Width: 430,
+            Height: fixture.Bounds.Height));
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(0);
+
+        Assert.Equal(180, window.CurrentPlacement?.Left);
+        Assert.Equal(430, window.CurrentPlacement?.Width);
+        Assert.Equal(610, window.CurrentPlacement?.Right);
+    }
+
+    [Fact]
+    public void HorizontalResizeStartedSessionPreservesOneFixedRightEdgeAcrossCumulativeDeltas()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var originalRight = window.CurrentPlacement?.Right;
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(-50);
+        var afterFirstDelta = window.CurrentPlacement;
+        window.RaiseHorizontalResizeDelta(20);
+        var afterSecondDelta = window.CurrentPlacement;
+
+        Assert.Equal(originalRight, afterFirstDelta?.Right);
+        Assert.Equal(originalRight, afterSecondDelta?.Right);
+        Assert.Equal(410, afterFirstDelta?.Width);
+        Assert.Equal(390, afterSecondDelta?.Width);
+        Assert.Equal(fixture.Bounds.Top, afterSecondDelta?.Top);
+        Assert.Equal(fixture.Bounds.Height, afterSecondDelta?.Height);
+    }
+
+    [Fact]
+    public void HorizontalResize_MultipleSmallDeltasMatchOneEquivalentLargeDelta()
+    {
+        using var smallDeltaFixture = ControllerFixture.Create();
+        smallDeltaFixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var smallDeltaWindow = Assert.Single(smallDeltaFixture.WindowFactory.CreatedWindows);
+        smallDeltaWindow.RaiseHorizontalResizeStarted();
+        smallDeltaWindow.RaiseHorizontalResizeDelta(-10);
+        smallDeltaWindow.RaiseHorizontalResizeDelta(-15);
+        smallDeltaWindow.RaiseHorizontalResizeDelta(5);
+
+        using var largeDeltaFixture = ControllerFixture.Create();
+        largeDeltaFixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var largeDeltaWindow = Assert.Single(largeDeltaFixture.WindowFactory.CreatedWindows);
+        largeDeltaWindow.RaiseHorizontalResizeStarted();
+        largeDeltaWindow.RaiseHorizontalResizeDelta(-20);
+
+        Assert.Equal(largeDeltaWindow.CurrentPlacement, smallDeltaWindow.CurrentPlacement);
+        Assert.Equal(380, smallDeltaWindow.CurrentPlacement?.Width);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    [InlineData(2.0)]
+    public void HorizontalResize_UsesDipDeltasConsistentlyAcrossDpi(double dpiScale)
+    {
+        var bounds = new PathOfExileClientBounds(
+            Left: 100,
+            Top: 50,
+            Width: 1000,
+            Height: 800,
+            DisplayDeviceName: @"\\.\DISPLAY1",
+            DpiScaleX: dpiScale,
+            DpiScaleY: dpiScale);
+        using var fixture = ControllerFixture.Create(bounds: bounds);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var originalRight = window.CurrentPlacement?.Right;
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(-50);
+
+        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(originalRight, window.CurrentPlacement?.Right);
+    }
+
+    [Fact]
+    public void HorizontalResize_MaximumWidthReachesClientLeftMarginAndKeepsRightFixed()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var originalRight = Assert.IsType<double>(window.CurrentPlacement?.Right);
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(-1000);
+
+        Assert.Equal(originalRight, window.CurrentPlacement?.Right);
+        Assert.Equal(500, window.CurrentPlacement?.Width);
+        Assert.Equal(
+            fixture.Bounds.Left + PriceCheckerPlacementCalculator.UserPanelLeftMargin,
+            window.CurrentPlacement?.Left);
+    }
+
+    [Fact]
+    public void HorizontalResizeDelta_DoesNotWritePlacementStore()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(-50);
+
+        Assert.False(File.Exists(fixture.PlacementStore.FilePath));
+    }
+
+    [Fact]
+    public void HorizontalResizeCompletion_PreservesExistingHorizontalCorrection()
+    {
+        using var fixture = ControllerFixture.Create();
+        var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
+        fixture.PlacementStore.SaveHorizontalCorrection(key, -20);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.SetDisplayedPlacement(new PriceCheckerPlacement(
+            Left: 210,
+            Top: fixture.Bounds.Top,
+            Width: 430,
+            Height: fixture.Bounds.Height));
+
+        window.RaiseHorizontalResizeStarted();
+        window.RaiseHorizontalResizeDelta(-10);
+        window.RaiseHorizontalResizeCompleted();
+
+        Assert.Equal(-20, fixture.PlacementStore.LoadHorizontalCorrection(key));
+        Assert.Equal(440, fixture.PlacementStore.LoadPanelWidth(key));
+    }
+
+    [Fact]
+    public void PersistedWidthIsReusedAfterAutoCloseAndReopen()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var firstWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        firstWindow.RaiseHorizontalResizeDelta(-50);
+        firstWindow.RaiseHorizontalResizeCompleted();
+        fixture.ForegroundWindowDetector.IsPathOfExileForeground = true;
+
+        firstWindow.RaisePanelDeactivated();
+        fixture.DeferredActionScheduler.RunPending();
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+
+        Assert.Equal(2, fixture.WindowFactory.CreatedWindows.Count);
+        Assert.Equal(410, fixture.WindowFactory.CreatedWindows[1].CurrentPlacement?.Width);
+    }
+
+    [Fact]
     public void ShowOrUpdate_AfterDragPreservesAdjustedXForSamePlacementKey()
     {
         using var fixture = ControllerFixture.Create();
@@ -342,6 +562,21 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
+    public void ShowOrUpdate_AfterResizePreservesWidthForSamePlacementKey()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+
+        Assert.Single(fixture.WindowFactory.CreatedWindows);
+        Assert.Equal(410, window.CurrentPlacement?.Width);
+    }
+
+    [Fact]
     public void ShowOrUpdate_FailedStoreWriteStillPreservesCorrectionForSession()
     {
         using var fixture = ControllerFixture.Create();
@@ -355,6 +590,21 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
         Assert.Equal(adjustedLeft, window.CurrentPlacement?.Left);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_FailedStoreWriteStillPreservesWidthForSession()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        File.WriteAllText(fixture.PlacementStore.FilePath, "{not valid json");
+
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+
+        Assert.Equal(410, window.CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -381,6 +631,31 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
+    public void ResetPosition_DoesNotClearCurrentOrSavedPanelWidth()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+        window.RaiseHorizontalDragDelta(-25);
+        window.RaiseHorizontalDragCompleted();
+
+        window.RaiseResetPositionRequested();
+
+        var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
+        Assert.Equal(0, fixture.PlacementStore.LoadHorizontalCorrection(key));
+        Assert.Equal(410, fixture.PlacementStore.LoadPanelWidth(key));
+        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(
+            fixture.Calculator.CalculateAutomaticLeft(fixture.Bounds, 410),
+            window.CurrentPlacement?.Left);
+
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+        Assert.Equal(410, window.CurrentPlacement?.Width);
+    }
+
+    [Fact]
     public void ShowOrUpdate_WhenPlacementKeyChangesLoadsCorrectionForNewKey()
     {
         using var fixture = ControllerFixture.Create();
@@ -399,6 +674,45 @@ public sealed class PriceCheckerWindowControllerTests
         Assert.Equal(
             fixture.Calculator.CalculatePlacement(secondBounds, -30).Left,
             window.CurrentPlacement?.Left);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_WhenPlacementKeyChangesLoadsWidthForNewKey()
+    {
+        using var fixture = ControllerFixture.Create();
+        var secondBounds = fixture.Bounds with { Width = 1200 };
+        var secondKey = PriceCheckerPlacementKey.FromClientBounds(secondBounds);
+        fixture.PlacementStore.SavePanelWidth(secondKey, 420);
+
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+
+        fixture.BoundsProvider.Bounds = secondBounds;
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+
+        Assert.Equal(420, window.CurrentPlacement?.Width);
+        Assert.Equal(
+            fixture.Calculator.CalculatePlacement(secondBounds, 0, 420).Left,
+            window.CurrentPlacement?.Left);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_WhenPlacementKeyChangesUsesResponsiveDefaultWithoutSavedWidth()
+    {
+        using var fixture = ControllerFixture.Create();
+        var secondBounds = fixture.Bounds with { Width = 1200 };
+
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        window.RaiseHorizontalResizeDelta(-50);
+        window.RaiseHorizontalResizeCompleted();
+
+        fixture.BoundsProvider.Bounds = secondBounds;
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
+
+        Assert.Equal(fixture.Calculator.CalculatePanelWidth(secondBounds), window.CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -651,10 +965,12 @@ Item Level: 80
 
         public FakeDeferredActionScheduler DeferredActionScheduler { get; }
 
-        public static ControllerFixture Create(bool boundsAvailable = true)
+        public static ControllerFixture Create(
+            bool boundsAvailable = true,
+            PathOfExileClientBounds? bounds = null)
         {
             var tempDirectory = TempDirectory.Create();
-            var bounds = new PathOfExileClientBounds(
+            var clientBounds = bounds ?? new PathOfExileClientBounds(
                 Left: 100,
                 Top: 50,
                 Width: 1000,
@@ -662,13 +978,8 @@ Item Level: 80
                 DisplayDeviceName: @"\\.\DISPLAY1",
                 DpiScaleX: 1,
                 DpiScaleY: 1);
-            var boundsProvider = new FakeBoundsProvider(boundsAvailable, bounds);
-            var calculator = new PriceCheckerPlacementCalculator(
-                panelWidthRatio: 0.18,
-                minimumPanelWidth: 280,
-                maximumPanelWidth: 360,
-                inventoryWidthToClientHeightRatio: 0.60,
-                inventorySafetyGap: 12);
+            var boundsProvider = new FakeBoundsProvider(boundsAvailable, clientBounds);
+            var calculator = new PriceCheckerPlacementCalculator();
             var placementStore = new PriceCheckerPlacementStore(
                 Path.Combine(tempDirectory.Path, "placement.json"));
             var windowFactory = new FakeWindowFactory();
@@ -691,7 +1002,7 @@ Item Level: 80
             return new ControllerFixture(
                 tempDirectory,
                 controller,
-                bounds,
+                clientBounds,
                 boundsProvider,
                 calculator,
                 placementStore,
@@ -782,6 +1093,8 @@ Item Level: 80
 
         public event EventHandler? SearchRequested;
 
+        public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
         public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -789,6 +1102,12 @@ Item Level: 80
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
 
         public event EventHandler? HorizontalDragCompleted;
+
+        public event EventHandler? HorizontalResizeStarted;
+
+        public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
+
+        public event EventHandler? HorizontalResizeCompleted;
 
         public event EventHandler? ResetPositionRequested;
 
@@ -804,6 +1123,10 @@ Item Level: 80
 
         public int ShowCount { get; private set; }
 
+        public int ApplyPlacementCount { get; private set; }
+
+        private PriceCheckerPlacement? DisplayedPlacement { get; set; }
+
         public void UpdateContent(PriceCheckerWindowState state)
         {
             CurrentState = state;
@@ -816,7 +1139,19 @@ Item Level: 80
 
         public void ApplyPlacement(PriceCheckerPlacement placement)
         {
+            ApplyPlacementCount++;
             CurrentPlacement = placement;
+            DisplayedPlacement = placement;
+        }
+
+        public PriceCheckerPlacement? GetDisplayedPlacement()
+        {
+            return DisplayedPlacement ?? CurrentPlacement;
+        }
+
+        public void SetDisplayedPlacement(PriceCheckerPlacement placement)
+        {
+            DisplayedPlacement = placement;
         }
 
         public void ShowInactive()
@@ -835,6 +1170,25 @@ Item Level: 80
         public void RaiseHorizontalDragCompleted()
         {
             HorizontalDragCompleted?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseHorizontalResizeDelta(double horizontalChange)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            HorizontalResizeDelta?.Invoke(
+                this,
+                new PriceCheckerHorizontalResizeEventArgs(horizontalChange));
+        }
+
+        public void RaiseHorizontalResizeStarted()
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            HorizontalResizeStarted?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseHorizontalResizeCompleted()
+        {
+            HorizontalResizeCompleted?.Invoke(this, EventArgs.Empty);
         }
 
         public void RaiseResetPositionRequested()
@@ -862,6 +1216,14 @@ Item Level: 80
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             SearchRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ModifierSelectionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
         }
 
         public void SetLeague(string leagueIdentifier)

@@ -1,6 +1,7 @@
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Features.PriceChecking;
@@ -76,34 +77,209 @@ public sealed class PriceCheckerSearchControllerTests
     public async Task SearchAsync_SelectedModifierCallsServiceWhenDraftIsLocallyValid()
     {
         var fixture = SearchFixture.Create();
-        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell", selectedModifier: true), ValidationSuccess());
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
         await fixture.Controller.SearchAsync();
 
-        Assert.Single(fixture.PriceCheckService.Calls);
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.True(Assert.Single(call.Draft?.ModifierFilters ?? []).IsSelected);
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
     [Fact]
-    public async Task SearchAsync_SelectedModifierLocalValidationFailureUsesSafeModifierMessage()
+    public async Task SearchAsync_SelectedLocallyUnresolvedModifierUsesProviderMappingFailure()
     {
         var fixture = SearchFixture.Create();
-        fixture.Controller.UpdateCurrentDraft(
-            Draft("Armoured Shell", selectedModifier: true),
-            TradeSearchValidationResult.FromDiagnostics(
+        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
+            Diagnostics =
             [
-                new TradeSearchValidationDiagnostic(
-                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
-                    TradeSearchValidationSeverity.Error,
-                    "Selected modifier unresolved.",
-                    ModifierFilterIndex: 0),
-            ]));
+                new PathOfExileTradePriceCheckDiagnostic(
+                    PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
+                    "Not found.",
+                    PathOfExileTradePriceCheckStage.ModifierMapping,
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life", resolvedModifierId: null)]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
         await fixture.Controller.SearchAsync();
 
-        Assert.Empty(fixture.PriceCheckService.Calls);
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Contains(
+            call.ValidationResult?.Diagnostics ?? [],
+            diagnostic =>
+                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved &&
+                diagnostic.Severity == TradeSearchValidationSeverity.Warning);
         Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
         Assert.Equal("Selected modifier is not available in Trade search.", fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public void ModifierSelectionChanged_LocallyUnresolvedModifierKeepsSearchEnabledBeforeProviderMapping()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life", resolvedModifierId: null)]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.True(fixture.Window.CurrentSearchState?.CanSearch);
+        Assert.Equal("Ready to search.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Contains(
+            fixture.Window.CurrentState?.ValidationResult.Diagnostics ?? [],
+            diagnostic =>
+                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved &&
+                diagnostic.Severity == TradeSearchValidationSeverity.Warning);
+    }
+
+    [Fact]
+    public void UpdateCurrentDraft_DisplaysModifiersInDraftOrderUncheckedAndWithSectionLabels()
+    {
+        var fixture = SearchFixture.Create();
+
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers:
+                [
+                    Modifier("+12% to Fire Resistance", ParsedModifierKind.Implicit),
+                    Modifier("+10 to maximum Life", ParsedModifierKind.Prefix),
+                    Modifier("+20% to Cold Resistance", ParsedModifierKind.Suffix),
+                ]),
+            ValidationSuccess());
+
+        var modifiers = fixture.Window.CurrentSearchState?.Modifiers ?? [];
+        Assert.Equal(
+            ["+12% to Fire Resistance", "+10 to maximum Life", "+20% to Cold Resistance"],
+            modifiers.Select(modifier => modifier.Text));
+        Assert.Equal(["Implicit", "Prefix", "Suffix"], modifiers.Select(modifier => modifier.SectionLabel));
+        Assert.All(modifiers, modifier => Assert.False(modifier.IsSelected));
+        Assert.Equal(0, fixture.Window.CurrentSearchState?.SelectedModifierCount);
+    }
+
+    [Fact]
+    public void ModifierSelectionChanged_SelectsOnlyRequestedModifierUpdatesCountAndDoesNotCallService()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers:
+                [
+                    Modifier("+10 to maximum Life"),
+                    Modifier("+20% to Cold Resistance"),
+                    Modifier("+30% to Fire Resistance"),
+                ]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal([false, true, false], fixture.Window.CurrentSearchState?.Modifiers.Select(modifier => modifier.IsSelected));
+        Assert.Equal(1, fixture.Window.CurrentSearchState?.SelectedModifierCount);
+        Assert.Equal([false, true, false], fixture.Window.CurrentState?.Draft.ModifierFilters.Select(modifier => modifier.IsSelected));
+    }
+
+    [Fact]
+    public void ModifierSelectionChanged_UnselectingRestoresModifierToUnselected()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+
+        Assert.Equal(0, fixture.Window.CurrentSearchState?.SelectedModifierCount);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).IsSelected);
+    }
+
+    [Fact]
+    public void ModifierSelectionChanged_DuplicateTextRowsRemainIndependent()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers:
+                [
+                    Modifier("+10 to maximum Life"),
+                    Modifier("+10 to maximum Life"),
+                ]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
+
+        var modifiers = fixture.Window.CurrentSearchState?.Modifiers ?? [];
+        Assert.Equal(["+10 to maximum Life", "+10 to maximum Life"], modifiers.Select(modifier => modifier.Text));
+        Assert.Equal([false, true], modifiers.Select(modifier => modifier.IsSelected));
+        Assert.Equal([0, 1], modifiers.Select(modifier => modifier.SourceIndex));
+    }
+
+    [Fact]
+    public async Task SearchAsync_SelectedModifiersPreserveDraftOrderInServiceDraft()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers:
+                [
+                    Modifier("+10 to maximum Life"),
+                    Modifier("+20% to Cold Resistance"),
+                    Modifier("+30% to Fire Resistance"),
+                ]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(2, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        var draft = Assert.Single(fixture.PriceCheckService.Calls).Draft;
+        Assert.NotNull(draft);
+        var selected = draft.ModifierFilters
+            .Select((modifier, index) => (modifier, index))
+            .Where(pair => pair.modifier.IsSelected)
+            .Select(pair => pair.index)
+            .ToArray();
+        Assert.Equal([0, 2], selected);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ZeroSelectionsPassesBaseOnlyDraft()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.DoesNotContain(
+            Assert.Single(fixture.PriceCheckService.Calls).Draft?.ModifierFilters ?? [],
+            modifier => modifier.IsSelected);
     }
 
     [Fact]
@@ -160,8 +336,29 @@ public sealed class PriceCheckerSearchControllerTests
         await fixture.Controller.SearchAsync();
 
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
-        Assert.Equal("No offers found.", fixture.Window.CurrentSearchState?.Summary);
+        Assert.Equal("No offers found.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Summary ?? string.Empty);
         Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+    }
+
+    [Fact]
+    public async Task SearchAsync_RepeatedZeroResultsKeepOneMessageAndNoStaleOffers()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("old")], total: 1);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+        Assert.NotEmpty(fixture.Window.CurrentSearchState?.Offers ?? []);
+
+        fixture.PriceCheckService.Result = SuccessResult([], total: 0);
+        await fixture.Controller.SearchAsync();
+        await fixture.Controller.SearchAsync();
+
+        var state = fixture.Window.CurrentSearchState;
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, state?.Status);
+        Assert.Equal("No offers found.", state?.Message);
+        Assert.Empty(state?.Summary ?? string.Empty);
+        Assert.Empty(state?.Offers ?? []);
     }
 
     [Fact]
@@ -287,6 +484,8 @@ public sealed class PriceCheckerSearchControllerTests
         var message = fixture.Window.CurrentSearchState?.Message ?? string.Empty;
         Assert.Equal(PriceCheckerSearchViewStatus.ProviderOrTransportError, fixture.Window.CurrentSearchState?.Status);
         Assert.StartsWith("Trade returned an error: Provider said no.", message, StringComparison.Ordinal);
+        Assert.NotEqual("No offers found.", fixture.Window.CurrentSearchState?.Message);
+        Assert.NotEqual("No offers found.", fixture.Window.CurrentSearchState?.Summary);
         Assert.DoesNotContain(Environment.NewLine, message);
         Assert.True(message.Length <= 190);
     }
@@ -363,6 +562,122 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task ModifierSelectionChanged_ClearsOldOffersAndProviderErrorWithoutCallingService()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("old")], total: 1);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+        Assert.NotEmpty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        var callsAfterSuccess = fixture.PriceCheckService.Calls.Count;
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Equal(callsAfterSuccess, fixture.PriceCheckService.Calls.Count);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Ready to search.", fixture.Window.CurrentSearchState?.Message);
+
+        fixture.PriceCheckService.Result = FailureResult("Provider exploded.");
+        await fixture.Controller.SearchAsync();
+        Assert.Equal(PriceCheckerSearchViewStatus.ProviderOrTransportError, fixture.Window.CurrentSearchState?.Status);
+        var callsAfterFailure = fixture.PriceCheckService.Calls.Count;
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+
+        Assert.Equal(callsAfterFailure, fixture.PriceCheckService.Calls.Count);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Ready to search.", fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public async Task ModifierSelectionChanged_DuringLoadingCancelsRequestAndPreventsLateOverwrite()
+    {
+        var fixture = SearchFixture.Create();
+        var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.Handler = _ => completion.Task;
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+
+        var activeSearch = fixture.Controller.SearchAsync();
+        await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 1);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.True(fixture.PriceCheckService.Calls[0].CancellationToken.IsCancellationRequested);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.True(fixture.Window.CurrentSearchState?.CanSearch);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+
+        completion.SetResult(SuccessResult([Offer("late-old")], total: 1));
+        await activeSearch;
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+    }
+
+    [Fact]
+    public void UpdateCurrentDraft_ReplacesModifierListAndClearsPriorSelectionsEvenForIdenticalText()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "First Loop",
+                modifiers:
+                [
+                    Modifier("+10 to maximum Life"),
+                    Modifier("+20% to Cold Resistance"),
+                ]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.Equal(1, fixture.Window.CurrentSearchState?.SelectedModifierCount);
+
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Second Loop",
+                modifiers:
+                [
+                    Modifier("+10 to maximum Life"),
+                    Modifier("+30% to Fire Resistance"),
+                    Modifier("+40% to Lightning Resistance"),
+                ]),
+            ValidationSuccess());
+
+        var modifiers = fixture.Window.CurrentSearchState?.Modifiers ?? [];
+        Assert.Equal(
+            ["+10 to maximum Life", "+30% to Fire Resistance", "+40% to Lightning Resistance"],
+            modifiers.Select(modifier => modifier.Text));
+        Assert.All(modifiers, modifier => Assert.False(modifier.IsSelected));
+        Assert.Equal(0, fixture.Window.CurrentSearchState?.SelectedModifierCount);
+    }
+
+    [Fact]
+    public void ModifierSelectionChanged_PreservesLeagueAndPinState()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Window.SetLeague("Mercenaries");
+        fixture.Window.SetPinned(true);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Equal("Mercenaries", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+        Assert.True(fixture.Window.IsPinned);
+    }
+
+    [Fact]
     public async Task SearchAsync_SearchBecomesAvailableAgainAfterCompletionWhenInputIsValid()
     {
         var fixture = SearchFixture.Create();
@@ -385,7 +700,10 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal("Mercenaries", fixture.Window.CurrentSearchState?.LeagueIdentifier);
     }
 
-    private static TradeSearchDraft Draft(string name, bool selectedModifier = false)
+    private static TradeSearchDraft Draft(
+        string name,
+        bool selectedModifier = false,
+        IReadOnlyList<TradeModifierFilterDraft>? modifiers = null)
     {
         return new TradeSearchDraft
         {
@@ -399,18 +717,27 @@ public sealed class PriceCheckerSearchControllerTests
                 ResolvedBaseId = "base.titan-plate",
                 ResolvedBaseName = "Titan Plate",
             },
-            ModifierFilters = selectedModifier
-                ?
-                [
-                    new TradeModifierFilterDraft
-                    {
-                        OriginalText = "+10 to maximum Life",
-                        ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
-                        ResolvedModifierId = "mod.life",
-                        IsSelected = true,
-                    },
-                ]
-                : [],
+            ModifierFilters = modifiers ?? (selectedModifier
+                ? [Modifier("+10 to maximum Life", isSelected: true)]
+                : []),
+        };
+    }
+
+    private static TradeModifierFilterDraft Modifier(
+        string originalText,
+        ParsedModifierKind kind = ParsedModifierKind.Prefix,
+        bool isSelected = false,
+        string? resolvedModifierId = "mod.test")
+    {
+        return new TradeModifierFilterDraft
+        {
+            OriginalText = originalText,
+            ParsedKind = kind,
+            ResolutionStatus = resolvedModifierId is null
+                ? ModifierCandidateResolutionStatus.Unknown
+                : ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = resolvedModifierId,
+            IsSelected = isSelected,
         };
     }
 
@@ -581,6 +908,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler? SearchRequested;
 
+        public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
         public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -588,6 +917,12 @@ public sealed class PriceCheckerSearchControllerTests
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
 
         public event EventHandler? HorizontalDragCompleted;
+
+        public event EventHandler? HorizontalResizeStarted;
+
+        public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
+
+        public event EventHandler? HorizontalResizeCompleted;
 
         public event EventHandler? ResetPositionRequested;
 
@@ -600,6 +935,11 @@ public sealed class PriceCheckerSearchControllerTests
         public PriceCheckerPlacement? CurrentPlacement { get; private set; }
 
         public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
+
+        public PriceCheckerPlacement? GetDisplayedPlacement()
+        {
+            return CurrentPlacement;
+        }
 
         public void UpdateContent(PriceCheckerWindowState state)
         {
@@ -631,10 +971,24 @@ public sealed class PriceCheckerSearchControllerTests
             LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
         }
 
+        public void SetPinned(bool isPinned)
+        {
+            IsPinned = isPinned;
+            PinStateChanged?.Invoke(this, isPinned);
+        }
+
         public void RaiseSearchRequested()
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             SearchRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ModifierSelectionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
         }
     }
 #pragma warning restore CS0067

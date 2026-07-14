@@ -42,6 +42,30 @@ internal sealed class PriceCheckerPlacementStore
         }
     }
 
+    public double? LoadPanelWidth(PriceCheckerPlacementKey key)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                return null;
+            }
+
+            var state = LoadState();
+            return state.PanelWidths.TryGetValue(key.ToStorageKey(), out var width) &&
+                    double.IsFinite(width) &&
+                    width > 0d
+                ? width
+                : null;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Log.Warning(exception, "Price Checker placement width could not be loaded");
+            return null;
+        }
+    }
+
     public void SaveHorizontalCorrection(PriceCheckerPlacementKey key, double correction)
     {
         try
@@ -56,6 +80,28 @@ internal sealed class PriceCheckerPlacementStore
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
             Log.Warning(exception, "Price Checker placement could not be saved");
+        }
+    }
+
+    public void SavePanelWidth(PriceCheckerPlacementKey key, double panelWidth)
+    {
+        if (!double.IsFinite(panelWidth) || panelWidth <= 0d)
+        {
+            return;
+        }
+
+        try
+        {
+            var state = File.Exists(filePath)
+                ? LoadState()
+                : new PriceCheckerPlacementFile();
+            state.PanelWidths[key.ToStorageKey()] = panelWidth;
+            SaveStateAtomically(state);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Log.Warning(exception, "Price Checker placement width could not be saved");
         }
     }
 
@@ -112,5 +158,7 @@ internal sealed class PriceCheckerPlacementStore
     private sealed class PriceCheckerPlacementFile
     {
         public Dictionary<string, double> HorizontalCorrections { get; init; } = [];
+
+        public Dictionary<string, double> PanelWidths { get; init; } = [];
     }
 }

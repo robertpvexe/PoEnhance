@@ -54,22 +54,23 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
-    public void Validate_SelectedUnknownModifier_IsInvalid()
+    public void Validate_SelectedUnknownModifier_RemainsValidWithWarning()
     {
         var draft = ValidDraft(modifiers: [UnknownModifier() with { IsSelected = true }]);
 
         var result = validator.Validate(draft);
 
-        Assert.False(result.IsValid);
+        Assert.True(result.IsValid);
+        Assert.False(result.HasErrors);
         AssertDiagnostic(
             result,
             TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
-            TradeSearchValidationSeverity.Error,
+            TradeSearchValidationSeverity.Warning,
             modifierFilterIndex: 0);
     }
 
     [Fact]
-    public void Validate_SelectedAmbiguousModifier_IsInvalid()
+    public void Validate_SelectedProbableModifier_RemainsValidWithWarning()
     {
         var draft = ValidDraft(modifiers:
         [
@@ -77,17 +78,19 @@ public sealed class TradeSearchDraftValidatorTests
             {
                 IsSelected = true,
                 ParsedModifierName = "of the Rainbow",
+                ResolutionStatus = ModifierCandidateResolutionStatus.Probable,
                 ResolvedModifierId = null,
             },
         ]);
 
         var result = validator.Validate(draft);
 
-        Assert.False(result.IsValid);
+        Assert.True(result.IsValid);
+        Assert.False(result.HasErrors);
         AssertDiagnostic(
             result,
             TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
-            TradeSearchValidationSeverity.Error,
+            TradeSearchValidationSeverity.Warning,
             modifierFilterIndex: 0);
     }
 
@@ -251,6 +254,86 @@ Item Level: 82
             result,
             TradeSearchValidationDiagnosticCodes.NegativeItemLevel,
             TradeSearchValidationSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("Synthesised Item")]
+    [InlineData("Fractured Item")]
+    [InlineData("Mirrored")]
+    public void Validate_UnsupportedOrdinaryItemState_IsInvalid(string itemState)
+    {
+        var draft = ValidDraft() with
+        {
+            ItemStates = [itemState],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+            TradeSearchValidationSeverity.Error);
+    }
+
+    [Fact]
+    public void Validate_UnsupportedOrdinaryInfluence_IsInvalid()
+    {
+        var draft = ValidDraft() with
+        {
+            TraditionalInfluences = ["Shaper Item"],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+            TradeSearchValidationSeverity.Error);
+    }
+
+    [Fact]
+    public void Validate_UnsupportedOrdinaryCorruption_IsInvalid()
+    {
+        var draft = ValidDraft() with
+        {
+            IsCorrupted = true,
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+            TradeSearchValidationSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Validate_UnsupportedOrdinarySpecialModifier_IsInvalid(
+        bool isFractured,
+        bool isVeiled)
+    {
+        var draft = ValidDraft(modifiers:
+        [
+            ExactModifier() with
+            {
+                IsFractured = isFractured,
+                IsVeiled = isVeiled,
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
     }
 
     [Fact]

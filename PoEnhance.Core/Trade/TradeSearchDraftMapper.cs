@@ -28,6 +28,8 @@ public sealed class TradeSearchDraftMapper
             Rarity = TrimToNull(parsedItem.Rarity),
             DisplayName = TrimToNull(parsedItem.DisplayName),
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
+            ItemStates = parsedItem.ItemStates.ToArray(),
+            IsCorrupted = parsedItem.IsCorrupted,
             Base = CreateBaseDraft(itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
@@ -117,6 +119,9 @@ public sealed class TradeSearchDraftMapper
             OriginalText = modifier.Text,
             ParsedKind = modifier.Kind,
             GenerationType = resolution?.GenerationType,
+            Locality = exactCandidate is null
+                ? ModifierLocality.Unknown
+                : resolution?.Locality ?? ModifierLocality.Unknown,
             ParsedModifierName = TrimToNull(modifier.Name ?? resolution?.ParsedModifierName),
             CategoryText = TrimToNull(modifier.CategoryText),
             IsCrafted = modifier.IsCrafted,
@@ -125,6 +130,13 @@ public sealed class TradeSearchDraftMapper
             ResolutionStatus = resolution?.Status,
             ResolvedModifierId = TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
+            ResolvedStatIds = exactCandidate is null
+                ? []
+                : exactCandidate.Stats
+                    .Select(stat => TrimToNull(stat.StatId))
+                    .Where(statId => statId is not null)
+                    .Select(statId => statId!)
+                    .ToArray(),
             IsSelected = false,
         };
     }

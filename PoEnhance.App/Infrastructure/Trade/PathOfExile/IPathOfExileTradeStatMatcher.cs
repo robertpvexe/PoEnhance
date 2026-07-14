@@ -6,5 +6,6 @@ internal interface IPathOfExileTradeStatMatcher
 {
     PathOfExileTradeStatMatchResult Match(
         ParsedModifier? modifier,
-        PathOfExileTradeStatCatalog? catalog);
+        PathOfExileTradeStatCatalog? catalog,
+        PathOfExileTradeStatMatchContext? context = null);
 }

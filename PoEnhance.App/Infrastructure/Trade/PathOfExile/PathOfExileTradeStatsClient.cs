@@ -6,7 +6,8 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
 {
-    public const int DefaultMaximumResponseBodyBytes = 1024 * 1024;
+    public const int MaximumStatsResponseBodyBytes = 8 * 1024 * 1024;
+    public const int DefaultMaximumResponseBodyBytes = MaximumStatsResponseBodyBytes;
 
     private readonly HttpClient httpClient;
     private readonly PathOfExileTradeEndpointBuilder endpointBuilder;
@@ -20,7 +21,7 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
             new PathOfExileTradeEndpointBuilder(),
             new PathOfExileTradeStatsResponseParser(),
             new PathOfExileTradeRateLimitParser(),
-            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes)
+            MaximumStatsResponseBodyBytes)
     {
     }
 
@@ -29,7 +30,7 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
         PathOfExileTradeEndpointBuilder endpointBuilder,
         PathOfExileTradeStatsResponseParser responseParser,
         PathOfExileTradeRateLimitParser rateLimitParser,
-        int maximumResponseBodyBytes = DefaultMaximumResponseBodyBytes)
+        int maximumResponseBodyBytes = MaximumStatsResponseBodyBytes)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(endpointBuilder);
@@ -139,6 +140,7 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
                 HttpStatusCode = statusCode,
                 Catalog = parseResult.Catalog,
                 Diagnostics = ToHttpDiagnostics(parseResult.Diagnostics, statusCode),
+                ParserDiagnostics = parseResult.Diagnostics,
                 RateLimitSnapshot = rateLimitParseResult.Snapshot,
                 RateLimitDiagnostics = rateLimitParseResult.Diagnostics,
             };
@@ -153,7 +155,8 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
                 statusCode),
             statusCode,
             rateLimitParseResult.Snapshot,
-            rateLimitParseResult.Diagnostics);
+            rateLimitParseResult.Diagnostics,
+            parseResult.Diagnostics);
     }
 
     private static PathOfExileTradeStatsExecutionResult Failure(
@@ -161,6 +164,7 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
         HttpStatusCode? statusCode = null,
         PathOfExileTradeRateLimitSnapshot? rateLimitSnapshot = null,
         IReadOnlyList<PathOfExileTradeQueryDiagnostic>? rateLimitDiagnostics = null,
+        IReadOnlyList<PathOfExileTradeQueryDiagnostic>? parserDiagnostics = null,
         bool isCancelled = false,
         bool isTimeout = false)
     {
@@ -170,6 +174,7 @@ internal sealed class PathOfExileTradeStatsClient : IPathOfExileTradeStatsClient
             HttpStatusCode = statusCode,
             RateLimitSnapshot = rateLimitSnapshot,
             RateLimitDiagnostics = rateLimitDiagnostics ?? [],
+            ParserDiagnostics = parserDiagnostics ?? [],
             Diagnostics = [diagnostic],
             IsCancelled = isCancelled,
             IsTimeout = isTimeout,

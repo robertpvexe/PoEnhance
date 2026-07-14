@@ -22,6 +22,8 @@ internal sealed class PriceCheckerWindowController
     private PriceCheckerPlacementKey? currentPlacementKey;
     private PriceCheckerPlacement? currentPlacement;
     private double currentHorizontalCorrection;
+    private double? currentPanelWidth;
+    private HorizontalResizeSession? horizontalResizeSession;
     private bool isAutoCloseArmed;
     private bool isPinned;
 
@@ -100,14 +102,20 @@ internal sealed class PriceCheckerWindowController
         if (currentPlacementKey != placementKey)
         {
             currentHorizontalCorrection = placementStore.LoadHorizontalCorrection(placementKey);
+            currentPanelWidth = placementStore.LoadPanelWidth(placementKey);
         }
 
         currentClientBounds = clientBounds;
         currentPlacementKey = placementKey;
-        var automaticLeft = placementCalculator.CalculateAutomaticLeft(clientBounds);
+        var requestedPanelWidth = currentPanelWidth ?? placementCalculator.CalculatePanelWidth(clientBounds);
         currentPlacement = placementCalculator.CalculatePlacement(
             clientBounds,
-            currentHorizontalCorrection);
+            currentHorizontalCorrection,
+            requestedPanelWidth);
+        currentPanelWidth = currentPlacement.Width;
+        var automaticLeft = placementCalculator.CalculateAutomaticLeft(
+            clientBounds,
+            currentPlacement.Width);
         priceCheckerWindow.ApplyPlacement(currentPlacement);
         Log.Debug(
             "Price Checker placement applied. ContextKey={ContextKey}; Client=({ClientLeft}, {ClientTop}, {ClientWidth}, {ClientHeight}); Dpi=({DpiScaleX}, {DpiScaleY}); PanelWidth={PanelWidth}; AutomaticX={AutomaticX}; Correction={Correction}; FinalX={FinalX}",
@@ -142,6 +150,9 @@ internal sealed class PriceCheckerWindowController
         window.PinStateChanged += OnWindowPinStateChanged;
         window.HorizontalDragDelta += OnWindowHorizontalDragDelta;
         window.HorizontalDragCompleted += OnWindowHorizontalDragCompleted;
+        window.HorizontalResizeStarted += OnWindowHorizontalResizeStarted;
+        window.HorizontalResizeDelta += OnWindowHorizontalResizeDelta;
+        window.HorizontalResizeCompleted += OnWindowHorizontalResizeCompleted;
         window.ResetPositionRequested += OnWindowResetPositionRequested;
         searchController.AttachWindow(window);
         isAutoCloseArmed = false;
@@ -165,12 +176,17 @@ internal sealed class PriceCheckerWindowController
         closedWindow.PinStateChanged -= OnWindowPinStateChanged;
         closedWindow.HorizontalDragDelta -= OnWindowHorizontalDragDelta;
         closedWindow.HorizontalDragCompleted -= OnWindowHorizontalDragCompleted;
+        closedWindow.HorizontalResizeStarted -= OnWindowHorizontalResizeStarted;
+        closedWindow.HorizontalResizeDelta -= OnWindowHorizontalResizeDelta;
+        closedWindow.HorizontalResizeCompleted -= OnWindowHorizontalResizeCompleted;
         closedWindow.ResetPositionRequested -= OnWindowResetPositionRequested;
         window = null;
         currentClientBounds = null;
         currentPlacementKey = null;
         currentPlacement = null;
         currentHorizontalCorrection = 0d;
+        currentPanelWidth = null;
+        horizontalResizeSession = null;
         isAutoCloseArmed = false;
         isPinned = false;
     }
@@ -231,6 +247,7 @@ internal sealed class PriceCheckerWindowController
             currentClientBounds,
             currentPlacement,
             e.HorizontalChange);
+        currentPanelWidth = currentPlacement.Width;
         window.ApplyPlacement(currentPlacement);
     }
 
@@ -253,6 +270,70 @@ internal sealed class PriceCheckerWindowController
             correction);
     }
 
+    private void OnWindowHorizontalResizeDelta(
+        object? sender,
+        PriceCheckerHorizontalResizeEventArgs e)
+    {
+        if (window is null || currentClientBounds is null || currentPlacement is null)
+        {
+            return;
+        }
+
+        isAutoCloseArmed = true;
+        horizontalResizeSession ??= CreateHorizontalResizeSession();
+        if (horizontalResizeSession is null)
+        {
+            return;
+        }
+
+        horizontalResizeSession = horizontalResizeSession with
+        {
+            AccumulatedHorizontalChange =
+                horizontalResizeSession.AccumulatedHorizontalChange + e.HorizontalChange,
+        };
+
+        var requestedLeft = horizontalResizeSession.StartingLeft +
+            horizontalResizeSession.AccumulatedHorizontalChange;
+        var requestedWidth = horizontalResizeSession.FixedRight - requestedLeft;
+        var newWidth = Math.Clamp(
+            requestedWidth,
+            horizontalResizeSession.MinimumWidth,
+            horizontalResizeSession.MaximumWidth);
+        var newLeft = horizontalResizeSession.FixedRight - newWidth;
+        currentPlacement = new PriceCheckerPlacement(
+            newLeft,
+            horizontalResizeSession.ClientBounds.Top,
+            newWidth,
+            horizontalResizeSession.ClientBounds.Height);
+        currentPanelWidth = currentPlacement.Width;
+        window.ApplyPlacement(currentPlacement);
+    }
+
+    private void OnWindowHorizontalResizeCompleted(object? sender, EventArgs e)
+    {
+        if (currentClientBounds is null ||
+            currentPlacementKey is null ||
+            currentPlacement is null)
+        {
+            horizontalResizeSession = null;
+            return;
+        }
+
+        currentPanelWidth = currentPlacement.Width;
+        placementStore.SavePanelWidth(currentPlacementKey, currentPlacement.Width);
+        Log.Information(
+            "Price Checker horizontal width saved: {PanelWidth}; correction preserved: {Correction}",
+            currentPlacement.Width,
+            currentHorizontalCorrection);
+        horizontalResizeSession = null;
+    }
+
+    private void OnWindowHorizontalResizeStarted(object? sender, EventArgs e)
+    {
+        isAutoCloseArmed = true;
+        horizontalResizeSession = CreateHorizontalResizeSession();
+    }
+
     private void OnWindowResetPositionRequested(object? sender, EventArgs e)
     {
         if (window is null ||
@@ -265,9 +346,68 @@ internal sealed class PriceCheckerWindowController
         isAutoCloseArmed = true;
         placementStore.ResetHorizontalCorrection(currentPlacementKey);
         currentHorizontalCorrection = 0d;
+        var requestedPanelWidth = currentPanelWidth ?? placementCalculator.CalculatePanelWidth(currentClientBounds);
         currentPlacement = placementCalculator.CalculatePlacement(
             currentClientBounds,
-            currentHorizontalCorrection);
+            currentHorizontalCorrection,
+            requestedPanelWidth);
+        currentPanelWidth = currentPlacement.Width;
         window.ApplyPlacement(currentPlacement);
     }
+
+    private HorizontalResizeSession? CreateHorizontalResizeSession()
+    {
+        if (window is null || currentClientBounds is null)
+        {
+            return null;
+        }
+
+        var displayedPlacement = window.GetDisplayedPlacement() ?? currentPlacement;
+        if (displayedPlacement is null ||
+            !double.IsFinite(displayedPlacement.Left) ||
+            !double.IsFinite(displayedPlacement.Width) ||
+            displayedPlacement.Width <= 0d)
+        {
+            return null;
+        }
+
+        var fixedRight = displayedPlacement.Left + displayedPlacement.Width;
+        var maximumWidth = placementCalculator.CalculateMaximumUserPanelWidth(
+            currentClientBounds,
+            fixedRight);
+        var minimumWidth = Math.Min(
+            PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+            maximumWidth);
+
+        Log.Debug(
+            "Price Checker horizontal resize started. StartLeft={StartLeft}; StartWidth={StartWidth}; FixedRight={FixedRight}; MinWidth={MinWidth}; MaxWidth={MaxWidth}; Dpi=({DpiScaleX}, {DpiScaleY})",
+            displayedPlacement.Left,
+            displayedPlacement.Width,
+            fixedRight,
+            minimumWidth,
+            maximumWidth,
+            currentClientBounds.DpiScaleX,
+            currentClientBounds.DpiScaleY);
+
+        currentPlacement = displayedPlacement;
+        currentPanelWidth = displayedPlacement.Width;
+
+        return new HorizontalResizeSession(
+            displayedPlacement.Left,
+            displayedPlacement.Width,
+            fixedRight,
+            currentClientBounds,
+            minimumWidth,
+            maximumWidth,
+            AccumulatedHorizontalChange: 0d);
+    }
+
+    private sealed record HorizontalResizeSession(
+        double StartingLeft,
+        double StartingWidth,
+        double FixedRight,
+        PathOfExileClientBounds ClientBounds,
+        double MinimumWidth,
+        double MaximumWidth,
+        double AccumulatedHorizontalChange);
 }

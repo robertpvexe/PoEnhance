@@ -12,7 +12,13 @@ public sealed record PriceCheckerSearchViewState
 
     public string Summary { get; init; } = string.Empty;
 
+    public IReadOnlyList<PriceCheckerModifierViewModel> Modifiers { get; init; } = [];
+
     public IReadOnlyList<PriceCheckerOfferViewModel> Offers { get; init; } = [];
 
     public bool IsLoading => Status == PriceCheckerSearchViewStatus.Loading;
+
+    public int SelectedModifierCount => Modifiers.Count(modifier => modifier.IsSelected);
+
+    public int ModifierCount => Modifiers.Count;
 }

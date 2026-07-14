@@ -1,5 +1,6 @@
 using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
@@ -8,8 +9,10 @@ internal sealed class PriceCheckerSearchController
 {
     public const string DefaultLeagueIdentifier = "Standard";
     private const int MaximumSafeProviderMessageLength = 160;
+    private const int MaximumModifierTextLength = 120;
 
     private readonly IPathOfExileTradePriceCheckService priceCheckService;
+    private readonly ITradeSearchDraftValidator draftValidator;
     private IPriceCheckerWindow? window;
     private TradeSearchDraft? currentDraft;
     private TradeSearchValidationResult? currentValidationResult;
@@ -18,9 +21,12 @@ internal sealed class PriceCheckerSearchController
     private int generation;
     private bool isLoading;
 
-    public PriceCheckerSearchController(IPathOfExileTradePriceCheckService priceCheckService)
+    public PriceCheckerSearchController(
+        IPathOfExileTradePriceCheckService priceCheckService,
+        ITradeSearchDraftValidator? draftValidator = null)
     {
         this.priceCheckService = priceCheckService ?? throw new ArgumentNullException(nameof(priceCheckService));
+        this.draftValidator = draftValidator ?? new CoreTradeSearchDraftValidatorAdapter();
         CurrentViewState = CreateIdleOrValidationState();
     }
 
@@ -44,6 +50,7 @@ internal sealed class PriceCheckerSearchController
         window = priceCheckerWindow;
         priceCheckerWindow.Closed += OnWindowClosed;
         priceCheckerWindow.SearchRequested += OnSearchRequested;
+        priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.LeagueChanged += OnLeagueChanged;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
@@ -56,6 +63,7 @@ internal sealed class PriceCheckerSearchController
         }
 
         priceCheckerWindow.SearchRequested -= OnSearchRequested;
+        priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.LeagueChanged -= OnLeagueChanged;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
@@ -72,8 +80,11 @@ internal sealed class PriceCheckerSearchController
 
         generation++;
         CancelActiveRequest();
-        currentDraft = draft;
-        currentValidationResult = validationResult;
+        currentDraft = ResetModifierSelections(draft);
+        currentValidationResult = ReferenceEquals(currentDraft, draft)
+            ? validationResult
+            : draftValidator.Validate(currentDraft);
+        window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult));
         ApplyState(CreateIdleOrValidationState());
     }
 
@@ -110,6 +121,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = leagueIdentifier,
             CanSearch = false,
             Message = "Searching...",
+            Modifiers = CreateModifierRows(),
         });
 
         PathOfExileTradePriceCheckResult result;
@@ -154,9 +166,45 @@ internal sealed class PriceCheckerSearchController
         ApplyState(MapResult(result));
     }
 
+    public void UpdateModifierSelection(
+        int modifierIndex,
+        bool isSelected)
+    {
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+
+        var modifierFilters = currentDraft.ModifierFilters
+            .Select((modifier, index) => index == modifierIndex
+                ? modifier with { IsSelected = isSelected }
+                : modifier)
+            .ToArray();
+        currentDraft = currentDraft with
+        {
+            ModifierFilters = modifierFilters,
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+
+        window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult));
+        ApplyState(CreateIdleOrValidationState());
+    }
+
     private void OnSearchRequested(object? sender, EventArgs e)
     {
         _ = SearchAsync();
+    }
+
+    private void OnModifierSelectionChanged(
+        object? sender,
+        PriceCheckerModifierSelectionChangedEventArgs e)
+    {
+        UpdateModifierSelection(e.ModifierIndex, e.IsSelected);
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -205,6 +253,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = leagueIdentifier,
             CanSearch = true,
             Message = "Ready to search.",
+            Modifiers = CreateModifierRows(),
         };
     }
 
@@ -236,6 +285,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = leagueIdentifier,
             CanSearch = false,
             Message = message,
+            Modifiers = CreateModifierRows(),
         };
     }
 
@@ -249,6 +299,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = "Search cancelled.",
+                Modifiers = CreateModifierRows(),
             };
         }
 
@@ -265,6 +316,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = FailureMessage(result),
+                Modifiers = CreateModifierRows(),
             };
         }
 
@@ -277,7 +329,8 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = "No offers found.",
-                Summary = "No offers found.",
+                Summary = string.Empty,
+                Modifiers = CreateModifierRows(),
             };
         }
 
@@ -288,6 +341,7 @@ internal sealed class PriceCheckerSearchController
             CanSearch = CanStartSearch(),
             Message = "Search complete.",
             Summary = CreateSuccessSummary(offers.Length, result.ProviderTotal, result.Inexact),
+            Modifiers = CreateModifierRows(),
             Offers = offers,
         };
     }
@@ -347,8 +401,7 @@ internal sealed class PriceCheckerSearchController
     {
         if (validationResult.Diagnostics.Any(diagnostic =>
                 diagnostic.Severity == TradeSearchValidationSeverity.Error &&
-                diagnostic.Code is TradeSearchValidationDiagnosticCodes.SelectedModifierMissingText or
-                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved))
+                diagnostic.Code is TradeSearchValidationDiagnosticCodes.SelectedModifierMissingText))
         {
             return "Selected modifier is not available in Trade search.";
         }
@@ -380,6 +433,84 @@ internal sealed class PriceCheckerSearchController
             ItemText = ItemText(offer.Item),
             IndexedText = IndexedText(offer.Listing),
         };
+    }
+
+    private IReadOnlyList<PriceCheckerModifierViewModel> CreateModifierRows()
+    {
+        if (currentDraft is null)
+        {
+            return [];
+        }
+
+        return currentDraft.ModifierFilters
+            .Select((modifier, index) => new PriceCheckerModifierViewModel
+            {
+                SourceIndex = index,
+                Text = SafeModifierText(modifier.OriginalText),
+                SectionLabel = SectionLabel(modifier),
+                IsSelected = modifier.IsSelected,
+            })
+            .ToArray();
+    }
+
+    private static TradeSearchDraft ResetModifierSelections(TradeSearchDraft draft)
+    {
+        if (!draft.ModifierFilters.Any(modifier => modifier.IsSelected))
+        {
+            return draft;
+        }
+
+        return draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select(modifier => modifier with { IsSelected = false })
+                .ToArray(),
+        };
+    }
+
+    private static string SectionLabel(TradeModifierFilterDraft modifier)
+    {
+        if (modifier.IsFractured)
+        {
+            return "Fractured";
+        }
+
+        if (modifier.IsCrafted)
+        {
+            return "Crafted";
+        }
+
+        if (modifier.IsVeiled)
+        {
+            return "Veiled";
+        }
+
+        return modifier.ParsedKind switch
+        {
+            ParsedModifierKind.Implicit => "Implicit",
+            ParsedModifierKind.Prefix => "Prefix",
+            ParsedModifierKind.Suffix => "Suffix",
+            ParsedModifierKind.Unique => "Unique",
+            _ => string.Empty,
+        };
+    }
+
+    private static string SafeModifierText(string? text)
+    {
+        var safe = new string(
+            (text ?? string.Empty)
+            .ReplaceLineEndings(" ")
+            .Where(character => !char.IsControl(character))
+            .ToArray());
+        safe = string.Join(' ', safe.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(safe))
+        {
+            return "Unknown modifier";
+        }
+
+        return safe.Length <= MaximumModifierTextLength
+            ? safe
+            : $"{safe[..MaximumModifierTextLength]}...";
     }
 
     private static string FormatPrice(PathOfExileTradeListingPrice? price)

@@ -6,7 +6,7 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradeInfrastructureArchitectureTests
 {
     [Fact]
-    public void ProviderTradeInfrastructure_IntroducesOnlySearchFetchAndStatsHttpExecution()
+    public void ProviderTradeInfrastructure_IntroducesOnlySearchFetchStatsAndItemsHttpExecution()
     {
         var httpTypes = ProviderTradeTypes()
             .Where(type =>
@@ -15,7 +15,8 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
                 Contains(type, "HttpResponse") ||
                 Contains(type, "TradeFetchClient") ||
                 Contains(type, "TradeSearchClient") ||
-                Contains(type, "TradeStatsClient"))
+                Contains(type, "TradeStatsClient") ||
+                Contains(type, "TradeItemsClient"))
             .Select(type => type.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -23,10 +24,12 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         Assert.Equal(
             [
                 "IPathOfExileTradeFetchClient",
+                "IPathOfExileTradeItemsClient",
                 "IPathOfExileTradeSearchClient",
                 "IPathOfExileTradeStatsClient",
                 "PathOfExileTradeFetchClient",
                 "PathOfExileTradeHttpClientSupport",
+                "PathOfExileTradeItemsClient",
                 "PathOfExileTradeSearchClient",
                 "PathOfExileTradeStatsClient",
             ],
@@ -41,6 +44,9 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         Assert.DoesNotContain(typeof(PathOfExileTradeFetchClient).GetMethods(), method =>
             method.Name.Contains("Search", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(typeof(PathOfExileTradeStatsClient).GetMethods(), method =>
+            method.Name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
+            method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(typeof(PathOfExileTradeItemsClient).GetMethods(), method =>
             method.Name.Contains("Search", StringComparison.OrdinalIgnoreCase) ||
             method.Name.Contains("Fetch", StringComparison.OrdinalIgnoreCase));
     }
@@ -80,7 +86,7 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     }
 
     [Fact]
-    public void PriceCheckerUi_DoesNotIntroduceModifierControlsOrStatsRefresh()
+    public void PriceCheckerUi_DoesNotReferenceStatsServicesOrRefresh()
     {
         var priceCheckerTypes = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerWindowController).Assembly
             .GetTypes()
@@ -88,14 +94,49 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
             .ToArray();
 
         Assert.DoesNotContain(priceCheckerTypes, type =>
-            Contains(type, "ModifierCheckbox") ||
-            Contains(type, "ModifierControl") ||
             Contains(type, "StatsRefresh") ||
             Contains(type, "CatalogRefresh") ||
             Contains(type, "Background"));
         Assert.DoesNotContain(priceCheckerTypes.SelectMany(ReferencedMemberTypes), type =>
             Contains(type, "PathOfExileTradeStatsClient") ||
-            Contains(type, "PathOfExileTradeStatMatcher"));
+            Contains(type, "PathOfExileTradeStatMatcher") ||
+            Contains(type, "PathOfExileTradeItemsClient") ||
+            Contains(type, "PathOfExileTradeItemCatalogProvider") ||
+            Contains(type, "PathOfExileTradeItemIdentityMapper"));
+    }
+
+    [Fact]
+    public void PriceCheckerModifierUi_DoesNotExposeProviderStatIdsMinMaxTierOrAdvancedControls()
+    {
+        var propertyNames = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierViewModel)
+            .GetProperties()
+            .Select(property => property.Name)
+            .ToArray();
+        Assert.DoesNotContain(propertyNames, name =>
+            Contains(name, "StatId") ||
+            Contains(name, "TradeStat") ||
+            Contains(name, "Provider") ||
+            Contains(name, "Minimum") ||
+            Contains(name, "Maximum") ||
+            Contains(name, "Min") ||
+            Contains(name, "Max") ||
+            Contains(name, "Tier"));
+
+        var xaml = File.ReadAllText(Path.Combine(
+            RepositoryRoot(),
+            "PoEnhance.App",
+            "Features",
+            "PriceChecking",
+            "PriceCheckerWindow.xaml"));
+        Assert.Contains("ModifierListBox", xaml, StringComparison.Ordinal);
+        Assert.Contains("CheckBox", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("StatId", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TradeStat", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("RequestedMinimum", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("RequestedMaximum", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Slider", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Tier", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SelectAll", xaml, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -121,6 +162,19 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
             .ToArray();
     }
 
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null &&
+            !File.Exists(Path.Combine(directory.FullName, "PoEnhance.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return directory.FullName;
+    }
+
     private static IEnumerable<Type> ReferencedMemberTypes(Type type)
     {
         const System.Reflection.BindingFlags flags =
@@ -141,5 +195,10 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     private static bool Contains(Type type, string value)
     {
         return type.FullName?.Contains(value, StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private static bool Contains(string text, string value)
+    {
+        return text.Contains(value, StringComparison.OrdinalIgnoreCase);
     }
 }

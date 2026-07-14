@@ -362,7 +362,7 @@ public sealed class PathOfExileTradeSearchClientTests
             {
                 Status = new PathOfExileTradeSearchStatus
                 {
-                    Option = "securable",
+                    Option = "online",
                 },
                 Type = "Titan Plate",
                 Filters = filters,

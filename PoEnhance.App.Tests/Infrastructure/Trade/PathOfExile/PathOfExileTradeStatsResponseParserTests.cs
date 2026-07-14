@@ -72,6 +72,99 @@ public sealed class PathOfExileTradeStatsResponseParserTests
     }
 
     [Fact]
+    public void ParseStatsResponse_ObjectOptionWithNestedArraysDoesNotRejectValidEntry()
+    {
+        var result = ParseSuccessful("""
+            {
+              "result": [
+                {
+                  "id": "pseudo",
+                  "label": "Pseudo",
+                  "entries": [
+                    {
+                      "id": "pseudo.stat",
+                      "text": "+# to maximum Life",
+                      "type": "pseudo",
+                      "option": {
+                        "options": [
+                          { "id": "life", "text": "Life" }
+                        ],
+                        "label": "Life"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var entry = Assert.Single(result.Catalog!.Entries);
+        Assert.Equal("pseudo.stat", entry.Id);
+        Assert.Equal("Life", entry.OptionMetadata["label"]);
+        Assert.False(entry.OptionMetadata.ContainsKey("options"));
+    }
+
+    [Fact]
+    public void ParseStatsResponse_ArrayShapedOptionMetadataIsIgnoredWithoutDiscardingEntry()
+    {
+        var result = ParseSuccessful("""
+            {
+              "result": [
+                {
+                  "id": "explicit",
+                  "entries": [
+                    {
+                      "id": "explicit.stat",
+                      "text": "#% increased Armour",
+                      "type": "explicit",
+                      "option": [
+                        { "id": "armour" }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var entry = Assert.Single(result.Catalog!.Entries);
+        Assert.Equal("explicit.stat", entry.Id);
+        Assert.Empty(entry.OptionMetadata);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ParseStatsResponse_MalformedOptionalMetadataDoesNotDiscardCatalog()
+    {
+        var result = ParseSuccessful("""
+            {
+              "result": [
+                {
+                  "id": 7,
+                  "label": { "bad": true },
+                  "entries": [
+                    {
+                      "id": "explicit.stat",
+                      "text": "+# to maximum Life",
+                      "type": 42,
+                      "option": { "nested": { "ignored": true } }
+                    }
+                  ]
+                }
+              ],
+              "unknown": { "ignored": true }
+            }
+            """);
+
+        var entry = Assert.Single(result.Catalog!.Entries);
+        Assert.Equal("explicit.stat", entry.Id);
+        Assert.Null(entry.GroupId);
+        Assert.Null(entry.GroupLabel);
+        Assert.Null(entry.Type);
+        Assert.Empty(entry.OptionMetadata);
+    }
+
+    [Fact]
     public void ParseStatsResponse_MissingTopLevelResultFailsStructurally()
     {
         var result = parser.ParseStatsResponse("""{"notResult":[]}""");
@@ -138,8 +231,55 @@ public sealed class PathOfExileTradeStatsResponseParserTests
 
         Assert.True(result.Catalog!.TryGetById("same", out var entry));
         Assert.Equal("+# to maximum Life", entry.Text);
-        Assert.Equal(2, result.Catalog.Entries.Count);
+        Assert.Single(result.Catalog.Entries);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == PathOfExileTradeStatsDiagnosticCodes.DuplicateStatId);
+    }
+
+    [Fact]
+    public void ParseStatsResponse_LiveShapeSyntheticFixtureProducesUsableCatalog()
+    {
+        var result = ParseSuccessful("""
+            {
+              "result": [
+                {
+                  "id": "pseudo",
+                  "label": "Pseudo",
+                  "entries": [
+                    {
+                      "id": "pseudo.pseudo_total_life",
+                      "text": "+# to maximum Life",
+                      "type": "pseudo",
+                      "option": {
+                        "options": [
+                          { "id": "explicit.stat_life", "text": "Life" }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "duplicate",
+                      "text": "+# to maximum Mana",
+                      "type": "pseudo"
+                    }
+                  ]
+                },
+                {
+                  "id": "explicit",
+                  "label": "Explicit",
+                  "entries": [
+                    { "id": "duplicate", "text": "+# to maximum Mana", "type": "explicit" },
+                    { "id": "explicit.stat_resist", "text": "+#% to Fire Resistance", "type": "explicit", "unknown": [1, 2] },
+                    { "id": "bad-missing-text", "type": "explicit" }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        Assert.Equal(
+            ["pseudo.pseudo_total_life", "duplicate", "explicit.stat_resist"],
+            result.Catalog!.Entries.Select(entry => entry.Id));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == PathOfExileTradeStatsDiagnosticCodes.DuplicateStatId);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == PathOfExileTradeStatsDiagnosticCodes.MissingTemplateText);
     }
 
     [Fact]

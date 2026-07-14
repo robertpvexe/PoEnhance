@@ -18,6 +18,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
 
         Assert.Equal("Titan Plate", result.Request?.Query.Type);
         Assert.Null(result.Request?.Query.Name);
+        AssertRarityFilter(result.SerializedJson!, "rare");
     }
 
     [Fact]
@@ -29,6 +30,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
 
         Assert.Equal("Titan Plate", result.Request?.Query.Type);
         Assert.Null(result.Request?.Query.Name);
+        AssertRarityFilter(result.SerializedJson!, "magic");
     }
 
     [Fact]
@@ -39,6 +41,8 @@ public sealed class PathOfExileTradeQueryBuilderTests
             displayName: "Titan Plate"));
 
         Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+        AssertRarityFilter(result.SerializedJson!, "normal");
     }
 
     [Fact]
@@ -53,6 +57,120 @@ public sealed class PathOfExileTradeQueryBuilderTests
 
         Assert.Equal("Mageblood", result.Request?.Query.Name);
         Assert.Equal("Heavy Belt", result.Request?.Query.Type);
+    }
+
+    [Fact]
+    public void Build_UniqueClusterJewelVoices_ProducesCanonicalUniqueNameAndBaseType()
+    {
+        var result = BuildSuccessful(Draft(
+            rarity: "Unique",
+            displayName: "Voices",
+            parsedBaseType: "Large Cluster Jewel",
+            resolvedBaseName: "Large Cluster Jewel",
+            itemClass: "Cluster Jewels"));
+
+        Assert.Equal("Voices", result.Request?.Query.Name);
+        Assert.Equal("Large Cluster Jewel", result.Request?.Query.Type);
+    }
+
+    [Fact]
+    public void Build_OrdinaryMoonbendersWing_ProducesProviderAcceptedNameAndBaseType()
+    {
+        var result = BuildSuccessful(Draft(
+            rarity: "Unique",
+            displayName: "Moonbender's Wing",
+            parsedBaseType: "Tomahawk",
+            resolvedBaseName: "Tomahawk",
+            itemClass: "One Hand Axes"));
+
+        Assert.Equal("Moonbender's Wing", result.Request?.Query.Name);
+        Assert.Equal("Tomahawk", result.Request?.Query.Type);
+    }
+
+    [Fact]
+    public void Build_UniqueItemWithoutProviderIdentityFails()
+    {
+        var result = builder.Build(
+            Draft(
+                rarity: "Unique",
+                displayName: "Moonbender's Wing",
+                parsedBaseType: "Tomahawk",
+                resolvedBaseName: "Tomahawk",
+                itemClass: "One Hand Axes"),
+            ValidValidation(),
+            League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingProviderUniqueIdentity);
+        Assert.Null(result.SerializedJson);
+    }
+
+    [Fact]
+    public void Build_FoulbornUniqueUsesCanonicalOrdinaryNameAndProviderVariantFilter()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Unique",
+                displayName: "Foulborn Moonbender's Wing",
+                parsedBaseType: "Tomahawk",
+                resolvedBaseName: "Tomahawk",
+                itemClass: "One Hand Axes"),
+            providerItemIdentity: new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Moonbender's Wing",
+                CanonicalType = "Tomahawk",
+                Foulborn = TradeTriState.Yes,
+            });
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("Moonbender's Wing", query.GetProperty("name").GetString());
+        Assert.Equal("Tomahawk", query.GetProperty("type").GetString());
+        Assert.Equal("true", query
+            .GetProperty("filters")
+            .GetProperty("misc_filters")
+            .GetProperty("filters")
+            .GetProperty("mutated")
+            .GetProperty("option")
+            .GetString());
+    }
+
+    [Theory]
+    [InlineData(TradeTriState.Any, false, null)]
+    [InlineData(TradeTriState.Yes, true, "true")]
+    [InlineData(TradeTriState.No, true, "false")]
+    public void Build_FoulbornTriStateControlsProviderFilter(
+        TradeTriState foulborn,
+        bool expectedFilter,
+        string? expectedOption)
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Unique",
+                displayName: "Moonbender's Wing",
+                parsedBaseType: "Tomahawk",
+                resolvedBaseName: "Tomahawk",
+                itemClass: "One Hand Axes"),
+            providerItemIdentity: new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Moonbender's Wing",
+                CanonicalType = "Tomahawk",
+                Foulborn = foulborn,
+            });
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        if (!expectedFilter)
+        {
+            Assert.Empty(filters.EnumerateObject());
+            return;
+        }
+
+        Assert.Equal(expectedOption, filters
+            .GetProperty("misc_filters")
+            .GetProperty("filters")
+            .GetProperty("mutated")
+            .GetProperty("option")
+            .GetString());
     }
 
     [Fact]
@@ -104,19 +222,19 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_MerchantOnly_MapsToSecurable()
+    public void Build_MerchantOnly_MapsToOnline()
     {
         var result = BuildSuccessful(Draft(listingMode: TradeListingMode.MerchantOnly));
 
-        Assert.Equal("securable", result.Request?.Query.Status.Option);
+        Assert.Equal("online", result.Request?.Query.Status.Option);
     }
 
     [Fact]
-    public void Build_InPerson_MapsToAvailable()
+    public void Build_InPerson_MapsToOnlineLeague()
     {
         var result = BuildSuccessful(Draft(listingMode: TradeListingMode.InPerson));
 
-        Assert.Equal("available", result.Request?.Query.Status.Option);
+        Assert.Equal("onlineleague", result.Request?.Query.Status.Option);
     }
 
     [Fact]
@@ -150,6 +268,26 @@ public sealed class PathOfExileTradeQueryBuilderTests
             League);
 
         AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.LocallyInvalidDraft);
+    }
+
+    [Fact]
+    public void Build_ValidationWarnings_DoNotBlockMappedSelectedModifiers()
+    {
+        var result = builder.Build(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Unknown)]),
+            TradeSearchValidationResult.FromDiagnostics(
+            [
+                new TradeSearchValidationDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
+                    TradeSearchValidationSeverity.Warning,
+                    "Local modifier did not resolve.",
+                    ModifierFilterIndex: 0),
+            ]),
+            League,
+            [ProviderFilter(0, "explicit.stat_life")]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("explicit.stat_life", result.Request?.Query.Stats[0].Filters[0].Id);
     }
 
     [Fact]
@@ -236,6 +374,44 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_RangerBowFireLocalSelectedModifierRequestMatchesPresenceOnlyParityShape()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Rare",
+                displayName: "Dread Branch",
+                parsedBaseType: "Ranger Bow",
+                resolvedBaseName: "Ranger Bow",
+                itemClass: "Bows",
+                modifiers:
+                [
+                    Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                ]),
+            [ProviderFilter(0, "explicit.stat_709508406", [70m, 139m])]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal("Ranger Bow", query.GetProperty("type").GetString());
+        Assert.Equal("online", query.GetProperty("status").GetProperty("option").GetString());
+        Assert.False(query.TryGetProperty("rarity", out _));
+        AssertRarityFilter(result.SerializedJson!, "rare");
+
+        var statsGroup = Assert.Single(query.GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+        var statFilter = Assert.Single(statsGroup.GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_709508406", statFilter.GetProperty("id").GetString());
+        Assert.False(statFilter.TryGetProperty("value", out _));
+        Assert.False(statFilter.TryGetProperty("min", out _));
+        Assert.False(statFilter.TryGetProperty("max", out _));
+        Assert.Single(statFilter.EnumerateObject());
+        Assert.Equal("asc", document.RootElement
+            .GetProperty("sort")
+            .GetProperty("price")
+            .GetString());
+    }
+
+    [Fact]
     public void Build_UnselectedModifiers_DoNotAffectQuery()
     {
         var result = BuildSuccessful(Draft(modifiers:
@@ -264,14 +440,14 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_UniqueItemWithoutUniqueName_Fails()
+    public void Build_UniqueItemWithoutResolvedProviderIdentity_Fails()
     {
         var result = builder.Build(
             Draft(rarity: "Unique", displayName: " ", parsedBaseType: "Heavy Belt", resolvedBaseName: "Heavy Belt"),
             ValidValidation(),
             League);
 
-        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingUniqueName);
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingProviderUniqueIdentity);
     }
 
     [Fact]
@@ -308,15 +484,52 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_JsonContainsEmptyFiltersObject()
+    public void Build_JsonContainsRarityFilterForRareByDefault()
     {
         var result = BuildSuccessful(Draft());
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
-        Assert.Empty(document.RootElement
+        Assert.Equal("rare", document.RootElement
             .GetProperty("query")
             .GetProperty("filters")
-            .EnumerateObject());
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+    }
+
+    [Theory]
+    [InlineData("Normal", "normal")]
+    [InlineData("Magic", "magic")]
+    [InlineData("Rare", "rare")]
+    public void Build_BaseOnlyNonUniqueSearchPreservesExactRarity(
+        string rarity,
+        string expectedProviderOption)
+    {
+        var result = BuildSuccessful(Draft(rarity: rarity));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal("Titan Plate", query.GetProperty("type").GetString());
+        AssertRarityFilter(result.SerializedJson!, expectedProviderOption);
+    }
+
+    [Fact]
+    public void Build_SelectedModifierSearchPreservesRarity()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Magic",
+                displayName: "Humming Titan Plate",
+                modifiers:
+                [
+                    Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                ]),
+            [ProviderFilter(0, "explicit.stat_life")]);
+
+        AssertRarityFilter(result.SerializedJson!, "magic");
     }
 
     [Fact]
@@ -388,9 +601,16 @@ public sealed class PathOfExileTradeQueryBuilderTests
 
     private PathOfExileTradeQueryBuildResult BuildSuccessful(
         TradeSearchDraft draft,
-        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
+        PathOfExileTradeItemIdentity? providerItemIdentity = null)
     {
-        var result = builder.Build(draft, ValidValidation(), League, selectedModifierFilters);
+        providerItemIdentity ??= DefaultIdentityFor(draft);
+        var result = builder.Build(
+            draft,
+            ValidValidation(),
+            League,
+            selectedModifierFilters,
+            providerItemIdentity);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Diagnostics);
@@ -398,6 +618,21 @@ public sealed class PathOfExileTradeQueryBuilderTests
         Assert.NotNull(result.SerializedJson);
         Assert.Equal(League, result.LeagueIdentifier);
         return result;
+    }
+
+    private static PathOfExileTradeItemIdentity? DefaultIdentityFor(TradeSearchDraft draft)
+    {
+        if (!string.Equals(draft.Rarity?.Trim(), "Unique", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = draft.DisplayName?.Trim() ?? "Test Unique",
+            CanonicalType = draft.Base.ResolvedBaseName?.Trim() ?? draft.ParsedBaseType?.Trim() ?? "Test Base",
+            Foulborn = TradeTriState.No,
+        };
     }
 
     private static TradeSearchDraft Draft(
@@ -481,6 +716,21 @@ public sealed class PathOfExileTradeQueryBuilderTests
         Assert.Null(result.Request);
         Assert.Null(result.SerializedJson);
         Assert.Equal(expectedCode, Assert.Single(result.Diagnostics).Code);
+    }
+
+    private static void AssertRarityFilter(
+        string serializedJson,
+        string expectedProviderOption)
+    {
+        using var document = JsonDocument.Parse(serializedJson);
+        Assert.Equal(expectedProviderOption, document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
     }
 
     private static bool Contains(Type type, string value)

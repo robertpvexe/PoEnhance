@@ -2,11 +2,13 @@ namespace PoEnhance.App.Features.PriceChecking;
 
 internal sealed class PriceCheckerPlacementCalculator
 {
-    public const double ProvisionalPanelWidthRatio = 0.18d;
-    public const double ProvisionalPanelMinimumWidth = 280d;
-    public const double ProvisionalPanelMaximumWidth = 360d;
+    public const double ProvisionalPanelWidthRatio = 0.22d;
+    public const double ProvisionalPanelMinimumWidth = 360d;
+    public const double ProvisionalPanelMaximumWidth = 480d;
     public const double ProvisionalInventoryWidthToClientHeightRatio = 0.60d;
     public const double ProvisionalInventorySafetyGap = 12d;
+    public const double UserPanelMinimumWidth = 320d;
+    public const double UserPanelLeftMargin = 8d;
 
     public PriceCheckerPlacementCalculator()
         : this(
@@ -71,8 +73,19 @@ internal sealed class PriceCheckerPlacementCalculator
         PathOfExileClientBounds clientBounds,
         double horizontalCorrection)
     {
-        var automaticLeft = CalculateAutomaticLeft(clientBounds);
-        var panelWidth = CalculatePanelWidth(clientBounds);
+        return CalculatePlacement(
+            clientBounds,
+            horizontalCorrection,
+            CalculatePanelWidth(clientBounds));
+    }
+
+    public PriceCheckerPlacement CalculatePlacement(
+        PathOfExileClientBounds clientBounds,
+        double horizontalCorrection,
+        double requestedPanelWidth)
+    {
+        var panelWidth = ClampPanelWidth(clientBounds, requestedPanelWidth);
+        var automaticLeft = CalculateAutomaticLeft(clientBounds, panelWidth);
         var correctedLeft = ClampLeft(clientBounds, automaticLeft + horizontalCorrection, panelWidth);
 
         return new PriceCheckerPlacement(
@@ -84,8 +97,15 @@ internal sealed class PriceCheckerPlacementCalculator
 
     public double CalculateAutomaticLeft(PathOfExileClientBounds clientBounds)
     {
+        return CalculateAutomaticLeft(clientBounds, CalculatePanelWidth(clientBounds));
+    }
+
+    public double CalculateAutomaticLeft(
+        PathOfExileClientBounds clientBounds,
+        double requestedPanelWidth)
+    {
+        var panelWidth = ClampPanelWidth(clientBounds, requestedPanelWidth);
         var inventoryLeft = CalculateEstimatedInventoryLeft(clientBounds);
-        var panelWidth = CalculatePanelWidth(clientBounds);
         return ClampLeft(
             clientBounds,
             inventoryLeft - InventorySafetyGap - panelWidth,
@@ -105,12 +125,41 @@ internal sealed class PriceCheckerPlacementCalculator
         return clientBounds.Right - (clientBounds.Height * InventoryWidthToClientHeightRatio);
     }
 
+    public double ClampPanelWidth(
+        PathOfExileClientBounds clientBounds,
+        double requestedPanelWidth)
+    {
+        return ClampUserPanelWidth(
+            clientBounds,
+            requestedPanelWidth,
+            CalculateInventorySafeRight(clientBounds));
+    }
+
+    public double ClampUserPanelWidth(
+        PathOfExileClientBounds clientBounds,
+        double requestedPanelWidth,
+        double preservedRight)
+    {
+        var maximumWidth = CalculateMaximumUserPanelWidth(clientBounds, preservedRight);
+        var minimumWidth = Math.Min(UserPanelMinimumWidth, maximumWidth);
+        return Math.Clamp(requestedPanelWidth, minimumWidth, maximumWidth);
+    }
+
+    public double CalculateMaximumUserPanelWidth(
+        PathOfExileClientBounds clientBounds,
+        double preservedRight)
+    {
+        return Math.Max(
+            0d,
+            preservedRight - clientBounds.Left - UserPanelLeftMargin);
+    }
+
     public PriceCheckerPlacement ApplyHorizontalDrag(
         PathOfExileClientBounds clientBounds,
         PriceCheckerPlacement currentPlacement,
         double horizontalChange)
     {
-        var panelWidth = CalculatePanelWidth(clientBounds);
+        var panelWidth = ClampPanelWidth(clientBounds, currentPlacement.Width);
 
         return currentPlacement with
         {
@@ -121,11 +170,29 @@ internal sealed class PriceCheckerPlacementCalculator
         };
     }
 
+    public PriceCheckerPlacement ApplyHorizontalResizeFromLeft(
+        PathOfExileClientBounds clientBounds,
+        PriceCheckerPlacement currentPlacement,
+        double horizontalChange)
+    {
+        var preservedRight = currentPlacement.Right;
+        var requestedPanelWidth = currentPlacement.Width - horizontalChange;
+        var panelWidth = ClampUserPanelWidth(clientBounds, requestedPanelWidth, preservedRight);
+
+        return currentPlacement with
+        {
+            Left = preservedRight - panelWidth,
+            Top = clientBounds.Top,
+            Width = panelWidth,
+            Height = clientBounds.Height,
+        };
+    }
+
     public double CalculateHorizontalCorrection(
         PathOfExileClientBounds clientBounds,
         PriceCheckerPlacement currentPlacement)
     {
-        return currentPlacement.Left - CalculateAutomaticLeft(clientBounds);
+        return currentPlacement.Left - CalculateAutomaticLeft(clientBounds, currentPlacement.Width);
     }
 
     private double ClampLeft(
@@ -142,5 +209,22 @@ internal sealed class PriceCheckerPlacementCalculator
             Math.Min(maximumClientLeft, maximumInventorySafeLeft));
 
         return Math.Clamp(requestedLeft, minimumLeft, maximumLeft);
+    }
+
+    private double ClampRight(
+        PathOfExileClientBounds clientBounds,
+        double requestedRight)
+    {
+        return Math.Clamp(
+            requestedRight,
+            clientBounds.Left,
+            CalculateInventorySafeRight(clientBounds));
+    }
+
+    private double CalculateInventorySafeRight(PathOfExileClientBounds clientBounds)
+    {
+        return Math.Min(
+            clientBounds.Right,
+            CalculateEstimatedInventoryLeft(clientBounds) - InventorySafetyGap);
     }
 }

@@ -64,6 +64,59 @@ public sealed class PathOfExileTradeStatsClientTests
     }
 
     [Fact]
+    public async Task GetStatsAsync_DefaultStatsBoundReadsResponseLargerThanGenericHttpBound()
+    {
+        var largeText = new string('x', PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes + 1024);
+        var largeBody = StatsResponseWithText(largeText);
+        Assert.True(Encoding.UTF8.GetByteCount(largeBody) > PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes);
+        Assert.True(Encoding.UTF8.GetByteCount(largeBody) < PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes);
+        var handler = RecordingHttpMessageHandler.RespondingWith(StatsResponse(largeBody));
+        using var httpClient = new HttpClient(handler);
+        var client = new PathOfExileTradeStatsClient(httpClient);
+
+        var result = await client.GetStatsAsync(CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var entry = Assert.Single(result.Catalog!.Entries);
+        Assert.Equal("explicit.stat", entry.Id);
+        Assert.Equal(largeText, entry.Text);
+    }
+
+    [Fact]
+    public async Task GetStatsAsync_DefaultStatsBoundRejectsResponseAboveStatsBound()
+    {
+        var oversizedBody = StatsResponseWithText(new string('x', PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes + 1));
+        var handler = RecordingHttpMessageHandler.RespondingWith(StatsResponse(oversizedBody));
+        using var httpClient = new HttpClient(handler);
+        var client = new PathOfExileTradeStatsClient(httpClient);
+
+        var result = await client.GetStatsAsync(CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradeHttpDiagnosticCodes.ResponseTooLarge, diagnostic.Code);
+        Assert.Contains(PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes.ToString(), diagnostic.Message);
+        Assert.DoesNotContain(oversizedBody, diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DefaultResponseBodyBoundsKeepStatsSeparateFromSearchAndFetch()
+    {
+        Assert.Equal(
+            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes,
+            PathOfExileTradeSearchClient.DefaultMaximumResponseBodyBytes);
+        Assert.Equal(
+            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes,
+            PathOfExileTradeFetchClient.DefaultMaximumResponseBodyBytes);
+        Assert.Equal(
+            8 * 1024 * 1024,
+            PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes);
+        Assert.True(
+            PathOfExileTradeStatsClient.MaximumStatsResponseBodyBytes >
+            PathOfExileTradeHttpClientSupport.DefaultMaximumResponseBodyBytes);
+    }
+
+    [Fact]
     public async Task GetStatsAsync_MalformedSuccessJsonReturnsStructuredMalformedResponse()
     {
         const string BodyMarker = "full-body-marker";
@@ -77,6 +130,9 @@ public sealed class PathOfExileTradeStatsClientTests
         Assert.False(result.IsSuccess);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(PathOfExileTradeHttpDiagnosticCodes.MalformedResponse, diagnostic.Code);
+        Assert.Contains(
+            result.ParserDiagnostics,
+            parserDiagnostic => parserDiagnostic.Code == PathOfExileTradeStatsDiagnosticCodes.MissingResultCollection);
         Assert.DoesNotContain(BodyMarker, diagnostic.Message, StringComparison.Ordinal);
     }
 
@@ -178,6 +234,11 @@ public sealed class PathOfExileTradeStatsClientTests
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
+    }
+
+    private static string StatsResponseWithText(string text)
+    {
+        return $$"""{"result":[{"id":"explicit","label":"Explicit","entries":[{"id":"explicit.stat","text":"{{text}}","type":"explicit"}]}]}""";
     }
 
     private sealed class RecordingHttpMessageHandler : HttpMessageHandler

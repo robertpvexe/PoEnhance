@@ -20,5 +20,9 @@ internal static class PathOfExileTradeQueryDiagnosticCodes
 
     public const string UnsupportedRarityOrItemPath = "POE_TRADE_QUERY_UNSUPPORTED_RARITY_OR_ITEM_PATH";
 
-    public const string MissingUniqueName = "POE_TRADE_QUERY_MISSING_UNIQUE_NAME";
+    public const string MissingCanonicalUniqueName = "POE_TRADE_QUERY_MISSING_CANONICAL_UNIQUE_NAME";
+
+    public const string MissingProviderUniqueIdentity = "POE_TRADE_QUERY_MISSING_PROVIDER_UNIQUE_IDENTITY";
+
+    public const string UnsupportedUniqueDisplayVariant = "POE_TRADE_QUERY_UNSUPPORTED_UNIQUE_DISPLAY_VARIANT";
 }

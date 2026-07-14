@@ -14,9 +14,12 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         IPathOfExileTradeSearchClient tradeSearchClient,
         IPathOfExileTradeFetchClient tradeFetchClient,
         IPathOfExileTradeStatsClient tradeStatsClient,
+        IPathOfExileTradeItemsClient tradeItemsClient,
         IPathOfExileTradeStatMatcher tradeStatMatcher,
         IPathOfExileTradeStatCatalogProvider tradeStatCatalogProvider,
+        IPathOfExileTradeItemCatalogProvider tradeItemCatalogProvider,
         IPathOfExileTradeSelectedModifierMapper tradeSelectedModifierMapper,
+        IPathOfExileTradeItemIdentityMapper tradeItemIdentityMapper,
         IPathOfExileTradePriceCheckService priceCheckService,
         PriceCheckerWindowController priceCheckerWindowController)
     {
@@ -26,9 +29,12 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         TradeSearchClient = tradeSearchClient;
         TradeFetchClient = tradeFetchClient;
         TradeStatsClient = tradeStatsClient;
+        TradeItemsClient = tradeItemsClient;
         TradeStatMatcher = tradeStatMatcher;
         TradeStatCatalogProvider = tradeStatCatalogProvider;
+        TradeItemCatalogProvider = tradeItemCatalogProvider;
         TradeSelectedModifierMapper = tradeSelectedModifierMapper;
+        TradeItemIdentityMapper = tradeItemIdentityMapper;
         PriceCheckService = priceCheckService;
         PriceCheckerWindowController = priceCheckerWindowController;
     }
@@ -45,11 +51,17 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public IPathOfExileTradeStatsClient TradeStatsClient { get; }
 
+    public IPathOfExileTradeItemsClient TradeItemsClient { get; }
+
     public IPathOfExileTradeStatMatcher TradeStatMatcher { get; }
 
     public IPathOfExileTradeStatCatalogProvider TradeStatCatalogProvider { get; }
 
+    public IPathOfExileTradeItemCatalogProvider TradeItemCatalogProvider { get; }
+
     public IPathOfExileTradeSelectedModifierMapper TradeSelectedModifierMapper { get; }
+
+    public IPathOfExileTradeItemIdentityMapper TradeItemIdentityMapper { get; }
 
     public IPathOfExileTradePriceCheckService PriceCheckService { get; }
 
@@ -61,13 +73,18 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var searchClient = new PathOfExileTradeSearchClient(tradeHttpClient);
         var fetchClient = new PathOfExileTradeFetchClient(tradeHttpClient);
         var statsClient = new PathOfExileTradeStatsClient(tradeHttpClient);
+        var itemsClient = new PathOfExileTradeItemsClient(tradeHttpClient);
         var statMatcher = new PathOfExileTradeStatMatcher();
         var statCatalogProvider = new PathOfExileTradeStatCatalogProvider(statsClient);
+        var itemCatalogProvider = new PathOfExileTradeItemCatalogProvider(itemsClient);
         var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper(statMatcher);
+        var itemIdentityMapper = new PathOfExileTradeItemIdentityMapper();
         var priceCheckService = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
             statCatalogProvider,
+            itemCatalogProvider,
             selectedModifierMapper,
+            itemIdentityMapper,
             searchClient,
             fetchClient);
         var priceCheckerWindowController = new PriceCheckerWindowController(
@@ -83,9 +100,12 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             searchClient,
             fetchClient,
             statsClient,
+            itemsClient,
             statMatcher,
             statCatalogProvider,
+            itemCatalogProvider,
             selectedModifierMapper,
+            itemIdentityMapper,
             priceCheckService,
             priceCheckerWindowController);
     }

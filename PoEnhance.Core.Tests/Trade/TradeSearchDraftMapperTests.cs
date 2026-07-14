@@ -80,6 +80,46 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
+    public void CreateDraft_ExactModifierResolutionPreservesTrustedLocality()
+    {
+        var item = ParseSample("advanced-rare-ring-with-implicit.txt");
+        var haleIndex = FindModifierIndex(item, "Hale");
+        var localResolution = ModifierResolution(
+            item,
+            haleIndex,
+            ModifierCandidateResolutionStatus.Exact,
+            ModifierGenerationType.Prefix,
+            [Modifier("mod.prefix.hale", "Hale", ModifierGenerationType.Prefix)],
+            ModifierLocality.Local);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, modifierResolutions: [localResolution]));
+
+        Assert.Equal(ModifierLocality.Local, draft.ModifierFilters[haleIndex].Locality);
+    }
+
+    [Fact]
+    public void CreateDraft_ExactModifierResolutionPreservesInternalStatEvidence()
+    {
+        var item = ParseSample("advanced-rare-ring-with-implicit.txt");
+        var haleIndex = FindModifierIndex(item, "Hale");
+        var resolution = ModifierResolution(
+            item,
+            haleIndex,
+            ModifierCandidateResolutionStatus.Exact,
+            ModifierGenerationType.Prefix,
+            [Modifier(
+                "mod.prefix.hale",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "base_maximum_life")],
+            ModifierLocality.Global);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, modifierResolutions: [resolution]));
+
+        Assert.Equal(["base_maximum_life"], draft.ModifierFilters[haleIndex].ResolvedStatIds);
+    }
+
+    [Fact]
     public void CreateDraft_AmbiguousOrUnknownModifierDoesNotGuessCatalogIdentity()
     {
         var item = ParseSample("advanced-rare-ring-with-implicit.txt");
@@ -179,6 +219,28 @@ Item Level: 84
 
         Assert.Equal(["Shaper Item"], draft.TraditionalInfluences);
         Assert.Equal(["Searing Exarch Item", "Eater of Worlds Item"], draft.EldritchInfluences);
+    }
+
+    [Fact]
+    public void CreateDraft_PreservesItemStatesAndCorruptionForTradeValidation()
+    {
+        var item = parser.Parse("""
+Item Class: Body Armours
+Rarity: Rare
+Dragon Shelter
+Synthesised Astral Plate
+--------
+Synthesised Item
+Corrupted
+--------
+Item Level: 84
+""");
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.Contains("Synthesised Item", draft.ItemStates);
+        Assert.Contains("Corrupted", draft.ItemStates);
+        Assert.True(draft.IsCorrupted);
     }
 
     [Fact]
@@ -294,6 +356,23 @@ Item Level: 84
         ModifierGenerationType generationType,
         params ModifierDefinition[] candidates)
     {
+        return ModifierResolution(
+            item,
+            modifierIndex,
+            status,
+            generationType,
+            candidates,
+            ModifierLocality.Unknown);
+    }
+
+    private static ModifierCandidateResolutionResult ModifierResolution(
+        ParsedItem item,
+        int modifierIndex,
+        ModifierCandidateResolutionStatus status,
+        ModifierGenerationType generationType,
+        IReadOnlyList<ModifierDefinition> candidates,
+        ModifierLocality locality)
+    {
         var modifier = item.Modifiers[modifierIndex];
         return new ModifierCandidateResolutionResult(
             modifierIndex,
@@ -303,7 +382,8 @@ Item Level: 84
             generationType,
             status,
             candidates,
-            []);
+            [],
+            Locality: locality);
     }
 
     private static ItemBaseRecord Base(string id, string name, string itemClass)
@@ -319,13 +399,21 @@ Item Level: 84
     private static ModifierDefinition Modifier(
         string id,
         string name,
-        ModifierGenerationType generationType)
+        ModifierGenerationType generationType,
+        params string[] statIds)
     {
         return new ModifierDefinition
         {
             Id = id,
             Name = name,
             GenerationType = generationType,
+            Stats = statIds
+                .Select((statId, index) => new ModifierStat
+                {
+                    Index = index,
+                    StatId = statId,
+                })
+                .ToArray(),
         };
     }
 }

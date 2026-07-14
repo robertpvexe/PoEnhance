@@ -30,7 +30,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.Empty(result.Diagnostics);
         Assert.Single(fixture.QueryBuilder.Calls);
         Assert.Empty(fixture.CatalogProvider.Calls);
+        Assert.Empty(fixture.ItemCatalogProvider.Calls);
         Assert.Empty(fixture.SelectedModifierMapper.Calls);
+        Assert.Empty(fixture.ItemIdentityMapper.Calls);
         Assert.Single(fixture.SearchClient.Calls);
         Assert.Single(fixture.FetchClient.Calls);
         Assert.Equal(ids.Take(10), fixture.FetchClient.Calls[0].ResultIds);
@@ -87,11 +89,199 @@ public sealed class PathOfExileTradePriceCheckServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Single(fixture.CatalogProvider.Calls);
+        Assert.Empty(fixture.ItemCatalogProvider.Calls);
         var mappingCall = Assert.Single(fixture.SelectedModifierMapper.Calls);
         Assert.Same(catalog, mappingCall.Catalog);
         Assert.Same(providerFilters, Assert.Single(fixture.QueryBuilder.Calls).SelectedModifierFilters);
         Assert.Single(fixture.SearchClient.Calls);
         Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_UniqueLoadsItemCatalogMapsIdentityAndPassesProviderIdentityToQueryBuilder()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = ItemCatalog();
+        var identity = new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = "Moonbender's Wing",
+            CanonicalType = "Tomahawk",
+            Foulborn = TradeTriState.No,
+        };
+        fixture.ItemCatalogProvider.Enqueue(PathOfExileTradeItemCatalogProviderResult.Success(catalog));
+        fixture.ItemIdentityMapper.Result = PathOfExileTradeItemIdentityMappingResult.Success(identity);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var draft = UniqueDraft();
+        var result = await fixture.Service.CheckAsync(draft, ValidationSuccess(), League);
+
+        Assert.True(result.IsSuccess);
+        var catalogCall = Assert.Single(fixture.ItemCatalogProvider.Calls);
+        Assert.False(catalogCall.CancellationToken.IsCancellationRequested);
+        var identityCall = Assert.Single(fixture.ItemIdentityMapper.Calls);
+        Assert.Same(draft, identityCall.Draft);
+        Assert.Same(catalog, identityCall.Catalog);
+        Assert.Same(identity, Assert.Single(fixture.QueryBuilder.Calls).ProviderItemIdentity);
+        Assert.Empty(fixture.CatalogProvider.Calls);
+        Assert.Empty(fixture.SelectedModifierMapper.Calls);
+        Assert.Single(fixture.SearchClient.Calls);
+        Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_UniqueItemCatalogFailurePreventsIdentityQueryBuildSearchAndFetch()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.ItemCatalogProvider.Enqueue(new PathOfExileTradeItemCatalogProviderResult
+        {
+            Diagnostics =
+            [
+                new PathOfExileTradeHttpDiagnostic(
+                    PathOfExileTradeHttpDiagnosticCodes.NetworkFailure,
+                    "Items failed."),
+            ],
+        });
+
+        var result = await fixture.Service.CheckAsync(UniqueDraft(), ValidationSuccess(), League);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.CatalogLoad, result.Stage);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadFailed, diagnostic.Code);
+        Assert.Equal(PathOfExileTradeHttpDiagnosticCodes.NetworkFailure, diagnostic.SourceCode);
+        Assert.Single(fixture.ItemCatalogProvider.Calls);
+        Assert.Empty(fixture.ItemIdentityMapper.Calls);
+        Assert.Empty(fixture.CatalogProvider.Calls);
+        Assert.Empty(fixture.SelectedModifierMapper.Calls);
+        Assert.Empty(fixture.QueryBuilder.Calls);
+        Assert.Empty(fixture.SearchClient.Calls);
+        Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_UniqueIdentityFailureReturnsQueryBuildFailureAndSendsNoSearch()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.ItemIdentityMapper.Result =
+            PathOfExileTradeItemIdentityMappingResult.Failure(
+                new PathOfExileTradeItemIdentityMappingDiagnostic(
+                    PathOfExileTradeItemIdentityMappingDiagnosticCodes.UnsupportedUniqueDisplayVariant,
+                    "Unsupported variant."));
+
+        var result = await fixture.Service.CheckAsync(UniqueDraft("Foulborn Not Real"), ValidationSuccess(), League);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.QueryBuild, result.Stage);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(PathOfExileTradePriceCheckDiagnosticCodes.QueryBuildFailed, diagnostic.Code);
+        Assert.Equal(
+            PathOfExileTradeItemIdentityMappingDiagnosticCodes.UnsupportedUniqueDisplayVariant,
+            diagnostic.SourceCode);
+        Assert.Single(fixture.ItemCatalogProvider.Calls);
+        Assert.Single(fixture.ItemIdentityMapper.Calls);
+        Assert.Empty(fixture.QueryBuilder.Calls);
+        Assert.Empty(fixture.SearchClient.Calls);
+        Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_UniqueSelectedModifierPassesItemIdentityAndProviderStatFilter()
+    {
+        var fixture = ServiceFixture.Create();
+        var providerFilters = new[] { ProviderFilter(0, "explicit.stat_life") };
+        fixture.CatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(Catalog()));
+        fixture.SelectedModifierMapper.Result =
+            PathOfExileTradeSelectedModifierMappingResult.Success(providerFilters);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var result = await fixture.Service.CheckAsync(
+            UniqueDraft() with
+            {
+                ModifierFilters = SelectedDraft().ModifierFilters,
+            },
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.ItemCatalogProvider.Calls);
+        Assert.Single(fixture.ItemIdentityMapper.Calls);
+        Assert.Single(fixture.CatalogProvider.Calls);
+        Assert.Single(fixture.SelectedModifierMapper.Calls);
+        var queryCall = Assert.Single(fixture.QueryBuilder.Calls);
+        Assert.NotNull(queryCall.ProviderItemIdentity);
+        Assert.Same(providerFilters, queryCall.SelectedModifierFilters);
+        Assert.Single(fixture.SearchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_SelectedModifierWarningValidationStillLoadsCatalogAndMaps()
+    {
+        var fixture = ServiceFixture.Create();
+        var providerFilters = new[] { ProviderFilter(0, "explicit.stat_life") };
+        fixture.CatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(Catalog()));
+        fixture.SelectedModifierMapper.Result =
+            PathOfExileTradeSelectedModifierMappingResult.Success(providerFilters);
+        fixture.SearchClient.Enqueue(SearchSuccess([], total: 0));
+
+        var result = await fixture.Service.CheckAsync(
+            SelectedDraft(),
+            TradeSearchValidationResult.FromDiagnostics(
+            [
+                new TradeSearchValidationDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
+                    TradeSearchValidationSeverity.Warning,
+                    "Local modifier did not resolve.",
+                    ModifierFilterIndex: 0),
+            ]),
+            League);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.CatalogProvider.Calls);
+        Assert.Single(fixture.SelectedModifierMapper.Calls);
+        Assert.Same(providerFilters, Assert.Single(fixture.QueryBuilder.Calls).SelectedModifierFilters);
+        Assert.Single(fixture.SearchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_AdvancedRangeSelectedModifierMapsAndExecutesSearchAndFetch()
+    {
+        var queryBuilder = new FakeQueryBuilder
+        {
+            Result = PathOfExileTradeQueryBuildResult.Success(
+                League,
+                SearchRequest(),
+                "{}",
+                "Titan Plate",
+                ItemBaseResolutionStatus.Exact),
+        };
+        var catalogProvider = new FakeCatalogProvider();
+        catalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(Catalog()));
+        var searchClient = new FakeSearchClient();
+        searchClient.Enqueue(SearchSuccess(["id-1"], total: 1));
+        var fetchClient = new FakeFetchClient();
+        fetchClient.Enqueue(FetchSuccess([Offer("id-1")]));
+        var service = new PathOfExileTradePriceCheckService(
+            queryBuilder,
+            catalogProvider,
+            new FakeItemCatalogProvider(),
+            new PathOfExileTradeSelectedModifierMapper(new PathOfExileTradeStatMatcher()),
+            new FakeItemIdentityMapper(),
+            searchClient,
+            fetchClient);
+
+        var result = await service.CheckAsync(
+            SelectedDraft("+101(100-114) to maximum Life"),
+            ValidationSuccess(),
+            League);
+
+        Assert.True(result.IsSuccess);
+        var queryBuildCall = Assert.Single(queryBuilder.Calls);
+        var providerFilter = Assert.Single(queryBuildCall.SelectedModifierFilters ?? []);
+        Assert.Equal("explicit.stat_life", providerFilter.StatId);
+        Assert.Equal("+# to maximum Life", providerFilter.NormalizedItemTemplate);
+        Assert.Equal([101m], providerFilter.ExtractedNumericValues);
+        Assert.Single(searchClient.Calls);
+        Assert.Single(fetchClient.Calls);
     }
 
     [Fact]
@@ -116,6 +306,46 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.Single(fixture.CatalogProvider.Calls);
         Assert.Empty(fixture.SelectedModifierMapper.Calls);
         Assert.Empty(fixture.QueryBuilder.Calls);
+        Assert.Empty(fixture.SearchClient.Calls);
+        Assert.Empty(fixture.FetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_SelectedModifierCatalogFailurePreservesUnderlyingDiagnostics()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.CatalogProvider.Enqueue(new PathOfExileTradeStatCatalogProviderResult
+        {
+            Diagnostics =
+            [
+                new PathOfExileTradeHttpDiagnostic(
+                    PathOfExileTradeHttpDiagnosticCodes.ResponseTooLarge,
+                    "Stats response exceeded the configured bound.",
+                    HttpStatusCode.OK),
+            ],
+            ParserDiagnostics =
+            [
+                new PathOfExileTradeQueryDiagnostic(
+                    PathOfExileTradeStatsDiagnosticCodes.MissingResultCollection,
+                    "Missing result collection."),
+            ],
+        });
+
+        var result = await fixture.Service.CheckAsync(SelectedDraft(), ValidationSuccess(), League);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.CatalogLoad, result.Stage);
+        Assert.Equal(
+            [
+                PathOfExileTradeHttpDiagnosticCodes.ResponseTooLarge,
+                PathOfExileTradeStatsDiagnosticCodes.MissingResultCollection,
+            ],
+            result.Diagnostics.Select(diagnostic => diagnostic.SourceCode));
+        Assert.All(result.Diagnostics, diagnostic =>
+        {
+            Assert.Equal(PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadFailed, diagnostic.Code);
+            Assert.Equal(PathOfExileTradePriceCheckStage.CatalogLoad, diagnostic.Stage);
+        });
         Assert.Empty(fixture.SearchClient.Calls);
         Assert.Empty(fixture.FetchClient.Calls);
     }
@@ -481,7 +711,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         };
     }
 
-    private static TradeSearchDraft SelectedDraft()
+    private static TradeSearchDraft SelectedDraft(string originalText = "+55 to maximum Life")
     {
         return Draft() with
         {
@@ -489,13 +719,32 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             [
                 new TradeModifierFilterDraft
                 {
-                    OriginalText = "+55 to maximum Life",
+                    OriginalText = originalText,
                     ParsedKind = PoEnhance.Core.Items.Parsing.ParsedModifierKind.Prefix,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.life",
                     IsSelected = true,
                 },
             ],
+        };
+    }
+
+    private static TradeSearchDraft UniqueDraft(
+        string displayName = "Moonbender's Wing",
+        string baseType = "Tomahawk")
+    {
+        return Draft() with
+        {
+            ItemClass = "One Hand Axes",
+            Rarity = "Unique",
+            DisplayName = displayName,
+            ParsedBaseType = baseType,
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseId = "base.tomahawk",
+                ResolvedBaseName = baseType,
+            },
         };
     }
 
@@ -512,7 +761,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             {
                 Status = new PathOfExileTradeSearchStatus
                 {
-                    Option = "securable",
+                    Option = "online",
                 },
                 Type = "Titan Plate",
             },
@@ -598,6 +847,22 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         ]);
     }
 
+    private static PathOfExileTradeItemCatalog ItemCatalog()
+    {
+        return new PathOfExileTradeItemCatalog(
+        [
+            new PathOfExileTradeItemEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "weapon",
+                GroupLabel = "Weapons",
+                Name = "Moonbender's Wing",
+                Type = "Tomahawk",
+                IsUnique = true,
+            },
+        ]);
+    }
+
     private static PathOfExileTradeSelectedModifierFilter ProviderFilter(
         int sourceIndex,
         string statId)
@@ -638,12 +903,17 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         TradeSearchDraft? Draft,
         TradeSearchValidationResult? ValidationResult,
         string? LeagueIdentifier,
-        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? SelectedModifierFilters);
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? SelectedModifierFilters,
+        PathOfExileTradeItemIdentity? ProviderItemIdentity);
 
     private sealed record CatalogCall(CancellationToken CancellationToken);
 
+    private sealed record ItemIdentityMappingCall(
+        TradeSearchDraft? Draft,
+        PathOfExileTradeItemCatalog? Catalog);
+
     private sealed record MappingCall(
-        IReadOnlyList<TradeModifierFilterDraft>? ModifierFilters,
+        TradeSearchDraft? Draft,
         PathOfExileTradeStatCatalog? Catalog);
 
     private sealed record SearchCall(
@@ -661,19 +931,25 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         private ServiceFixture(
             FakeQueryBuilder queryBuilder,
             FakeCatalogProvider catalogProvider,
+            FakeItemCatalogProvider itemCatalogProvider,
             FakeSelectedModifierMapper selectedModifierMapper,
+            FakeItemIdentityMapper itemIdentityMapper,
             FakeSearchClient searchClient,
             FakeFetchClient fetchClient)
         {
             QueryBuilder = queryBuilder;
             CatalogProvider = catalogProvider;
+            ItemCatalogProvider = itemCatalogProvider;
             SelectedModifierMapper = selectedModifierMapper;
+            ItemIdentityMapper = itemIdentityMapper;
             SearchClient = searchClient;
             FetchClient = fetchClient;
             Service = new PathOfExileTradePriceCheckService(
                 queryBuilder,
                 catalogProvider,
+                itemCatalogProvider,
                 selectedModifierMapper,
+                itemIdentityMapper,
                 searchClient,
                 fetchClient);
         }
@@ -684,7 +960,11 @@ public sealed class PathOfExileTradePriceCheckServiceTests
 
         public FakeCatalogProvider CatalogProvider { get; }
 
+        public FakeItemCatalogProvider ItemCatalogProvider { get; }
+
         public FakeSelectedModifierMapper SelectedModifierMapper { get; }
+
+        public FakeItemIdentityMapper ItemIdentityMapper { get; }
 
         public FakeSearchClient SearchClient { get; }
 
@@ -705,7 +985,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             return new ServiceFixture(
                 queryBuilder,
                 new FakeCatalogProvider(),
+                new FakeItemCatalogProvider(),
                 new FakeSelectedModifierMapper(),
+                new FakeItemIdentityMapper(),
                 new FakeSearchClient(),
                 new FakeFetchClient());
         }
@@ -722,9 +1004,15 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             TradeSearchDraft? draft,
             TradeSearchValidationResult? validationResult,
             string? leagueIdentifier,
-            IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
+            IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
+            PathOfExileTradeItemIdentity? providerItemIdentity = null)
         {
-            Calls.Add(new QueryBuildCall(draft, validationResult, leagueIdentifier, selectedModifierFilters));
+            Calls.Add(new QueryBuildCall(
+                draft,
+                validationResult,
+                leagueIdentifier,
+                selectedModifierFilters,
+                providerItemIdentity));
             return Result;
         }
     }
@@ -764,6 +1052,41 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         }
     }
 
+    private sealed class FakeItemCatalogProvider : IPathOfExileTradeItemCatalogProvider
+    {
+        public Queue<PathOfExileTradeItemCatalogProviderResult> PendingResults { get; } = [];
+
+        public List<CatalogCall> Calls { get; } = [];
+
+        public void Enqueue(PathOfExileTradeItemCatalogProviderResult result)
+        {
+            PendingResults.Enqueue(result);
+        }
+
+        public Task<PathOfExileTradeItemCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(new CatalogCall(cancellationToken));
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromResult(new PathOfExileTradeItemCatalogProviderResult
+                {
+                    IsCancelled = true,
+                    Diagnostics =
+                    [
+                        new PathOfExileTradeHttpDiagnostic(
+                            PathOfExileTradeHttpDiagnosticCodes.CallerCancellation,
+                            "Cancelled."),
+                    ],
+                });
+            }
+
+            return Task.FromResult(PendingResults.Count == 0
+                ? PathOfExileTradeItemCatalogProviderResult.Success(ItemCatalog())
+                : PendingResults.Dequeue());
+        }
+    }
+
     private sealed class FakeSelectedModifierMapper : IPathOfExileTradeSelectedModifierMapper
     {
         public List<MappingCall> Calls { get; } = [];
@@ -772,10 +1095,31 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             PathOfExileTradeSelectedModifierMappingResult.Success([ProviderFilter(0, "explicit.stat_life")]);
 
         public PathOfExileTradeSelectedModifierMappingResult Map(
-            IReadOnlyList<TradeModifierFilterDraft>? modifierFilters,
+            TradeSearchDraft? draft,
             PathOfExileTradeStatCatalog? catalog)
         {
-            Calls.Add(new MappingCall(modifierFilters, catalog));
+            Calls.Add(new MappingCall(draft, catalog));
+            return Result;
+        }
+    }
+
+    private sealed class FakeItemIdentityMapper : IPathOfExileTradeItemIdentityMapper
+    {
+        public List<ItemIdentityMappingCall> Calls { get; } = [];
+
+        public PathOfExileTradeItemIdentityMappingResult Result { get; set; } =
+            PathOfExileTradeItemIdentityMappingResult.Success(new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Moonbender's Wing",
+                CanonicalType = "Tomahawk",
+                Foulborn = TradeTriState.No,
+            });
+
+        public PathOfExileTradeItemIdentityMappingResult Map(
+            TradeSearchDraft? draft,
+            PathOfExileTradeItemCatalog? catalog)
+        {
+            Calls.Add(new ItemIdentityMappingCall(draft, catalog));
             return Result;
         }
     }

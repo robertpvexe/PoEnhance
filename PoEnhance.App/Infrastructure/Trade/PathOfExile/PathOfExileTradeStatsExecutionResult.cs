@@ -14,6 +14,8 @@ internal sealed record PathOfExileTradeStatsExecutionResult
 
     public IReadOnlyList<PathOfExileTradeQueryDiagnostic> RateLimitDiagnostics { get; init; } = [];
 
+    public IReadOnlyList<PathOfExileTradeQueryDiagnostic> ParserDiagnostics { get; init; } = [];
+
     public IReadOnlyList<PathOfExileTradeHttpDiagnostic> Diagnostics { get; init; } = [];
 
     public bool IsCancelled { get; init; }

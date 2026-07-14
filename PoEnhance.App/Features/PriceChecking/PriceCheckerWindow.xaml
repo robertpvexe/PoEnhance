@@ -83,6 +83,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0"
@@ -159,19 +160,55 @@
                                Margin="0,0,0,8"
                                Foreground="#EEEEEE" />
 
-                    <TextBlock Grid.Row="6"
+                    <ListBox x:Name="ModifierListBox"
+                             Grid.Row="6"
+                             Grid.ColumnSpan="2"
+                             MaxHeight="160"
+                             Margin="0,0,0,8"
+                             Background="#101010"
+                             BorderBrush="#404040"
+                             Foreground="#EEEEEE"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0"
+                                              Margin="0,0,8,0"
+                                              VerticalAlignment="Top"
+                                              Click="OnModifierSelectionClick"
+                                              IsChecked="{Binding IsSelected, Mode=OneWay}" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Foreground="#EEEEEE"
+                                                   Text="{Binding Text}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Margin="0,2,0,0"
+                                                   Foreground="#AFAFAF"
+                                                   Text="{Binding SectionLabel}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock Grid.Row="7"
                                Grid.Column="0"
                                Margin="0,0,8,8"
                                FontWeight="SemiBold"
                                Foreground="#EEEEEE"
                                Text="Listing:" />
                     <TextBlock x:Name="ListingModeText"
-                               Grid.Row="6"
+                               Grid.Row="7"
                                Grid.Column="1"
                                Margin="0,0,0,8"
                                Foreground="#EEEEEE" />
 
-                    <StackPanel Grid.Row="7"
+                    <StackPanel Grid.Row="8"
                                 Grid.ColumnSpan="2"
                                 Margin="0,4,0,0">
                         <TextBlock FontWeight="SemiBold"
@@ -190,7 +227,7 @@
                                  VerticalScrollBarVisibility="Auto" />
                     </StackPanel>
 
-                    <StackPanel Grid.Row="8"
+                    <StackPanel Grid.Row="9"
                                 Grid.ColumnSpan="2"
                                 Margin="0,12,0,0">
                         <TextBlock FontWeight="SemiBold"
@@ -281,6 +318,53 @@
                     </StackPanel>
                 </Grid>
             </ScrollViewer>
+
+            <Thumb x:Name="HorizontalResizeThumb"
+                   Grid.RowSpan="2"
+                   Width="14"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Stretch"
+                   Cursor="SizeWE"
+                   ToolTip="Drag to resize"
+                   Panel.ZIndex="10">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Grid Background="Transparent">
+                            <StackPanel x:Name="ResizeGripGlyph"
+                                        Width="6"
+                                        Height="30"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Opacity="0.45">
+                                <Border Width="2"
+                                        Height="24"
+                                        Margin="0,0,2,0"
+                                        Background="#CFCFCF"
+                                        CornerRadius="1" />
+                                <Border Width="2"
+                                        Height="24"
+                                        Background="#CFCFCF"
+                                        CornerRadius="1" />
+                            </StackPanel>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="ResizeGripGlyph"
+                                        Property="Opacity"
+                                        Value="0.78" />
+                            </Trigger>
+                            <Trigger Property="IsDragging"
+                                     Value="True">
+                                <Setter TargetName="ResizeGripGlyph"
+                                        Property="Opacity"
+                                        Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
         </Grid>
     </Border>
 </Window>

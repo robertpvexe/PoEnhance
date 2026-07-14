@@ -98,6 +98,7 @@ public sealed class ParsedItemModifierCandidateResolver
                 ? MatchedWithoutEligibility(
                     index,
                     modifier,
+                    catalog,
                     generationType,
                     kindCandidates[0],
                     nameCandidates.Count,
@@ -127,6 +128,7 @@ public sealed class ParsedItemModifierCandidateResolver
                 ? MatchedWithoutEligibility(
                     index,
                     modifier,
+                    catalog,
                     generationType,
                     kindCandidates[0],
                     nameCandidates.Count,
@@ -248,7 +250,8 @@ public sealed class ParsedItemModifierCandidateResolver
                 allExcludedCandidates,
                 TextSignatureCandidateCount: finalCandidates.Count,
                 ExcludedByTextCandidateCount: textExcludedCandidates.Length,
-                TextSignatureMatches: textResults);
+                TextSignatureMatches: textResults,
+                Locality: DetermineLocality(retainedEvaluations[0].Candidate, catalog));
         }
 
         var allRetainedUnknown = retainedEvaluations.All(evaluation =>
@@ -314,6 +317,7 @@ public sealed class ParsedItemModifierCandidateResolver
     private static ModifierCandidateResolutionResult MatchedWithoutEligibility(
         int index,
         ParsedModifier modifier,
+        GameDataCatalog catalog,
         ModifierGenerationType generationType,
         ModifierDefinition candidate,
         int nameCandidateCount,
@@ -332,12 +336,14 @@ public sealed class ParsedItemModifierCandidateResolver
                 "The parsed modifier name and generation type matched one catalog modifier, but item-base eligibility was not evaluated."),
             nameCandidateCount,
             generationKindCandidateCount,
-            EligibilityCandidateCount: 1);
+            EligibilityCandidateCount: 1,
+            Locality: DetermineLocality(candidate, catalog));
     }
 
     private static ModifierCandidateResolutionResult MatchedEligible(
         int index,
         ParsedModifier modifier,
+        GameDataCatalog catalog,
         ModifierGenerationType generationType,
         ModifierDefinition candidate,
         int nameCandidateCount,
@@ -359,7 +365,8 @@ public sealed class ParsedItemModifierCandidateResolver
             generationKindCandidateCount,
             EligibilityCandidateCount: 1,
             excludedCandidates.Count,
-            excludedCandidates);
+            excludedCandidates,
+            Locality: DetermineLocality(candidate, catalog));
     }
 
     private static ModifierCandidateResolutionResult Unknown(
@@ -395,6 +402,47 @@ public sealed class ParsedItemModifierCandidateResolver
             textSignatureCandidateCount,
             excludedByTextCandidateCount,
             textSignatureMatches);
+    }
+
+    private static ModifierLocality DetermineLocality(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog)
+    {
+        var statIds = candidate.Stats
+            .Select(stat => stat.StatId?.Trim())
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .ToArray();
+        if (statIds.Length == 0)
+        {
+            return ModifierLocality.Unknown;
+        }
+
+        var localCount = 0;
+        var globalCount = 0;
+        foreach (var statId in statIds)
+        {
+            var stats = catalog.FindStatsById(statId);
+            if (stats.Count != 1)
+            {
+                return ModifierLocality.Unknown;
+            }
+
+            if (stats[0].IsLocal)
+            {
+                localCount++;
+            }
+            else
+            {
+                globalCount++;
+            }
+        }
+
+        return (localCount, globalCount) switch
+        {
+            (> 0, 0) => ModifierLocality.Local,
+            (0, > 0) => ModifierLocality.Global,
+            _ => ModifierLocality.Unknown,
+        };
     }
 
     private static IReadOnlyList<ModifierCandidateResolutionDiagnostic> Diagnostics(string code, string reason)

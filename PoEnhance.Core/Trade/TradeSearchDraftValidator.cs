@@ -19,6 +19,7 @@ public sealed class TradeSearchDraftValidator
         var diagnostics = new List<TradeSearchValidationDiagnostic>();
         ValidateBaseIdentity(draft, diagnostics);
         ValidateItemLevel(draft, diagnostics);
+        ValidateUnsupportedSpecialFacts(draft, diagnostics);
         ValidateModifierFilters(draft, diagnostics);
 
         return TradeSearchValidationResult.FromDiagnostics(diagnostics);
@@ -62,6 +63,60 @@ public sealed class TradeSearchDraftValidator
         }
     }
 
+    private static void ValidateUnsupportedSpecialFacts(
+        TradeSearchDraft draft,
+        List<TradeSearchValidationDiagnostic> diagnostics)
+    {
+        if (!IsOrdinaryNonUniqueRarity(draft.Rarity))
+        {
+            return;
+        }
+
+        foreach (var state in draft.ItemStates)
+        {
+            if (IsUnsupportedSpecialItemState(state))
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+                    $"This ordinary-item Trade slice does not yet support the special item state '{state}'."));
+            }
+        }
+
+        if (draft.TraditionalInfluences.Count > 0 || draft.EldritchInfluences.Count > 0)
+        {
+            diagnostics.Add(Error(
+                TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+                "Influenced ordinary items require provider filters that are outside the current Trade search slice."));
+        }
+
+        if (draft.IsCorrupted)
+        {
+            diagnostics.Add(Error(
+                TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+                "Corrupted ordinary-item behavior is outside the current Trade search slice."));
+        }
+
+        for (var index = 0; index < draft.ModifierFilters.Count; index++)
+        {
+            var modifier = draft.ModifierFilters[index];
+            if (modifier.IsFractured)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+                    "Fractured ordinary modifiers require provider filters that are outside the current Trade search slice.",
+                    index));
+            }
+
+            if (modifier.IsVeiled)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+                    "Veiled ordinary modifiers require provider filters that are outside the current Trade search slice.",
+                    index));
+            }
+        }
+    }
+
     private static void ValidateModifierFilters(
         TradeSearchDraft draft,
         List<TradeSearchValidationDiagnostic> diagnostics)
@@ -85,9 +140,9 @@ public sealed class TradeSearchDraftValidator
             if (modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
                 string.IsNullOrWhiteSpace(modifier.ResolvedModifierId))
             {
-                diagnostics.Add(Error(
+                diagnostics.Add(Warning(
                     TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved,
-                    "A selected modifier needs one exact resolved catalog modifier identity.",
+                    "The local modifier catalog did not resolve this modifier exactly; Trade stats mapping will verify it before search.",
                     index));
             }
 
@@ -101,6 +156,20 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
         }
+    }
+
+    private static bool IsOrdinaryNonUniqueRarity(string? rarity)
+    {
+        return string.Equals(rarity?.Trim(), "Normal", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(rarity?.Trim(), "Magic", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(rarity?.Trim(), "Rare", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUnsupportedSpecialItemState(string? state)
+    {
+        return string.Equals(state?.Trim(), "Synthesised Item", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(state?.Trim(), "Fractured Item", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(state?.Trim(), "Mirrored", StringComparison.OrdinalIgnoreCase);
     }
 
     private static TradeSearchValidationDiagnostic Warning(

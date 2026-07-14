@@ -13,10 +13,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     }
 
     public PathOfExileTradeSelectedModifierMappingResult Map(
-        IReadOnlyList<TradeModifierFilterDraft>? modifierFilters,
+        TradeSearchDraft? draft,
         PathOfExileTradeStatCatalog? catalog)
     {
-        var selectedModifiers = (modifierFilters ?? [])
+        var selectedModifiers = (draft?.ModifierFilters ?? [])
             .Select((modifier, index) => new IndexedModifier(index, modifier))
             .Where(indexed => indexed.Modifier.IsSelected)
             .ToArray();
@@ -38,9 +38,18 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
 
         var filters = new List<PathOfExileTradeSelectedModifierFilter>();
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
+        var traces = new List<PathOfExileTradeStatResolutionTrace>();
         foreach (var selectedModifier in selectedModifiers)
         {
-            var match = statMatcher.Match(ToParsedModifier(selectedModifier.Modifier), catalog);
+            var match = statMatcher.Match(
+                ToParsedModifier(selectedModifier.Modifier),
+                catalog,
+                CreateContext(draft, selectedModifier.Modifier));
+            if (match.Trace is not null)
+            {
+                traces.Add(match.Trace);
+            }
+
             if (match.Status == PathOfExileTradeStatMatchStatus.Exact &&
                 match.ExactCandidate is not null &&
                 !string.IsNullOrWhiteSpace(match.ExactCandidate.StatId))
@@ -63,8 +72,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         }
 
         return diagnostics.Count == 0
-            ? PathOfExileTradeSelectedModifierMappingResult.Success(filters)
-            : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
+            ? PathOfExileTradeSelectedModifierMappingResult.Success(filters, traces)
+            : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics, traces);
     }
 
     private static ParsedModifier ToParsedModifier(TradeModifierFilterDraft modifier)
@@ -119,6 +128,21 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound =>
                 $"Selected modifier is not available in Trade search: {safeModifierText}",
             _ => $"Selected modifier cannot be mapped to Trade search: {safeModifierText}",
+        };
+    }
+
+    private static PathOfExileTradeStatMatchContext CreateContext(
+        TradeSearchDraft? draft,
+        TradeModifierFilterDraft modifier)
+    {
+        return new PathOfExileTradeStatMatchContext
+        {
+            ItemClass = draft?.ItemClass,
+            ParsedBaseType = draft?.ParsedBaseType,
+            ModifierLocality = modifier.Locality,
+            ResolvedModifierId = modifier.ResolvedModifierId,
+            ResolvedModifierName = modifier.ResolvedModifierName,
+            InternalStatIds = modifier.ResolvedStatIds,
         };
     }
 
