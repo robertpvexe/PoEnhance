@@ -13,6 +13,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         ProvisionalGameDataRecordingService provisionalGameDataRecordingService,
         IPathOfExileTradeSearchClient tradeSearchClient,
         IPathOfExileTradeFetchClient tradeFetchClient,
+        IPathOfExileTradeStatsClient tradeStatsClient,
+        IPathOfExileTradeStatMatcher tradeStatMatcher,
         IPathOfExileTradePriceCheckService priceCheckService,
         PriceCheckerWindowController priceCheckerWindowController)
     {
@@ -21,6 +23,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         ProvisionalGameDataRecordingService = provisionalGameDataRecordingService;
         TradeSearchClient = tradeSearchClient;
         TradeFetchClient = tradeFetchClient;
+        TradeStatsClient = tradeStatsClient;
+        TradeStatMatcher = tradeStatMatcher;
         PriceCheckService = priceCheckService;
         PriceCheckerWindowController = priceCheckerWindowController;
     }
@@ -35,6 +39,10 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public IPathOfExileTradeFetchClient TradeFetchClient { get; }
 
+    public IPathOfExileTradeStatsClient TradeStatsClient { get; }
+
+    public IPathOfExileTradeStatMatcher TradeStatMatcher { get; }
+
     public IPathOfExileTradePriceCheckService PriceCheckService { get; }
 
     public PriceCheckerWindowController PriceCheckerWindowController { get; }
@@ -44,6 +52,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var tradeHttpClient = CreatePathOfExileTradeHttpClient();
         var searchClient = new PathOfExileTradeSearchClient(tradeHttpClient);
         var fetchClient = new PathOfExileTradeFetchClient(tradeHttpClient);
+        var statsClient = new PathOfExileTradeStatsClient(tradeHttpClient);
+        var statMatcher = new PathOfExileTradeStatMatcher();
         var priceCheckService = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
             searchClient,
@@ -60,6 +70,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
                     new ProvisionalGameDataStorePathResolver().ResolveDefaultPath())),
             searchClient,
             fetchClient,
+            statsClient,
+            statMatcher,
             priceCheckService,
             priceCheckerWindowController);
     }

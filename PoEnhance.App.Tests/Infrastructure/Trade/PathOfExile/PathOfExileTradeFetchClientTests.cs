@@ -318,11 +318,14 @@ public sealed class PathOfExileTradeFetchClientTests
         Assert.DoesNotContain(providerTypes, type =>
             Contains(type, "CurrencyExchange") ||
             Contains(type, "PublicStash") ||
-            Contains(type, "TradeStat") ||
             Contains(type, "Scheduler") ||
             Contains(type, "Queue") ||
             Contains(type, "Cache") ||
             Contains(type, "Wait"));
+        Assert.DoesNotContain(ReferencedMemberTypes(typeof(PathOfExileTradeFetchClient)), type =>
+            Contains(type, "PathOfExileTradeStatMatcher") ||
+            Contains(type, "PathOfExileTradeStatCatalog") ||
+            Contains(type, "PathOfExileTradeStatsClient"));
     }
 
     private static HttpResponseMessage FetchResponse(

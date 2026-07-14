@@ -17,9 +17,13 @@ public sealed class PoEnhanceApplicationCompositionTests
         var fetchHttpClient = PrivateField<HttpClient>(
             composition.TradeFetchClient,
             "httpClient");
+        var statsHttpClient = PrivateField<HttpClient>(
+            composition.TradeStatsClient,
+            "httpClient");
 
         Assert.Same(composition.PathOfExileTradeHttpClient, searchHttpClient);
         Assert.Same(searchHttpClient, fetchHttpClient);
+        Assert.Same(searchHttpClient, statsHttpClient);
     }
 
     [Fact]
@@ -37,6 +41,8 @@ public sealed class PoEnhanceApplicationCompositionTests
             PrivateField<IPathOfExileTradeFetchClient>(
                 composition.PriceCheckService,
                 "fetchClient"));
+        Assert.IsType<PathOfExileTradeStatsClient>(composition.TradeStatsClient);
+        Assert.IsType<PathOfExileTradeStatMatcher>(composition.TradeStatMatcher);
     }
 
     [Fact]
@@ -87,6 +93,21 @@ public sealed class PoEnhanceApplicationCompositionTests
             Contains(type, "Queue") ||
             Contains(type, "Timer") ||
             Contains(type, "AutomaticRefresh"));
+    }
+
+    [Fact]
+    public void CreateDefault_DoesNotCallStatsClientFromPriceCheckerServices()
+    {
+        using var composition = PoEnhanceApplicationComposition.CreateDefault();
+
+        Assert.DoesNotContain(
+            ReferencedMemberTypes(composition.PriceCheckService.GetType()),
+            type => Contains(type, "PathOfExileTradeStatsClient") ||
+                Contains(type, "PathOfExileTradeStatMatcher"));
+        Assert.DoesNotContain(
+            ReferencedMemberTypes(composition.PriceCheckerWindowController.GetType()),
+            type => Contains(type, "PathOfExileTradeStatsClient") ||
+                Contains(type, "PathOfExileTradeStatMatcher"));
     }
 
     private static T PrivateField<T>(object instance, string fieldName)

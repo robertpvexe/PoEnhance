@@ -81,6 +81,13 @@ internal sealed class PathOfExileTradeEndpointBuilder
             $"/api/trade/fetch/{path}?query={Uri.EscapeDataString(trimmedQueryId)}");
     }
 
+    public PathOfExileTradeEndpointBuildResult BuildStatsEndpoint()
+    {
+        return PathOfExileTradeEndpointBuildResult.Success(
+            baseHost,
+            "/api/trade/data/stats");
+    }
+
     private static string? TrimToNull(string? value)
     {
         var trimmed = value?.Trim();

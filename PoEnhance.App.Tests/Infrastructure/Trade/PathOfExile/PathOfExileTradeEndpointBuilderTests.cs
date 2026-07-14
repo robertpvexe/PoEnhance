@@ -81,6 +81,17 @@ public sealed class PathOfExileTradeEndpointBuilderTests
     }
 
     [Fact]
+    public void BuildStatsEndpoint_ReturnsStatsDataPath()
+    {
+        var result = builder.BuildStatsEndpoint();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new Uri("https://www.pathofexile.com"), result.BaseHost);
+        Assert.Equal("/api/trade/data/stats", result.PathAndQuery);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
     public void ProviderTradeInfrastructure_DoesNotIntroduceExchangeEndpoint()
     {
         var search = builder.BuildSearchEndpoint("Mercenaries");
