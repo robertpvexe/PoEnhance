@@ -1232,6 +1232,12 @@ Item Level: 80
 
         public event EventHandler? SearchRequested;
 
+        public event EventHandler? LoadMoreRequested
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;

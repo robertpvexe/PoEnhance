@@ -12,6 +12,8 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? SearchRequested;
 
+    event EventHandler? LoadMoreRequested;
+
     event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
     event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;

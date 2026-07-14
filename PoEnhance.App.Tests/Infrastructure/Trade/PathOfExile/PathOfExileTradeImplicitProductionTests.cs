@@ -542,6 +542,8 @@ Item Level: 84
         public event EventHandler? PanelDeactivated;
         public event EventHandler? PanelInteraction;
         public event EventHandler? SearchRequested;
+
+        public event EventHandler? LoadMoreRequested;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
         public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
         public event EventHandler<bool>? PinStateChanged;

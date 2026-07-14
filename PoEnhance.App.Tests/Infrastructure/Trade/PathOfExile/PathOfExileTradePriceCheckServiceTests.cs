@@ -25,6 +25,8 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.True(result.IsSuccess);
         Assert.Equal(PathOfExileTradePriceCheckStage.Completed, result.Stage);
         Assert.Equal("query-1", result.SearchQueryId);
+        Assert.Equal(ids, result.ResultIds);
+        Assert.Equal(ids.Take(10), result.FetchedResultIds);
         Assert.Equal(12, result.ProviderTotal);
         Assert.True(result.Inexact);
         Assert.Equal(ids.Take(10), result.Offers.Select(offer => offer.Id));
@@ -38,6 +40,49 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.Single(fixture.FetchClient.Calls);
         Assert.Equal(ids.Take(10), fixture.FetchClient.Calls[0].ResultIds);
         Assert.Equal("query-1", fixture.FetchClient.Calls[0].QueryId);
+    }
+
+    [Fact]
+    public async Task FetchMoreAsync_FetchesOnlyRequestedNextBatchWithoutRepeatingSearchAndReturnsProviderOrder()
+    {
+        var fixture = ServiceFixture.Create();
+        var nextIds = Enumerable.Range(11, 10).Select(index => $"id-{index}").ToArray();
+        fixture.FetchClient.Enqueue(FetchSuccess(nextIds.Reverse().Select(Offer).ToArray()));
+
+        var result = await fixture.Service.FetchMoreAsync("query-1", nextIds);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.Completed, result.Stage);
+        Assert.Equal("query-1", result.SearchQueryId);
+        Assert.Equal(nextIds, result.FetchedResultIds);
+        Assert.Equal(nextIds, result.Offers.Select(offer => offer.Id));
+        Assert.Empty(fixture.SearchClient.Calls);
+        var fetch = Assert.Single(fixture.FetchClient.Calls);
+        Assert.Equal("query-1", fetch.QueryId);
+        Assert.Equal(nextIds, fetch.ResultIds);
+    }
+
+    [Fact]
+    public async Task FetchMoreAsync_FetchFailureReturnsStructuredDiagnosticsWithoutRepeatingSearch()
+    {
+        var fixture = ServiceFixture.Create();
+        fixture.FetchClient.Enqueue(new PathOfExileTradeFetchExecutionResult
+        {
+            Diagnostics =
+            [
+                new PathOfExileTradeHttpDiagnostic(
+                    PathOfExileTradeHttpDiagnosticCodes.NetworkFailure,
+                    "Fetch failed."),
+            ],
+        });
+
+        var result = await fixture.Service.FetchMoreAsync("query-1", ["id-11"]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.Fetch, result.Stage);
+        Assert.Equal(PathOfExileTradePriceCheckDiagnosticCodes.FetchFailed, Assert.Single(result.Diagnostics).Code);
+        Assert.Empty(fixture.SearchClient.Calls);
+        Assert.Single(fixture.FetchClient.Calls);
     }
 
     [Fact]

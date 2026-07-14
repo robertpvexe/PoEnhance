@@ -10,6 +10,10 @@ internal sealed record PathOfExileTradePriceCheckResult
 
     public string? SearchQueryId { get; init; }
 
+    public IReadOnlyList<string> ResultIds { get; init; } = [];
+
+    public IReadOnlyList<string> FetchedResultIds { get; init; } = [];
+
     public int? ProviderTotal { get; init; }
 
     public bool? Inexact { get; init; }

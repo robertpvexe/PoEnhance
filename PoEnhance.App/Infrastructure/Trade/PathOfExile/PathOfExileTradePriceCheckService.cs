@@ -214,6 +214,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 IsSuccess = true,
                 Stage = PathOfExileTradePriceCheckStage.Completed,
                 SearchQueryId = searchQueryId,
+                ResultIds = resultIds,
                 ProviderTotal = searchResponse.Total,
                 Inexact = searchResponse.Inexact,
                 EffectiveDraft = effectiveDraft,
@@ -274,14 +275,101 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             IsSuccess = true,
             Stage = PathOfExileTradePriceCheckStage.Completed,
             SearchQueryId = searchQueryId,
+            ResultIds = resultIds,
+            FetchedResultIds = fetchIds,
             ProviderTotal = searchResponse.Total,
             Inexact = searchResponse.Inexact,
             EffectiveDraft = effectiveDraft,
-            Offers = fetchResult.Response?.Result ?? [],
+            Offers = OrderOffers(fetchResult.Response?.Result ?? [], fetchIds),
             CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
             FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
             Diagnostics = catalogDiagnostics.Concat(searchDiagnostics).Concat(fetchDiagnostics).ToArray(),
+        };
+    }
+
+    public async Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
+        string? searchQueryId,
+        IReadOnlyList<string?>? resultIds,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmedQueryId = TrimToNull(searchQueryId);
+        var fetchIds = resultIds?
+            .Select(TrimToNull)
+            .Where(resultId => resultId is not null)
+            .Select(resultId => resultId!)
+            .ToArray() ?? [];
+        if (trimmedQueryId is null ||
+            fetchIds.Length == 0 ||
+            fetchIds.Length > PathOfExileTradeEndpointBuilder.MaximumFetchResultIds ||
+            fetchIds.Distinct(StringComparer.Ordinal).Count() != fetchIds.Length)
+        {
+            return new PathOfExileTradePriceCheckResult
+            {
+                Stage = PathOfExileTradePriceCheckStage.Fetch,
+                SearchQueryId = trimmedQueryId,
+                Diagnostics =
+                [
+                    new PathOfExileTradePriceCheckDiagnostic(
+                        PathOfExileTradePriceCheckDiagnosticCodes.FetchFailed,
+                        "The next Trade Fetch batch is invalid.",
+                        PathOfExileTradePriceCheckStage.Fetch),
+                ],
+            };
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new PathOfExileTradePriceCheckResult
+            {
+                Stage = PathOfExileTradePriceCheckStage.Fetch,
+                SearchQueryId = trimmedQueryId,
+                IsCancelled = true,
+                Diagnostics =
+                [
+                    new PathOfExileTradePriceCheckDiagnostic(
+                        PathOfExileTradePriceCheckDiagnosticCodes.FetchCancelled,
+                        "Loading more Trade offers was cancelled before Fetch was requested.",
+                        PathOfExileTradePriceCheckStage.Fetch),
+                ],
+            };
+        }
+
+        var fetchResult = await fetchClient
+            .FetchAsync(trimmedQueryId, fetchIds, cancellationToken)
+            .ConfigureAwait(false);
+        if (!fetchResult.IsSuccess)
+        {
+            return new PathOfExileTradePriceCheckResult
+            {
+                Stage = PathOfExileTradePriceCheckStage.Fetch,
+                SearchQueryId = trimmedQueryId,
+                FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
+                Diagnostics = FetchFailureDiagnostics(fetchResult),
+                IsCancelled = fetchResult.IsCancelled,
+                IsTimeout = fetchResult.IsTimeout,
+            };
+        }
+
+        var fetchDiagnostics = MapHttpDiagnostics(
+                fetchResult.Diagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.FetchDiagnostic,
+                PathOfExileTradePriceCheckStage.Fetch)
+            .Concat(MapQueryDiagnostics(
+                fetchResult.RateLimitDiagnostics,
+                PathOfExileTradePriceCheckDiagnosticCodes.FetchDiagnostic,
+                PathOfExileTradePriceCheckStage.Fetch))
+            .ToArray();
+
+        return new PathOfExileTradePriceCheckResult
+        {
+            IsSuccess = true,
+            Stage = PathOfExileTradePriceCheckStage.Completed,
+            SearchQueryId = trimmedQueryId,
+            FetchedResultIds = fetchIds,
+            Offers = OrderOffers(fetchResult.Response?.Result ?? [], fetchIds),
+            FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
+            Diagnostics = fetchDiagnostics,
         };
     }
 
@@ -870,6 +958,21 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return mapped.Count == 0
             ? [new PathOfExileTradePriceCheckDiagnostic(code, fallbackMessage, stage)]
             : mapped;
+    }
+
+    private static IReadOnlyList<PathOfExileTradeFetchedOffer> OrderOffers(
+        IReadOnlyList<PathOfExileTradeFetchedOffer> offers,
+        IReadOnlyList<string> resultIds)
+    {
+        var offersById = offers
+            .Where(offer => !string.IsNullOrWhiteSpace(offer.Id))
+            .GroupBy(offer => offer.Id.Trim(), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        return resultIds
+            .Distinct(StringComparer.Ordinal)
+            .Where(offersById.ContainsKey)
+            .Select(resultId => offersById[resultId])
+            .ToArray();
     }
 
     private static string? TrimToNull(string? value)

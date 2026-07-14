@@ -43,6 +43,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         PinToggleButton.Unchecked += OnPinStateChanged;
         LeagueTextBox.TextChanged += OnLeagueTextChanged;
         SearchButton.Click += OnSearchButtonClick;
+        LoadMoreButton.Click += OnLoadMoreButtonClick;
         ResetPositionButton.Click += OnResetPositionButtonClick;
         CloseButton.Click += (_, _) => Close();
         KeyDown += OnKeyDown;
@@ -59,6 +60,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     public event EventHandler? PanelInteraction;
 
     public event EventHandler? SearchRequested;
+
+    public event EventHandler? LoadMoreRequested;
 
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
@@ -133,6 +136,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
         LeagueTextBox.IsEnabled = !state.IsLoading;
         SearchButton.IsEnabled = state.CanSearch;
+        LoadMoreButton.IsEnabled = state.CanLoadMore;
+        LoadMoreButton.Visibility = state.CanLoadMore
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
         ModifierCountText.Text = FormatModifierCount(
@@ -288,6 +295,12 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         SearchRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnLoadMoreButtonClick(object sender, RoutedEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        LoadMoreRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnModifierSelectionClick(object sender, RoutedEventArgs e)

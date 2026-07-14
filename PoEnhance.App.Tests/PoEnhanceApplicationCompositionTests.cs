@@ -132,7 +132,7 @@ public sealed class PoEnhanceApplicationCompositionTests
     }
 
     [Fact]
-    public void PriceCheckerSearchFeature_DoesNotIntroduceLoadMoreCacheRetryQueueTimerOrAutoRefresh()
+    public void PriceCheckerSearchFeature_DoesNotIntroduceCacheRetryQueueTimerOrAutoRefresh()
     {
         var searchFeatureTypes = typeof(PriceCheckerSearchController).Assembly
             .GetTypes()
@@ -144,14 +144,12 @@ public sealed class PoEnhanceApplicationCompositionTests
             .ToArray();
 
         Assert.DoesNotContain(searchFeatureTypes, type =>
-            Contains(type, "LoadMore") ||
             Contains(type, "Cache") ||
             Contains(type, "Retry") ||
             Contains(type, "Queue") ||
             Contains(type, "Timer") ||
             Contains(type, "AutomaticRefresh"));
         Assert.DoesNotContain(searchFeatureTypes.SelectMany(ReferencedMemberTypes), type =>
-            Contains(type, "LoadMore") ||
             Contains(type, "Cache") ||
             Contains(type, "Retry") ||
             Contains(type, "Queue") ||

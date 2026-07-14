@@ -19,9 +19,17 @@ internal sealed class PriceCheckerSearchController
     private TradeSearchDraft? currentDraft;
     private TradeSearchValidationResult? currentValidationResult;
     private CancellationTokenSource? activeRequestCancellation;
+    private readonly List<string> paginationResultIds = [];
+    private readonly HashSet<string> fetchedResultIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> displayedOfferIds = new(StringComparer.Ordinal);
+    private readonly List<PriceCheckerOfferViewModel> displayedOffers = [];
+    private string? paginationSearchQueryId;
+    private int? paginationProviderTotal;
+    private bool? paginationInexact;
     private string leagueIdentifier;
     private int generation;
     private bool isLoading;
+    private bool isLoadingMore;
 
     public PriceCheckerSearchController(
         IPathOfExileTradePriceCheckService priceCheckService,
@@ -55,6 +63,7 @@ internal sealed class PriceCheckerSearchController
         window = priceCheckerWindow;
         priceCheckerWindow.Closed += OnWindowClosed;
         priceCheckerWindow.SearchRequested += OnSearchRequested;
+        priceCheckerWindow.LoadMoreRequested += OnLoadMoreRequested;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.LeagueChanged += OnLeagueChanged;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
@@ -68,12 +77,14 @@ internal sealed class PriceCheckerSearchController
         }
 
         priceCheckerWindow.SearchRequested -= OnSearchRequested;
+        priceCheckerWindow.LoadMoreRequested -= OnLoadMoreRequested;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.LeagueChanged -= OnLeagueChanged;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
         generation++;
         CancelActiveRequest();
+        ClearPaginationState();
     }
 
     public void UpdateCurrentDraft(
@@ -85,6 +96,7 @@ internal sealed class PriceCheckerSearchController
 
         generation++;
         CancelActiveRequest();
+        ClearPaginationState();
         currentDraft = ResetModifierSelections(draft);
         currentValidationResult = ReferenceEquals(currentDraft, draft)
             ? validationResult
@@ -97,7 +109,14 @@ internal sealed class PriceCheckerSearchController
     {
         if (isLoading)
         {
-            return;
+            if (!isLoadingMore)
+            {
+                return;
+            }
+
+            generation++;
+            CancelActiveRequest();
+            ClearPaginationState();
         }
 
         var validationState = CreateLocalValidationState();
@@ -119,10 +138,12 @@ internal sealed class PriceCheckerSearchController
         leagueIdentifier = trimmedLeague;
         PersistLeagueIdentifier(trimmedLeague);
 
+        ClearPaginationState();
         var requestGeneration = ++generation;
         using var requestCancellation = new CancellationTokenSource();
         activeRequestCancellation = requestCancellation;
         isLoading = true;
+        isLoadingMore = false;
         ApplyState(new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Loading,
@@ -171,6 +192,7 @@ internal sealed class PriceCheckerSearchController
 
         activeRequestCancellation = null;
         isLoading = false;
+        isLoadingMore = false;
         var effectiveDraft = result.EffectiveDraft;
         if (effectiveDraft is not null)
         {
@@ -180,6 +202,76 @@ internal sealed class PriceCheckerSearchController
         }
 
         ApplyState(MapResult(result, effectiveDraft));
+    }
+
+    public async Task LoadMoreAsync()
+    {
+        if (isLoading || !TryGetNextFetchIds(out var fetchIds))
+        {
+            return;
+        }
+
+        var searchQueryId = paginationSearchQueryId;
+        var requestGeneration = ++generation;
+        using var requestCancellation = new CancellationTokenSource();
+        activeRequestCancellation = requestCancellation;
+        isLoading = true;
+        isLoadingMore = true;
+        ApplyState(CreateLoadedResultsState(
+            "Loading more offers...",
+            canLoadMore: false));
+
+        PathOfExileTradePriceCheckResult result;
+        try
+        {
+            result = await priceCheckService.FetchMoreAsync(
+                searchQueryId,
+                fetchIds,
+                requestCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            result = new PathOfExileTradePriceCheckResult
+            {
+                Stage = PathOfExileTradePriceCheckStage.Fetch,
+                IsCancelled = true,
+            };
+        }
+        catch
+        {
+            result = new PathOfExileTradePriceCheckResult
+            {
+                Stage = PathOfExileTradePriceCheckStage.Fetch,
+                Diagnostics =
+                [
+                    new PathOfExileTradePriceCheckDiagnostic(
+                        PathOfExileTradePriceCheckDiagnosticCodes.FetchFailed,
+                        "Loading more Trade offers failed.",
+                        PathOfExileTradePriceCheckStage.Fetch),
+                ],
+            };
+        }
+
+        if (!IsCurrentRequest(requestGeneration, requestCancellation))
+        {
+            return;
+        }
+
+        activeRequestCancellation = null;
+        isLoading = false;
+        isLoadingMore = false;
+        if (result.IsSuccess)
+        {
+            fetchedResultIds.UnionWith(fetchIds);
+            AppendOffers(result.Offers, fetchIds);
+            ApplyState(CreateLoadedResultsState("Search complete."));
+            return;
+        }
+
+        ApplyState(CreateLoadedResultsState(
+            result.IsCancelled
+                ? "Loading more offers was cancelled."
+                : "Could not load more offers. Try again."));
     }
 
     public void UpdateModifierSelection(
@@ -195,6 +287,7 @@ internal sealed class PriceCheckerSearchController
 
         generation++;
         CancelActiveRequest();
+        ClearPaginationState();
 
         var modifierFilters = currentDraft.ModifierFilters
             .Select((modifier, index) => index == modifierIndex
@@ -214,6 +307,11 @@ internal sealed class PriceCheckerSearchController
     private void OnSearchRequested(object? sender, EventArgs e)
     {
         _ = SearchAsync();
+    }
+
+    private void OnLoadMoreRequested(object? sender, EventArgs e)
+    {
+        _ = LoadMoreAsync();
     }
 
     private void OnModifierSelectionChanged(
@@ -259,6 +357,7 @@ internal sealed class PriceCheckerSearchController
         activeRequestCancellation.Cancel();
         activeRequestCancellation = null;
         isLoading = false;
+        isLoadingMore = false;
     }
 
     private PriceCheckerSearchViewState CreateIdleOrValidationState()
@@ -338,8 +437,8 @@ internal sealed class PriceCheckerSearchController
             };
         }
 
-        var offers = result.Offers.Select(MapOffer).ToArray();
-        if (offers.Length == 0)
+        InitializePaginationState(result);
+        if (displayedOffers.Count == 0 && !HasUnfetchedResultIds())
         {
             return new PriceCheckerSearchViewState
             {
@@ -357,16 +456,123 @@ internal sealed class PriceCheckerSearchController
             Status = PriceCheckerSearchViewStatus.Success,
             LeagueIdentifier = leagueIdentifier,
             CanSearch = CanStartSearch(),
+            CanLoadMore = HasUnfetchedResultIds(),
             Message = "Search complete.",
-            Summary = CreateSuccessSummary(offers.Length, result.ProviderTotal, result.Inexact),
+            Summary = CreateSuccessSummary(
+                displayedOffers.Count,
+                result.ProviderTotal,
+                result.Inexact),
             Modifiers = CreateModifierRows(effectiveDraft),
-            Offers = offers,
+            Offers = displayedOffers.ToArray(),
+        };
+    }
+
+    private PriceCheckerSearchViewState CreateLoadedResultsState(
+        string message,
+        bool? canLoadMore = null)
+    {
+        return new PriceCheckerSearchViewState
+        {
+            Status = isLoading ? PriceCheckerSearchViewStatus.Loading : PriceCheckerSearchViewStatus.Success,
+            LeagueIdentifier = leagueIdentifier,
+            CanSearch = !isLoading && CanStartSearch(),
+            CanLoadMore = canLoadMore ?? (!isLoading && HasUnfetchedResultIds()),
+            Message = message,
+            Summary = CreateSuccessSummary(
+                displayedOffers.Count,
+                paginationProviderTotal,
+                paginationInexact),
+            Modifiers = CreateModifierRows(),
+            Offers = displayedOffers.ToArray(),
         };
     }
 
     private bool CanStartSearch()
     {
         return !isLoading && CreateLocalValidationState() is null;
+    }
+
+    private void InitializePaginationState(PathOfExileTradePriceCheckResult result)
+    {
+        ClearPaginationState();
+        paginationSearchQueryId = TrimToNull(result.SearchQueryId);
+        paginationResultIds.AddRange(result.ResultIds
+            .Select(TrimToNull)
+            .Where(resultId => resultId is not null)
+            .Select(resultId => resultId!));
+        fetchedResultIds.UnionWith(result.FetchedResultIds
+            .Select(TrimToNull)
+            .Where(resultId => resultId is not null)
+            .Select(resultId => resultId!));
+        paginationProviderTotal = result.ProviderTotal;
+        paginationInexact = result.Inexact;
+
+        var initialOfferIds = result.FetchedResultIds.Count > 0
+            ? result.FetchedResultIds
+            : result.Offers.Select(offer => offer.Id).ToArray();
+        AppendOffers(result.Offers, initialOfferIds);
+    }
+
+    private void ClearPaginationState()
+    {
+        paginationSearchQueryId = null;
+        paginationResultIds.Clear();
+        fetchedResultIds.Clear();
+        displayedOfferIds.Clear();
+        displayedOffers.Clear();
+        paginationProviderTotal = null;
+        paginationInexact = null;
+    }
+
+    private bool HasUnfetchedResultIds()
+    {
+        return !string.IsNullOrWhiteSpace(paginationSearchQueryId) &&
+            paginationResultIds.Any(resultId => !fetchedResultIds.Contains(resultId));
+    }
+
+    private bool TryGetNextFetchIds(out IReadOnlyList<string> fetchIds)
+    {
+        fetchIds = [];
+        if (!HasUnfetchedResultIds())
+        {
+            return false;
+        }
+
+        var included = new HashSet<string>(fetchedResultIds, StringComparer.Ordinal);
+        var nextIds = new List<string>();
+        foreach (var resultId in paginationResultIds)
+        {
+            if (!included.Add(resultId))
+            {
+                continue;
+            }
+
+            nextIds.Add(resultId);
+            if (nextIds.Count == PathOfExileTradeEndpointBuilder.MaximumFetchResultIds)
+            {
+                break;
+            }
+        }
+
+        fetchIds = nextIds;
+        return nextIds.Count > 0;
+    }
+
+    private void AppendOffers(
+        IReadOnlyList<PathOfExileTradeFetchedOffer> offers,
+        IReadOnlyList<string> resultIds)
+    {
+        var offersById = offers
+            .Where(offer => !string.IsNullOrWhiteSpace(offer.Id))
+            .GroupBy(offer => offer.Id.Trim(), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        foreach (var resultId in resultIds.Distinct(StringComparer.Ordinal))
+        {
+            if (offersById.TryGetValue(resultId, out var offer) && displayedOfferIds.Add(resultId))
+            {
+                displayedOffers.Add(MapOffer(offer));
+            }
+        }
     }
 
     private static string CreateSuccessSummary(

@@ -315,6 +315,13 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+
+                        <Button x:Name="LoadMoreButton"
+                                MinWidth="88"
+                                Margin="0,8,0,0"
+                                HorizontalAlignment="Left"
+                                Content="Load More"
+                                Visibility="Collapsed" />
                     </StackPanel>
                 </Grid>
             </ScrollViewer>
