@@ -22,6 +22,8 @@ internal interface IPriceCheckerWindow
 
     event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
+    event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
+
     event EventHandler? BaseCriterionToggleRequested;
 
     event EventHandler<bool>? PinStateChanged;

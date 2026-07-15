@@ -644,6 +644,8 @@ Adds 14(11-15) to 25(23-26) Cold Damage
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
+        public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;

@@ -399,6 +399,8 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
+        public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;

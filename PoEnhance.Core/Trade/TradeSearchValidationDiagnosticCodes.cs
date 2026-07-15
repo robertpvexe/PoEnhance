@@ -14,6 +14,9 @@ public static class TradeSearchValidationDiagnosticCodes
 
     public const string SelectedModifierUnresolved = "TRADE_VALIDATION_SELECTED_MODIFIER_UNRESOLVED";
 
+    public const string SelectedModifierVariantUnresolved =
+        "TRADE_VALIDATION_SELECTED_MODIFIER_VARIANT_UNRESOLVED";
+
     public const string SelectedModifierRepresentedByExactBase =
         "TRADE_VALIDATION_SELECTED_MODIFIER_REPRESENTED_BY_EXACT_BASE";
 

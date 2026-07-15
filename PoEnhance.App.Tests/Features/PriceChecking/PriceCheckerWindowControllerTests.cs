@@ -1390,6 +1390,12 @@ Item Level: 80
             remove { }
         }
 
+        public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;

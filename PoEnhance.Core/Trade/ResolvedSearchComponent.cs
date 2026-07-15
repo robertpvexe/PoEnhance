@@ -64,6 +64,10 @@ public sealed record ResolvedSearchComponent
 
     public ModifierBoundDirection DefaultBoundDirection { get; init; } = ModifierBoundDirection.Minimum;
 
+    public IReadOnlyList<SearchFilterVariant> FilterVariants { get; init; } = [];
+
+    public string? SelectedFilterVariantIdentity { get; init; }
+
     public bool IsSelected { get; init; }
 
     public SearchComponentProviderResolutionStatus ProviderResolutionStatus { get; init; } =

@@ -1,4 +1,6 @@
 using PoEnhance.App.Features.PriceChecking;
+using System.Runtime.ExceptionServices;
+using System.Windows.Controls;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
@@ -181,6 +183,7 @@ Item Level: 82
         Assert.DoesNotContain("ModifierTextButtonStyle", xaml);
         Assert.Contains("Text=\"Min\"", xaml);
         Assert.Contains("Text=\"Max\"", xaml);
+        Assert.Contains("Text=\"Mod Type\"", xaml);
         Assert.Contains("IsEnabled=\"{Binding CanEditBounds}\"", modifiers);
         Assert.Contains("Text=\"{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
         Assert.Contains("Text=\"{Binding MaximumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
@@ -216,18 +219,153 @@ Item Level: 82
         var header = ExtractElement(xaml, "<Grid Grid.Row=\"2\"", "</Grid>");
         var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
         var row = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
+        var minimum = ExtractElement(modifiers, "<TextBox Grid.Column=\"3\"", "/>");
+        var maximum = ExtractElement(modifiers, "<TextBox Grid.Column=\"4\"", "/>");
 
         Assert.Equal(2, header.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, header.Split("<ColumnDefinition Width=\"92\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("Margin=\"0,10,6,4\"", header);
         Assert.Equal(2, row.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, row.Split("<ColumnDefinition Width=\"92\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("<ColumnDefinition Width=\"*\"", header);
         Assert.Contains("<ColumnDefinition Width=\"*\"", row);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", row);
         Assert.Contains("Grid.Column=\"2\"", row);
-        Assert.Contains("Margin=\"3,0\"", row);
-        Assert.Contains("Grid.Column=\"3\"", row);
-        Assert.Equal(2, row.Split("Margin=\"3,0\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("Grid.Column=\"3\"", modifiers);
+        Assert.Contains("Grid.Column=\"4\"", modifiers);
+        Assert.Contains("Margin=\"3,0\"", minimum);
+        Assert.Contains("Margin=\"3,0\"", maximum);
         Assert.DoesNotContain("MinWidth=\"64\"", row);
+    }
+
+    [Fact]
+    public void WindowXaml_UsesCompactFilterSelectorAndReadOnlySingleOptionLabel()
+    {
+        var xaml = LoadWindowXaml();
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var style = ExtractElement(xaml, "<Style x:Key=\"ModifierFilterComboBoxStyle\"", "</Style>");
+
+        Assert.Contains("Height", style);
+        Assert.Contains("Value=\"24\"", style);
+        Assert.Contains("HasMultipleFilterVariants", style);
+        Assert.Contains("IsEnabled=\"{Binding CanSelectFilterVariant}\"", modifiers);
+        Assert.Contains("ItemsSource=\"{Binding FilterVariants}\"", modifiers);
+        Assert.Contains("SelectedItem=\"{Binding SelectedFilterVariant, Mode=OneWay}\"", modifiers);
+        Assert.Contains("DropDownClosed=\"OnModifierFilterVariantDropDownClosed\"", modifiers);
+        Assert.DoesNotContain("SelectionChanged=", modifiers);
+        Assert.Contains("HasSingleFilterVariant", modifiers);
+        Assert.Contains("Text=\"{Binding SelectedFilterVariant.Label}\"", modifiers);
+        Assert.Contains("ToolTip=\"{Binding SelectedFilterVariant.Description}\"", modifiers);
+        Assert.Contains("Text=\"{Binding Label}\"", modifiers);
+        Assert.Contains("ToolTip=\"{Binding Description}\"", modifiers);
+        Assert.DoesNotContain("Text=\"{Binding Description}\"", modifiers);
+        Assert.DoesNotContain("StatId", modifiers, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProviderStat", modifiers, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WindowXaml_ModTypeSelectorUsesDarkTemplatePopupOptionsAndScrollbar()
+    {
+        var xaml = LoadWindowXaml();
+        var selector = ExtractElement(xaml, "<Style x:Key=\"ModifierFilterComboBoxStyle\"", "</Style>");
+        var option = ExtractElement(xaml, "<Style x:Key=\"ModifierFilterComboBoxItemStyle\"", "</Style>");
+        var scrollbar = ExtractElement(xaml, "<Style x:Key=\"ModifierFilterScrollBarStyle\"", "</Style>");
+
+        Assert.Contains("Background", selector);
+        Assert.Contains("#191919", selector);
+        Assert.Contains("BorderBrush", selector);
+        Assert.Contains("CornerRadius=\"3\"", selector);
+        Assert.Contains("PART_Popup", selector);
+        Assert.Contains("PopupAnimation=\"Fade\"", selector);
+        Assert.Contains("ModifierFilterComboBoxItemStyle", selector);
+        Assert.Contains("ModifierFilterScrollBarStyle", selector);
+        Assert.Contains("#303A31", option);
+        Assert.Contains("#3B503D", option);
+        Assert.Contains("IsHighlighted", option);
+        Assert.Contains("IsSelected", option);
+        Assert.Contains("#151515", scrollbar);
+        Assert.Contains("#505050", scrollbar);
+        Assert.DoesNotContain("White", selector, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ModifierRowClickDecision_RejectsRealWpfInteractiveDescendants()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var row = new ListBoxItem();
+                var surface = new Grid();
+                row.Content = surface;
+
+                var comboBox = new ComboBox();
+                var comboOptionContent = new TextBlock { Text = "Implicit" };
+                comboBox.Items.Add(new ComboBoxItem { Content = comboOptionContent });
+                surface.Children.Add(comboBox);
+
+                var textBox = new TextBox();
+                surface.Children.Add(textBox);
+
+                var buttonContent = new Border();
+                surface.Children.Add(new Button { Content = buttonContent });
+
+                var plainSurface = new TextBlock { Text = "Modifier text" };
+                surface.Children.Add(plainSurface);
+
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboBox));
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboOptionContent));
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(textBox));
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(buttonContent));
+                Assert.True(PriceCheckerWindow.ShouldToggleModifierRowFrom(plainSurface));
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    [Fact]
+    public void ModifierFilterVariantState_OnlyEnablesDropdownForSelectedRowsWithMultipleOptions()
+    {
+        var option = new PriceCheckerModifierFilterVariantViewModel
+        {
+            Identity = "variant-opaque",
+            Label = "Explicit",
+            Description = "#% increased Attack Speed (Local)",
+            SupportsValueBounds = true,
+        };
+        var single = new PriceCheckerModifierViewModel
+        {
+            SourceIndex = 0,
+            Text = "20% increased Attack Speed",
+            FilterVariants = [option],
+            SelectedFilterVariant = option,
+            IsSelected = true,
+        };
+        var unselectedMultiple = single with
+        {
+            IsSelected = false,
+            FilterVariants = [option, option with { Identity = "variant-other", Label = "Crafted" }],
+        };
+        var selectedMultiple = unselectedMultiple with { IsSelected = true };
+
+        Assert.True(single.HasSingleFilterVariant);
+        Assert.False(single.HasMultipleFilterVariants);
+        Assert.False(single.CanSelectFilterVariant);
+        Assert.True(unselectedMultiple.HasMultipleFilterVariants);
+        Assert.False(unselectedMultiple.CanSelectFilterVariant);
+        Assert.True(selectedMultiple.CanSelectFilterVariant);
     }
 
     [Fact]

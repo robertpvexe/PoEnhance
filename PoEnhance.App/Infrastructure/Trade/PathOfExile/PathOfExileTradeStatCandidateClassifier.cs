@@ -76,6 +76,11 @@ internal static class PathOfExileTradeStatCandidateClassifier
             return "implicit";
         }
 
+        if (Contains(metadata, "enchant"))
+        {
+            return "enchant";
+        }
+
         if (Contains(metadata, "explicit"))
         {
             return "explicit";

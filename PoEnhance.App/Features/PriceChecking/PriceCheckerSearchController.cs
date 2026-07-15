@@ -79,6 +79,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.OfferCapacityChanged += OnOfferCapacityChanged;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged += OnModifierBoundsChanged;
+        priceCheckerWindow.ModifierFilterVariantChanged += OnModifierFilterVariantChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
@@ -96,6 +97,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.OfferCapacityChanged -= OnOfferCapacityChanged;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged -= OnModifierBoundsChanged;
+        priceCheckerWindow.ModifierFilterVariantChanged -= OnModifierFilterVariantChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
@@ -418,6 +420,72 @@ internal sealed class PriceCheckerSearchController
         ApplyState(CreateBoundChangeInvalidatedState());
     }
 
+    public void UpdateModifierFilterVariant(int modifierIndex, string? variantIdentity)
+    {
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count ||
+            string.IsNullOrWhiteSpace(variantIdentity))
+        {
+            return;
+        }
+
+        var component = currentDraft.ModifierFilters[modifierIndex];
+        var selectedIdentity = variantIdentity.Trim();
+        if (!component.IsSelected ||
+            string.Equals(component.SelectedFilterVariantIdentity, selectedIdentity, StringComparison.Ordinal) ||
+            !component.FilterVariants.Any(option => string.Equals(
+                option.Identity,
+                selectedIdentity,
+                StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        var pendingDraft = currentDraft with
+        {
+            ModifierFilters = currentDraft.ModifierFilters
+                .Select((modifier, index) => index == modifierIndex
+                    ? modifier with
+                    {
+                        SelectedFilterVariantIdentity = selectedIdentity,
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                        ProviderStatId = null,
+                        ProviderStatText = null,
+                        ProviderCandidateStatIds = [],
+                        ProviderDiagnosticCode = null,
+                    }
+                    : modifier)
+                .ToArray(),
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(pendingDraft);
+        var resolved = currentDraft.ModifierFilters[modifierIndex];
+        if (resolved.SupportsValueBounds &&
+            modifierBoundInputs.TryGetValue(modifierIndex, out var input))
+        {
+            var minimum = ParseBound(input.MinimumText);
+            var maximum = ParseBound(input.MaximumText);
+            resolved = resolved with
+            {
+                RequestedMinimum = minimum.IsValid ? minimum.Value : resolved.RequestedMinimum,
+                RequestedMaximum = maximum.IsValid ? maximum.Value : resolved.RequestedMaximum,
+            };
+            currentDraft = currentDraft with
+            {
+                ModifierFilters = currentDraft.ModifierFilters
+                    .Select((modifier, index) => index == modifierIndex ? resolved : modifier)
+                    .ToArray(),
+            };
+        }
+
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
     public void ToggleBaseCriterion()
     {
         if (currentDraft?.Base is not { } baseDraft)
@@ -515,6 +583,13 @@ internal sealed class PriceCheckerSearchController
     private void OnModifierBoundsChanged(object? sender, PriceCheckerModifierBoundsChangedEventArgs e)
     {
         UpdateModifierBounds(e.ModifierIndex, e.MinimumText, e.MaximumText);
+    }
+
+    private void OnModifierFilterVariantChanged(
+        object? sender,
+        PriceCheckerModifierFilterVariantChangedEventArgs e)
+    {
+        UpdateModifierFilterVariant(e.ModifierIndex, e.VariantIdentity);
     }
 
     private void OnBaseCriterionToggleRequested(object? sender, EventArgs e)
@@ -942,16 +1017,33 @@ internal sealed class PriceCheckerSearchController
         }
 
         return draft.ModifierFilters
-            .Select((modifier, index) => new PriceCheckerModifierViewModel
+            .Select((modifier, index) =>
             {
-                SourceIndex = index,
-                Text = SafeModifierText(modifier.OriginalText),
-                SectionLabel = SectionLabel(modifier),
-                IsSelected = modifier.IsSelected,
-                SupportsValueBounds = modifier.SupportsValueBounds,
-                ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
-                MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
-                MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
+                var variants = modifier.FilterVariants
+                    .Select(option => new PriceCheckerModifierFilterVariantViewModel
+                    {
+                        Identity = option.Identity,
+                        Label = option.Label,
+                        Description = option.Description,
+                        SupportsValueBounds = option.SupportsValueBounds,
+                    })
+                    .ToArray();
+                return new PriceCheckerModifierViewModel
+                {
+                    SourceIndex = index,
+                    Text = SafeModifierText(modifier.OriginalText),
+                    SectionLabel = SectionLabel(modifier),
+                    IsSelected = modifier.IsSelected,
+                    SupportsValueBounds = modifier.SupportsValueBounds,
+                    ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
+                    FilterVariants = variants,
+                    SelectedFilterVariant = variants.FirstOrDefault(option => string.Equals(
+                        option.Identity,
+                        modifier.SelectedFilterVariantIdentity,
+                        StringComparison.Ordinal)),
+                    MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
+                    MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
+                };
             })
             .ToArray();
     }

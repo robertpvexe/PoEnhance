@@ -539,6 +539,27 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         ResolvedSearchComponent component,
         PathOfExileTradeStatCatalog catalog)
     {
+        if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry))
+        {
+            return PathOfExileTradeModifierVariantResolver.Apply(
+                component,
+                catalog,
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry));
+        }
+
+        if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(component.SelectedFilterVariantIdentity))
+        {
+            component = component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderDiagnosticCode = null,
+            };
+        }
+
         if (component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.NotResolved)
         {
             return component;
@@ -607,7 +628,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
         };
         return providerStatus == SearchComponentProviderResolutionStatus.Exact
-            ? PathOfExileTradeModifierBoundProjector.Project(resolved, match.ExactCandidate)
+            ? PathOfExileTradeModifierVariantResolver.Apply(
+                resolved,
+                catalog,
+                match.ExactCandidate!)
             : resolved;
     }
 

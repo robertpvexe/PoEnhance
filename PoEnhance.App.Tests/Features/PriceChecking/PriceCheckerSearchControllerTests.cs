@@ -142,6 +142,197 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task ModifierFilterVariant_ChangeInvalidatesSearchWithoutAutomaticSearchOrFetch()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer("id-1")],
+            total: 2,
+            resultIds: ["id-1", "id-2"],
+            fetchedResultIds: ["id-1"]);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-explicit");
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        var selectedRow = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(selectedRow.IsSelected);
+        Assert.Equal("Explicit", selectedRow.SelectedFilterVariant?.Label);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+        Assert.Equal(
+            "variant-explicit",
+            Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).SelectedFilterVariantIdentity);
+    }
+
+    [Fact]
+    public void ModifierFilterVariant_DeselectionAndReselectionRetainTheChosenType()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-implicit");
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(row.IsSelected);
+        Assert.Equal("Implicit", row.SelectedFilterVariant?.Label);
+        Assert.Equal(
+            "variant-implicit",
+            Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).SelectedFilterVariantIdentity);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierFilterVariant_UnavailableChosenIdentityBlocksSearchLocally()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
+        {
+            ModifierFilters = draft.ModifierFilters.Select(modifier =>
+                modifier.SelectedFilterVariantIdentity == "variant-implicit"
+                    ? modifier with
+                    {
+                        FilterVariants = modifier.FilterVariants
+                            .Where(option => option.Identity != "variant-implicit")
+                            .ToArray(),
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+                        ProviderStatId = null,
+                    }
+                    : modifier).ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-implicit");
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Contains(
+            fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics,
+            diagnostic => diagnostic.Code ==
+                TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved);
+        Assert.Equal(
+            "variant-implicit",
+            Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).SelectedFilterVariantIdentity);
+    }
+
+    [Theory]
+    [InlineData("variant-explicit")]
+    [InlineData("variant-implicit")]
+    [InlineData("variant-crafted")]
+    [InlineData("variant-fractured")]
+    [InlineData("variant-pseudo")]
+    public async Task ModifierFilterVariant_SearchReceivesExactlyTheChosenOpaqueIdentity(
+        string chosenIdentity)
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, chosenIdentity);
+
+        await fixture.Controller.SearchAsync();
+
+        var searched = Assert.Single(Assert.Single(fixture.PriceCheckService.Calls).Draft?.ModifierFilters ?? []);
+        Assert.True(searched.IsSelected);
+        Assert.Equal(chosenIdentity, searched.SelectedFilterVariantIdentity);
+        Assert.Single(searched.FilterVariants, option => option.Identity == chosenIdentity);
+    }
+
+    [Fact]
+    public void ModifierFilterVariant_IncompatibleBoundsRetainTextAndRestoreItWhenSwitchingBack()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
+        {
+            ModifierFilters = draft.ModifierFilters.Select(modifier =>
+                modifier.SelectedFilterVariantIdentity == "variant-presence"
+                    ? modifier with
+                    {
+                        SupportsValueBounds = false,
+                        RequestedMinimum = null,
+                        RequestedMaximum = null,
+                        ValueBoundsUnsupportedReason = "Presence-only filter.",
+                    }
+                    : modifier with
+                    {
+                        SupportsValueBounds = true,
+                        ValueBoundsUnsupportedReason = null,
+                    }).ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier(includePresence: true)]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(0, "20.125", "27.875");
+        Assert.Equal(
+            "variant-crafted",
+            Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).SelectedFilterVariantIdentity);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-presence");
+
+        var presence = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(presence.CanEditBounds);
+        Assert.Equal("20.125", presence.MinimumText);
+        Assert.Equal("27.875", presence.MaximumText);
+        Assert.Null(Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).RequestedMinimum);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-crafted");
+
+        var restored = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(restored.CanEditBounds);
+        Assert.Equal("20.125", restored.MinimumText);
+        Assert.Equal("27.875", restored.MaximumText);
+        var resolved = Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []);
+        Assert.Equal(20.125m, resolved.RequestedMinimum);
+        Assert.Equal(27.875m, resolved.RequestedMaximum);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierFilterVariant_ChangePreventsStaleSearchCompletionFromRestoringResults()
+    {
+        var fixture = SearchFixture.Create();
+        var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.Handler = _ => completion.Task;
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [VariantModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var activeSearch = fixture.Controller.SearchAsync();
+        await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 1);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-pseudo");
+        completion.SetResult(SuccessResult([Offer("stale")], total: 1));
+        await activeSearch;
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.True(fixture.PriceCheckService.Calls[0].CancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task SearchAsync_CallsServiceOnceWithCurrentDraftValidationAndMirage()
     {
         var fixture = SearchFixture.Create();
@@ -1532,6 +1723,68 @@ public sealed class PriceCheckerSearchControllerTests
         };
     }
 
+    private static ResolvedSearchComponent VariantModifier(bool includePresence = false)
+    {
+        var variants = new List<SearchFilterVariant>
+        {
+            new()
+            {
+                Identity = "variant-explicit",
+                Label = "Explicit",
+                Description = "#% increased Attack Speed (Local)",
+                SupportsValueBounds = true,
+            },
+            new()
+            {
+                Identity = "variant-crafted",
+                Label = "Crafted",
+                Description = "#% increased Attack Speed (Local)",
+                SupportsValueBounds = true,
+            },
+            new()
+            {
+                Identity = "variant-pseudo",
+                Label = "Pseudo",
+                Description = "#% increased total Attack Speed",
+                SupportsValueBounds = true,
+            },
+            new()
+            {
+                Identity = "variant-implicit",
+                Label = "Implicit",
+                Description = "#% increased Attack Speed (Local)",
+                SupportsValueBounds = true,
+            },
+            new()
+            {
+                Identity = "variant-fractured",
+                Label = "Fractured",
+                Description = "#% increased Attack Speed (Local)",
+                SupportsValueBounds = true,
+            },
+        };
+        if (includePresence)
+        {
+            variants.Add(new SearchFilterVariant
+            {
+                Identity = "variant-presence",
+                Label = "Implicit",
+                Description = "increased Attack Speed (Local)",
+                SupportsValueBounds = false,
+                ValueBoundsUnsupportedReason = "Presence-only filter.",
+            });
+        }
+
+        return Modifier(
+            "20% increased Attack Speed",
+            supportsValueBounds: true,
+            minimum: 20m) with
+        {
+            FilterVariants = variants,
+            SelectedFilterVariantIdentity = "variant-crafted",
+        };
+    }
+
     private static TradeSearchValidationResult ValidationSuccess()
     {
         return TradeSearchValidationResult.FromDiagnostics([]);
@@ -1841,6 +2094,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
+        public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -1957,6 +2212,13 @@ public sealed class PriceCheckerSearchControllerTests
             ModifierBoundsChanged?.Invoke(
                 this,
                 new PriceCheckerModifierBoundsChangedEventArgs(modifierIndex, minimumText, maximumText));
+        }
+
+        public void RaiseModifierFilterVariantChanged(int modifierIndex, string variantIdentity)
+        {
+            ModifierFilterVariantChanged?.Invoke(
+                this,
+                new PriceCheckerModifierFilterVariantChangedEventArgs(modifierIndex, variantIdentity));
         }
 
         public void RaiseBaseCriterionToggleRequested()

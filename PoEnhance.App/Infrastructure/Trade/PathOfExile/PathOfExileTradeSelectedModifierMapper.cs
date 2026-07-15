@@ -171,6 +171,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             SearchComponentProviderResolutionStatus.Ambiguous =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
             SearchComponentProviderResolutionStatus.NotFound
+                when modifier.ProviderDiagnosticCode ==
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable =>
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            SearchComponentProviderResolutionStatus.NotFound
                 when modifier.ProviderDiagnosticCode == PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
             SearchComponentProviderResolutionStatus.NotFound =>
@@ -202,6 +206,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 $"Selected modifier is not available in Trade search: {safeModifierText}",
             PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance =>
                 $"Selected modifier has no exact GameData Trade provenance: {safeModifierText}",
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable =>
+                $"Selected modifier type is unavailable in the Trade stat catalog: {safeModifierText}",
             _ => $"Selected modifier cannot be mapped to Trade search: {safeModifierText}",
         };
     }

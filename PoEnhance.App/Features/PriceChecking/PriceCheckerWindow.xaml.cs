@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using PoEnhance.Core.Trade;
@@ -74,6 +75,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
     public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
+
+    public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
     public event EventHandler? BaseCriterionToggleRequested;
 
@@ -395,9 +398,32 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 modifier.MaximumText));
     }
 
+    private void OnModifierFilterVariantDropDownClosed(object sender, EventArgs e)
+    {
+        if (sender is not ComboBox
+            {
+                DataContext: PriceCheckerModifierViewModel modifier,
+                SelectedItem: PriceCheckerModifierFilterVariantViewModel selected,
+            } ||
+            string.Equals(
+                modifier.SelectedFilterVariant?.Identity,
+                selected.Identity,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ModifierFilterVariantChanged?.Invoke(
+            this,
+            new PriceCheckerModifierFilterVariantChangedEventArgs(
+                modifier.SourceIndex,
+                selected.Identity));
+    }
+
     private void OnModifierRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (HasModifierInteractiveChild(e.OriginalSource as DependencyObject) ||
+        if (!ShouldToggleModifierRowFrom(e.OriginalSource as DependencyObject) ||
             sender is not ListBoxItem { DataContext: PriceCheckerModifierViewModel modifier })
         {
             return;
@@ -427,19 +453,49 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
-    private static bool HasModifierInteractiveChild(DependencyObject? source)
+    internal static bool ShouldToggleModifierRowFrom(DependencyObject? source)
     {
         while (source is not null)
         {
-            if (source is ButtonBase or TextBox)
+            if (source is ComboBoxItem)
+            {
+                return false;
+            }
+
+            if (source is ListBoxItem)
             {
                 return true;
             }
 
-            source = VisualTreeHelper.GetParent(source);
+            if (source is ButtonBase or TextBoxBase or Selector)
+            {
+                return false;
+            }
+
+            source = InteractiveParent(source);
         }
 
-        return false;
+        return true;
+    }
+
+    private static DependencyObject? InteractiveParent(DependencyObject source)
+    {
+        if (source is Visual or Visual3D)
+        {
+            return VisualTreeHelper.GetParent(source) ?? LogicalTreeHelper.GetParent(source);
+        }
+
+        if (source is FrameworkContentElement frameworkContent)
+        {
+            return frameworkContent.Parent ?? frameworkContent.TemplatedParent;
+        }
+
+        if (source is ContentElement content)
+        {
+            return ContentOperations.GetParent(content);
+        }
+
+        return LogicalTreeHelper.GetParent(source);
     }
 
     internal static string FormatActiveCriterion(

@@ -231,6 +231,218 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="ModifierFilterScrollBarStyle"
+               TargetType="{x:Type ScrollBar}">
+            <Setter Property="Width"
+                    Value="8" />
+            <Setter Property="Background"
+                    Value="#151515" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid Width="8"
+                              Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="True"
+                                   Maximum="{TemplateBinding Maximum}"
+                                   Minimum="{TemplateBinding Minimum}"
+                                   Orientation="Vertical"
+                                   Value="{TemplateBinding Value}"
+                                   ViewportSize="{TemplateBinding ViewportSize}">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                                  Focusable="False"
+                                                  Opacity="0" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Background="#505050">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Border Margin="1"
+                                                        Background="{TemplateBinding Background}"
+                                                        CornerRadius="3" />
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                                  Focusable="False"
+                                                  Opacity="0" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ModifierFilterComboBoxItemStyle"
+               TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Padding"
+                    Value="7,4" />
+            <Setter Property="Background"
+                    Value="Transparent" />
+            <Setter Property="Foreground"
+                    Value="#E8E8E8" />
+            <Setter Property="HorizontalContentAlignment"
+                    Value="Stretch" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+                        <Border x:Name="OptionBackground"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="2">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted"
+                                     Value="True">
+                                <Setter TargetName="OptionBackground"
+                                        Property="Background"
+                                        Value="#303A31" />
+                            </Trigger>
+                            <Trigger Property="IsSelected"
+                                     Value="True">
+                                <Setter TargetName="OptionBackground"
+                                        Property="Background"
+                                        Value="#3B503D" />
+                                <Setter Property="Foreground"
+                                        Value="#FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+                                <Setter Property="Foreground"
+                                        Value="#707070" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ModifierFilterComboBoxStyle"
+               TargetType="{x:Type ComboBox}">
+            <Setter Property="Height"
+                    Value="24" />
+            <Setter Property="Margin"
+                    Value="3,0" />
+            <Setter Property="VerticalAlignment"
+                    Value="Center" />
+            <Setter Property="Background"
+                    Value="#191919" />
+            <Setter Property="BorderBrush"
+                    Value="#454545" />
+            <Setter Property="BorderThickness"
+                    Value="0.75" />
+            <Setter Property="Foreground"
+                    Value="#EEEEEE" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="ItemContainerStyle"
+                    Value="{StaticResource ModifierFilterComboBoxItemStyle}" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility"
+                    Value="Auto" />
+            <Setter Property="Visibility"
+                    Value="Collapsed" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBox}">
+                        <Grid SnapsToDevicePixels="True">
+                            <Border x:Name="SelectorBorder"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="3">
+                                <Grid>
+                                    <ContentPresenter Margin="6,0,19,0"
+                                                      HorizontalAlignment="Left"
+                                                      VerticalAlignment="Center"
+                                                      Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      IsHitTestVisible="False" />
+                                    <Path Width="7"
+                                          Height="4"
+                                          Margin="0,0,7,0"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Data="M 0,0 L 3.5,4 L 7,0 Z"
+                                          Fill="#AFAFAF"
+                                          IsHitTestVisible="False" />
+                                </Grid>
+                            </Border>
+                            <ToggleButton Background="Transparent"
+                                          BorderThickness="0"
+                                          ClickMode="Press"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                        <Border Background="Transparent" />
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   PopupAnimation="Fade">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        Margin="0,2,0,0"
+                                        Background="#191919"
+                                        BorderBrush="#4A4A4A"
+                                        BorderThickness="1"
+                                        CornerRadius="3">
+                                    <ScrollViewer MaxHeight="220"
+                                                  Background="#191919"
+                                                  CanContentScroll="True"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  SnapsToDevicePixels="True"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <ScrollViewer.Resources>
+                                            <Style TargetType="{x:Type ScrollBar}"
+                                                   BasedOn="{StaticResource ModifierFilterScrollBarStyle}" />
+                                        </ScrollViewer.Resources>
+                                        <StackPanel IsItemsHost="True" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="SelectorBorder"
+                                        Property="BorderBrush"
+                                        Value="#626262" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin"
+                                     Value="True">
+                                <Setter TargetName="SelectorBorder"
+                                        Property="BorderBrush"
+                                        Value="#D0B66B" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+                                <Setter TargetName="SelectorBorder"
+                                        Property="Background"
+                                        Value="#141414" />
+                                <Setter Property="Foreground"
+                                        Value="#707070" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding HasMultipleFilterVariants}"
+                             Value="True">
+                    <Setter Property="Visibility"
+                            Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="ModifierRowStyle"
                TargetType="{x:Type ListBoxItem}">
             <Setter Property="Padding"
@@ -487,6 +699,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="92" />
                         <ColumnDefinition Width="78" />
                         <ColumnDefinition Width="78" />
                     </Grid.ColumnDefinitions>
@@ -500,8 +713,12 @@
                     <TextBlock Grid.Column="2"
                                HorizontalAlignment="Center"
                                Foreground="#AFAFAF"
-                               Text="Min" />
+                               Text="Mod Type" />
                     <TextBlock Grid.Column="3"
+                               HorizontalAlignment="Center"
+                               Foreground="#AFAFAF"
+                               Text="Min" />
+                    <TextBlock Grid.Column="4"
                                HorizontalAlignment="Center"
                                Foreground="#AFAFAF"
                                Text="Max" />
@@ -521,6 +738,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="92" />
                                     <ColumnDefinition Width="78" />
                                     <ColumnDefinition Width="78" />
                                 </Grid.ColumnDefinitions>
@@ -542,7 +760,49 @@
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="NoWrap" />
                                 </StackPanel>
-                                <TextBox Grid.Column="2"
+                                <Grid Grid.Column="2">
+                                    <Border Height="24"
+                                            Margin="3,0"
+                                            Background="#191919"
+                                            BorderBrush="#454545"
+                                            BorderThickness="0.75"
+                                            CornerRadius="3"
+                                            ToolTip="{Binding SelectedFilterVariant.Description}">
+                                        <Border.Style>
+                                            <Style TargetType="{x:Type Border}">
+                                                <Setter Property="Visibility"
+                                                        Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasSingleFilterVariant}"
+                                                                Value="True">
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#CFCFCF"
+                                                   Text="{Binding SelectedFilterVariant.Label}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Border>
+                                    <ComboBox IsEnabled="{Binding CanSelectFilterVariant}"
+                                              ItemsSource="{Binding FilterVariants}"
+                                              SelectedItem="{Binding SelectedFilterVariant, Mode=OneWay}"
+                                              DropDownClosed="OnModifierFilterVariantDropDownClosed"
+                                              Style="{StaticResource ModifierFilterComboBoxStyle}"
+                                              ToolTip="{Binding SelectedFilterVariant.Description}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock FontWeight="SemiBold"
+                                                           Text="{Binding Label}"
+                                                           ToolTip="{Binding Description}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                                <TextBox Grid.Column="3"
                                          Margin="3,0"
                                          IsEnabled="{Binding CanEditBounds}"
                                          IsTabStop="{Binding CanEditBounds}"
@@ -551,7 +811,7 @@
                                          Text="{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}"
                                          TextChanged="OnModifierBoundTextChanged"
                                          ToolTip="Minimum Trade stat value" />
-                                <TextBox Grid.Column="3"
+                                <TextBox Grid.Column="4"
                                          Margin="3,0"
                                          IsEnabled="{Binding CanEditBounds}"
                                          IsTabStop="{Binding CanEditBounds}"

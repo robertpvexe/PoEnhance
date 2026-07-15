@@ -106,7 +106,7 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     }
 
     [Fact]
-    public void PriceCheckerModifierUi_ExposesBoundTextOnlyAndNoProviderControls()
+    public void PriceCheckerModifierUi_ExposesOpaqueVariantStateButNoProviderIdentifiersOrModels()
     {
         var viewModelType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierViewModel);
         var properties = viewModelType
@@ -116,6 +116,11 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
 
         Assert.Equal(typeof(string), viewModelType.GetProperty("MinimumText")?.PropertyType);
         Assert.Equal(typeof(string), viewModelType.GetProperty("MaximumText")?.PropertyType);
+        var variantType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierFilterVariantViewModel);
+        Assert.Equal(typeof(string), variantType.GetProperty("Identity")?.PropertyType);
+        Assert.Equal(typeof(string), variantType.GetProperty("Label")?.PropertyType);
+        Assert.DoesNotContain(variantType.GetProperties().Select(property => property.Name), name =>
+            Contains(name, "StatId") || Contains(name, "Provider"));
         Assert.DoesNotContain(propertyNames, name =>
             Contains(name, "StatId") ||
             Contains(name, "TradeStat") ||

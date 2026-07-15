@@ -167,6 +167,18 @@ public sealed class TradeSearchDraftValidator
                     "A selected modifier minimum cannot be greater than its maximum.",
                     index));
             }
+
+            if (!string.IsNullOrWhiteSpace(modifier.SelectedFilterVariantIdentity) &&
+                !modifier.FilterVariants.Any(variant => string.Equals(
+                    variant.Identity,
+                    modifier.SelectedFilterVariantIdentity,
+                    StringComparison.Ordinal)))
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved,
+                    "The selected modifier type is no longer available in the official Trade stat catalog.",
+                    index));
+            }
         }
     }
 
