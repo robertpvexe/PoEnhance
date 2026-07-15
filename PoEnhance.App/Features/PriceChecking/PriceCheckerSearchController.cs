@@ -649,7 +649,7 @@ internal sealed class PriceCheckerSearchController
         {
             if (offersById.TryGetValue(resultId, out var offer) && displayedOfferIds.Add(resultId))
             {
-                displayedOffers.Add(MapOffer(offer));
+                displayedOffers.Add(MapOffer(offer, DateTimeOffset.UtcNow));
             }
         }
     }
@@ -726,15 +726,20 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private static PriceCheckerOfferViewModel MapOffer(PathOfExileTradeFetchedOffer offer)
+    private static PriceCheckerOfferViewModel MapOffer(
+        PathOfExileTradeFetchedOffer offer,
+        DateTimeOffset now)
     {
         return new PriceCheckerOfferViewModel
         {
+            Id = offer.Id.Trim(),
+            ItemName = ItemName(offer.Item),
+            SellerAccountName = SellerAccountName(offer.Listing.Account),
+            ListedText = PriceCheckerRelativeTimeFormatter.Format(offer.Listing.Indexed, now),
+            ListedToolTip = ListedToolTip(offer.Listing),
+            ItemLevelText = offer.Item.ItemLevel?.ToString(CultureInfo.InvariantCulture) ??
+                PriceCheckerRelativeTimeFormatter.UnavailableText,
             PriceText = FormatPrice(offer.Listing.Price),
-            SellerText = SellerText(offer.Listing.Account),
-            OnlineStatusText = OnlineStatusText(offer.Listing.Account?.Online),
-            ItemText = ItemText(offer.Item),
-            IndexedText = IndexedText(offer.Listing),
         };
     }
 
@@ -821,7 +826,7 @@ internal sealed class PriceCheckerSearchController
     {
         if (price?.Amount is null || string.IsNullOrWhiteSpace(price.Currency))
         {
-            return "No listed price";
+            return PriceCheckerRelativeTimeFormatter.UnavailableText;
         }
 
         return string.Create(
@@ -829,46 +834,20 @@ internal sealed class PriceCheckerSearchController
             $"{price.Amount.Value:G29} {price.Currency.Trim()}");
     }
 
-    private static string SellerText(PathOfExileTradeListingAccount? account)
+    private static string SellerAccountName(PathOfExileTradeListingAccount? account)
     {
-        return TrimToNull(account?.LastCharacterName) ??
-            TrimToNull(account?.Name) ??
-            "Unknown seller";
+        return TrimToNull(account?.Name) ?? PriceCheckerRelativeTimeFormatter.UnavailableText;
     }
 
-    private static string OnlineStatusText(PathOfExileTradeListingOnlineState? online)
+    private static string ItemName(PathOfExileTradeFetchedItem item)
     {
-        var status = TrimToNull(online?.Status);
-        var league = TrimToNull(online?.League);
-        return (status, league) switch
-        {
-            (not null, not null) => $"{status} ({league})",
-            (not null, null) => status,
-            (null, not null) => league,
-            _ => string.Empty,
-        };
+        return TrimToNull(item.Name) ?? PriceCheckerRelativeTimeFormatter.UnavailableText;
     }
 
-    private static string ItemText(PathOfExileTradeFetchedItem item)
+    private static string? ListedToolTip(PathOfExileTradeListing listing)
     {
-        var name = TrimToNull(item.Name);
-        var typeLine = TrimToNull(item.TypeLine);
-        if (name is not null && typeLine is not null && !EqualsOrdinal(name, typeLine))
-        {
-            return $"{name} - {typeLine}";
-        }
-
-        return name ?? typeLine ?? TrimToNull(item.BaseType) ?? "Unknown item";
-    }
-
-    private static string IndexedText(PathOfExileTradeListing listing)
-    {
-        if (listing.Indexed.HasValue)
-        {
-            return listing.Indexed.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-        }
-
-        return TrimToNull(listing.RawIndexed) ?? "Indexed time unavailable";
+        return TrimToNull(listing.RawIndexed) ??
+            listing.Indexed?.ToString("O", CultureInfo.InvariantCulture);
     }
 
     private static string SafeMessage(string? message)
@@ -899,11 +878,6 @@ internal sealed class PriceCheckerSearchController
     {
         var trimmed = value?.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
-    }
-
-    private static bool EqualsOrdinal(string left, string right)
-    {
-        return string.Equals(left, right, StringComparison.Ordinal);
     }
 
     private void ApplyState(PriceCheckerSearchViewState state)

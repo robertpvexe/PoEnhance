@@ -335,6 +335,50 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task SearchAsync_MapsOneFetchedOfferToFourStructuredColumns()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer(
+                "id-1",
+                amount: 3m,
+                currency: "chaos",
+                accountName: "Seller Account",
+                itemName: "Armageddon Thirst",
+                itemLevel: 72,
+                indexed: DateTimeOffset.UtcNow.AddSeconds(-30))],
+            total: 1);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        var offer = Assert.Single(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.Equal("Armageddon Thirst", offer.ItemName);
+        Assert.Equal("Seller Account", offer.SellerAccountName);
+        Assert.Equal("1 min ago", offer.ListedText);
+        Assert.Equal("72", offer.ItemLevelText);
+        Assert.Equal("3 chaos", offer.PriceText);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DoesNotDisplayDuplicateFetchedResultIds()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer("id-1", amount: 1m), Offer("id-2", amount: 2m)],
+            total: 2,
+            resultIds: ["id-1", "id-1", "id-2"],
+            fetchedResultIds: ["id-1", "id-1", "id-2"]);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(
+            ["id-1", "id-2"],
+            fixture.Window.CurrentSearchState?.Offers.Select(offer => offer.Id));
+    }
+
+    [Fact]
     public async Task LoadMoreAsync_FetchesSuccessiveBatchesWithoutAnotherSearchAndAppendsProviderOrder()
     {
         var fixture = SearchFixture.Create();
@@ -521,7 +565,7 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public async Task SearchAsync_OfferRowsUsePriceSellerAndIndexedFallbacks()
+    public async Task SearchAsync_OfferRowsKeepFieldsSeparateAndUseMissingMarkers()
     {
         var fixture = SearchFixture.Create();
         fixture.PriceCheckService.Result = SuccessResult(
@@ -532,9 +576,9 @@ public sealed class PriceCheckerSearchControllerTests
                     currency: null,
                     lastCharacterName: "LastChar",
                     accountName: "Account",
-                    onlineStatus: "online",
-                    onlineLeague: "Mercenaries",
-                    rawIndexed: "raw-indexed"),
+                    rawIndexed: "raw-indexed",
+                    itemName: "Named item",
+                    itemLevel: 85),
                 Offer(
                     "id-2",
                     amount: 3m,
@@ -546,7 +590,9 @@ public sealed class PriceCheckerSearchControllerTests
                     amount: 7.5m,
                     currency: "chaos",
                     lastCharacterName: null,
-                    accountName: null),
+                    accountName: null,
+                    itemName: null,
+                    itemLevel: null),
             ],
             total: 3);
         fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
@@ -554,12 +600,16 @@ public sealed class PriceCheckerSearchControllerTests
         await fixture.Controller.SearchAsync();
 
         var offers = fixture.Window.CurrentSearchState?.Offers ?? [];
-        Assert.Equal("No listed price", offers[0].PriceText);
-        Assert.Equal("LastChar", offers[0].SellerText);
-        Assert.Equal("online (Mercenaries)", offers[0].OnlineStatusText);
-        Assert.Equal("raw-indexed", offers[0].IndexedText);
-        Assert.Equal("AccountOnly", offers[1].SellerText);
-        Assert.Equal("Unknown seller", offers[2].SellerText);
+        Assert.Equal("—", offers[0].PriceText);
+        Assert.Equal("Named item", offers[0].ItemName);
+        Assert.Equal("Account", offers[0].SellerAccountName);
+        Assert.Equal("—", offers[0].ListedText);
+        Assert.Equal("raw-indexed", offers[0].ListedToolTip);
+        Assert.Equal("85", offers[0].ItemLevelText);
+        Assert.Equal("AccountOnly", offers[1].SellerAccountName);
+        Assert.Equal("—", offers[2].ItemName);
+        Assert.Equal("—", offers[2].SellerAccountName);
+        Assert.Equal("—", offers[2].ItemLevelText);
     }
 
     [Fact]
@@ -1121,19 +1171,24 @@ public sealed class PriceCheckerSearchControllerTests
         string? accountName = "Account",
         string? onlineStatus = null,
         string? onlineLeague = null,
-        string? rawIndexed = null)
+        string? rawIndexed = null,
+        string? itemName = "Armoured Shell",
+        int? itemLevel = 85,
+        DateTimeOffset? indexed = null)
     {
         return new PathOfExileTradeFetchedOffer
         {
             Id = id,
             Item = new PathOfExileTradeFetchedItem
             {
-                Name = "Armoured Shell",
+                Name = itemName,
                 TypeLine = "Titan Plate",
+                ItemLevel = itemLevel,
             },
             Listing = new PathOfExileTradeListing
             {
                 RawIndexed = rawIndexed,
+                Indexed = indexed,
                 Account = accountName is null && lastCharacterName is null
                     ? null
                     : new PathOfExileTradeListingAccount

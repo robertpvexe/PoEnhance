@@ -156,6 +156,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             state.ModifierCount);
         ModifierListBox.ItemsSource = state.Modifiers;
         OfferListBox.ItemsSource = state.Offers;
+        OfferColumnHeader.Visibility = state.Offers.Count == 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         OfferListBox.Visibility = state.Offers.Count == 0
             ? Visibility.Collapsed
             : Visibility.Visible;

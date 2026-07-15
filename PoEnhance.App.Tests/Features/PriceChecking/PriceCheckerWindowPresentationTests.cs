@@ -99,8 +99,15 @@ Item Level: 82
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", title);
         Assert.Contains("x:Name=\"PinToggleButton\"", xaml);
         Assert.Contains("Width=\"20\"", ExtractElement(reset, "<Canvas", "</Canvas>"));
-        Assert.Equal(3, reset.Split("<Path", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, reset.Split("<Path x:Name=", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("<TextBlock", reset);
+        var resetLetter = ExtractElement(reset, "<Path x:Name=\"ResetLetterGeometry\"", "</Path>");
+        Assert.Contains("<ScaleTransform", resetLetter);
+        Assert.Contains("ScaleX=\"0.8\"", resetLetter);
+        Assert.Contains("ScaleY=\"0.8\"", resetLetter);
+        Assert.Contains("CenterX=\"10\"", resetLetter);
+        Assert.Contains("CenterY=\"10\"", resetLetter);
+        Assert.DoesNotContain("Margin=", resetLetter);
         Assert.Contains("Width=\"20\"", ExtractElement(close, "<Canvas", "</Canvas>"));
         Assert.Contains("<Path", close);
         Assert.DoesNotContain("<TextBlock", close);
@@ -126,6 +133,33 @@ Item Level: 82
         Assert.Contains("x:Name=\"SearchButton\"", xaml);
         Assert.Contains("x:Name=\"LoadMoreButton\"", xaml);
         Assert.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Disabled\"", modifiers);
+    }
+
+    [Fact]
+    public void WindowXaml_UsesAnInvisibleFourColumnOfferLayoutWithoutGridLines()
+    {
+        var xaml = LoadWindowXaml();
+        var header = ExtractElement(xaml, "<Grid x:Name=\"OfferColumnHeader\"", "</Grid>");
+        var offers = ExtractElement(xaml, "<ListBox x:Name=\"OfferListBox\"", "</ListBox>");
+        var rowStyle = ExtractElement(xaml, "<Style x:Key=\"OfferRowStyle\"", "</Style>");
+
+        Assert.Contains("Text=\"Item / Seller\"", header);
+        Assert.Contains("Text=\"Listed\"", header);
+        Assert.Contains("Text=\"iLvl\"", header);
+        Assert.Contains("Text=\"Price\"", header);
+        Assert.Equal(4, header.Split("<ColumnDefinition", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, offers.Split("<ColumnDefinition", StringSplitOptions.None).Length - 1);
+        Assert.Contains("Height=\"44\"", offers);
+        Assert.Contains("ItemName", offers);
+        Assert.Contains("SellerAccountName", offers);
+        Assert.Contains("ListedText", offers);
+        Assert.Contains("ItemLevelText", offers);
+        Assert.Contains("PriceText", offers);
+        Assert.DoesNotContain("DataGrid", offers);
+        Assert.DoesNotContain("Separator", offers);
+        Assert.DoesNotContain("BorderBrush", offers);
+        Assert.DoesNotContain("BorderBrush", rowStyle);
+        Assert.Contains("FocusVisualStyle", rowStyle);
     }
 
     private static string LoadWindowXaml()

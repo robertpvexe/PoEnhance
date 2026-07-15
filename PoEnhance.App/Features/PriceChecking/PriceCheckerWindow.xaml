@@ -210,6 +210,38 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="OfferRowStyle"
+               TargetType="{x:Type ListBoxItem}">
+            <Setter Property="Padding"
+                    Value="0" />
+            <Setter Property="Margin"
+                    Value="0" />
+            <Setter Property="Focusable"
+                    Value="False" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="HorizontalContentAlignment"
+                    Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                        <Border x:Name="RowBackground"
+                                Background="Transparent"
+                                BorderThickness="0">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="RowBackground"
+                                        Property="Background"
+                                        Value="#202020" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
     <Border BorderBrush="#303030"
             BorderThickness="1"
@@ -292,7 +324,14 @@
                                   StrokeThickness="1.25"
                                   StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round"
-                                  StrokeLineJoin="Round" />
+                                  StrokeLineJoin="Round">
+                                <Path.RenderTransform>
+                                    <ScaleTransform ScaleX="0.8"
+                                                    ScaleY="0.8"
+                                                    CenterX="10"
+                                                    CenterY="10" />
+                                </Path.RenderTransform>
+                            </Path>
                         </Canvas>
                     </Button>
                     <Button x:Name="CloseButton"
@@ -504,56 +543,110 @@
                 <Grid Grid.Row="6"
                       Margin="0,8,0,0">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <Grid x:Name="OfferColumnHeader"
+                          Grid.Row="0"
+                          Height="26"
+                          Margin="8,0"
+                          VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="64" />
+                            <ColumnDefinition Width="46" />
+                            <ColumnDefinition Width="116" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock VerticalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#AFAFAF"
+                                   Text="Item / Seller" />
+                        <TextBlock Grid.Column="1"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#AFAFAF"
+                                   Text="Listed" />
+                        <TextBlock Grid.Column="2"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#AFAFAF"
+                                   Text="iLvl" />
+                        <TextBlock Grid.Column="3"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#AFAFAF"
+                                   Text="Price" />
+                    </Grid>
                     <ListBox x:Name="OfferListBox"
-                             Grid.Row="0"
+                             Grid.Row="1"
                              Background="#101010"
-                             BorderBrush="#404040"
+                             BorderThickness="0"
                              Foreground="#EEEEEE"
+                             ItemContainerStyle="{StaticResource OfferRowStyle}"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              VerticalAlignment="Stretch"
                              Visibility="Collapsed">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="6,4">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0"
+                                <Grid Height="44"
+                                      Margin="8,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="46" />
+                                        <ColumnDefinition Width="116" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock FontWeight="SemiBold"
+                                                   Foreground="#EEEEEE"
+                                                   Text="{Binding ItemName}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="NoWrap"
+                                                   ToolTip="{Binding ItemName}" />
+                                        <TextBlock Margin="0,1,0,0"
+                                                   FontSize="11"
+                                                   FontWeight="Light"
+                                                   Foreground="#9A9A9A"
+                                                   Text="{Binding SellerAccountName}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="NoWrap"
+                                                   ToolTip="{Binding SellerAccountName}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1"
+                                               VerticalAlignment="Center"
+                                               Foreground="#CFCFCF"
+                                               Text="{Binding ListedText}"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"
+                                               ToolTip="{Binding ListedToolTip}" />
+                                    <TextBlock Grid.Column="2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="#CFCFCF"
+                                               Text="{Binding ItemLevelText}" />
+                                    <TextBlock Grid.Column="3"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
                                                FontWeight="SemiBold"
                                                Foreground="#F3D88B"
                                                Text="{Binding PriceText}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Grid.Row="1"
-                                               Margin="0,2,0,0"
-                                               Foreground="#EEEEEE"
-                                               Text="{Binding SellerText}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Grid.Row="2"
-                                               Margin="0,2,0,0"
-                                               Foreground="#B8D8FF"
-                                               Text="{Binding OnlineStatusText}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Grid.Row="3"
-                                               Margin="0,2,0,0"
-                                               Foreground="#CFCFCF"
-                                               TextWrapping="Wrap">
-                                        <Run Text="{Binding ItemText}" />
-                                        <Run Text=" - " />
-                                        <Run Text="{Binding IndexedText}" />
-                                    </TextBlock>
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"
+                                               ToolTip="{Binding PriceText}" />
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <Button x:Name="LoadMoreButton"
-                            Grid.Row="1"
+                            Grid.Row="2"
                             MinWidth="88"
                             Margin="0,8,0,0"
                             HorizontalAlignment="Left"
