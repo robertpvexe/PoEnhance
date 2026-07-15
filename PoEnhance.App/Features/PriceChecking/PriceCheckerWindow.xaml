@@ -102,6 +102,14 @@
         </Style>
         <SolidColorBrush x:Key="ExactBaseActiveBorderBrush"
                          Color="White" />
+        <SolidColorBrush x:Key="PriceCheckerTitleNormalForegroundBrush"
+                         Color="White" />
+        <SolidColorBrush x:Key="PriceCheckerTitleMagicForegroundBrush"
+                         Color="#8888FF" />
+        <SolidColorBrush x:Key="PriceCheckerTitleRareForegroundBrush"
+                         Color="#F3D88B" />
+        <SolidColorBrush x:Key="PriceCheckerTitleUniqueForegroundBrush"
+                         Color="#AF6025" />
         <Style x:Key="BaseCriterionButtonStyle"
                TargetType="{x:Type Button}"
                BasedOn="{StaticResource PriceCheckerButtonStyle}">
@@ -155,6 +163,70 @@
                                          Fill="#606060" />
                             </Border>
                         </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ModifierBoundTextBoxStyle"
+               TargetType="{x:Type TextBox}">
+            <Setter Property="MinHeight"
+                    Value="24" />
+            <Setter Property="Padding"
+                    Value="2,1" />
+            <Setter Property="Background"
+                    Value="#191919" />
+            <Setter Property="BorderBrush"
+                    Value="#454545" />
+            <Setter Property="BorderThickness"
+                    Value="0.75" />
+            <Setter Property="Foreground"
+                    Value="#F0F0F0" />
+            <Setter Property="FontSize"
+                    Value="13" />
+            <Setter Property="FontWeight"
+                    Value="SemiBold" />
+            <Setter Property="TextAlignment"
+                    Value="Center" />
+            <Setter Property="VerticalContentAlignment"
+                    Value="Center" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TextBox}">
+                        <Border x:Name="BoundBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="BoundBorder"
+                                        Property="BorderBrush"
+                                        Value="#626262" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused"
+                                     Value="True">
+                                <Setter TargetName="BoundBorder"
+                                        Property="BorderBrush"
+                                        Value="#D0B66B" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+                                <Setter TargetName="BoundBorder"
+                                        Property="Background"
+                                        Value="#141414" />
+                                <Setter Property="Foreground"
+                                        Value="#707070" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -283,7 +355,6 @@
                            IsHitTestVisible="False"
                            VerticalAlignment="Center"
                            FontWeight="SemiBold"
-                           Foreground="#F3D88B"
                            TextTrimming="CharacterEllipsis"
                            TextWrapping="NoWrap" />
                 <StackPanel Grid.Column="2"
@@ -363,7 +434,6 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
@@ -413,12 +483,12 @@
                 </WrapPanel>
 
                 <Grid Grid.Row="2"
-                      Margin="0,10,0,4">
+                      Margin="0,10,6,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="64" />
-                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="78" />
+                        <ColumnDefinition Width="78" />
                     </Grid.ColumnDefinitions>
                     <TextBlock FontWeight="SemiBold"
                                Foreground="#EEEEEE"
@@ -447,12 +517,12 @@
                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="6,4">
+                            <Grid Margin="6,4,6,4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="64" />
-                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="78" />
+                                    <ColumnDefinition Width="78" />
                                 </Grid.ColumnDefinitions>
                                 <CheckBox Grid.Column="0"
                                           Margin="0,0,8,0"
@@ -473,51 +543,36 @@
                                                TextWrapping="NoWrap" />
                                 </StackPanel>
                                 <TextBox Grid.Column="2"
-                                         Margin="6,0,0,0"
-                                         IsEnabled="False"
-                                         IsTabStop="False"
-                                         MinWidth="64"
-                                         ToolTip="Minimum value filters are not available yet" />
+                                         Margin="3,0"
+                                         IsEnabled="{Binding CanEditBounds}"
+                                         IsTabStop="{Binding CanEditBounds}"
+                                         VerticalAlignment="Center"
+                                         Style="{StaticResource ModifierBoundTextBoxStyle}"
+                                         Text="{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnModifierBoundTextChanged"
+                                         ToolTip="Minimum Trade stat value" />
                                 <TextBox Grid.Column="3"
-                                         Margin="4,0,0,0"
-                                         IsEnabled="False"
-                                         IsTabStop="False"
-                                         MinWidth="64"
-                                         ToolTip="Maximum value filters are not available yet" />
+                                         Margin="3,0"
+                                         IsEnabled="{Binding CanEditBounds}"
+                                         IsTabStop="{Binding CanEditBounds}"
+                                         VerticalAlignment="Center"
+                                         Style="{StaticResource ModifierBoundTextBoxStyle}"
+                                         Text="{Binding MaximumText, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnModifierBoundTextChanged"
+                                         ToolTip="Maximum Trade stat value" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <StackPanel x:Name="ValidationPanel"
-                            Grid.Row="4"
-                            Margin="0,8,0,0">
-                    <TextBlock FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Validation" />
-                    <TextBox x:Name="ValidationTextBox"
-                             MinHeight="76"
-                             MaxHeight="112"
-                             Margin="0,4,0,0"
-                             AcceptsReturn="True"
-                             Background="#101010"
-                             BorderBrush="#404040"
-                             Foreground="#EEEEEE"
-                             HorizontalScrollBarVisibility="Auto"
-                             IsReadOnly="True"
-                             TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto" />
-                </StackPanel>
-
-                <StackPanel Grid.Row="5"
-                            Margin="0,10,0,0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="28" />
-                        </Grid.ColumnDefinitions>
+                <Grid Grid.Row="4"
+                      Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="28" />
+                    </Grid.ColumnDefinitions>
                         <Button x:Name="SearchButton"
                                 Grid.Column="0"
                                 MinWidth="68"
@@ -548,19 +603,29 @@
                                       StrokeLineJoin="Round" />
                             </Canvas>
                         </Button>
+                    <Grid Grid.Column="1"
+                          Margin="10,0,8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="SearchStatusText"
+                                   VerticalAlignment="Center"
+                                   Foreground="#EEEEEE"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" />
+                        <TextBlock x:Name="SearchSummaryText"
+                                   Grid.Column="1"
+                                   Margin="8,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="#CFCFCF"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" />
                     </Grid>
-                    <TextBlock x:Name="SearchStatusText"
-                               Margin="0,6,0,0"
-                               Foreground="#EEEEEE"
-                               TextWrapping="Wrap" />
-                    <TextBlock x:Name="SearchSummaryText"
-                               Margin="0,2,0,0"
-                               Foreground="#CFCFCF"
-                               TextWrapping="Wrap" />
-                </StackPanel>
+                </Grid>
 
                 <Grid x:Name="ResultsPanel"
-                      Grid.Row="6"
+                      Grid.Row="5"
                       Margin="0,8,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />

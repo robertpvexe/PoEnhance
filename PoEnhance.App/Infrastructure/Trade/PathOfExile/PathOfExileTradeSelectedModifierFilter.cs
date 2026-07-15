@@ -13,4 +13,8 @@ internal sealed record PathOfExileTradeSelectedModifierFilter
     public string NormalizedItemTemplate { get; init; } = string.Empty;
 
     public IReadOnlyList<decimal> ExtractedNumericValues { get; init; } = [];
+
+    public decimal? Minimum { get; init; }
+
+    public decimal? Maximum { get; init; }
 }

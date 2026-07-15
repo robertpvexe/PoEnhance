@@ -71,8 +71,9 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 ToProviderResolutionDiagnostic(selectedModifier.Index, selectedModifier.Modifier));
         }
 
+        var collapsedFilters = CollapseSharedPresenceFilters(filters, diagnostics);
         return diagnostics.Count == 0
-            ? PathOfExileTradeSelectedModifierMappingResult.Success(CollapseSharedPresenceFilters(filters))
+            ? PathOfExileTradeSelectedModifierMappingResult.Success(collapsedFilters)
             : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
     }
 
@@ -102,6 +103,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 OriginalText = modifier.OriginalText,
                 NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
                 ExtractedNumericValues = [],
+                Minimum = modifier.SupportsValueBounds ? modifier.RequestedMinimum : null,
+                Maximum = modifier.SupportsValueBounds ? modifier.RequestedMaximum : null,
             };
             return true;
         }
@@ -111,13 +114,21 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     }
 
     private static IReadOnlyList<PathOfExileTradeSelectedModifierFilter> CollapseSharedPresenceFilters(
-        IReadOnlyList<PathOfExileTradeSelectedModifierFilter> filters)
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter> filters,
+        List<PathOfExileTradeSelectedModifierMappingDiagnostic> diagnostics)
     {
         return filters
             .GroupBy(filter => filter.StatId, StringComparer.Ordinal)
             .Select(group =>
             {
                 var first = group.First();
+                if (group.Any(filter => filter.Minimum != first.Minimum || filter.Maximum != first.Maximum))
+                {
+                    diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.IncompatibleBounds,
+                        "Selected modifiers resolve to one Trade stat with incompatible value bounds.",
+                        first.SourceIndex));
+                }
                 return first with
                 {
                     SourceIndexes = group

@@ -41,6 +41,8 @@ Item Level: 85
 { Prefix Modifier "Mercenary's" (Tier: 5) - Damage, Physical, Attack }
 39(35-44)% increased Physical Damage
 +93(73-97) to Accuracy Rating
+{ Suffix Modifier "of Thirst" (Tier: 1) - Attack, Physical, Mana }
+2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana
 { Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
 20(16-20)% increased Attack Speed
 """);
@@ -61,7 +63,10 @@ Item Level: 85
             Assert.Equal(["local_physical_damage_+%"], component.ResolvedStatIds);
             Assert.Equal(ModifierLocality.Local, component.Locality);
             Assert.True(component.IsSearchable);
+            Assert.True(component.SupportsValueBounds);
         });
+        Assert.Equal([52m, 39m], physicalComponents.Select(component => component.RequestedMinimum));
+        Assert.All(physicalComponents, component => Assert.Null(component.RequestedMaximum));
         Assert.Equal(2, physicalComponents.Select(component => component.ResolvedModifierId).Distinct().Count());
 
         var accuracy = Assert.Single(snapshot.Draft.ModifierFilters, component =>
@@ -74,9 +79,20 @@ Item Level: 85
 
         var craftedAttackSpeed = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
-        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, craftedAttackSpeed.ResolutionStatus);
-        Assert.Null(craftedAttackSpeed.ResolvedModifierId);
-        Assert.Empty(craftedAttackSpeed.ResolvedStatIds);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, craftedAttackSpeed.ResolutionStatus);
+        Assert.Equal("EinharMasterLocalIncreasedAttackSpeed3", craftedAttackSpeed.ResolvedModifierId);
+        Assert.Equal(["local_attack_speed_+%"], craftedAttackSpeed.ResolvedStatIds);
+        Assert.True(craftedAttackSpeed.IsCrafted);
+        Assert.True(craftedAttackSpeed.SupportsValueBounds);
+        Assert.Equal(20m, craftedAttackSpeed.RequestedMinimum);
+
+        var manaLeech = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Leeched as Mana", StringComparison.Ordinal));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, manaLeech.ResolutionStatus);
+        Assert.Equal(["local_mana_leech_from_physical_damage_permyriad"], manaLeech.ResolvedStatIds);
+        Assert.True(manaLeech.SupportsValueBounds);
+        Assert.Equal(2.83m, manaLeech.RequestedMinimum);
+        Assert.Null(manaLeech.RequestedMaximum);
     }
 
     [Fact]
@@ -517,6 +533,8 @@ Item Level: 84
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
+        public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;

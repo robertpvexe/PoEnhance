@@ -11,6 +11,178 @@ public sealed class TradeSearchDraftMapperTests
     private readonly TradeSearchDraftMapper mapper = new();
 
     [Fact]
+    public void ScalarBoundDefault_PositiveAndDecimalValuesUseMinimumExactly()
+    {
+        var result = BoundDefault("2.83% increased Test Value", 2.83m, handlers: []);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(2.83m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_AttachedTierRangeIsIgnoredAndRenderedScaleHandlerUsesObservedValue()
+    {
+        var result = BoundDefault(
+            "2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana",
+            283m,
+            handlers: ["divide_by_one_hundred"]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(2.83m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_NegatedTranslationUsesNegativeMaximum()
+    {
+        var result = BoundDefault("15% reduced Test Value", 15m, handlers: ["negate"]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-15m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_NormalNegativeValueIsNotTreatedAsInverse()
+    {
+        var result = BoundDefault("-15 Test Value", -15m, handlers: []);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-15m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Theory]
+    [MemberData(nameof(OrderPreservingTranslationHandlers))]
+    public void ScalarBoundDefault_ProductionMonotonicHandlerKeepsDisplayedProviderMagnitude(
+        string handler)
+    {
+        var result = BoundDefault("12.5 Test Value", 100m, handlers: [handler]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(12.5m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Theory]
+    [InlineData("negate")]
+    [InlineData("negate_and_double")]
+    [InlineData("divide_by_one_hundred_and_negate")]
+    public void ScalarBoundDefault_ProductionReversingHandlerUsesNegativeMaximum(string handler)
+    {
+        var result = BoundDefault("12.5 Test Value", 100m, handlers: [handler]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-12.5m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_CompoundHandlerDirectionUsesDeterministicReversalParity()
+    {
+        var result = BoundDefault(
+            "12.5 Test Value",
+            100m,
+            handlers: ["divide_by_one_hundred", "negate", "negate"]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(12.5m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Fact]
+    public void ObservedValueExtraction_ExcludesAttachedTierRangesFromScalarAndTupleRolls()
+    {
+        Assert.Equal(
+            [2.83m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana"));
+        Assert.Equal(
+            [14m, 25m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "Adds 14(11-15) to 25(23-26) Cold Damage"));
+        Assert.Equal(
+            [2.83m],
+            ModifierBoundDefaults.ExtractObservedValues("2.83(2.6–3.2)% Test Value"));
+    }
+
+    [Fact]
+    public void ObservedValueExtraction_SelectedTranslationExcludesLiteralDescriptiveNumbers()
+    {
+        var variant = new StatTranslationVariant
+        {
+            ValueFormats = ["#", "#"],
+            FormatLines = ["Adds {0} to {1} Cold Damage per 10 Intelligence"],
+        };
+
+        var values = ModifierBoundDefaults.ExtractObservedValues(
+            "Adds 14(11-15) to 25(23-26) Cold Damage per 10 Intelligence",
+            variant);
+
+        Assert.Equal([14m, 25m], values);
+    }
+
+    [Theory]
+    [InlineData("cold", "local_")]
+    [InlineData("fire", "local_")]
+    [InlineData("lightning", "local_")]
+    [InlineData("physical", "local_")]
+    [InlineData("cold", "global_")]
+    public void DamageRangeBoundDefault_GenericMinimumMaximumPairRetainsMeanProjectionEvidence(
+        string damageType,
+        string scope)
+    {
+        var result = RangeBoundDefault(
+            $"Adds 14(11-15) to 25(23-26) {damageType} Damage",
+            $"{scope}minimum_added_{damageType}_damage",
+            $"{scope}maximum_added_{damageType}_damage",
+            tags: ["attack", "damage", damageType]);
+
+        Assert.False(result.IsSupported);
+        Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, result.Shape);
+        Assert.Equal([14m, 25m], result.ObservedValues);
+        Assert.Equal(19.5m, result.ObservedCanonicalValue);
+        Assert.Contains("requires confirmation", result.UnsupportedReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MultiNumberBoundDefault_WithoutProvenRangeIdentityRemainsExplicitlyUnsupported()
+    {
+        var result = RangeBoundDefault(
+            "10 Test A and 20 Test B",
+            "first_test_value",
+            "second_test_value",
+            tags: ["test"]);
+
+        Assert.False(result.IsSupported);
+        Assert.Equal(ModifierBoundShape.Unsupported, result.Shape);
+        Assert.Equal([10m, 20m], result.ObservedValues);
+        Assert.Contains("no proven single-value provider projection", result.UnsupportedReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PresenceOnlyBoundDefault_RemainsSelectableWithoutInventingNumericBounds()
+    {
+        var result = PresenceOnlyBoundDefault("Test presence-only effect");
+
+        Assert.False(result.IsSupported);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.Shape);
+        Assert.Empty(result.ObservedValues);
+        Assert.Contains("presence-only", result.UnsupportedReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_UnknownHandlerNeverFallsBackToRawDisplayedValue()
+    {
+        var result = BoundDefault("25 Test Value", 25m, handlers: ["unknown_projection"]);
+
+        Assert.False(result.IsSupported);
+        Assert.Equal(ModifierBoundShape.Unsupported, result.Shape);
+        Assert.Contains("unknown_projection", result.UnsupportedReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateDraft_RareItemWithExactBaseResolution_PreservesParsedAndResolvedBaseFields()
     {
         var item = ParseSample("rare-onyx-amulet.txt");
@@ -310,7 +482,7 @@ Item Level: 84
         Assert.Equal([0, 1], physical.Select(component => component.SourceModifierIndex));
         Assert.Equal([0, 0], physical.Select(component => component.SourceComponentIndex));
         Assert.Equal(2, physical.Select(component => component.ComponentId).Distinct().Count());
-        Assert.Equal(1, physical.Select(component => component.CanonicalSignature).Distinct().Count());
+        Assert.Single(physical.Select(component => component.CanonicalSignature).Distinct());
         Assert.Equal(
             ["mod.pure-physical", "mod.hybrid-physical-accuracy"],
             physical.Select(component => component.ResolvedModifierId));
@@ -572,5 +744,241 @@ Item Level: 84
                 })
                 .ToArray(),
         };
+    }
+
+    private static ModifierBoundDefaultResult BoundDefault(
+        string source,
+        decimal observedRangeValue,
+        IReadOnlyList<string> handlers)
+    {
+        const string statId = "test_stat";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = observedRangeValue,
+            MaxValue = observedRangeValue,
+        };
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = [new StatDefinition { Id = statId }],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "test-translation",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = handlers }],
+                            FormatLines = [ObservedFormat(source, 1)],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-modifier", Stats = [stat] },
+            [stat],
+            [source],
+            catalog);
+    }
+
+    private static ModifierBoundDefaultResult RangeBoundDefault(
+        string source,
+        string minimumStatId,
+        string maximumStatId,
+        IReadOnlyList<string> tags)
+    {
+        var minimumStat = new ModifierStat
+        {
+            Index = 0,
+            StatId = minimumStatId,
+            MinValue = 11m,
+            MaxValue = 15m,
+        };
+        var maximumStat = new ModifierStat
+        {
+            Index = 1,
+            StatId = maximumStatId,
+            MinValue = 23m,
+            MaxValue = 26m,
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage(
+            stats: [minimumStatId, maximumStatId],
+            translation: new StatTranslationDefinition
+            {
+                Id = "test-range-translation",
+                StatIds = [minimumStatId, maximumStatId],
+                Variants =
+                [
+                    new StatTranslationVariant
+                    {
+                        Conditions =
+                        [
+                            new StatTranslationCondition { Index = 0 },
+                            new StatTranslationCondition { Index = 1 },
+                        ],
+                        ValueFormats = ["#", "#"],
+                        IndexHandlers =
+                        [
+                            new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                        ],
+                        FormatLines = [ObservedFormat(source, 2)],
+                    },
+                ],
+            }));
+        var modifier = new ModifierDefinition
+        {
+            Id = "test-range-modifier",
+            Tags = tags,
+            Stats = [minimumStat, maximumStat],
+        };
+
+        return ModifierBoundDefaults.Create(
+            modifier,
+            [minimumStat, maximumStat],
+            [source],
+            catalog);
+    }
+
+    private static ModifierBoundDefaultResult PresenceOnlyBoundDefault(string source)
+    {
+        const string statId = "test_presence_only";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = 1m,
+            MaxValue = 1m,
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage(
+            stats: [statId],
+            translation: new StatTranslationDefinition
+            {
+                Id = "test-presence-translation",
+                StatIds = [statId],
+                Variants =
+                [
+                    new StatTranslationVariant
+                    {
+                        Conditions = [new StatTranslationCondition { Index = 0 }],
+                        ValueFormats = ["ignore"],
+                        IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = [] }],
+                        FormatLines = ["Test presence-only effect"],
+                    },
+                ],
+            }));
+
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-presence-modifier", Stats = [stat] },
+            [stat],
+            [source],
+            catalog);
+    }
+
+    private static GameDataPackage TestPackage(
+        IReadOnlyList<string> stats,
+        StatTranslationDefinition translation)
+    {
+        return new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = stats.Select(statId => new StatDefinition { Id = statId }).ToArray(),
+            StatTranslations = [translation],
+        };
+    }
+
+    public static TheoryData<string> OrderPreservingTranslationHandlers => new()
+    {
+        "30%_of_value",
+        "60%_of_value",
+        "deciseconds_to_seconds",
+        "divide_by_fifteen_0dp",
+        "divide_by_five",
+        "divide_by_four",
+        "divide_by_one_hundred",
+        "divide_by_one_hundred_2dp",
+        "divide_by_one_hundred_2dp_if_required",
+        "divide_by_one_thousand",
+        "divide_by_six",
+        "divide_by_ten_0dp",
+        "divide_by_ten_1dp",
+        "divide_by_ten_1dp_if_required",
+        "divide_by_three",
+        "divide_by_twelve",
+        "divide_by_twenty",
+        "divide_by_twenty_then_double_0dp",
+        "divide_by_two_0dp",
+        "double",
+        "locations_to_metres",
+        "milliseconds_to_seconds",
+        "milliseconds_to_seconds_0dp",
+        "milliseconds_to_seconds_1dp",
+        "milliseconds_to_seconds_2dp",
+        "milliseconds_to_seconds_2dp_if_required",
+        "multiplicative_damage_modifier",
+        "old_leech_percent",
+        "old_leech_permyriad",
+        "per_minute_to_per_second",
+        "per_minute_to_per_second_0dp",
+        "per_minute_to_per_second_1dp",
+        "per_minute_to_per_second_2dp",
+        "per_minute_to_per_second_2dp_if_required",
+        "permyriad_per_minute_to_%_per_second",
+        "plus_two_hundred",
+        "times_one_point_five",
+        "times_twenty",
+    };
+
+    private static string ObservedFormat(string source, int observedValueCount)
+    {
+        var index = 0;
+        return System.Text.RegularExpressions.Regex.Replace(
+            source,
+            @"(?<![\w#])[\+\-]?\d+(?:[\.,]\d+)?(?:\(\s*[\+\-]?\d+(?:[\.,]\d+)?\s*-\s*[\+\-]?\d+(?:[\.,]\d+)?\s*\))?",
+            match => index < observedValueCount ? $"{{{index++}}}" : match.Value,
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 }

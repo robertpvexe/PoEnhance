@@ -30,6 +30,118 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public void SelectedSupportedModifier_EnablesBoundsAndKeepsObservedMinimum()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [Modifier("52% increased Physical Damage", supportsValueBounds: true, minimum: 52m)]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(row.CanEditBounds);
+        Assert.Equal("52", row.MinimumText);
+        Assert.Empty(row.MaximumText);
+    }
+
+    [Fact]
+    public void SelectedUnsupportedModifier_PublishesItsBoundReasonToDeveloperDiagnostics()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft(
+                "Armoured Shell",
+                modifiers:
+                [
+                    Modifier(
+                        "Unsupported value",
+                        valueBoundsUnsupportedReason: "The translation has multiple numeric provider values."),
+                ]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var diagnostic = Assert.Single(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics);
+        Assert.Equal("MODIFIER_BOUNDS_UNSUPPORTED", diagnostic.Code);
+        Assert.Equal("The translation has multiple numeric provider values.", diagnostic.Message);
+    }
+
+    [Fact]
+    public async Task ModifierBounds_InvalidTextBlocksSearchAndPreservesText()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [Modifier("52% increased Physical Damage", supportsValueBounds: true, minimum: 52m)]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(0, "abc", string.Empty);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal("Modifier Min and Max must be finite decimal numbers.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal("abc", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+    }
+
+    [Fact]
+    public async Task ModifierBounds_EditingRetainsTheExistingRowsAndDoesNotRequestSearchOrFetch()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [Modifier("Test Value", supportsValueBounds: true)]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        var rows = fixture.Window.CurrentSearchState!.Modifiers;
+        var row = Assert.Single(rows);
+        var updateCount = fixture.Window.ModifierCollections.Count;
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "1", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "12", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "123", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "-", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "-15", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "2.", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, "2,83", string.Empty);
+        fixture.Window.RaiseModifierBoundsChanged(0, string.Empty, string.Empty);
+
+        Assert.Same(rows, fixture.Window.CurrentSearchState?.Modifiers);
+        Assert.Same(row, Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []));
+        Assert.All(fixture.Window.ModifierCollections.Skip(updateCount), collection => Assert.Same(rows, collection));
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+        Assert.Equal(string.Empty, row.MinimumText);
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "-", string.Empty);
+        await fixture.Controller.SearchAsync();
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal("Modifier Min and Max must be finite decimal numbers.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+    }
+
+    [Fact]
+    public async Task ModifierBounds_ChangedBoundsInvalidateResultsAndTravelToSearchDraft()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("id-1")], total: 1, resultIds: ["id-1"], fetchedResultIds: ["id-1"]);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [Modifier("52% increased Physical Damage", supportsValueBounds: true, minimum: 52m)]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "40", "60");
+
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        await fixture.Controller.SearchAsync();
+        var modifier = Assert.Single(fixture.PriceCheckService.Calls[^1].Draft?.ModifierFilters ?? []);
+        Assert.Equal(40m, modifier.RequestedMinimum);
+        Assert.Equal(60m, modifier.RequestedMaximum);
+    }
+
+    [Fact]
     public async Task SearchAsync_CallsServiceOnceWithCurrentDraftValidationAndMirage()
     {
         var fixture = SearchFixture.Create();
@@ -609,6 +721,50 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task SearchAsync_OfferDisplayNamePrefersNameThenTypeLineThenBaseType()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [
+                Offer(
+                    "named",
+                    accountName: "Named seller",
+                    itemName: "Armageddon Thirst",
+                    typeLine: "Reaver Axe",
+                    baseType: "Axe"),
+                Offer(
+                    "magic",
+                    accountName: "Magic seller",
+                    itemName: " ",
+                    typeLine: "Sapphire Ring of Rejuvenation",
+                    baseType: "Sapphire Ring"),
+                Offer(
+                    "normal",
+                    accountName: "Normal seller",
+                    itemName: null,
+                    typeLine: "",
+                    baseType: "Iron Ring"),
+                Offer(
+                    "missing",
+                    accountName: "Missing seller",
+                    itemName: null,
+                    typeLine: null,
+                    baseType: null),
+            ],
+            total: 4);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        var offers = fixture.Window.CurrentSearchState?.Offers ?? [];
+        Assert.Equal("Armageddon Thirst", offers[0].ItemName);
+        Assert.Equal("Sapphire Ring of Rejuvenation", offers[1].ItemName);
+        Assert.Equal("Magic seller", offers[1].SellerAccountName);
+        Assert.Equal("Iron Ring", offers[2].ItemName);
+        Assert.Equal("—", offers[3].ItemName);
+    }
+
+    [Fact]
     public async Task SearchAsync_DoesNotDisplayDuplicateFetchedResultIds()
     {
         var fixture = SearchFixture.Create();
@@ -840,6 +996,8 @@ public sealed class PriceCheckerSearchControllerTests
                     lastCharacterName: null,
                     accountName: null,
                     itemName: null,
+                    typeLine: null,
+                    baseType: null,
                     itemLevel: null),
             ],
             total: 3);
@@ -1346,7 +1504,11 @@ public sealed class PriceCheckerSearchControllerTests
         string originalText,
         ParsedModifierKind kind = ParsedModifierKind.Prefix,
         bool isSelected = false,
-        string? resolvedModifierId = "mod.test")
+        string? resolvedModifierId = "mod.test",
+        bool supportsValueBounds = false,
+        decimal? minimum = null,
+        decimal? maximum = null,
+        string? valueBoundsUnsupportedReason = null)
     {
         return new ResolvedSearchComponent
         {
@@ -1362,6 +1524,10 @@ public sealed class PriceCheckerSearchControllerTests
                 ? []
                 : ["stat.test"],
             IsSearchable = resolvedModifierId is not null,
+            SupportsValueBounds = supportsValueBounds,
+            ValueBoundsUnsupportedReason = valueBoundsUnsupportedReason,
+            RequestedMinimum = minimum,
+            RequestedMaximum = maximum,
             IsSelected = isSelected,
         };
     }
@@ -1421,6 +1587,8 @@ public sealed class PriceCheckerSearchControllerTests
         string? onlineLeague = null,
         string? rawIndexed = null,
         string? itemName = "Armoured Shell",
+        string? typeLine = "Titan Plate",
+        string? baseType = null,
         int? itemLevel = 85,
         DateTimeOffset? indexed = null)
     {
@@ -1430,7 +1598,8 @@ public sealed class PriceCheckerSearchControllerTests
             Item = new PathOfExileTradeFetchedItem
             {
                 Name = itemName,
-                TypeLine = "Titan Plate",
+                TypeLine = typeLine,
+                BaseType = baseType,
                 ItemLevel = itemLevel,
             },
             Listing = new PathOfExileTradeListing
@@ -1670,6 +1839,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
+        public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -1696,6 +1867,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
 
+        public List<IReadOnlyList<PriceCheckerModifierViewModel>> ModifierCollections { get; } = [];
+
         public int? OfferCapacity { get; set; }
 
         public PriceCheckerPlacement? GetDisplayedPlacement()
@@ -1711,6 +1884,7 @@ public sealed class PriceCheckerSearchControllerTests
         public void UpdateSearch(PriceCheckerSearchViewState state)
         {
             CurrentSearchState = state;
+            ModifierCollections.Add(state.Modifiers);
             if (OfferCapacity.HasValue)
             {
                 OfferCapacityChanged?.Invoke(
@@ -1770,6 +1944,19 @@ public sealed class PriceCheckerSearchControllerTests
             ModifierSelectionChanged?.Invoke(
                 this,
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
+        }
+
+        public void RaiseModifierBoundsChanged(int modifierIndex, string minimumText, string maximumText)
+        {
+            var modifier = CurrentSearchState?.Modifiers.ElementAtOrDefault(modifierIndex);
+            if (modifier is not null)
+            {
+                modifier.MinimumText = minimumText;
+                modifier.MaximumText = maximumText;
+            }
+            ModifierBoundsChanged?.Invoke(
+                this,
+                new PriceCheckerModifierBoundsChangedEventArgs(modifierIndex, minimumText, maximumText));
         }
 
         public void RaiseBaseCriterionToggleRequested()

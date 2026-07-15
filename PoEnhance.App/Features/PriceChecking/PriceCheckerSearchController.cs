@@ -25,6 +25,7 @@ internal sealed class PriceCheckerSearchController
     private readonly HashSet<string> fetchedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> displayedOfferIds = new(StringComparer.Ordinal);
     private readonly List<PriceCheckerOfferViewModel> displayedOffers = [];
+    private readonly Dictionary<int, ModifierBoundInput> modifierBoundInputs = [];
     private PriceCheckerSuccessfulSearchIdentity? successfulSearch;
     private int? paginationProviderTotal;
     private bool? paginationInexact;
@@ -50,6 +51,11 @@ internal sealed class PriceCheckerSearchController
 
     public PriceCheckerSearchViewState CurrentViewState { get; private set; }
 
+    public PriceCheckerDeveloperDiagnosticsSnapshot CurrentDeveloperDiagnostics { get; private set; } =
+        PriceCheckerDeveloperDiagnosticsSnapshot.Idle;
+
+    public event EventHandler<PriceCheckerDeveloperDiagnosticsSnapshot>? DeveloperDiagnosticsChanged;
+
     public void AttachWindow(IPriceCheckerWindow priceCheckerWindow)
     {
         ArgumentNullException.ThrowIfNull(priceCheckerWindow);
@@ -72,6 +78,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.TradeRequested += OnTradeRequested;
         priceCheckerWindow.OfferCapacityChanged += OnOfferCapacityChanged;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
+        priceCheckerWindow.ModifierBoundsChanged += OnModifierBoundsChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
@@ -88,6 +95,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.TradeRequested -= OnTradeRequested;
         priceCheckerWindow.OfferCapacityChanged -= OnOfferCapacityChanged;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
+        priceCheckerWindow.ModifierBoundsChanged -= OnModifierBoundsChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
@@ -128,6 +136,27 @@ internal sealed class PriceCheckerSearchController
             };
     }
 
+    public async Task<TradeSearchDraft> PrepareDraftAsync(
+        TradeSearchDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        try
+        {
+            return await priceCheckService
+                .PrepareEffectiveDraftAsync(draft, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return draft;
+        }
+    }
+
     public void UpdateCurrentDraft(
         TradeSearchDraft draft,
         TradeSearchValidationResult validationResult,
@@ -140,6 +169,7 @@ internal sealed class PriceCheckerSearchController
         CancelActiveRequest();
         ClearPaginationState();
         currentDraft = ResetModifierSelections(draft);
+        InitializeModifierBoundInputs(currentDraft);
         userSelectedBaseCriterion = currentDraft.Base.ActiveCriterion;
         currentPresentation = presentation ?? new PriceCheckerItemPresentation();
         currentValidationResult = ReferenceEquals(currentDraft, draft)
@@ -351,6 +381,43 @@ internal sealed class PriceCheckerSearchController
         ApplyState(CreateIdleOrValidationState());
     }
 
+    public void UpdateModifierBounds(int modifierIndex, string? minimumText, string? maximumText)
+    {
+        if (currentDraft is null || modifierIndex < 0 || modifierIndex >= currentDraft.ModifierFilters.Count ||
+            !currentDraft.ModifierFilters[modifierIndex].SupportsValueBounds)
+        {
+            return;
+        }
+
+        var input = new ModifierBoundInput(minimumText ?? string.Empty, maximumText ?? string.Empty);
+        modifierBoundInputs[modifierIndex] = input;
+        var component = currentDraft.ModifierFilters[modifierIndex];
+        var parsedMinimum = ParseBound(input.MinimumText);
+        var parsedMaximum = ParseBound(input.MaximumText);
+        var next = component with
+        {
+            RequestedMinimum = parsedMinimum.IsValid ? parsedMinimum.Value : component.RequestedMinimum,
+            RequestedMaximum = parsedMaximum.IsValid ? parsedMaximum.Value : component.RequestedMaximum,
+        };
+
+        if (next == component && !HasInvalidBoundInput(input))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            ModifierFilters = currentDraft.ModifierFilters
+                .Select((modifier, index) => index == modifierIndex ? next : modifier)
+                .ToArray(),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
     public void ToggleBaseCriterion()
     {
         if (currentDraft?.Base is not { } baseDraft)
@@ -445,6 +512,11 @@ internal sealed class PriceCheckerSearchController
         UpdateModifierSelection(e.ModifierIndex, e.IsSelected);
     }
 
+    private void OnModifierBoundsChanged(object? sender, PriceCheckerModifierBoundsChangedEventArgs e)
+    {
+        UpdateModifierBounds(e.ModifierIndex, e.MinimumText, e.MaximumText);
+    }
+
     private void OnBaseCriterionToggleRequested(object? sender, EventArgs e)
     {
         ToggleBaseCriterion();
@@ -505,6 +577,20 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
+    private PriceCheckerSearchViewState CreateBoundChangeInvalidatedState()
+    {
+        return CurrentViewState with
+        {
+            Status = PriceCheckerSearchViewStatus.Idle,
+            CanSearch = !isLoading,
+            CanLoadMore = false,
+            CanOpenTrade = false,
+            Message = "Ready to search.",
+            Summary = string.Empty,
+            Offers = [],
+        };
+    }
+
     private PriceCheckerSearchViewState? CreateLocalValidationState()
     {
         if (TrimLeague(leagueIdentifier) is null)
@@ -515,6 +601,13 @@ internal sealed class PriceCheckerSearchController
         if (currentDraft is null || currentValidationResult is null)
         {
             return ValidationState("Select a supported Trade search.");
+        }
+
+        if (modifierBoundInputs
+            .Where(pair => currentDraft.ModifierFilters.ElementAtOrDefault(pair.Key)?.IsSelected == true)
+            .Any(pair => HasInvalidBoundInput(pair.Value)))
+        {
+            return ValidationState("Modifier Min and Max must be finite decimal numbers.");
         }
 
         if (!currentValidationResult.IsValid)
@@ -855,8 +948,62 @@ internal sealed class PriceCheckerSearchController
                 Text = SafeModifierText(modifier.OriginalText),
                 SectionLabel = SectionLabel(modifier),
                 IsSelected = modifier.IsSelected,
+                SupportsValueBounds = modifier.SupportsValueBounds,
+                ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
+                MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
+                MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
             })
             .ToArray();
+    }
+
+    private void InitializeModifierBoundInputs(TradeSearchDraft draft)
+    {
+        modifierBoundInputs.Clear();
+        for (var index = 0; index < draft.ModifierFilters.Count; index++)
+        {
+            var modifier = draft.ModifierFilters[index];
+            modifierBoundInputs[index] = new ModifierBoundInput(
+                FormatBound(modifier.RequestedMinimum),
+                FormatBound(modifier.RequestedMaximum));
+        }
+    }
+
+    private string ModifierBoundText(int index, decimal? value, bool minimum)
+    {
+        return modifierBoundInputs.TryGetValue(index, out var input)
+            ? (minimum ? input.MinimumText : input.MaximumText)
+            : FormatBound(value);
+    }
+
+    private static BoundParseResult ParseBound(string? text)
+    {
+        var trimmed = text?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return BoundParseResult.Empty;
+        }
+
+        if (trimmed.Contains(' ') || trimmed.Contains("'", StringComparison.Ordinal) ||
+            trimmed.Count(character => character is '.' or ',') > 1 ||
+            !decimal.TryParse(trimmed.Replace(',', '.'), System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value))
+        {
+            return BoundParseResult.Invalid;
+        }
+
+        return new BoundParseResult(true, value);
+    }
+
+    private static bool HasInvalidBoundInput(ModifierBoundInput input) =>
+        !ParseBound(input.MinimumText).IsValid || !ParseBound(input.MaximumText).IsValid;
+
+    private static string FormatBound(decimal? value) => value?.ToString("G29", CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private sealed record ModifierBoundInput(string MinimumText, string MaximumText);
+
+    private readonly record struct BoundParseResult(bool IsValid, decimal? Value = null)
+    {
+        public static BoundParseResult Empty => new(true, null);
+        public static BoundParseResult Invalid => new(false, null);
     }
 
     private static TradeSearchDraft ResetModifierSelections(TradeSearchDraft draft)
@@ -938,7 +1085,10 @@ internal sealed class PriceCheckerSearchController
 
     private static string ItemName(PathOfExileTradeFetchedItem item)
     {
-        return TrimToNull(item.Name) ?? PriceCheckerRelativeTimeFormatter.UnavailableText;
+        return TrimToNull(item.Name) ??
+            TrimToNull(item.TypeLine) ??
+            TrimToNull(item.BaseType) ??
+            PriceCheckerRelativeTimeFormatter.UnavailableText;
     }
 
     private static string? ListedToolTip(PathOfExileTradeListing listing)
@@ -981,5 +1131,29 @@ internal sealed class PriceCheckerSearchController
     {
         CurrentViewState = state;
         window?.UpdateSearch(state);
+        UpdateDeveloperDiagnostics(state);
+    }
+
+    private void UpdateDeveloperDiagnostics(PriceCheckerSearchViewState state)
+    {
+        var diagnostics = currentValidationResult?.Diagnostics
+            .Select(diagnostic => new PriceCheckerDeveloperDiagnostic(
+                diagnostic.Code,
+                diagnostic.Message))
+            .ToList() ?? [];
+        if (currentDraft is not null)
+        {
+            diagnostics.AddRange(currentDraft.ModifierFilters
+                .Where(modifier => modifier.IsSelected && !modifier.SupportsValueBounds)
+                .Select(modifier => new PriceCheckerDeveloperDiagnostic(
+                    "MODIFIER_BOUNDS_UNSUPPORTED",
+                    modifier.ValueBoundsUnsupportedReason ??
+                        "The selected modifier does not expose a faithful scalar value bound.")));
+        }
+
+        CurrentDeveloperDiagnostics = new PriceCheckerDeveloperDiagnosticsSnapshot(
+            state.Status.ToString(),
+            diagnostics);
+        DeveloperDiagnosticsChanged?.Invoke(this, CurrentDeveloperDiagnostics);
     }
 }

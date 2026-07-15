@@ -72,7 +72,11 @@ Adds 10 to 20 Fire Damage
     [Fact]
     public void Resolve_CraftedModifierWithReliableNameAndKind_UsesUnderlyingGenerationKind()
     {
-        var catalog = CreateCatalog(Modifier("mod.prefix.upgraded", "Upgraded", ModifierGenerationType.Prefix));
+        var catalog = CreateCatalog(Modifier(
+            "mod.prefix.upgraded",
+            "Upgraded",
+            ModifierGenerationType.Prefix,
+            "crafted"));
         var item = ParseWithModifier("""
 { Master Crafted Prefix Modifier "Upgraded" (Rank: 1) - Damage }
 Adds 1 to 2 Physical Damage

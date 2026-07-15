@@ -19,6 +19,7 @@ internal sealed class PriceCheckerWindowController
     private readonly IPathOfExileForegroundWindowDetector foregroundWindowDetector;
     private readonly IPriceCheckerDeferredActionScheduler deferredActionScheduler;
     private readonly PriceCheckerSearchController searchController;
+    private readonly IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter;
     private IPriceCheckerWindow? window;
     private PathOfExileClientBounds? currentClientBounds;
     private PriceCheckerPlacementKey? currentPlacementKey;
@@ -44,7 +45,8 @@ internal sealed class PriceCheckerWindowController
             new CoreTradeSearchDraftValidatorAdapter(),
             new PathOfExileForegroundWindowDetector(),
             new WpfPriceCheckerDeferredActionScheduler(),
-            new PriceCheckerSearchController(priceCheckService))
+            new PriceCheckerSearchController(priceCheckService),
+            PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild())
     {
     }
 
@@ -57,7 +59,8 @@ internal sealed class PriceCheckerWindowController
         ITradeSearchDraftValidator draftValidator,
         IPathOfExileForegroundWindowDetector foregroundWindowDetector,
         IPriceCheckerDeferredActionScheduler deferredActionScheduler,
-        PriceCheckerSearchController searchController)
+        PriceCheckerSearchController searchController,
+        IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter = null)
     {
         this.clientBoundsProvider = clientBoundsProvider;
         this.placementCalculator = placementCalculator;
@@ -68,6 +71,8 @@ internal sealed class PriceCheckerWindowController
         this.foregroundWindowDetector = foregroundWindowDetector;
         this.deferredActionScheduler = deferredActionScheduler;
         this.searchController = searchController;
+        this.developerDiagnosticsPresenter = developerDiagnosticsPresenter;
+        searchController.DeveloperDiagnosticsChanged += OnDeveloperDiagnosticsChanged;
     }
 
     public async Task<PriceCheckerWindowUpdateResult> ShowOrUpdateAsync(
@@ -89,15 +94,24 @@ internal sealed class PriceCheckerWindowController
             return failure;
         }
 
+        var preparedDraft = await searchController
+            .PrepareDraftAsync(update.Draft, cancellationToken);
         var presentation = await searchController
-            .PreparePresentationAsync(update.Draft, update.Presentation, cancellationToken);
+            .PreparePresentationAsync(preparedDraft, update.Presentation, cancellationToken);
         if (requestGeneration != contentGeneration)
         {
             return PriceCheckerWindowUpdateResult.Failure(
                 "Price Checker update was superseded by a newer item");
         }
 
-        return PublishUpdate(update with { Presentation = presentation });
+        return PublishUpdate(update with
+        {
+            Draft = preparedDraft,
+            ValidationResult = ReferenceEquals(preparedDraft, update.Draft)
+                ? update.ValidationResult
+                : draftValidator.Validate(preparedDraft),
+            Presentation = presentation,
+        });
     }
 
     private bool TryPrepareUpdate(
@@ -186,6 +200,9 @@ internal sealed class PriceCheckerWindowController
             currentHorizontalCorrection,
             currentPlacement.Left);
         priceCheckerWindow.ShowInactive();
+        developerDiagnosticsPresenter?.ShowOrUpdate(
+            searchController.CurrentDeveloperDiagnostics,
+            clientBounds);
 
         return PriceCheckerWindowUpdateResult.Success();
     }
@@ -232,6 +249,7 @@ internal sealed class PriceCheckerWindowController
         horizontalResizeSession = null;
         horizontalResizeUpdateScheduled = false;
         searchController.DetachWindow(closedWindow);
+        developerDiagnosticsPresenter?.Close();
         closedWindow.Closed -= OnWindowClosed;
         closedWindow.PanelActivated -= OnWindowPanelActivated;
         closedWindow.PanelDeactivated -= OnWindowPanelDeactivated;
@@ -251,6 +269,16 @@ internal sealed class PriceCheckerWindowController
         currentPanelWidth = null;
         isAutoCloseArmed = false;
         isPinned = false;
+    }
+
+    private void OnDeveloperDiagnosticsChanged(
+        object? sender,
+        PriceCheckerDeveloperDiagnosticsSnapshot snapshot)
+    {
+        if (currentClientBounds is not null)
+        {
+            developerDiagnosticsPresenter?.ShowOrUpdate(snapshot, currentClientBounds);
+        }
     }
 
     private void OnWindowPanelActivated(object? sender, EventArgs e)

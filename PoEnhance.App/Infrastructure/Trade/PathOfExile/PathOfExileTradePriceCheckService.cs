@@ -45,6 +45,24 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             : await filterCatalogProvider.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<TradeSearchDraft> PrepareEffectiveDraftAsync(
+        TradeSearchDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        if (draft.ModifierFilters.Count == 0)
+        {
+            return draft;
+        }
+
+        var catalogResult = await statCatalogProvider
+            .GetCatalogAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return catalogResult.IsSuccess && catalogResult.Catalog is not null
+            ? ResolveProviderComponents(draft, catalogResult.Catalog)
+            : draft;
+    }
+
     public async Task<PathOfExileTradePriceCheckResult> CheckAsync(
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
@@ -575,7 +593,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ? match.Candidates
             : match.InitialCandidates;
 
-        return component with
+        var resolved = component with
         {
             ProviderResolutionStatus = providerStatus,
             ProviderStatId = match.ExactCandidate?.StatId,
@@ -588,6 +606,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 .ToArray(),
             ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
         };
+        return providerStatus == SearchComponentProviderResolutionStatus.Exact
+            ? PathOfExileTradeModifierBoundProjector.Project(resolved, match.ExactCandidate)
+            : resolved;
     }
 
     private static bool CanResolveProviderComponent(ResolvedSearchComponent component)

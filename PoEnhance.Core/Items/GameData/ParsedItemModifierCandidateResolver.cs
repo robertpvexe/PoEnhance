@@ -106,6 +106,50 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 eligibilityCandidateCount: 0);
         }
 
+        if (modifier.IsCrafted)
+        {
+            var craftedCandidates = ToReadOnly(kindCandidates.Where(candidate =>
+                string.Equals(Normalize(candidate.Domain), "crafted", StringComparison.OrdinalIgnoreCase)));
+            if (craftedCandidates.Count == 0)
+            {
+                return Unknown(
+                    index,
+                    modifier,
+                    generationType,
+                    candidates: [],
+                    ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound,
+                    "No crafted-domain catalog modifier matched the parsed modifier name and generation type.",
+                    nameCandidates.Count,
+                    kindCandidates.Count,
+                    eligibilityCandidateCount: 0);
+            }
+
+            if (craftedCandidates.Count == 1)
+            {
+                return MatchedWithoutEligibility(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    craftedCandidates[0],
+                    nameCandidates.Count,
+                    kindCandidates.Count);
+            }
+
+            // Crafted modifiers belong to the catalog's crafted domain rather than the
+            // item's domain. Their copied provenance and stat/range text provide the
+            // appropriate evidence; ordinary item spawn-weight eligibility does not.
+            return ResolveTextSignatures(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                nameCandidates.Count,
+                kindCandidates.Count,
+                craftedCandidates,
+                eligibilityExcludedCandidates: []);
+        }
+
         if (eligibilityContext is null)
         {
             return kindCandidates.Count == 1

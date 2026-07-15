@@ -9,6 +9,13 @@ internal interface IPathOfExileTradePriceCheckService
 
     TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft);
 
+    Task<TradeSearchDraft> PrepareEffectiveDraftAsync(
+        TradeSearchDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ResolveEffectiveDraft(draft));
+    }
+
     Task<string?> LoadCategoryDisplayLabelAsync(
         TradeSearchDraft draft,
         CancellationToken cancellationToken = default);

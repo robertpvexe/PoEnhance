@@ -106,21 +106,25 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     }
 
     [Fact]
-    public void PriceCheckerModifierUi_DoesNotExposeProviderStatIdsMinMaxTierOrAdvancedControls()
+    public void PriceCheckerModifierUi_ExposesBoundTextOnlyAndNoProviderControls()
     {
-        var propertyNames = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierViewModel)
+        var viewModelType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierViewModel);
+        var properties = viewModelType
             .GetProperties()
-            .Select(property => property.Name)
             .ToArray();
+        var propertyNames = properties.Select(property => property.Name).ToArray();
+
+        Assert.Equal(typeof(string), viewModelType.GetProperty("MinimumText")?.PropertyType);
+        Assert.Equal(typeof(string), viewModelType.GetProperty("MaximumText")?.PropertyType);
         Assert.DoesNotContain(propertyNames, name =>
             Contains(name, "StatId") ||
             Contains(name, "TradeStat") ||
             Contains(name, "Provider") ||
-            Contains(name, "Minimum") ||
-            Contains(name, "Maximum") ||
-            Contains(name, "Min") ||
-            Contains(name, "Max") ||
             Contains(name, "Tier"));
+        Assert.DoesNotContain(properties.Select(property => property.PropertyType), type =>
+            Contains(type, "PathOfExileTrade") ||
+            Contains(type, "Json") ||
+            Contains(type, "Provider"));
 
         var xaml = File.ReadAllText(Path.Combine(
             RepositoryRoot(),
@@ -134,9 +138,44 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         Assert.DoesNotContain("TradeStat", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RequestedMinimum", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RequestedMaximum", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PathOfExileTrade", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Json", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Slider", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Tier", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("AdvancedFilter", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SelectAll", xaml, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ModifierBoundProjection_HasNoItemModifierBaseOrProviderStatIdentityExceptions()
+    {
+        var root = RepositoryRoot();
+        var source = string.Join(
+            Environment.NewLine,
+            File.ReadAllText(Path.Combine(
+                root,
+                "PoEnhance.Core",
+                "Trade",
+                "ModifierBoundDefaults.cs")),
+            File.ReadAllText(Path.Combine(
+                root,
+                "PoEnhance.App",
+                "Infrastructure",
+                "Trade",
+                "PathOfExile",
+                "PathOfExileTradeModifierBoundProjector.cs")));
+
+        Assert.DoesNotContain("ProviderStatId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolvedModifierId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolvedModifierName", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ParsedModifierName", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DisplayName", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ParsedBaseType", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("explicit.stat_", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cold Damage", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fire Damage", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lightning Damage", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Physical Damage", source, StringComparison.Ordinal);
     }
 
     [Fact]

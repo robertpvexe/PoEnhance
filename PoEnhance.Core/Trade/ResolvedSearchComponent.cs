@@ -52,6 +52,18 @@ public sealed record ResolvedSearchComponent
 
     public decimal? RequestedMaximum { get; init; }
 
+    public bool SupportsValueBounds { get; init; }
+
+    public string? ValueBoundsUnsupportedReason { get; init; }
+
+    public ModifierBoundShape ValueBoundShape { get; init; }
+
+    public IReadOnlyList<decimal> ObservedNumericValues { get; init; } = [];
+
+    public IReadOnlyList<IReadOnlyList<string>> ValueBoundTranslationHandlers { get; init; } = [];
+
+    public ModifierBoundDirection DefaultBoundDirection { get; init; } = ModifierBoundDirection.Minimum;
+
     public bool IsSelected { get; init; }
 
     public SearchComponentProviderResolutionStatus ProviderResolutionStatus { get; init; } =

@@ -16,13 +16,19 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
     public static IEnumerable<object[]> CumulativeSelections()
     {
-        yield return [Array.Empty<string>(), Array.Empty<string>()];
-        yield return [new[] { "Cold Damage" }, new[] { "explicit.stat_1037193709" }];
-        yield return [new[] { "Cold Damage", "Fire Damage" }, new[] { "explicit.stat_1037193709", "explicit.stat_709508406" }];
+        yield return [Array.Empty<string>(), Array.Empty<string>(), Array.Empty<decimal>()];
+        yield return [new[] { "Cold Damage" }, new[] { "explicit.stat_1037193709" }, new[] { 63.5m }];
+        yield return
+        [
+            new[] { "Cold Damage", "Fire Damage" },
+            new[] { "explicit.stat_1037193709", "explicit.stat_709508406" },
+            new[] { 63.5m, 104.5m },
+        ];
         yield return
         [
             new[] { "Cold Damage", "Fire Damage", "Lightning Damage" },
             new[] { "explicit.stat_1037193709", "explicit.stat_709508406", "explicit.stat_3336890334" },
+            new[] { 63.5m, 104.5m, 82m },
         ];
         yield return
         [
@@ -34,14 +40,16 @@ public sealed class PathOfExileTradeBowProductionJsonTests
                 "explicit.stat_3336890334",
                 "explicit.stat_3261801346",
             },
+            new[] { 63.5m, 104.5m, 82m, 53m },
         ];
     }
 
     [Theory]
     [MemberData(nameof(CumulativeSelections))]
-    public async Task SearchAsync_RangerBowCumulativeSelectionsReachFinalJsonPresenceOnly(
+    public async Task SearchAsync_RangerBowCumulativeSelectionsReachFinalJsonWithProjectedBounds(
         IReadOnlyList<string> selectedRowFragments,
-        IReadOnlyList<string> expectedProviderStatIds)
+        IReadOnlyList<string> expectedProviderStatIds,
+        IReadOnlyList<decimal> expectedMinimums)
     {
         var fixture = ProductionTradeFixture.Create();
         fixture.Controller.UpdateCurrentDraft(fixture.RangerBowDraft, fixture.RangerBowValidation);
@@ -94,15 +102,20 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             .ToArray();
         Assert.Equal(expectedProviderStatIds, providerStatIds);
         Assert.Equal(filters.Length, providerStatIds.Distinct(StringComparer.Ordinal).Count());
-        Assert.All(filters, filter =>
+        Assert.Equal(filters.Length, expectedMinimums.Count);
+        for (var index = 0; index < filters.Length; index++)
         {
-            Assert.False(filter.TryGetProperty("value", out _));
+            var filter = filters[index];
+            var value = filter.GetProperty("value");
+            Assert.Equal(expectedMinimums[index], value.GetProperty("min").GetDecimal());
+            Assert.Equal(JsonValueKind.Number, value.GetProperty("min").ValueKind);
+            Assert.False(value.TryGetProperty("max", out _));
             Assert.False(filter.TryGetProperty("min", out _));
             Assert.False(filter.TryGetProperty("max", out _));
             Assert.False(filter.TryGetProperty("pseudo", out _));
             Assert.False(filter.TryGetProperty("disabled", out _));
-            Assert.Single(filter.EnumerateObject());
-        });
+            Assert.Equal(2, filter.EnumerateObject().Count());
+        }
     }
 
     private sealed class ProductionTradeFixture
@@ -383,6 +396,8 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
+        public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;

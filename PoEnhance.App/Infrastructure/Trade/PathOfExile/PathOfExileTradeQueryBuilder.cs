@@ -146,6 +146,13 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             .Select(filter => new PathOfExileTradeSearchStatFilter
             {
                 Id = filter.StatId.Trim(),
+                Value = filter.Minimum.HasValue || filter.Maximum.HasValue
+                    ? new PathOfExileTradeSearchStatValue
+                    {
+                        Min = filter.Minimum,
+                        Max = filter.Maximum,
+                    }
+                    : null,
             })
             .ToArray();
 

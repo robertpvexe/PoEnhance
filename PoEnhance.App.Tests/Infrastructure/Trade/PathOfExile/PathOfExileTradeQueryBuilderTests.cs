@@ -581,6 +581,21 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_ScalarBoundsSerializeAsInvariantJsonNumbersAndOmitEmptyValues()
+    {
+        var bounded = ProviderFilter(0, "explicit.stat_life") with { Minimum = -2.83m, Maximum = 60m };
+        var result = BuildSuccessful(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            [bounded]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var value = document.RootElement.GetProperty("query").GetProperty("stats")[0]
+            .GetProperty("filters")[0].GetProperty("value");
+        Assert.Equal(-2.83m, value.GetProperty("min").GetDecimal());
+        Assert.Equal(60m, value.GetProperty("max").GetDecimal());
+    }
+
+    [Fact]
     public void Build_SharedPresenceFilterMissingSelectedSourceStillBlocks()
     {
         var result = builder.Build(

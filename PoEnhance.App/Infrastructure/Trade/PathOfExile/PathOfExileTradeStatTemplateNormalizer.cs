@@ -32,6 +32,11 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
             StringComparison.OrdinalIgnoreCase);
     }
 
+    public static int CountNumericPlaceholders(string? text)
+    {
+        return NormalizeText(text).Count(character => character == '#');
+    }
+
     public static PathOfExileTradeStatModifierNormalization NormalizeModifierText(
         string? text)
     {

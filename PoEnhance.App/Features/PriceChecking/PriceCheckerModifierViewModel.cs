@@ -9,4 +9,14 @@ public sealed record PriceCheckerModifierViewModel
     public string SectionLabel { get; init; } = string.Empty;
 
     public bool IsSelected { get; init; }
+
+    public bool SupportsValueBounds { get; init; }
+
+    public string? ValueBoundsUnsupportedReason { get; init; }
+
+    public bool CanEditBounds => IsSelected && SupportsValueBounds;
+
+    public string MinimumText { get; set; } = string.Empty;
+
+    public string MaximumText { get; set; } = string.Empty;
 }

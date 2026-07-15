@@ -51,6 +51,19 @@ internal sealed record PathOfExileTradeSearchStatFilter
 {
     [JsonPropertyOrder(0)]
     public required string Id { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyOrder(1)]
+    public PathOfExileTradeSearchStatValue? Value { get; init; }
+}
+
+internal sealed record PathOfExileTradeSearchStatValue
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? Min { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? Max { get; init; }
 }
 
 internal sealed record PathOfExileTradeSearchFilterGroup

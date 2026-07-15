@@ -36,6 +36,35 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_ResolvedScalarBoundsTravelWithTheExactProviderStat()
+    {
+        var result = mapper.Map(Draft([
+            Modifier("52% increased Physical Damage", providerStatId: "explicit.physical") with
+            {
+                SupportsValueBounds = true,
+                RequestedMinimum = 40m,
+                RequestedMaximum = 60m,
+            },
+        ]));
+
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(40m, filter.Minimum);
+        Assert.Equal(60m, filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_SharedProviderStatWithIncompatibleBoundsFailsExplicitly()
+    {
+        var result = mapper.Map(Draft([
+            Modifier("52% increased Physical Damage", providerStatId: "explicit.physical") with { SupportsValueBounds = true, RequestedMinimum = 40m },
+            Modifier("39% increased Physical Damage", providerStatId: "explicit.physical") with { SupportsValueBounds = true, RequestedMinimum = 50m },
+        ]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradeSelectedModifierMappingDiagnosticCodes.IncompatibleBounds, Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Map_SelectedComponentsSharingPresenceStatProduceOneFilterWithBothSources()
     {
         var result = mapper.Map(

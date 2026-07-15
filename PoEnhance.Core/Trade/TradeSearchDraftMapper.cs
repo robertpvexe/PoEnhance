@@ -357,6 +357,7 @@ public sealed class TradeSearchDraftMapper
     {
         var statIds = StatIds(stats).ToArray();
         var isSearchable = exactCandidate is not null && statIds.Length > 0;
+        var boundDefault = ModifierBoundDefaults.Create(exactCandidate, stats, componentLines, catalog);
 
         return new ResolvedSearchComponent
         {
@@ -389,6 +390,18 @@ public sealed class TradeSearchDraftMapper
                 : exactCandidate is null
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
+            SupportsValueBounds = boundDefault.IsSupported,
+            ValueBoundsUnsupportedReason = boundDefault.UnsupportedReason,
+            ValueBoundShape = boundDefault.Shape,
+            ObservedNumericValues = boundDefault.ObservedValues,
+            ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
+            DefaultBoundDirection = boundDefault.Direction,
+            RequestedMinimum = boundDefault.IsSupported && boundDefault.Direction == ModifierBoundDirection.Minimum
+                ? boundDefault.ObservedCanonicalValue
+                : null,
+            RequestedMaximum = boundDefault.IsSupported && boundDefault.Direction == ModifierBoundDirection.Maximum
+                ? boundDefault.ObservedCanonicalValue
+                : null,
             IsSelected = false,
         };
     }

@@ -42,6 +42,38 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Equal(expected, PriceCheckerWindow.FormatTitle(itemName, baseName));
     }
 
+    [Theory]
+    [InlineData("Normal", "PriceCheckerTitleNormalForegroundBrush")]
+    [InlineData("Magic", "PriceCheckerTitleMagicForegroundBrush")]
+    [InlineData("Rare", "PriceCheckerTitleRareForegroundBrush")]
+    [InlineData("Unique", "PriceCheckerTitleUniqueForegroundBrush")]
+    public void TitleForeground_UsesTheParsedRarityBrush(string rarity, string expectedResourceKey)
+    {
+        Assert.Equal(expectedResourceKey, PriceCheckerWindow.TitleForegroundResourceKey(rarity));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Unsupported")]
+    public void TitleForeground_UnknownRarityFallsBackToNormal(string? rarity)
+    {
+        Assert.Equal(
+            "PriceCheckerTitleNormalForegroundBrush",
+            PriceCheckerWindow.TitleForegroundResourceKey(rarity));
+    }
+
+    [Fact]
+    public void TitleForeground_ChangesWhenTheCurrentItemRarityChanges()
+    {
+        var firstItemBrush = PriceCheckerWindow.TitleForegroundResourceKey("Magic");
+        var replacementItemBrush = PriceCheckerWindow.TitleForegroundResourceKey("Unique");
+
+        Assert.Equal("PriceCheckerTitleMagicForegroundBrush", firstItemBrush);
+        Assert.Equal("PriceCheckerTitleUniqueForegroundBrush", replacementItemBrush);
+        Assert.NotEqual(firstItemBrush, replacementItemBrush);
+    }
+
     [Fact]
     public void ItemPresentation_UsesAlreadyParsedSocketPropertyAndOnlyShowsLinksWhenPresent()
     {
@@ -97,6 +129,26 @@ Item Level: 82
 
         Assert.Contains("Grid.Column=\"1\"", title);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", title);
+        Assert.DoesNotContain("Foreground=", title);
+        Assert.Contains("Color=\"White\"", ExtractElement(
+            xaml,
+            "<SolidColorBrush x:Key=\"PriceCheckerTitleNormalForegroundBrush\"",
+            "/>"));
+        Assert.Contains("Color=\"#8888FF\"", ExtractElement(
+            xaml,
+            "<SolidColorBrush x:Key=\"PriceCheckerTitleMagicForegroundBrush\"",
+            "/>"));
+        Assert.Contains("Color=\"#F3D88B\"", ExtractElement(
+            xaml,
+            "<SolidColorBrush x:Key=\"PriceCheckerTitleRareForegroundBrush\"",
+            "/>"));
+        Assert.Contains("Color=\"#AF6025\"", ExtractElement(
+            xaml,
+            "<SolidColorBrush x:Key=\"PriceCheckerTitleUniqueForegroundBrush\"",
+            "/>"));
+        Assert.Contains(
+            "TitleForegroundResourceKey(draft.Rarity)",
+            LoadWindowCodeBehind());
         Assert.Contains("x:Name=\"PinToggleButton\"", xaml);
         Assert.Contains("Width=\"20\"", ExtractElement(reset, "<Canvas", "</Canvas>"));
         Assert.Equal(3, reset.Split("<Path x:Name=", StringSplitOptions.None).Length - 1);
@@ -129,6 +181,11 @@ Item Level: 82
         Assert.DoesNotContain("ModifierTextButtonStyle", xaml);
         Assert.Contains("Text=\"Min\"", xaml);
         Assert.Contains("Text=\"Max\"", xaml);
+        Assert.Contains("IsEnabled=\"{Binding CanEditBounds}\"", modifiers);
+        Assert.Contains("Text=\"{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
+        Assert.Contains("Text=\"{Binding MaximumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
+        Assert.Contains("TextChanged=\"OnModifierBoundTextChanged\"", modifiers);
+        Assert.Contains("ReferenceEquals(ModifierListBox.ItemsSource, state.Modifiers)", LoadWindowCodeBehind());
         Assert.Contains("IsEnabled=\"False\"", advanced);
         Assert.Contains("x:Name=\"SearchButton\"", xaml);
         Assert.Contains("x:Name=\"LoadMoreButton\"", xaml);
@@ -136,10 +193,48 @@ Item Level: 82
     }
 
     [Fact]
+    public void WindowXaml_UsesCompactInlineSearchStatusAndContainsNoDeveloperDiagnostics()
+    {
+        var xaml = LoadWindowXaml();
+        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"4\"", "</Grid>");
+        var results = ExtractElement(xaml, "<Grid x:Name=\"ResultsPanel\"", "</Grid>");
+
+        Assert.Contains("x:Name=\"SearchStatusText\"", actionRow);
+        Assert.Contains("x:Name=\"SearchSummaryText\"", actionRow);
+        Assert.DoesNotContain("ValidationPanel", xaml);
+        Assert.DoesNotContain("ValidationTextBox", xaml);
+        Assert.DoesNotContain("DebugPanel", xaml);
+        Assert.DoesNotContain("DebugStateText", xaml);
+        Assert.DoesNotContain("Validation", xaml);
+        Assert.Contains("Grid.Row=\"5\"", results);
+    }
+
+    [Fact]
+    public void WindowXaml_ModifierBoundColumnsAreWideAlignedAndFitInsideTheRow()
+    {
+        var xaml = LoadWindowXaml();
+        var header = ExtractElement(xaml, "<Grid Grid.Row=\"2\"", "</Grid>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var row = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
+
+        Assert.Equal(2, header.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("Margin=\"0,10,6,4\"", header);
+        Assert.Equal(2, row.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("<ColumnDefinition Width=\"*\"", header);
+        Assert.Contains("<ColumnDefinition Width=\"*\"", row);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", row);
+        Assert.Contains("Grid.Column=\"2\"", row);
+        Assert.Contains("Margin=\"3,0\"", row);
+        Assert.Contains("Grid.Column=\"3\"", row);
+        Assert.Equal(2, row.Split("Margin=\"3,0\"", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("MinWidth=\"64\"", row);
+    }
+
+    [Fact]
     public void WindowXaml_AddsTheCompactTradeButtonBesideTheDisabledAdvancedPlaceholder()
     {
         var xaml = LoadWindowXaml();
-        var actionRow = ExtractElement(xaml, "<StackPanel Grid.Row=\"5\"", "</StackPanel>");
+        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"4\"", "</Grid>");
         var trade = ExtractElement(xaml, "<Button x:Name=\"TradeButton\"", "</Button>");
         var advanced = ExtractElement(actionRow, "<ToggleButton Grid.Column=\"2\"", "/>");
 
@@ -155,6 +250,24 @@ Item Level: 82
         Assert.Contains("<Path", trade);
         Assert.DoesNotContain("TextBlock", trade);
         Assert.Contains("Margin=\"6,0,8,0\"", advanced);
+    }
+
+    [Fact]
+    public void WindowXaml_StylesModifierBoundsForTheDarkTheme()
+    {
+        var xaml = LoadWindowXaml();
+        var style = ExtractElement(xaml, "<Style x:Key=\"ModifierBoundTextBoxStyle\"", "</Style>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+
+        Assert.Contains("TextAlignment", style);
+        Assert.Contains("VerticalContentAlignment", style);
+        Assert.Contains("Value=\"13\"", style);
+        Assert.Contains("Value=\"2,1\"", style);
+        Assert.Contains("Value=\"0.75\"", style);
+        Assert.Contains("Value=\"24\"", style);
+        Assert.Contains("CornerRadius=\"3\"", style);
+        Assert.Contains("Background", style);
+        Assert.Contains("Style=\"{StaticResource ModifierBoundTextBoxStyle}\"", modifiers);
     }
 
     [Fact]
@@ -197,6 +310,16 @@ Item Level: 82
             "Features",
             "PriceChecking",
             "PriceCheckerWindow.xaml"));
+    }
+
+    private static string LoadWindowCodeBehind()
+    {
+        return File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "PoEnhance.App",
+            "Features",
+            "PriceChecking",
+            "PriceCheckerWindow.xaml.cs"));
     }
 
     private static string FindRepositoryRoot()

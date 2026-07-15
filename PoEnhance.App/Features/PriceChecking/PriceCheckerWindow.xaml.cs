@@ -73,6 +73,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
+    public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
+
     public event EventHandler? BaseCriterionToggleRequested;
 
     public event EventHandler<bool>? PinStateChanged;
@@ -124,6 +126,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         TitleDisplayNameText.Text = FormatTitle(
             draft.DisplayName,
             draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
+        TitleDisplayNameText.Foreground = (Brush)FindResource(
+            TitleForegroundResourceKey(draft.Rarity));
         ItemLevelText.Text = $"Item Level: {draft.ItemLevel?.ToString() ?? NotDetectedText}";
         BaseCriterionButton.Content = FormatActiveCriterion(
             draft.Base.ActiveCriterion,
@@ -142,10 +146,6 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ModifierCountText.Text = FormatModifierCount(
             draft.ModifierFilters.Count(modifier => modifier.IsSelected),
             draft.ModifierFilters.Count);
-        ValidationTextBox.Text = FormatValidation(state.ValidationResult);
-        ValidationPanel.Visibility = state.ValidationResult.Diagnostics.Count == 0
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         ScheduleOfferCapacityReport();
     }
 
@@ -164,7 +164,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ModifierCountText.Text = FormatModifierCount(
             state.SelectedModifierCount,
             state.ModifierCount);
-        ModifierListBox.ItemsSource = state.Modifiers;
+        if (!ReferenceEquals(ModifierListBox.ItemsSource, state.Modifiers))
+        {
+            ModifierListBox.ItemsSource = state.Modifiers;
+        }
         OfferListBox.ItemsSource = state.Offers;
         OfferColumnHeader.Visibility = Visibility.Visible;
         OfferListBox.Visibility = state.Offers.Count == 0
@@ -376,6 +379,22 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 ((CheckBox)sender).IsChecked == true));
     }
 
+    private void OnModifierBoundTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: PriceCheckerModifierViewModel modifier })
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ModifierBoundsChanged?.Invoke(
+            this,
+            new PriceCheckerModifierBoundsChangedEventArgs(
+                modifier.SourceIndex,
+                modifier.MinimumText,
+                modifier.MaximumText));
+    }
+
     private void OnModifierRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (HasModifierInteractiveChild(e.OriginalSource as DependencyObject) ||
@@ -403,33 +422,6 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         Close();
     }
 
-    private static string FormatValidation(
-        Core.Trade.TradeSearchValidationResult validationResult)
-    {
-        var lines = new List<string>
-        {
-            validationResult.IsValid
-                ? "State: Locally valid"
-                : "State: Has local validation errors",
-        };
-
-        if (validationResult.Diagnostics.Count == 0)
-        {
-            lines.Add("Diagnostics: None");
-            return string.Join(Environment.NewLine, lines);
-        }
-
-        lines.Add("Diagnostics:");
-        lines.AddRange(validationResult.Diagnostics.Select(diagnostic =>
-        {
-            var target = diagnostic.ModifierFilterIndex.HasValue
-                ? $" [modifier {diagnostic.ModifierFilterIndex.Value}]"
-                : string.Empty;
-            return $"{diagnostic.Severity}: {diagnostic.Code}{target} - {diagnostic.Message}";
-        }));
-        return string.Join(Environment.NewLine, lines);
-    }
-
     private static string DisplayValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
@@ -439,7 +431,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     {
         while (source is not null)
         {
-            if (source is ButtonBase)
+            if (source is ButtonBase or TextBox)
             {
                 return true;
             }
@@ -471,6 +463,20 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             new[] { displayName, baseName }
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value!.Trim()));
+    }
+
+    internal static string TitleForegroundResourceKey(string? rarity)
+    {
+        return rarity?.Trim() switch
+        {
+            var value when string.Equals(value, "Magic", StringComparison.OrdinalIgnoreCase) =>
+                "PriceCheckerTitleMagicForegroundBrush",
+            var value when string.Equals(value, "Rare", StringComparison.OrdinalIgnoreCase) =>
+                "PriceCheckerTitleRareForegroundBrush",
+            var value when string.Equals(value, "Unique", StringComparison.OrdinalIgnoreCase) =>
+                "PriceCheckerTitleUniqueForegroundBrush",
+            _ => "PriceCheckerTitleNormalForegroundBrush",
+        };
     }
 
     private static double? SelectRenderedDimension(double actualValue, double requestedValue)

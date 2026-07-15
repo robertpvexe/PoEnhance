@@ -56,6 +56,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         var fixture = ProductionTradeCategoryFixture.Create(AttackSpeedStatCatalog());
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
         var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(row.SupportsValueBounds);
+        Assert.Equal("26", row.MinimumText);
+        Assert.Empty(row.MaximumText);
         fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
 
         await fixture.Controller.SearchAsync();
@@ -88,13 +91,109 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         Assert.Equal("and", statsGroup.GetProperty("type").GetString());
         var statFilter = Assert.Single(statsGroup.GetProperty("filters").EnumerateArray());
         Assert.Equal("explicit.stat_210067635", statFilter.GetProperty("id").GetString());
-        Assert.False(statFilter.TryGetProperty("value", out _));
+        var value = statFilter.GetProperty("value");
+        Assert.Equal(26m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
         Assert.False(statFilter.TryGetProperty("min", out _));
         Assert.False(statFilter.TryGetProperty("max", out _));
-        Assert.Single(statFilter.EnumerateObject());
+        Assert.Equal(2, statFilter.EnumerateObject().Count());
         Assert.Equal(
             fixture.Window.CurrentSearchState!.SelectedModifierCount,
             statsGroup.GetProperty("filters").EnumerateArray().Count());
+    }
+
+    [Fact]
+    public async Task PriceCheckerProductionPath_CraftedAttackSpeedAndManaLeechEmitObservedMinimums()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat(0, "explicit.stat_mana_leech", "#% of Physical Attack Damage Leeched as Mana (Local)"),
+                CraftedStat(1, "crafted.stat_210067635", "#% increased Attack Speed (Local)"),
+            ]),
+            RareReaverAxeWithCraftedAttackSpeedAndManaLeechText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 2);
+        fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        var leech = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.Text.Contains("Leeched as Mana", StringComparison.Ordinal));
+        var attackSpeed = Assert.Single(fixture.Window.CurrentSearchState.Modifiers, row =>
+            row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Equal("2.83", leech.MinimumText);
+        Assert.Equal("20", attackSpeed.MinimumText);
+        Assert.True(leech.SupportsValueBounds);
+        Assert.True(attackSpeed.SupportsValueBounds);
+        fixture.Window.RaiseModifierSelectionChanged(leech.SourceIndex, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(attackSpeed.SourceIndex, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.True(
+            fixture.Window.CurrentSearchState?.Status == PriceCheckerSearchViewStatus.ZeroResults,
+            $"{fixture.Window.CurrentSearchState?.Status}: {fixture.Window.CurrentSearchState?.Message}");
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(call.Request!));
+        var filters = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToDictionary(filter => filter.GetProperty("id").GetString()!);
+        Assert.Equal(2.83m, filters["explicit.stat_mana_leech"]
+            .GetProperty("value")
+            .GetProperty("min")
+            .GetDecimal());
+        Assert.Equal(20m, filters["crafted.stat_210067635"]
+            .GetProperty("value")
+            .GetProperty("min")
+            .GetDecimal());
+    }
+
+    [Fact]
+    public async Task PriceCheckerProductionPath_LocalAddedColdTupleUsesOfficialMeanBoundInJsonAndTradeUrl()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat(
+                    0,
+                    "explicit.stat_1037193709",
+                    "Adds # to # Cold Damage (Local)"),
+            ]),
+            MagicReaverAxeWithLocalColdDamageText,
+            expectedRarity: "Magic",
+            expectedModifierCount: 1);
+        var preparedDraft = await fixture.Controller.PrepareDraftAsync(fixture.MagicReaverAxeDraft);
+        fixture.Controller.UpdateCurrentDraft(
+            preparedDraft,
+            new TradeSearchDraftValidator().Validate(preparedDraft));
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+
+        Assert.True(row.SupportsValueBounds, row.ValueBoundsUnsupportedReason);
+        Assert.Equal("19.5", row.MinimumText);
+        Assert.Empty(row.MaximumText);
+        fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(call.Request!));
+        var filter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal("explicit.stat_1037193709", filter.GetProperty("id").GetString());
+        Assert.Equal(19.5m, filter.GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.Equal(JsonValueKind.Number, filter.GetProperty("value").GetProperty("min").ValueKind);
+
+        fixture.Window.RaiseTradeRequested();
+
+        Assert.Equal(
+            "https://www.pathofexile.com/trade/search/Mirage/query-1",
+            Assert.Single(fixture.UrlLauncher.OpenedUrls));
+        Assert.Single(fixture.SearchClient.Calls);
     }
 
     [Fact]
@@ -192,13 +291,15 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             TradeSearchValidationResult magicReaverAxeValidation,
             FakeWindow window,
             PriceCheckerSearchController controller,
-            FakeSearchClient searchClient)
+            FakeSearchClient searchClient,
+            FakeExternalUrlLauncher urlLauncher)
         {
             MagicReaverAxeDraft = magicReaverAxeDraft;
             MagicReaverAxeValidation = magicReaverAxeValidation;
             Window = window;
             Controller = controller;
             SearchClient = searchClient;
+            UrlLauncher = urlLauncher;
         }
 
         public TradeSearchDraft MagicReaverAxeDraft { get; }
@@ -211,10 +312,21 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
         public FakeSearchClient SearchClient { get; }
 
+        public FakeExternalUrlLauncher UrlLauncher { get; }
+
         public static ProductionTradeCategoryFixture Create(PathOfExileTradeStatCatalog statCatalog)
         {
+            return CreateForItem(statCatalog, MagicReaverAxeText, "Magic", expectedModifierCount: 1);
+        }
+
+        public static ProductionTradeCategoryFixture CreateForItem(
+            PathOfExileTradeStatCatalog statCatalog,
+            string itemText,
+            string expectedRarity,
+            int expectedModifierCount)
+        {
             var catalog = LoadGameDataCatalog();
-            var parsed = new ItemTextParser().Parse(MagicReaverAxeText);
+            var parsed = new ItemTextParser().Parse(itemText);
             var displayService = new ParsedItemGameDataDisplayService();
             var baseResolution = displayService.ResolveItemBase(parsed, catalog).Result;
             Assert.NotNull(baseResolution);
@@ -233,10 +345,10 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
                 catalog);
             Assert.True(draftResult.IsSuccess);
             Assert.NotNull(draftResult.Draft);
-            Assert.Equal("Magic", draftResult.Draft!.Rarity);
+            Assert.Equal(expectedRarity, draftResult.Draft!.Rarity);
             Assert.Equal("One Hand Axes", draftResult.Draft.Base.ActiveCriterion?.Category);
             Assert.Equal(BaseSearchMode.Category, draftResult.Draft.Base.ActiveCriterion?.Mode);
-            Assert.Single(draftResult.Draft.ModifierFilters);
+            Assert.Equal(expectedModifierCount, draftResult.Draft.ModifierFilters.Count);
 
             var searchClient = new FakeSearchClient();
             var service = new PathOfExileTradePriceCheckService(
@@ -250,7 +362,10 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
                 new FakeFetchClient(),
                 new FakeFilterCatalogProvider(OneHandAxeFilterCatalog()));
             var window = new FakeWindow();
-            var controller = new PriceCheckerSearchController(service);
+            var urlLauncher = new FakeExternalUrlLauncher();
+            var controller = new PriceCheckerSearchController(
+                service,
+                externalUrlLauncher: urlLauncher);
             controller.AttachWindow(window);
 
             return new ProductionTradeCategoryFixture(
@@ -258,7 +373,8 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
                 new TradeSearchDraftValidator().Validate(draftResult.Draft),
                 window,
                 controller,
-                searchClient);
+                searchClient,
+                urlLauncher);
         }
     }
 
@@ -297,6 +413,22 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         };
     }
 
+    private static PathOfExileTradeStatEntry CraftedStat(
+        int order,
+        string id,
+        string text)
+    {
+        return new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = order,
+            GroupId = "crafted",
+            GroupLabel = "Crafted",
+            Id = id,
+            Text = text,
+            Type = "crafted",
+        };
+    }
+
     private const string MagicReaverAxeText = """
 Item Class: One Hand Axes
 Rarity: Magic
@@ -319,6 +451,49 @@ Item Level: 85
 --------
 { Suffix Modifier "of Celebration" (Tier: 1) - Attack, Speed }
 26(26-27)% increased Attack Speed
+""";
+
+    private const string RareReaverAxeWithCraftedAttackSpeedAndManaLeechText = """
+Item Class: One Hand Axes
+Rarity: Rare
+Armageddon Thirst
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 38-114
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.50 (augmented)
+Weapon Range: 1.1 metres
+--------
+Item Level: 85
+--------
+{ Suffix Modifier "of Thirst" (Tier: 1) - Attack, Physical, Mana }
+2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
+20(16-20)% increased Attack Speed
+""";
+
+    private const string MagicReaverAxeWithLocalColdDamageText = """
+Item Class: One Hand Axes
+Rarity: Magic
+Icy Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 38-114
+Elemental Damage: 14-25 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Icy" (Tier: 1) - Attack, Elemental, Cold, Damage }
+Adds 14(11-15) to 25(23-26) Cold Damage
 """;
 
     private static GameDataCatalog LoadGameDataCatalog()
@@ -421,6 +596,17 @@ Item Level: 85
         }
     }
 
+    private sealed class FakeExternalUrlLauncher : IExternalUrlLauncher
+    {
+        public List<string> OpenedUrls { get; } = [];
+
+        public bool TryOpen(Uri uri)
+        {
+            OpenedUrls.Add(uri.AbsoluteUri);
+            return true;
+        }
+    }
+
     private sealed class FakeItemCatalogProvider : IPathOfExileTradeItemCatalogProvider
     {
         public Task<PathOfExileTradeItemCatalogProviderResult> GetCatalogAsync(
@@ -455,6 +641,8 @@ Item Level: 85
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
+
+        public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
@@ -507,6 +695,11 @@ Item Level: 85
             ModifierSelectionChanged?.Invoke(
                 this,
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
+        }
+
+        public void RaiseTradeRequested()
+        {
+            TradeRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 #pragma warning restore CS0067
