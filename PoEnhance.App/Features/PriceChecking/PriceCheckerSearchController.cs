@@ -2,7 +2,6 @@ using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
-using Serilog;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
@@ -14,10 +13,11 @@ internal sealed class PriceCheckerSearchController
 
     private readonly IPathOfExileTradePriceCheckService priceCheckService;
     private readonly ITradeSearchDraftValidator draftValidator;
-    private readonly IPriceCheckerLeaguePreferenceStore leaguePreferenceStore;
     private IPriceCheckerWindow? window;
     private TradeSearchDraft? currentDraft;
+    private BaseSearchCriterion? userSelectedBaseCriterion;
     private TradeSearchValidationResult? currentValidationResult;
+    private PriceCheckerItemPresentation currentPresentation = new();
     private CancellationTokenSource? activeRequestCancellation;
     private readonly List<string> paginationResultIds = [];
     private readonly HashSet<string> fetchedResultIds = new(StringComparer.Ordinal);
@@ -33,13 +33,11 @@ internal sealed class PriceCheckerSearchController
 
     public PriceCheckerSearchController(
         IPathOfExileTradePriceCheckService priceCheckService,
-        ITradeSearchDraftValidator? draftValidator = null,
-        IPriceCheckerLeaguePreferenceStore? leaguePreferenceStore = null)
+        ITradeSearchDraftValidator? draftValidator = null)
     {
         this.priceCheckService = priceCheckService ?? throw new ArgumentNullException(nameof(priceCheckService));
         this.draftValidator = draftValidator ?? new CoreTradeSearchDraftValidatorAdapter();
-        this.leaguePreferenceStore = leaguePreferenceStore ?? NullPriceCheckerLeaguePreferenceStore.Instance;
-        leagueIdentifier = LoadInitialLeagueIdentifier(this.leaguePreferenceStore);
+        leagueIdentifier = DefaultLeagueIdentifier;
         CurrentViewState = CreateIdleOrValidationState();
     }
 
@@ -65,7 +63,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.SearchRequested += OnSearchRequested;
         priceCheckerWindow.LoadMoreRequested += OnLoadMoreRequested;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
-        priceCheckerWindow.LeagueChanged += OnLeagueChanged;
+        priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
 
@@ -79,7 +77,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.SearchRequested -= OnSearchRequested;
         priceCheckerWindow.LoadMoreRequested -= OnLoadMoreRequested;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
-        priceCheckerWindow.LeagueChanged -= OnLeagueChanged;
+        priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
         generation++;
@@ -87,9 +85,42 @@ internal sealed class PriceCheckerSearchController
         ClearPaginationState();
     }
 
+    public async Task<PriceCheckerItemPresentation> PreparePresentationAsync(
+        TradeSearchDraft draft,
+        PriceCheckerItemPresentation presentation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        ArgumentNullException.ThrowIfNull(presentation);
+
+        string? categoryDisplayLabel;
+        try
+        {
+            categoryDisplayLabel = await priceCheckService
+                .LoadCategoryDisplayLabelAsync(draft, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return presentation;
+        }
+
+        return string.IsNullOrWhiteSpace(categoryDisplayLabel)
+            ? presentation
+            : presentation with
+            {
+                CategoryDisplayLabel = categoryDisplayLabel,
+            };
+    }
+
     public void UpdateCurrentDraft(
         TradeSearchDraft draft,
-        TradeSearchValidationResult validationResult)
+        TradeSearchValidationResult validationResult,
+        PriceCheckerItemPresentation? presentation = null)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(validationResult);
@@ -98,10 +129,12 @@ internal sealed class PriceCheckerSearchController
         CancelActiveRequest();
         ClearPaginationState();
         currentDraft = ResetModifierSelections(draft);
+        userSelectedBaseCriterion = currentDraft.Base.ActiveCriterion;
+        currentPresentation = presentation ?? new PriceCheckerItemPresentation();
         currentValidationResult = ReferenceEquals(currentDraft, draft)
             ? validationResult
             : draftValidator.Validate(currentDraft);
-        window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult));
+        PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
     }
 
@@ -134,9 +167,6 @@ internal sealed class PriceCheckerSearchController
             ApplyState(CreateIdleOrValidationState());
             return;
         }
-
-        leagueIdentifier = trimmedLeague;
-        PersistLeagueIdentifier(trimmedLeague);
 
         ClearPaginationState();
         var requestGeneration = ++generation;
@@ -196,9 +226,9 @@ internal sealed class PriceCheckerSearchController
         var effectiveDraft = result.EffectiveDraft;
         if (effectiveDraft is not null)
         {
-            window?.UpdateContent(new PriceCheckerWindowState(
-                effectiveDraft,
-                draftValidator.Validate(effectiveDraft)));
+            currentDraft = effectiveDraft;
+            currentValidationResult = draftValidator.Validate(effectiveDraft);
+            PublishCurrentContent();
         }
 
         ApplyState(MapResult(result, effectiveDraft));
@@ -294,13 +324,53 @@ internal sealed class PriceCheckerSearchController
                 ? modifier with { IsSelected = isSelected }
                 : modifier)
             .ToArray();
-        currentDraft = currentDraft with
+        var userSelectedDraft = currentDraft with
         {
             ModifierFilters = modifierFilters,
+            Base = currentDraft.Base with
+            {
+                ActiveCriterion = userSelectedBaseCriterion ?? currentDraft.Base.ActiveCriterion,
+            },
         };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(userSelectedDraft);
         currentValidationResult = draftValidator.Validate(currentDraft);
 
-        window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult));
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    public void ToggleBaseCriterion()
+    {
+        if (currentDraft?.Base is not { } baseDraft)
+        {
+            return;
+        }
+
+        var nextCriterion = baseDraft.ActiveCriterion?.Mode switch
+        {
+            BaseSearchMode.Category => baseDraft.AvailableCriteria.ExactBase,
+            BaseSearchMode.ExactBase => baseDraft.AvailableCriteria.Category,
+            _ => null,
+        };
+        if (nextCriterion is null)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        userSelectedBaseCriterion = nextCriterion;
+        var userSelectedDraft = currentDraft with
+        {
+            Base = baseDraft with
+            {
+                ActiveCriterion = nextCriterion,
+            },
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(userSelectedDraft);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
     }
 
@@ -321,6 +391,11 @@ internal sealed class PriceCheckerSearchController
         UpdateModifierSelection(e.ModifierIndex, e.IsSelected);
     }
 
+    private void OnBaseCriterionToggleRequested(object? sender, EventArgs e)
+    {
+        ToggleBaseCriterion();
+    }
+
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         if (sender is IPriceCheckerWindow priceCheckerWindow)
@@ -329,13 +404,17 @@ internal sealed class PriceCheckerSearchController
         }
     }
 
-    private void OnLeagueChanged(object? sender, PriceCheckerLeagueChangedEventArgs e)
+    private void PublishCurrentContent()
     {
-        leagueIdentifier = e.LeagueIdentifier ?? string.Empty;
-        if (!isLoading)
+        if (currentDraft is null || currentValidationResult is null)
         {
-            ApplyState(CreateIdleOrValidationState());
+            return;
         }
+
+        window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult)
+        {
+            Presentation = currentPresentation,
+        });
     }
 
     private bool IsCurrentRequest(
@@ -814,31 +893,6 @@ internal sealed class PriceCheckerSearchController
     private static string? TrimLeague(string? value)
     {
         return TrimToNull(value);
-    }
-
-    private static string LoadInitialLeagueIdentifier(IPriceCheckerLeaguePreferenceStore preferenceStore)
-    {
-        try
-        {
-            return TrimLeague(preferenceStore.LoadLeagueIdentifier()) ?? DefaultLeagueIdentifier;
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(exception, "Price Checker league preference could not be loaded");
-            return DefaultLeagueIdentifier;
-        }
-    }
-
-    private void PersistLeagueIdentifier(string trimmedLeagueIdentifier)
-    {
-        try
-        {
-            leaguePreferenceStore.SaveLeagueIdentifier(trimmedLeagueIdentifier);
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(exception, "Price Checker league preference could not be saved");
-        }
     }
 
     private static string? TrimToNull(string? value)

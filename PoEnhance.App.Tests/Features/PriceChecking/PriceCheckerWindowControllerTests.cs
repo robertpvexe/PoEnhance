@@ -13,6 +13,93 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerWindowControllerTests
 {
     [Fact]
+    public async Task ShowOrUpdateAsync_EmptyCatalogCachePublishesFirstAxePresentationOnlyAfterOfficialLabelLoads()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Mapper.DraftFactory = parsedItem =>
+            CategoryDraft(parsedItem, "One Hand Axes", "Reaver Axe");
+        fixture.PriceCheckService.CategoryDisplayLabelResolver = _ => "One-Handed Axe";
+        var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.CategoryLabelLoader = (_, _) => completion.Task;
+
+        var update = fixture.Controller.ShowOrUpdateAsync(
+            Item("Armageddon Thirst", "Reaver Axe"),
+            null,
+            []);
+
+        await WaitUntilAsync(() => fixture.PriceCheckService.CategoryLabelLoadCount == 1);
+        Assert.Empty(fixture.WindowFactory.CreatedWindows);
+        completion.SetResult("One-Handed Axe");
+
+        var result = await update;
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        Assert.True(result.IsSuccess);
+        Assert.Equal("One-Handed Axe", window.CurrentState?.Presentation.CategoryDisplayLabel);
+        Assert.Equal(BaseSearchMode.Category, window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Theory]
+    [InlineData("Wand", "Imbued Wand", "Wand")]
+    [InlineData("Belt", "Stygian Vise", "Belt")]
+    public async Task ShowOrUpdateAsync_FirstPresentationUsesOfficialProviderLabel(
+        string category,
+        string exactBaseName,
+        string providerLabel)
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Mapper.DraftFactory = parsedItem =>
+            CategoryDraft(parsedItem, category, exactBaseName);
+        fixture.PriceCheckService.CategoryDisplayLabelResolver = _ => providerLabel;
+
+        var result = await fixture.Controller.ShowOrUpdateAsync(
+            Item("First Loop", exactBaseName),
+            null,
+            []);
+
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(providerLabel, window.CurrentState?.Presentation.CategoryDisplayLabel);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public async Task ShowOrUpdateAsync_StaleCatalogCompletionCannotReplaceANewerItem()
+    {
+        using var fixture = ControllerFixture.Create();
+        var category = "Wand";
+        var exactBaseName = "Imbued Wand";
+        fixture.Mapper.DraftFactory = parsedItem =>
+            CategoryDraft(parsedItem, category, exactBaseName);
+        var first = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completions = new Queue<TaskCompletionSource<string?>>([first, second]);
+        fixture.PriceCheckService.CategoryLabelLoader = (_, _) => completions.Dequeue().Task;
+
+        var firstUpdate = fixture.Controller.ShowOrUpdateAsync(
+            Item("First Loop", exactBaseName),
+            null,
+            []);
+        await WaitUntilAsync(() => fixture.PriceCheckService.CategoryLabelLoadCount == 1);
+        category = "Belt";
+        exactBaseName = "Stygian Vise";
+        var secondUpdate = fixture.Controller.ShowOrUpdateAsync(
+            Item("Second Loop", exactBaseName),
+            null,
+            []);
+        await WaitUntilAsync(() => fixture.PriceCheckService.CategoryLabelLoadCount == 2);
+
+        second.SetResult("Belt");
+        Assert.True((await secondUpdate).IsSuccess);
+        first.SetResult("Wand");
+        Assert.False((await firstUpdate).IsSuccess);
+
+        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        Assert.Equal("Second Loop", window.CurrentState?.Draft.DisplayName);
+        Assert.Equal("Belt", window.CurrentState?.Presentation.CategoryDisplayLabel);
+    }
+
+    [Fact]
     public void ShowOrUpdate_SecondItemReusesSameWindowInstance()
     {
         using var fixture = ControllerFixture.Create();
@@ -977,6 +1064,51 @@ Item Level: 80
 """);
     }
 
+    private static TradeSearchDraft CategoryDraft(
+        ParsedItem parsedItem,
+        string category,
+        string exactBaseName)
+    {
+        var categoryCriterion = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = category,
+        };
+        return new TradeSearchDraft
+        {
+            ItemClass = parsedItem.ItemClass,
+            Rarity = parsedItem.Rarity,
+            DisplayName = parsedItem.DisplayName,
+            ParsedBaseType = exactBaseName,
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseName = exactBaseName,
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = categoryCriterion,
+                    ExactBase = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.ExactBase,
+                        Category = category,
+                        ExactBaseName = exactBaseName,
+                    },
+                },
+                ActiveCriterion = categoryCriterion,
+            },
+        };
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!condition())
+        {
+            timeout.Token.ThrowIfCancellationRequested();
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
     private static HashSet<string> ImportedFunctionNames()
     {
         return typeof(PriceCheckerWindowController).Assembly
@@ -1240,7 +1372,7 @@ Item Level: 80
 
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+        public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
 
@@ -1454,9 +1586,9 @@ Item Level: 80
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
         }
 
-        public void SetLeague(string leagueIdentifier)
+        public void RaiseBaseCriterionToggleRequested()
         {
-            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
+            BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
         }
 
         public void SetPinned(bool isPinned)
@@ -1491,6 +1623,8 @@ Item Level: 80
     {
         public int CallCount { get; private set; }
 
+        public Func<ParsedItem, TradeSearchDraft>? DraftFactory { get; set; }
+
         public TradeSearchDraftResult CreateDraft(
             ParsedItem parsedItem,
             ItemBaseResolutionResult? itemBaseResolution,
@@ -1498,6 +1632,11 @@ Item Level: 80
             GameDataCatalog? gameDataCatalog)
         {
             CallCount++;
+            if (DraftFactory is not null)
+            {
+                return TradeSearchDraftResult.Success(DraftFactory(parsedItem));
+            }
+
             return TradeSearchDraftResult.Success(new TradeSearchDraft
             {
                 ItemClass = parsedItem.ItemClass,
@@ -1545,6 +1684,31 @@ Item Level: 80
     {
         public int CallCount { get; private set; }
 
+        public int CategoryLabelLoadCount { get; private set; }
+
+        public Func<TradeSearchDraft, string?>? CategoryDisplayLabelResolver { get; set; }
+
+        public Func<TradeSearchDraft, CancellationToken, Task<string?>>? CategoryLabelLoader { get; set; }
+
+        public Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new PathOfExileTradeFilterCatalogProviderResult());
+        }
+
+        public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft) => draft;
+
+        public async Task<string?> LoadCategoryDisplayLabelAsync(
+            TradeSearchDraft draft,
+            CancellationToken cancellationToken = default)
+        {
+            CategoryLabelLoadCount++;
+            var label = CategoryLabelLoader is null
+                ? CategoryDisplayLabelResolver?.Invoke(draft)
+                : await CategoryLabelLoader(draft, cancellationToken);
+            return label;
+        }
+
         public Task<PathOfExileTradePriceCheckResult> CheckAsync(
             TradeSearchDraft? draft,
             TradeSearchValidationResult? validationResult,
@@ -1560,6 +1724,12 @@ Item Level: 80
                 ProviderTotal = 0,
             });
         }
+
+        public Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
+            string? searchQueryId,
+            IReadOnlyList<string?>? resultIds,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Load More is not expected in window lifecycle tests.");
     }
 
     private sealed class TempDirectory : IDisposable
@@ -1587,5 +1757,21 @@ Item Level: 80
                 Directory.Delete(Path, recursive: true);
             }
         }
+    }
+}
+
+internal static class PriceCheckerWindowControllerTestExtensions
+{
+    public static PriceCheckerWindowUpdateResult ShowOrUpdate(
+        this PriceCheckerWindowController controller,
+        ParsedItem parsedItem,
+        ItemBaseResolutionResult? itemBaseResolution,
+        IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
+        GameDataCatalog? gameDataCatalog = null)
+    {
+        return controller
+            .ShowOrUpdateAsync(parsedItem, itemBaseResolution, modifierResolutions, gameDataCatalog)
+            .GetAwaiter()
+            .GetResult();
     }
 }

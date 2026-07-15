@@ -4,6 +4,15 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal interface IPathOfExileTradePriceCheckService
 {
+    Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
+        CancellationToken cancellationToken = default);
+
+    TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft);
+
+    Task<string?> LoadCategoryDisplayLabelAsync(
+        TradeSearchDraft draft,
+        CancellationToken cancellationToken = default);
+
     Task<PathOfExileTradePriceCheckResult> CheckAsync(
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
@@ -13,18 +22,5 @@ internal interface IPathOfExileTradePriceCheckService
     Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
         string? searchQueryId,
         IReadOnlyList<string?>? resultIds,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new PathOfExileTradePriceCheckResult
-        {
-            Stage = PathOfExileTradePriceCheckStage.Fetch,
-            Diagnostics =
-            [
-                new PathOfExileTradePriceCheckDiagnostic(
-                    PathOfExileTradePriceCheckDiagnosticCodes.FetchFailed,
-                    "Loading more Trade offers is not available.",
-                    PathOfExileTradePriceCheckStage.Fetch),
-            ],
-        });
-    }
+        CancellationToken cancellationToken = default);
 }

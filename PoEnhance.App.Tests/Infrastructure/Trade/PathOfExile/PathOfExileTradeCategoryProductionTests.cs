@@ -11,15 +11,11 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 {
-    private const string League = "Mercenaries";
-
     [Fact]
     public async Task PriceCheckerProductionPath_TradeCategoryMagicOneHandAxeZeroModifiersCreatesCategoryOnlyRequest()
     {
         var fixture = ProductionTradeCategoryFixture.Create(new PathOfExileTradeStatCatalog([]));
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
-        fixture.Window.SetLeague(League);
-
         await fixture.Controller.SearchAsync();
 
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
@@ -59,7 +55,6 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
     {
         var fixture = ProductionTradeCategoryFixture.Create(AttackSpeedStatCatalog());
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
-        fixture.Window.SetLeague(League);
         var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
         fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
 
@@ -138,6 +133,25 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         Assert.Equal("accessory.ring", Find(catalog, "Ring").Id);
         Assert.Equal("weapon.wand", Find(catalog, "Wand").Id);
         Assert.Equal("jewel.base", Find(catalog, "Jewel").Id);
+    }
+
+    [Theory]
+    [InlineData("Wand", "Wand")]
+    [InlineData("One Hand Axes", "One-Handed Axe")]
+    [InlineData("Belt", "Belt")]
+    public void TradeCategoryCatalog_DisplayLabelUsesOfficialProviderOptionText(
+        string category,
+        string expectedDisplayLabel)
+    {
+        var catalog = new PathOfExileTradeFilterCatalog(
+        [
+            Category(0, "weapon.wand", "Wand"),
+            Category(1, "weapon.oneaxe", "One-Handed Axe"),
+            Category(2, "accessory.belt", "Belt"),
+        ]);
+
+        Assert.True(catalog.TryGetCategoryDisplayLabel(category, out var displayLabel));
+        Assert.Equal(expectedDisplayLabel, displayLabel);
     }
 
     [Fact]
@@ -437,7 +451,8 @@ Item Level: 85
 
         public event EventHandler? LoadMoreRequested;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
+        public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
         public event EventHandler? HorizontalDragCompleted;
@@ -481,11 +496,6 @@ Item Level: 85
         {
             IsClosed = true;
             Closed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void SetLeague(string leagueIdentifier)
-        {
-            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
         }
 
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)

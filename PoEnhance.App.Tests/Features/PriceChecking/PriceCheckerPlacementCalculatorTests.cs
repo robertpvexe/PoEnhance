@@ -98,11 +98,11 @@ public sealed class PriceCheckerPlacementCalculatorTests
     }
 
     [Theory]
-    [InlineData(0, 0, 1920, 1080, 837.6)]
-    [InlineData(0, 0, 1920, 1200, 765.6)]
-    [InlineData(0, 0, 3440, 1440, 2084)]
-    [InlineData(50, 80, 1280, 720, 526)]
-    [InlineData(-800, 120, 1600, 900, -112)]
+    [InlineData(0, 0, 1920, 1080, 700)]
+    [InlineData(0, 0, 1920, 1200, 628)]
+    [InlineData(0, 0, 3440, 1440, 2004)]
+    [InlineData(50, 80, 1280, 720, 502)]
+    [InlineData(-800, 120, 1600, 900, -232)]
     public void CalculatePlacement_UsesRightAnchoredClientHeightHeuristicAcrossClientShapes(
         double left,
         double top,
@@ -130,9 +130,9 @@ public sealed class PriceCheckerPlacementCalculatorTests
     }
 
     [Theory]
-    [InlineData(1600, 900, 360)]
-    [InlineData(1920, 1080, 422.4)]
-    [InlineData(3440, 1440, 480)]
+    [InlineData(1600, 900, 480)]
+    [InlineData(1920, 1080, 560)]
+    [InlineData(3440, 1440, 560)]
     [InlineData(1200, 720, 360)]
     public void CalculatePanelWidth_UsesResponsiveProvisionalClamp(
         double clientWidth,
@@ -147,9 +147,9 @@ public sealed class PriceCheckerPlacementCalculatorTests
     }
 
     [Theory]
-    [InlineData(1600, 900, 658)]
-    [InlineData(1920, 1080, 807.6)]
-    [InlineData(3440, 1440, 2054)]
+    [InlineData(1600, 900, 538)]
+    [InlineData(1920, 1080, 670)]
+    [InlineData(3440, 1440, 1974)]
     [InlineData(1200, 720, 366)]
     public void CalculatePlacement_AppliesCorrectionWithResponsivePanelWidth(
         double clientWidth,

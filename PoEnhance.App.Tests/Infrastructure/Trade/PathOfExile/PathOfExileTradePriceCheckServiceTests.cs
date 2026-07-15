@@ -220,6 +220,19 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
+    public void ResolveEffectiveDraft_SelectedDeterministicBaseImplicitActivatesAvailableExactBaseWithoutHttp()
+    {
+        var fixture = ServiceFixture.Create();
+
+        var result = fixture.Service.ResolveEffectiveDraft(StygianViseBaseImplicitDraft());
+
+        Assert.Equal(BaseSearchMode.ExactBase, result.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Stygian Vise", result.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Empty(fixture.CatalogProvider.Calls);
+        Assert.Empty(fixture.SearchClient.Calls);
+    }
+
+    [Fact]
     public async Task CheckAsync_UniqueLoadsItemCatalogMapsIdentityAndPassesProviderIdentityToQueryBuilder()
     {
         var fixture = ServiceFixture.Create();

@@ -30,118 +30,27 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void AttachWindow_CleanProfileDoesNotUseStandardFallback()
-    {
-        var fixture = SearchFixture.Create();
-
-        Assert.NotEqual("Standard", fixture.Window.CurrentSearchState?.LeagueIdentifier);
-    }
-
-    [Fact]
-    public void AttachWindow_RestoresSavedLeagueTrimmed()
-    {
-        var preferenceStore = new FakeLeaguePreferenceStore
-        {
-            LeagueIdentifier = "  Standard  ",
-        };
-
-        var fixture = SearchFixture.Create(preferenceStore: preferenceStore);
-
-        Assert.Equal("Standard", fixture.Window.CurrentSearchState?.LeagueIdentifier);
-    }
-
-    [Fact]
-    public async Task SearchAsync_CallsServiceOnceWithCurrentDraftValidationAndTrimmedLeague()
+    public async Task SearchAsync_CallsServiceOnceWithCurrentDraftValidationAndMirage()
     {
         var fixture = SearchFixture.Create();
         var draft = Draft("Armoured Shell");
         var validation = ValidationSuccess();
         fixture.Controller.UpdateCurrentDraft(draft, validation);
-        fixture.Window.SetLeague("  Mercenaries  ");
 
         await fixture.Controller.SearchAsync();
 
         var call = Assert.Single(fixture.PriceCheckService.Calls);
         Assert.Same(draft, call.Draft);
         Assert.Same(validation, call.ValidationResult);
-        Assert.Equal("Mercenaries", call.LeagueIdentifier);
-    }
-
-    [Fact]
-    public async Task SearchAsync_LeagueWhitespaceIsTrimmedBeforeSearchAndPersisted()
-    {
-        var preferenceStore = new FakeLeaguePreferenceStore();
-        var fixture = SearchFixture.Create(preferenceStore: preferenceStore);
-        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
-        fixture.Window.SetLeague("  Mirage  ");
-
-        await fixture.Controller.SearchAsync();
-
-        var call = Assert.Single(fixture.PriceCheckService.Calls);
-        Assert.Equal("Mirage", call.LeagueIdentifier);
-        Assert.Equal("Mirage", Assert.Single(preferenceStore.SavedLeagueIdentifiers));
-        Assert.Equal("Mirage", fixture.Window.CurrentSearchState?.LeagueIdentifier);
-    }
-
-    [Fact]
-    public async Task SearchAsync_PersistsCurrentNonEmptyLeagueAndRestartRestoresIt()
-    {
-        var preferenceStore = new FakeLeaguePreferenceStore();
-        var firstFixture = SearchFixture.Create(preferenceStore: preferenceStore);
-        firstFixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
-        firstFixture.Window.SetLeague("Standard");
-
-        await firstFixture.Controller.SearchAsync();
-
-        var secondFixture = SearchFixture.Create(preferenceStore: preferenceStore);
-        Assert.Equal("Standard", secondFixture.Window.CurrentSearchState?.LeagueIdentifier);
-    }
-
-    [Fact]
-    public async Task SearchAsync_EmptyLeagueDoesNotOverwriteSavedValidLeague()
-    {
-        var preferenceStore = new FakeLeaguePreferenceStore
-        {
-            LeagueIdentifier = "Mirage",
-        };
-        var fixture = SearchFixture.Create(preferenceStore: preferenceStore);
-        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
-        fixture.Window.SetLeague("   ");
-
-        await fixture.Controller.SearchAsync();
-
-        Assert.Empty(fixture.PriceCheckService.Calls);
-        Assert.Empty(preferenceStore.SavedLeagueIdentifiers);
-        Assert.Equal("Mirage", preferenceStore.LeagueIdentifier);
-        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
-        Assert.Equal("League is required.", fixture.Window.CurrentSearchState?.Message);
-    }
-
-    [Fact]
-    public async Task SearchAsync_LeaguePreferenceSaveFailureDoesNotBlockSearch()
-    {
-        var preferenceStore = new FakeLeaguePreferenceStore
-        {
-            ThrowOnSave = true,
-        };
-        var fixture = SearchFixture.Create(preferenceStore: preferenceStore);
-        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
-        fixture.Window.SetLeague("Mirage");
-
-        await fixture.Controller.SearchAsync();
-
-        var call = Assert.Single(fixture.PriceCheckService.Calls);
         Assert.Equal("Mirage", call.LeagueIdentifier);
     }
 
     [Fact]
-    public async Task SearchAsync_LeaguePersistenceDoesNotChangeListingModeOrQueryCriteria()
+    public async Task SearchAsync_MirageSessionDoesNotChangeListingModeOrQueryCriteria()
     {
-        var fixture = SearchFixture.Create(preferenceStore: new FakeLeaguePreferenceStore());
+        var fixture = SearchFixture.Create();
         var draft = Draft("Armoured Shell");
         fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
-        fixture.Window.SetLeague("Mirage");
-
         await fixture.Controller.SearchAsync();
 
         var call = Assert.Single(fixture.PriceCheckService.Calls);
@@ -150,22 +59,6 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(ItemBaseResolutionStatus.Exact, call.Draft?.Base.Status);
         Assert.Equal("base.titan-plate", call.Draft?.Base.ResolvedBaseId);
         Assert.Equal("Rare", call.Draft?.Rarity);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData(" ")]
-    public async Task SearchAsync_BlankLeaguePreventsExecution(string leagueIdentifier)
-    {
-        var fixture = SearchFixture.Create();
-        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
-        fixture.Window.SetLeague(leagueIdentifier);
-
-        await fixture.Controller.SearchAsync();
-
-        Assert.Empty(fixture.PriceCheckService.Calls);
-        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
-        Assert.Equal("League is required.", fixture.Window.CurrentSearchState?.Message);
     }
 
     [Fact]
@@ -926,10 +819,9 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void ModifierSelectionChanged_PreservesLeagueAndPinState()
+    public void ModifierSelectionChanged_PreservesMirageAndPinState()
     {
         var fixture = SearchFixture.Create();
-        fixture.Window.SetLeague("Mercenaries");
         fixture.Window.SetPinned(true);
         fixture.Controller.UpdateCurrentDraft(
             Draft(
@@ -939,7 +831,7 @@ public sealed class PriceCheckerSearchControllerTests
 
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
-        Assert.Equal("Mercenaries", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+        Assert.Equal("Mirage", fixture.Window.CurrentSearchState?.LeagueIdentifier);
         Assert.True(fixture.Window.IsPinned);
     }
 
@@ -955,15 +847,145 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void UpdateCurrentDraft_PreservesLeagueDuringSameWindowItemChanges()
+    public void UpdateCurrentDraft_PreservesMirageDuringSameWindowItemChanges()
     {
         var fixture = SearchFixture.Create();
-        fixture.Window.SetLeague("Mercenaries");
 
         fixture.Controller.UpdateCurrentDraft(Draft("First Loop"), ValidationSuccess());
         fixture.Controller.UpdateCurrentDraft(Draft("Second Loop"), ValidationSuccess());
 
-        Assert.Equal("Mercenaries", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+        Assert.Equal("Mirage", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+    }
+
+    [Fact]
+    public async Task BaseCriterionToggleRequested_SwitchesActualDraftBetweenCategoryAndExactBase()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(DraftWithBothBaseCriteria(), ValidationSuccess());
+
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            fixture.Window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+        await fixture.Controller.SearchAsync();
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            Assert.Single(fixture.PriceCheckService.Calls).Draft?.Base.ActiveCriterion?.Mode);
+
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+    }
+
+    [Fact]
+    public async Task SearchAsync_StygianForcedExactBaseResultRemainsReflectedInTheCurrentDraft()
+    {
+        var fixture = SearchFixture.Create();
+        var categoryDraft = DraftWithBothBaseCriteria("Belt", "Stygian Vise");
+        var forcedExactBase = categoryDraft with
+        {
+            Base = categoryDraft.Base with
+            {
+                ActiveCriterion = categoryDraft.Base.AvailableCriteria.ExactBase,
+            },
+        };
+        fixture.PriceCheckService.Result = SuccessResult([], 0) with
+        {
+            EffectiveDraft = forcedExactBase,
+        };
+        fixture.Controller.UpdateCurrentDraft(categoryDraft, ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            fixture.Window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+    }
+
+    [Fact]
+    public void ModifierSelection_ImmediatelyUsesTheProviderEffectiveDraftAndRestoresTheUserCategory()
+    {
+        var fixture = SearchFixture.Create();
+        var categoryDraft = DraftWithBothBaseCriteria("Belt", "Stygian Vise") with
+        {
+            ModifierFilters =
+            [
+                Modifier("Has 1 Abyssal Socket", ParsedModifierKind.Implicit) with
+                {
+                    IsBaseImplicit = true,
+                },
+            ],
+        };
+        fixture.PriceCheckService.EffectiveDraftResolver = draft =>
+        {
+            var activeCriterion = draft.ModifierFilters.Any(modifier => modifier.IsSelected && modifier.IsBaseImplicit)
+                ? draft.Base.AvailableCriteria.ExactBase
+                : draft.Base.AvailableCriteria.Category;
+            return draft with
+            {
+                Base = draft.Base with
+                {
+                    ActiveCriterion = activeCriterion,
+                },
+            };
+        };
+        fixture.Controller.UpdateCurrentDraft(categoryDraft, ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            fixture.Window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState?.Draft.Base.ActiveCriterion?.Mode);
+    }
+
+    [Fact]
+    public async Task PreparePresentationAsync_DelayedProviderMetadataReturnsTheOfficialLabelWithoutSearch()
+    {
+        var fixture = SearchFixture.Create();
+        var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.CategoryLabelLoader = (_, _) => completion.Task;
+        var draft = DraftWithBothBaseCriteria("Wand", "Imbued Wand");
+
+        var preparation = fixture.Controller.PreparePresentationAsync(
+            draft,
+            new PriceCheckerItemPresentation());
+
+        await WaitUntilAsync(() => fixture.PriceCheckService.CategoryLabelLoadCalls.Count == 1);
+        Assert.False(preparation.IsCompleted);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        completion.SetResult("Wand");
+        var presentation = await preparation;
+
+        Assert.Equal("Wand", presentation.CategoryDisplayLabel);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public async Task PreparePresentationAsync_FailureLeavesTheLabelUnsetAndDoesNotBlockSearch()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.CategoryLabelLoader = (_, _) => Task.FromResult<string?>(null);
+        var draft = DraftWithBothBaseCriteria();
+        var presentation = await fixture.Controller.PreparePresentationAsync(
+            draft,
+            new PriceCheckerItemPresentation());
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess(), presentation);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Null(fixture.Window.CurrentState?.Presentation.CategoryDisplayLabel);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
     private static TradeSearchDraft Draft(
@@ -986,6 +1008,39 @@ public sealed class PriceCheckerSearchControllerTests
             ModifierFilters = modifiers ?? (selectedModifier
                 ? [Modifier("+10 to maximum Life", isSelected: true)]
                 : []),
+        };
+    }
+
+    private static TradeSearchDraft DraftWithBothBaseCriteria(
+        string categoryName = "One Hand Axes",
+        string exactBaseName = "Reaver Axe")
+    {
+        var category = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = categoryName,
+        };
+        var exactBase = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.ExactBase,
+            Category = category.Category,
+            ExactBaseName = exactBaseName,
+        };
+        return Draft("Armageddon Thirst") with
+        {
+            ParsedBaseType = exactBaseName,
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseId = $"base.{exactBaseName.ToLowerInvariant().Replace(' ', '-')}",
+                ResolvedBaseName = exactBaseName,
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = category,
+                    ExactBase = exactBase,
+                },
+                ActiveCriterion = category,
+            },
         };
     }
 
@@ -1134,18 +1189,20 @@ public sealed class PriceCheckerSearchControllerTests
         IReadOnlyList<string?>? ResultIds,
         CancellationToken CancellationToken);
 
+    private sealed record CategoryLabelLoadCall(
+        TradeSearchDraft Draft,
+        CancellationToken CancellationToken);
+
     private sealed class SearchFixture
     {
         private SearchFixture(
             FakeWindow window,
             FakePriceCheckService priceCheckService,
-            PriceCheckerSearchController controller,
-            FakeLeaguePreferenceStore preferenceStore)
+            PriceCheckerSearchController controller)
         {
             Window = window;
             PriceCheckService = priceCheckService;
             Controller = controller;
-            PreferenceStore = preferenceStore;
         }
 
         public FakeWindow Window { get; }
@@ -1154,50 +1211,13 @@ public sealed class PriceCheckerSearchControllerTests
 
         public PriceCheckerSearchController Controller { get; }
 
-        public FakeLeaguePreferenceStore PreferenceStore { get; }
-
-        public static SearchFixture Create(FakeLeaguePreferenceStore? preferenceStore = null)
+        public static SearchFixture Create()
         {
             var window = new FakeWindow();
             var priceCheckService = new FakePriceCheckService();
-            preferenceStore ??= new FakeLeaguePreferenceStore();
-            var controller = new PriceCheckerSearchController(
-                priceCheckService,
-                leaguePreferenceStore: preferenceStore);
+            var controller = new PriceCheckerSearchController(priceCheckService);
             controller.AttachWindow(window);
-            return new SearchFixture(window, priceCheckService, controller, preferenceStore);
-        }
-    }
-
-    private sealed class FakeLeaguePreferenceStore : IPriceCheckerLeaguePreferenceStore
-    {
-        public string? LeagueIdentifier { get; set; }
-
-        public bool ThrowOnLoad { get; set; }
-
-        public bool ThrowOnSave { get; set; }
-
-        public List<string> SavedLeagueIdentifiers { get; } = [];
-
-        public string? LoadLeagueIdentifier()
-        {
-            if (ThrowOnLoad)
-            {
-                throw new IOException("Load failed.");
-            }
-
-            return LeagueIdentifier;
-        }
-
-        public void SaveLeagueIdentifier(string leagueIdentifier)
-        {
-            if (ThrowOnSave)
-            {
-                throw new IOException("Save failed.");
-            }
-
-            LeagueIdentifier = leagueIdentifier;
-            SavedLeagueIdentifiers.Add(leagueIdentifier);
+            return new SearchFixture(window, priceCheckService, controller);
         }
     }
 
@@ -1215,6 +1235,33 @@ public sealed class PriceCheckerSearchControllerTests
         public Func<PriceCheckCall, Task<PathOfExileTradePriceCheckResult>>? Handler { get; set; }
 
         public Func<LoadMoreCall, Task<PathOfExileTradePriceCheckResult>>? LoadMoreHandler { get; set; }
+
+        public Func<TradeSearchDraft, TradeSearchDraft>? EffectiveDraftResolver { get; set; }
+
+        public List<CategoryLabelLoadCall> CategoryLabelLoadCalls { get; } = [];
+
+        public Func<TradeSearchDraft, CancellationToken, Task<string?>>? CategoryLabelLoader { get; set; }
+
+        public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft)
+        {
+            return EffectiveDraftResolver?.Invoke(draft) ?? draft;
+        }
+
+        public Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new PathOfExileTradeFilterCatalogProviderResult());
+        }
+
+        public Task<string?> LoadCategoryDisplayLabelAsync(
+            TradeSearchDraft draft,
+            CancellationToken cancellationToken = default)
+        {
+            CategoryLabelLoadCalls.Add(new CategoryLabelLoadCall(draft, cancellationToken));
+            return CategoryLabelLoader is null
+                ? Task.FromResult<string?>(null)
+                : CategoryLabelLoader(draft, cancellationToken);
+        }
 
         public Task<PathOfExileTradePriceCheckResult> CheckAsync(
             TradeSearchDraft? draft,
@@ -1267,7 +1314,7 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+        public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
 
@@ -1323,11 +1370,6 @@ public sealed class PriceCheckerSearchControllerTests
             Closed?.Invoke(this, EventArgs.Empty);
         }
 
-        public void SetLeague(string leagueIdentifier)
-        {
-            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
-        }
-
         public void SetPinned(bool isPinned)
         {
             IsPinned = isPinned;
@@ -1352,6 +1394,11 @@ public sealed class PriceCheckerSearchControllerTests
             ModifierSelectionChanged?.Invoke(
                 this,
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
+        }
+
+        public void RaiseBaseCriterionToggleRequested()
+        {
+            BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 #pragma warning restore CS0067

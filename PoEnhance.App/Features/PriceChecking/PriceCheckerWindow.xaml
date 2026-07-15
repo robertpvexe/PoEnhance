@@ -6,7 +6,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         d:DesignHeight="720"
-        d:DesignWidth="360"
+        d:DesignWidth="560"
         Title="Price Checker"
         ResizeMode="NoResize"
         ShowActivated="False"
@@ -14,6 +14,203 @@
         Topmost="True"
         WindowStyle="None"
         WindowStartupLocation="Manual">
+    <Window.Resources>
+        <ControlTemplate x:Key="PriceCheckerButtonTemplate"
+                         TargetType="{x:Type ButtonBase}">
+            <Border x:Name="ButtonBorder"
+                    Padding="{TemplateBinding Padding}"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="2">
+                <ContentPresenter HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  RecognizesAccessKey="True" />
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver"
+                         Value="True">
+                    <Setter TargetName="ButtonBorder"
+                            Property="Background"
+                            Value="#343434" />
+                </Trigger>
+                <Trigger Property="IsPressed"
+                         Value="True">
+                    <Setter TargetName="ButtonBorder"
+                            Property="Background"
+                            Value="#454545" />
+                </Trigger>
+                <Trigger Property="IsEnabled"
+                         Value="False">
+                    <Setter TargetName="ButtonBorder"
+                            Property="Background"
+                            Value="#202020" />
+                    <Setter Property="Foreground"
+                            Value="#777777" />
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+        <Style x:Key="PriceCheckerButtonStyle"
+               TargetType="{x:Type ButtonBase}">
+            <Setter Property="Padding"
+                    Value="8,4" />
+            <Setter Property="Background"
+                    Value="#292929" />
+            <Setter Property="BorderBrush"
+                    Value="#484848" />
+            <Setter Property="BorderThickness"
+                    Value="1" />
+            <Setter Property="Foreground"
+                    Value="#E6E6E6" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="Template"
+                    Value="{StaticResource PriceCheckerButtonTemplate}" />
+        </Style>
+        <Style x:Key="TitleBarButtonStyle"
+               TargetType="{x:Type Button}"
+               BasedOn="{StaticResource PriceCheckerButtonStyle}">
+            <Setter Property="Padding"
+                    Value="6,3" />
+            <Setter Property="Background"
+                    Value="Transparent" />
+            <Setter Property="BorderThickness"
+                    Value="0" />
+            <Setter Property="Foreground"
+                    Value="#B8B8B8" />
+        </Style>
+        <Style x:Key="TitleBarPinStyle"
+               TargetType="{x:Type ToggleButton}"
+               BasedOn="{StaticResource PriceCheckerButtonStyle}">
+            <Setter Property="Padding"
+                    Value="6,3" />
+            <Setter Property="Background"
+                    Value="Transparent" />
+            <Setter Property="BorderThickness"
+                    Value="0" />
+            <Setter Property="Foreground"
+                    Value="#8C8C8C" />
+            <Style.Triggers>
+                <Trigger Property="IsChecked"
+                         Value="True">
+                    <Setter Property="Foreground"
+                            Value="#F2F2F2" />
+                    <Setter Property="Background"
+                            Value="#393939" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <SolidColorBrush x:Key="ExactBaseActiveBorderBrush"
+                         Color="White" />
+        <Style x:Key="BaseCriterionButtonStyle"
+               TargetType="{x:Type Button}"
+               BasedOn="{StaticResource PriceCheckerButtonStyle}">
+            <Style.Triggers>
+                <Trigger Property="Tag"
+                         Value="ExactBase">
+                    <Setter Property="BorderBrush"
+                            Value="{StaticResource ExactBaseActiveBorderBrush}" />
+                    <Setter Property="BorderThickness"
+                            Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="AdvancedPlaceholderStyle"
+               TargetType="{x:Type ToggleButton}">
+            <Setter Property="Foreground"
+                    Value="#747474" />
+            <Setter Property="MinHeight"
+                    Value="20" />
+            <Setter Property="Padding"
+                    Value="0" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                        <Grid Height="20"
+                              SnapsToDevicePixels="True">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       Text="Advanced" />
+                            <Border Grid.Column="1"
+                                    Width="26"
+                                    Height="16"
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Background="#282828"
+                                    BorderBrush="#3A3A3A"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    SnapsToDevicePixels="True">
+                                <Ellipse Width="10"
+                                         Height="10"
+                                         Margin="2"
+                                         HorizontalAlignment="Left"
+                                         VerticalAlignment="Center"
+                                         Fill="#606060" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ModifierRowStyle"
+               TargetType="{x:Type ListBoxItem}">
+            <Setter Property="Padding"
+                    Value="0" />
+            <Setter Property="Margin"
+                    Value="0" />
+            <Setter Property="Focusable"
+                    Value="False" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="HorizontalContentAlignment"
+                    Value="Stretch" />
+            <EventSetter Event="PreviewMouseLeftButtonDown"
+                         Handler="OnModifierRowPreviewMouseLeftButtonDown" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                        <Border x:Name="RowBackground"
+                                Background="Transparent"
+                                BorderThickness="0">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}"
+                                         Value="True">
+                                <Setter TargetName="RowBackground"
+                                        Property="Background"
+                                        Value="#28362A" />
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="RowBackground"
+                                        Property="Background"
+                                        Value="#212121" />
+                            </Trigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsSelected}"
+                                               Value="True" />
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}"
+                                               Value="True" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="RowBackground"
+                                        Property="Background"
+                                        Value="#344735" />
+                            </MultiDataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Border BorderBrush="#303030"
             BorderThickness="1"
             Background="#151515">
@@ -28,12 +225,11 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
                 <Thumb x:Name="HorizontalDragThumb"
-                       Grid.Column="0"
+                       Grid.ColumnSpan="3"
                        Height="36"
                        Cursor="SizeWE">
                     <Thumb.Template>
@@ -49,282 +245,323 @@
                     </Thumb.Template>
                 </Thumb>
 
-                <ToggleButton x:Name="PinToggleButton"
-                        Grid.Column="1"
-                        MinWidth="44"
-                        Margin="4"
-                        Content="Pin" />
-                <Button x:Name="ResetPositionButton"
-                        Grid.Column="2"
-                        MinWidth="52"
-                        Margin="0,4,4,4"
-                        Content="Reset" />
-                <Button x:Name="CloseButton"
-                        Grid.Column="3"
-                        MinWidth="32"
-                        Margin="0,4,4,4"
-                        Content="X" />
+                <TextBlock x:Name="TitleDisplayNameText"
+                           Grid.Column="1"
+                           MaxWidth="260"
+                           IsHitTestVisible="False"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           Foreground="#F3D88B"
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap" />
+                <StackPanel Grid.Column="2"
+                            HorizontalAlignment="Right"
+                            Orientation="Horizontal">
+                    <ToggleButton x:Name="PinToggleButton"
+                                  Width="28"
+                                  Height="28"
+                                  Margin="4"
+                                  Padding="0"
+                                  Content="📌"
+                                  FontSize="14"
+                                  ToolTip="Pin"
+                                  Style="{StaticResource TitleBarPinStyle}" />
+                    <Button x:Name="ResetPositionButton"
+                            Width="28"
+                            Height="28"
+                            Margin="0,4,4,4"
+                            Padding="0"
+                            ToolTip="Reset position"
+                            Style="{StaticResource TitleBarButtonStyle}">
+                        <Canvas x:Name="ResetGlyphCanvas"
+                                Width="20"
+                                Height="20"
+                                UseLayoutRounding="True">
+                            <Path x:Name="ResetRingGeometry"
+                                  Data="M 16,10 A 6,6 0 1 1 10,4"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" />
+                            <Path x:Name="ResetArrowHeadGeometry"
+                                  Data="M 10,3 L 10,6 L 12.8,4.5 Z"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            <Path x:Name="ResetLetterGeometry"
+                                  Data="M 7.75,13.5 L 7.75,6.5 L 9.75,6.5 C 11.4,6.5 12.25,7.25 12.25,8.5 C 12.25,9.75 11.4,10.5 9.75,10.5 L 7.75,10.5 M 9.75,10.5 L 12.25,13.5"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.25"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Canvas>
+                    </Button>
+                    <Button x:Name="CloseButton"
+                            Width="28"
+                            Height="28"
+                            Margin="0,4,4,4"
+                            Padding="0"
+                            ToolTip="Close"
+                            Style="{StaticResource TitleBarButtonStyle}">
+                        <Canvas x:Name="CloseGlyphCanvas"
+                                Width="20"
+                                Height="20"
+                                UseLayoutRounding="True">
+                            <Path Data="M 5,5 L 15,15 M 15,5 L 5,15"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" />
+                        </Canvas>
+                    </Button>
+                </StackPanel>
             </Grid>
 
-            <ScrollViewer Grid.Row="1"
-                          VerticalScrollBarVisibility="Auto">
-                <Grid Margin="12">
+            <Grid Grid.Row="1"
+                  Margin="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Margin="0,8,0,0"
+                        Padding="8,6"
+                        Background="#1D1D1D"
+                        BorderBrush="#353535"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="BaseCriterionButton"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Content="Category"
+                                ToolTip="Toggle between category and exact base"
+                                Style="{StaticResource BaseCriterionButtonStyle}" />
+                        <Button Grid.Column="1"
+                                Margin="8,0,0,0"
+                                IsEnabled="False"
+                                IsTabStop="False"
+                                Content="Mirrored: —" />
+                        <Button Grid.Column="2"
+                                Margin="6,0,0,0"
+                                IsEnabled="False"
+                                IsTabStop="False"
+                                Content="Corrupted: —" />
+                    </Grid>
+                </Border>
+
+                <WrapPanel Grid.Row="1"
+                           Margin="0,8,0,0">
+                    <TextBlock x:Name="ItemLevelText"
+                               Margin="0,0,12,0"
+                               Foreground="#CFCFCF" />
+                    <TextBlock x:Name="SocketMetadataText"
+                               Margin="0,0,12,0"
+                               Foreground="#CFCFCF"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="LinkMetadataText"
+                               Foreground="#CFCFCF"
+                               Visibility="Collapsed" />
+                </WrapPanel>
+
+                <Grid Grid.Row="2"
+                      Margin="0,10,0,4">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="64" />
                     </Grid.ColumnDefinitions>
+                    <TextBlock FontWeight="SemiBold"
+                               Foreground="#EEEEEE"
+                               Text="Modifiers" />
+                    <TextBlock x:Name="ModifierCountText"
+                               Grid.Column="1"
+                               Margin="0,0,8,0"
+                               Foreground="#AFAFAF" />
+                    <TextBlock Grid.Column="2"
+                               HorizontalAlignment="Center"
+                               Foreground="#AFAFAF"
+                               Text="Min" />
+                    <TextBlock Grid.Column="3"
+                               HorizontalAlignment="Center"
+                               Foreground="#AFAFAF"
+                               Text="Max" />
+                </Grid>
+
+                <ListBox x:Name="ModifierListBox"
+                         Grid.Row="3"
+                         Background="#101010"
+                         BorderBrush="#404040"
+                         Foreground="#EEEEEE"
+                         ItemContainerStyle="{StaticResource ModifierRowStyle}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="6,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="64" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0"
+                                          Margin="0,0,8,0"
+                                          VerticalAlignment="Top"
+                                          Click="OnModifierSelectionClick"
+                                          FocusVisualStyle="{x:Null}"
+                                          IsChecked="{Binding IsSelected, Mode=OneWay}" />
+                                <StackPanel Grid.Column="1"
+                                            VerticalAlignment="Top">
+                                    <TextBlock Foreground="#EEEEEE"
+                                               Text="{Binding Text}"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap" />
+                                    <TextBlock Margin="0,2,0,0"
+                                               Foreground="#AFAFAF"
+                                               Text="{Binding SectionLabel}"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap" />
+                                </StackPanel>
+                                <TextBox Grid.Column="2"
+                                         Margin="6,0,0,0"
+                                         IsEnabled="False"
+                                         IsTabStop="False"
+                                         MinWidth="64"
+                                         ToolTip="Minimum value filters are not available yet" />
+                                <TextBox Grid.Column="3"
+                                         Margin="4,0,0,0"
+                                         IsEnabled="False"
+                                         IsTabStop="False"
+                                         MinWidth="64"
+                                         ToolTip="Maximum value filters are not available yet" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel x:Name="ValidationPanel"
+                            Grid.Row="4"
+                            Margin="0,8,0,0">
+                    <TextBlock FontWeight="SemiBold"
+                               Foreground="#EEEEEE"
+                               Text="Validation" />
+                    <TextBox x:Name="ValidationTextBox"
+                             MinHeight="76"
+                             MaxHeight="112"
+                             Margin="0,4,0,0"
+                             AcceptsReturn="True"
+                             Background="#101010"
+                             BorderBrush="#404040"
+                             Foreground="#EEEEEE"
+                             HorizontalScrollBarVisibility="Auto"
+                             IsReadOnly="True"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="5"
+                            Margin="0,10,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="28" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="SearchButton"
+                                Grid.Column="0"
+                                MinWidth="68"
+                                Content="Search"
+                                Style="{StaticResource PriceCheckerButtonStyle}" />
+                        <ToggleButton Grid.Column="2"
+                                Margin="6,0,0,0"
+                                IsEnabled="False"
+                                IsTabStop="False"
+                                ToolTip="Advanced filters are not available yet"
+                                Style="{StaticResource AdvancedPlaceholderStyle}" />
+                    </Grid>
+                    <TextBlock x:Name="SearchStatusText"
+                               Margin="0,6,0,0"
+                               Foreground="#EEEEEE"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="SearchSummaryText"
+                               Margin="0,2,0,0"
+                               Foreground="#CFCFCF"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Grid Grid.Row="6"
+                      Margin="0,8,0,0">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Name:" />
-                    <TextBlock x:Name="DisplayNameText"
-                               Grid.Row="0"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE"
-                               TextWrapping="Wrap" />
-
-                    <TextBlock Grid.Row="1"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Base:" />
-                    <TextBlock x:Name="BaseTypeText"
-                               Grid.Row="1"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE"
-                               TextWrapping="Wrap" />
-
-                    <TextBlock Grid.Row="2"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Rarity:" />
-                    <TextBlock x:Name="RarityText"
-                               Grid.Row="2"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE" />
-
-                    <TextBlock Grid.Row="3"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Item level:" />
-                    <TextBlock x:Name="ItemLevelText"
-                               Grid.Row="3"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE" />
-
-                    <TextBlock Grid.Row="4"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Base status:" />
-                    <TextBlock x:Name="BaseResolutionStatusText"
-                               Grid.Row="4"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE" />
-
-                    <TextBlock Grid.Row="5"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Modifiers:" />
-                    <TextBlock x:Name="ModifierCountText"
-                               Grid.Row="5"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE" />
-
-                    <ListBox x:Name="ModifierListBox"
-                             Grid.Row="6"
-                             Grid.ColumnSpan="2"
-                             MaxHeight="160"
-                             Margin="0,0,0,8"
+                    <ListBox x:Name="OfferListBox"
+                             Grid.Row="0"
                              Background="#101010"
                              BorderBrush="#404040"
                              Foreground="#EEEEEE"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             VerticalAlignment="Stretch"
+                             Visibility="Collapsed">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,3,0,5">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <CheckBox Grid.Column="0"
-                                              Margin="0,0,8,0"
-                                              VerticalAlignment="Top"
-                                              Click="OnModifierSelectionClick"
-                                              IsChecked="{Binding IsSelected, Mode=OneWay}" />
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Foreground="#EEEEEE"
-                                                   Text="{Binding Text}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Margin="0,2,0,0"
-                                                   Foreground="#AFAFAF"
-                                                   Text="{Binding SectionLabel}"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
+                                <Grid Margin="6,4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0"
+                                               FontWeight="SemiBold"
+                                               Foreground="#F3D88B"
+                                               Text="{Binding PriceText}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,2,0,0"
+                                               Foreground="#EEEEEE"
+                                               Text="{Binding SellerText}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="2"
+                                               Margin="0,2,0,0"
+                                               Foreground="#B8D8FF"
+                                               Text="{Binding OnlineStatusText}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="3"
+                                               Margin="0,2,0,0"
+                                               Foreground="#CFCFCF"
+                                               TextWrapping="Wrap">
+                                        <Run Text="{Binding ItemText}" />
+                                        <Run Text=" - " />
+                                        <Run Text="{Binding IndexedText}" />
+                                    </TextBlock>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-
-                    <TextBlock Grid.Row="7"
-                               Grid.Column="0"
-                               Margin="0,0,8,8"
-                               FontWeight="SemiBold"
-                               Foreground="#EEEEEE"
-                               Text="Listing:" />
-                    <TextBlock x:Name="ListingModeText"
-                               Grid.Row="7"
-                               Grid.Column="1"
-                               Margin="0,0,0,8"
-                               Foreground="#EEEEEE" />
-
-                    <StackPanel Grid.Row="8"
-                                Grid.ColumnSpan="2"
-                                Margin="0,4,0,0">
-                        <TextBlock FontWeight="SemiBold"
-                                   Foreground="#EEEEEE"
-                                   Text="Validation" />
-                        <TextBox x:Name="ValidationTextBox"
-                                 MinHeight="96"
-                                 Margin="0,4,0,0"
-                                 AcceptsReturn="True"
-                                 Background="#101010"
-                                 BorderBrush="#404040"
-                                 Foreground="#EEEEEE"
-                                 HorizontalScrollBarVisibility="Auto"
-                                 IsReadOnly="True"
-                                 TextWrapping="NoWrap"
-                                 VerticalScrollBarVisibility="Auto" />
-                    </StackPanel>
-
-                    <StackPanel Grid.Row="9"
-                                Grid.ColumnSpan="2"
-                                Margin="0,12,0,0">
-                        <TextBlock FontWeight="SemiBold"
-                                   Foreground="#EEEEEE"
-                                   Text="Trade Search" />
-
-                        <Grid Margin="0,6,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-
-                            <TextBlock Grid.Column="0"
-                                       Margin="0,0,8,0"
-                                       VerticalAlignment="Center"
-                                       Foreground="#EEEEEE"
-                                       Text="League (provisional)" />
-                            <TextBox x:Name="LeagueTextBox"
-                                     Grid.Column="1"
-                                     MinWidth="120"
-                                     Background="#101010"
-                                     BorderBrush="#404040"
-                                     Foreground="#EEEEEE"
-                                     Text="Mirage" />
-                            <Button x:Name="SearchButton"
-                                    Grid.Column="2"
-                                    MinWidth="68"
-                                    Margin="8,0,0,0"
-                                    Content="Search" />
-                        </Grid>
-
-                        <TextBlock x:Name="SearchStatusText"
-                                   Margin="0,8,0,0"
-                                   Foreground="#EEEEEE"
-                                   TextWrapping="Wrap" />
-                        <TextBlock x:Name="SearchSummaryText"
-                                   Margin="0,4,0,0"
-                                   Foreground="#CFCFCF"
-                                   TextWrapping="Wrap" />
-
-                        <ListBox x:Name="OfferListBox"
-                                 MaxHeight="260"
-                                 Margin="0,8,0,0"
-                                 Background="#101010"
-                                 BorderBrush="#404040"
-                                 Foreground="#EEEEEE"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                 Visibility="Collapsed">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,4,0,6">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <TextBlock Grid.Row="0"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="#F3D88B"
-                                                   Text="{Binding PriceText}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1"
-                                                   Margin="0,2,0,0"
-                                                   Foreground="#EEEEEE"
-                                                   Text="{Binding SellerText}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2"
-                                                   Margin="0,2,0,0"
-                                                   Foreground="#B8D8FF"
-                                                   Text="{Binding OnlineStatusText}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="3"
-                                                   Margin="0,2,0,0"
-                                                   Foreground="#CFCFCF"
-                                                   TextWrapping="Wrap">
-                                            <Run Text="{Binding ItemText}" />
-                                            <Run Text=" - " />
-                                            <Run Text="{Binding IndexedText}" />
-                                        </TextBlock>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-
-                        <Button x:Name="LoadMoreButton"
-                                MinWidth="88"
-                                Margin="0,8,0,0"
-                                HorizontalAlignment="Left"
-                                Content="Load More"
-                                Visibility="Collapsed" />
-                    </StackPanel>
+                    <Button x:Name="LoadMoreButton"
+                            Grid.Row="1"
+                            MinWidth="88"
+                            Margin="0,8,0,0"
+                            HorizontalAlignment="Left"
+                            Content="Load More"
+                            Style="{StaticResource PriceCheckerButtonStyle}"
+                            Visibility="Collapsed" />
                 </Grid>
-            </ScrollViewer>
+            </Grid>
 
             <Thumb x:Name="HorizontalResizeThumb"
                    Grid.RowSpan="2"

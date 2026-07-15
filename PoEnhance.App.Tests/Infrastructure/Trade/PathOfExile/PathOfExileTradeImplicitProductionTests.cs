@@ -12,8 +12,6 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 public sealed class PathOfExileTradeImplicitProductionTests
 {
-    private const string League = "Mercenaries";
-
     [Fact]
     public async Task BlastingWandImplicitSelectedCreatesOneImplicitProviderFilter()
     {
@@ -126,9 +124,6 @@ public sealed class PathOfExileTradeImplicitProductionTests
         var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
         Assert.Equal(BaseSearchMode.ExactBase, state.Draft.Base.ActiveCriterion?.Mode);
         Assert.Equal("Stygian Vise", state.Draft.Base.ActiveCriterion?.ExactBaseName);
-        Assert.Equal(
-            "Exact; Search: Exact Base: Stygian Vise",
-            PriceCheckerWindow.FormatBaseStatus(state.Draft.Base));
         var component = Assert.Single(state.Draft.ModifierFilters, modifier =>
             modifier.OriginalText.Contains("Has 1 Abyssal Socket", StringComparison.Ordinal));
         Assert.True(component.IsSelected);
@@ -158,9 +153,6 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.Empty(StatIds(query));
         var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
         Assert.Equal(BaseSearchMode.Category, state.Draft.Base.ActiveCriterion?.Mode);
-        Assert.Equal(
-            "Exact; Search: Category: Belt",
-            PriceCheckerWindow.FormatBaseStatus(state.Draft.Base));
     }
 
     [Fact]
@@ -373,7 +365,6 @@ Item Level: 84
             var window = new FakeWindow();
             var controller = new PriceCheckerSearchController(service);
             controller.AttachWindow(window);
-            window.SetLeague(League);
             return new Fixture(statCatalog, window, searchClient, controller);
         }
 
@@ -545,7 +536,8 @@ Item Level: 84
 
         public event EventHandler? LoadMoreRequested;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
+        public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
         public event EventHandler? HorizontalDragCompleted;
@@ -589,11 +581,6 @@ Item Level: 84
         {
             IsClosed = true;
             Closed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void SetLeague(string leagueIdentifier)
-        {
-            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
         }
 
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)

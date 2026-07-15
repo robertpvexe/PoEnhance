@@ -436,7 +436,7 @@ public partial class MainWindow : Window
                 itemBaseResolution.Result);
             DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
             var priceCheckerUpdateResult = inputSource == ItemInputSource.Clipboard
-                ? ShowOrUpdatePriceCheckerWindow(
+                ? await ShowOrUpdatePriceCheckerWindowAsync(
                     parsedItem,
                     itemBaseResolution,
                     modifierCandidateResolutions)
@@ -471,12 +471,12 @@ public partial class MainWindow : Window
         return $"{inputSource}:{Guid.NewGuid():N}";
     }
 
-    private PriceCheckerWindowUpdateResult ShowOrUpdatePriceCheckerWindow(
+    private async Task<PriceCheckerWindowUpdateResult> ShowOrUpdatePriceCheckerWindowAsync(
         ParsedItem parsedItem,
         ItemBaseResolutionDisplay itemBaseResolution,
         ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
     {
-        var result = priceCheckerWindowController.ShowOrUpdate(
+        var result = await priceCheckerWindowController.ShowOrUpdateAsync(
             parsedItem,
             itemBaseResolution.Result,
             modifierCandidateResolutions.Results

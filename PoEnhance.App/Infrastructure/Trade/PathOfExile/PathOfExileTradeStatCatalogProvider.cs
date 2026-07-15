@@ -12,6 +12,21 @@ internal sealed class PathOfExileTradeStatCatalogProvider : IPathOfExileTradeSta
         this.statsClient = statsClient ?? throw new ArgumentNullException(nameof(statsClient));
     }
 
+    public bool TryGetCachedCatalog(out PathOfExileTradeStatCatalog catalog)
+    {
+        lock (gate)
+        {
+            if (cachedCatalog is not null)
+            {
+                catalog = cachedCatalog;
+                return true;
+            }
+        }
+
+        catalog = null!;
+        return false;
+    }
+
     public async Task<PathOfExileTradeStatCatalogProviderResult> GetCatalogAsync(
         CancellationToken cancellationToken = default)
     {

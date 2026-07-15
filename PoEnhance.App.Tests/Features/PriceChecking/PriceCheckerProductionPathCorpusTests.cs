@@ -513,7 +513,8 @@ Item Level: 84
 
         public event EventHandler? LoadMoreRequested;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
+        public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
         public event EventHandler? HorizontalDragCompleted;
@@ -603,6 +604,17 @@ Item Level: 84
 
     private sealed class FakePriceCheckService : IPathOfExileTradePriceCheckService
     {
+        public Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PathOfExileTradeFilterCatalogProviderResult());
+
+        public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft) => draft;
+
+        public Task<string?> LoadCategoryDisplayLabelAsync(
+            TradeSearchDraft draft,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
         public Task<PathOfExileTradePriceCheckResult> CheckAsync(
             TradeSearchDraft? draft,
             TradeSearchValidationResult? validationResult,
@@ -615,6 +627,12 @@ Item Level: 84
                 Stage = PathOfExileTradePriceCheckStage.Completed,
             });
         }
+
+        public Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
+            string? searchQueryId,
+            IReadOnlyList<string?>? resultIds,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Load More is not expected in this corpus test.");
     }
 
     private sealed class TempDirectory : IDisposable

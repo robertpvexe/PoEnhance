@@ -2,9 +2,9 @@ namespace PoEnhance.App.Features.PriceChecking;
 
 internal sealed class PriceCheckerPlacementCalculator
 {
-    public const double ProvisionalPanelWidthRatio = 0.22d;
+    public const double ProvisionalPanelWidthRatio = 0.30d;
     public const double ProvisionalPanelMinimumWidth = 360d;
-    public const double ProvisionalPanelMaximumWidth = 480d;
+    public const double ProvisionalPanelMaximumWidth = 560d;
     public const double ProvisionalInventoryWidthToClientHeightRatio = 0.60d;
     public const double ProvisionalInventorySafetyGap = 12d;
     public const double UserPanelMinimumWidth = 320d;

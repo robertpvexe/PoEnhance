@@ -37,6 +37,14 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         this.filterCatalogProvider = filterCatalogProvider;
     }
 
+    public async Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return filterCatalogProvider is null
+            ? new PathOfExileTradeFilterCatalogProviderResult()
+            : await filterCatalogProvider.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PathOfExileTradePriceCheckResult> CheckAsync(
         TradeSearchDraft? draft,
         TradeSearchValidationResult? validationResult,
@@ -288,6 +296,57 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         };
     }
 
+    public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+
+        if (statCatalogProvider.TryGetCachedCatalog(out var catalog))
+        {
+            return ResolveProviderComponents(draft, catalog);
+        }
+
+        var resolvedComponents = draft.ModifierFilters
+            .Select(component => component.IsSelected &&
+                component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.NotResolved &&
+                CanUseAvailableExactBaseFallback(draft, component)
+                    ? component with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                    }
+                    : component)
+            .ToArray();
+        var resolvedDraft = draft with
+        {
+            ModifierFilters = resolvedComponents,
+        };
+
+        return resolvedComponents.Any(component =>
+                component.IsSelected &&
+                component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed &&
+                CanUseAvailableExactBaseFallback(draft, component))
+            ? ActivateAvailableExactBase(resolvedDraft)
+            : resolvedDraft;
+    }
+
+    public async Task<string?> LoadCategoryDisplayLabelAsync(
+        TradeSearchDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+
+        if (filterCatalogProvider is null)
+        {
+            return null;
+        }
+
+        var catalogResult = await filterCatalogProvider
+            .GetCatalogAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return catalogResult.IsSuccess && catalogResult.Catalog is not null
+            ? GetProviderCategoryDisplayLabel(draft, catalogResult.Catalog)
+            : null;
+    }
+
     public async Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
         string? searchQueryId,
         IReadOnlyList<string?>? resultIds,
@@ -371,6 +430,18 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             FetchRateLimitSnapshot = fetchResult.RateLimitSnapshot,
             Diagnostics = fetchDiagnostics,
         };
+    }
+
+    private static string? GetProviderCategoryDisplayLabel(
+        TradeSearchDraft? draft,
+        PathOfExileTradeFilterCatalog providerFilterCatalog)
+    {
+        var category = draft?.Base.AvailableCriteria.Category?.Category ??
+            draft?.Base.ActiveCriterion?.Category ??
+            draft?.Base.Category;
+        return providerFilterCatalog.TryGetCategoryDisplayLabel(category, out var displayLabel)
+            ? displayLabel
+            : null;
     }
 
     private static bool CanMapSelectedModifiers(

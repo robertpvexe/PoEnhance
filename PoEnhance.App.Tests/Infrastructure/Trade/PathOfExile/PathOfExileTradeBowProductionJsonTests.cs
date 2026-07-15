@@ -12,7 +12,7 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 public sealed class PathOfExileTradeBowProductionJsonTests
 {
-    private const string League = "Mercenaries";
+    private const string League = "Mirage";
 
     public static IEnumerable<object[]> CumulativeSelections()
     {
@@ -174,7 +174,6 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             var window = new FakeWindow();
             var controller = new PriceCheckerSearchController(service);
             controller.AttachWindow(window);
-            window.SetLeague(League);
 
             return new ProductionTradeFixture(
                 draftResult.Draft,
@@ -380,7 +379,8 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
         public event EventHandler? LoadMoreRequested;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
-        public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+
+        public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
         public event EventHandler? HorizontalDragCompleted;
@@ -424,11 +424,6 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         {
             IsClosed = true;
             Closed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void SetLeague(string leagueIdentifier)
-        {
-            LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(leagueIdentifier));
         }
 
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)

@@ -2,6 +2,7 @@ using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
 using Serilog;
 
@@ -28,6 +29,7 @@ internal sealed class PriceCheckerWindowController
     private bool horizontalResizeUpdateScheduled;
     private bool isAutoCloseArmed;
     private bool isPinned;
+    private int contentGeneration;
 
     public PriceCheckerWindowController(
         IPriceCheckerWindowFactory windowFactory,
@@ -42,10 +44,7 @@ internal sealed class PriceCheckerWindowController
             new CoreTradeSearchDraftValidatorAdapter(),
             new PathOfExileForegroundWindowDetector(),
             new WpfPriceCheckerDeferredActionScheduler(),
-            new PriceCheckerSearchController(
-                priceCheckService,
-                leaguePreferenceStore: new PriceCheckerLeaguePreferenceStore(
-                    new PriceCheckerLeaguePreferenceStorePathResolver().ResolveDefaultPath())))
+            new PriceCheckerSearchController(priceCheckService))
     {
     }
 
@@ -71,11 +70,43 @@ internal sealed class PriceCheckerWindowController
         this.searchController = searchController;
     }
 
-    public PriceCheckerWindowUpdateResult ShowOrUpdate(
+    public async Task<PriceCheckerWindowUpdateResult> ShowOrUpdateAsync(
         ParsedItem parsedItem,
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
-        GameDataCatalog? gameDataCatalog = null)
+        GameDataCatalog? gameDataCatalog = null,
+        CancellationToken cancellationToken = default)
+    {
+        var requestGeneration = ++contentGeneration;
+        if (!TryPrepareUpdate(
+                parsedItem,
+                itemBaseResolution,
+                modifierResolutions,
+                gameDataCatalog,
+                out var update,
+                out var failure))
+        {
+            return failure;
+        }
+
+        var presentation = await searchController
+            .PreparePresentationAsync(update.Draft, update.Presentation, cancellationToken);
+        if (requestGeneration != contentGeneration)
+        {
+            return PriceCheckerWindowUpdateResult.Failure(
+                "Price Checker update was superseded by a newer item");
+        }
+
+        return PublishUpdate(update with { Presentation = presentation });
+    }
+
+    private bool TryPrepareUpdate(
+        ParsedItem parsedItem,
+        ItemBaseResolutionResult? itemBaseResolution,
+        IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
+        GameDataCatalog? gameDataCatalog,
+        out PendingPriceCheckerUpdate update,
+        out PriceCheckerWindowUpdateResult failure)
     {
         var draftResult = draftMapper.CreateDraft(
             parsedItem,
@@ -86,25 +117,42 @@ internal sealed class PriceCheckerWindowController
         if (!draftResult.IsSuccess || draftResult.Draft is null)
         {
             var diagnostic = draftResult.Diagnostics.FirstOrDefault();
-            return PriceCheckerWindowUpdateResult.Failure(
+            update = null!;
+            failure = PriceCheckerWindowUpdateResult.Failure(
                 diagnostic is null
                     ? "Trade draft could not be created"
                     : $"{diagnostic.Code}: {diagnostic.Message}");
+            return false;
         }
 
         if (!clientBoundsProvider.TryGetClientBounds(out var clientBounds))
         {
-            return PriceCheckerWindowUpdateResult.Failure(
+            update = null!;
+            failure = PriceCheckerWindowUpdateResult.Failure(
                 "Path of Exile client bounds are unavailable");
+            return false;
         }
 
         var validationResult = draftValidator.Validate(draftResult.Draft);
-        var priceCheckerWindow = EnsureWindow();
-        priceCheckerWindow.UpdateContent(new PriceCheckerWindowState(
+        var presentation = PriceCheckerItemPresentation.FromParsedItem(parsedItem);
+        update = new PendingPriceCheckerUpdate(
             draftResult.Draft,
-            validationResult));
-        searchController.UpdateCurrentDraft(draftResult.Draft, validationResult);
+            validationResult,
+            presentation,
+            clientBounds);
+        failure = null!;
+        return true;
+    }
 
+    private PriceCheckerWindowUpdateResult PublishUpdate(PendingPriceCheckerUpdate update)
+    {
+        var priceCheckerWindow = EnsureWindow();
+        searchController.UpdateCurrentDraft(
+            update.Draft,
+            update.ValidationResult,
+            update.Presentation);
+
+        var clientBounds = update.ClientBounds;
         var placementKey = PriceCheckerPlacementKey.FromClientBounds(clientBounds);
         if (currentPlacementKey != placementKey)
         {
@@ -141,6 +189,12 @@ internal sealed class PriceCheckerWindowController
 
         return PriceCheckerWindowUpdateResult.Success();
     }
+
+    private sealed record PendingPriceCheckerUpdate(
+        TradeSearchDraft Draft,
+        TradeSearchValidationResult ValidationResult,
+        PriceCheckerItemPresentation Presentation,
+        PathOfExileClientBounds ClientBounds);
 
     private IPriceCheckerWindow EnsureWindow()
     {

@@ -52,6 +52,26 @@ public sealed class PriceCheckerWindowChromeTests
         Assert.DoesNotContain("Property=\"Margin\"", resizeThumbTriggers);
     }
 
+    [Fact]
+    public void PriceCheckerWindowXaml_HeaderDragSurfaceSpansTheTitleBarBelowTheInteractiveControls()
+    {
+        var xaml = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "PoEnhance.App",
+            "Features",
+            "PriceChecking",
+            "PriceCheckerWindow.xaml"));
+        var dragThumb = ExtractElement(xaml, "<Thumb x:Name=\"HorizontalDragThumb\"", "</Thumb>");
+        var title = ExtractElement(xaml, "<TextBlock x:Name=\"TitleDisplayNameText\"", "/>");
+
+        Assert.Contains("Grid.ColumnSpan=\"3\"", dragThumb);
+        Assert.Contains("IsHitTestVisible=\"False\"", title);
+        Assert.True(xaml.IndexOf("x:Name=\"HorizontalDragThumb\"", StringComparison.Ordinal) <
+            xaml.IndexOf("x:Name=\"PinToggleButton\"", StringComparison.Ordinal));
+        Assert.True(xaml.IndexOf("x:Name=\"PinToggleButton\"", StringComparison.Ordinal) <
+            xaml.IndexOf("x:Name=\"ResetPositionButton\"", StringComparison.Ordinal));
+    }
+
     private static string ExtractElement(
         string source,
         string startMarker,

@@ -41,7 +41,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         HorizontalResizeThumb.LostMouseCapture += (_, _) => CompleteHorizontalResize();
         PinToggleButton.Checked += OnPinStateChanged;
         PinToggleButton.Unchecked += OnPinStateChanged;
-        LeagueTextBox.TextChanged += OnLeagueTextChanged;
+        BaseCriterionButton.Click += OnBaseCriterionButtonClick;
         SearchButton.Click += OnSearchButtonClick;
         LoadMoreButton.Click += OnLoadMoreButtonClick;
         ResetPositionButton.Click += OnResetPositionButtonClick;
@@ -65,7 +65,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
-    public event EventHandler<PriceCheckerLeagueChangedEventArgs>? LeagueChanged;
+    public event EventHandler? BaseCriterionToggleRequested;
 
     public event EventHandler<bool>? PinStateChanged;
 
@@ -113,28 +113,37 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         CurrentState = state;
 
         var draft = state.Draft;
-        DisplayNameText.Text = DisplayValue(draft.DisplayName);
-        BaseTypeText.Text = DisplayValue(draft.Base.Observed?.ExactBaseName ?? draft.ParsedBaseType);
-        RarityText.Text = DisplayValue(draft.Rarity);
-        ItemLevelText.Text = draft.ItemLevel?.ToString() ?? NotDetectedText;
-        BaseResolutionStatusText.Text = FormatBaseStatus(draft.Base);
+        TitleDisplayNameText.Text = FormatTitle(
+            draft.DisplayName,
+            draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
+        ItemLevelText.Text = $"Item Level: {draft.ItemLevel?.ToString() ?? NotDetectedText}";
+        BaseCriterionButton.Content = FormatActiveCriterion(
+            draft.Base.ActiveCriterion,
+            state.Presentation.CategoryDisplayLabel);
+        BaseCriterionButton.Tag = draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase
+            ? "ExactBase"
+            : "Category";
+        SocketMetadataText.Text = $"Sockets: {state.Presentation.SocketText}";
+        SocketMetadataText.Visibility = string.IsNullOrWhiteSpace(state.Presentation.SocketText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        LinkMetadataText.Text = $"Links: {state.Presentation.LinkText}";
+        LinkMetadataText.Visibility = string.IsNullOrWhiteSpace(state.Presentation.LinkText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         ModifierCountText.Text = FormatModifierCount(
             draft.ModifierFilters.Count(modifier => modifier.IsSelected),
             draft.ModifierFilters.Count);
-        ListingModeText.Text = draft.ListingMode.ToString();
         ValidationTextBox.Text = FormatValidation(state.ValidationResult);
+        ValidationPanel.Visibility = state.ValidationResult.Diagnostics.Count == 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     public void UpdateSearch(PriceCheckerSearchViewState state)
     {
         CurrentSearchState = state;
 
-        if (!string.Equals(LeagueTextBox.Text, state.LeagueIdentifier, StringComparison.Ordinal))
-        {
-            LeagueTextBox.Text = state.LeagueIdentifier;
-        }
-
-        LeagueTextBox.IsEnabled = !state.IsLoading;
         SearchButton.IsEnabled = state.CanSearch;
         LoadMoreButton.IsEnabled = state.CanLoadMore;
         LoadMoreButton.Visibility = state.CanLoadMore
@@ -286,9 +295,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ResetPositionRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    private void OnLeagueTextChanged(object sender, TextChangedEventArgs e)
+    private void OnBaseCriterionButtonClick(object sender, RoutedEventArgs e)
     {
-        LeagueChanged?.Invoke(this, new PriceCheckerLeagueChangedEventArgs(LeagueTextBox.Text));
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnSearchButtonClick(object sender, RoutedEventArgs e)
@@ -316,6 +326,22 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             new PriceCheckerModifierSelectionChangedEventArgs(
                 modifier.SourceIndex,
                 ((CheckBox)sender).IsChecked == true));
+    }
+
+    private void OnModifierRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (HasModifierInteractiveChild(e.OriginalSource as DependencyObject) ||
+            sender is not ListBoxItem { DataContext: PriceCheckerModifierViewModel modifier })
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ModifierSelectionChanged?.Invoke(
+            this,
+            new PriceCheckerModifierSelectionChangedEventArgs(
+                modifier.SourceIndex,
+                !modifier.IsSelected));
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -361,20 +387,42 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
-    internal static string FormatBaseStatus(TradeSearchBaseDraft baseDraft)
+    private static bool HasModifierInteractiveChild(DependencyObject? source)
     {
-        var status = baseDraft.Status?.ToString() ?? "Parser only";
-        return $"{status}; Search: {FormatActiveCriterion(baseDraft.ActiveCriterion)}";
+        while (source is not null)
+        {
+            if (source is ButtonBase)
+            {
+                return true;
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
     }
 
-    internal static string FormatActiveCriterion(BaseSearchCriterion? criterion)
+    internal static string FormatActiveCriterion(
+        BaseSearchCriterion? criterion,
+        string? providerCategoryDisplayLabel = null)
     {
         return criterion?.Mode switch
         {
-            BaseSearchMode.Category => $"Category: {DisplayValue(criterion.Category)}",
+            BaseSearchMode.Category => $"Item Category: {(providerCategoryDisplayLabel?.Trim() is { Length: > 0 } label ? label : "—")}",
             BaseSearchMode.ExactBase => $"Exact Base: {DisplayValue(criterion.ExactBaseName)}",
             _ => NotDetectedText,
         };
+    }
+
+    internal static string FormatTitle(
+        string? displayName,
+        string? baseName)
+    {
+        return string.Join(
+            ' ',
+            new[] { displayName, baseName }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!.Trim()));
     }
 
     private static double? SelectRenderedDimension(double actualValue, double requestedValue)
@@ -389,11 +437,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             : null;
     }
 
-    private static string FormatModifierCount(
+    internal static string FormatModifierCount(
         int selectedCount,
         int totalCount)
     {
-        return $"{selectedCount} selected of {totalCount}";
+        return $"{selectedCount} of {totalCount} stats selected";
     }
 
     [DllImport("user32.dll", SetLastError = true)]

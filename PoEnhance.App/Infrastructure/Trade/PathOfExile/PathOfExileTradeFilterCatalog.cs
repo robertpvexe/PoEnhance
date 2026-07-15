@@ -68,6 +68,21 @@ internal sealed class PathOfExileTradeFilterCatalog
         return false;
     }
 
+    public bool TryGetCategoryDisplayLabel(
+        string? category,
+        out string displayLabel)
+    {
+        if (TryFindCategoryOption(category, out var option) &&
+            !string.IsNullOrWhiteSpace(option.Text))
+        {
+            displayLabel = option.Text;
+            return true;
+        }
+
+        displayLabel = null!;
+        return false;
+    }
+
     private static IEnumerable<string> ProviderCategoryTextCandidates(string category)
     {
         yield return category;
