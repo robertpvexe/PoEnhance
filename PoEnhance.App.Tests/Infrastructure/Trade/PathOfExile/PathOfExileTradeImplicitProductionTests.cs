@@ -35,7 +35,7 @@ public sealed class PathOfExileTradeImplicitProductionTests
     }
 
     [Fact]
-    public async Task SupremeSpikedShieldImplicitSelectedCreatesOneImplicitProviderFilterAndKeepsFourRows()
+    public async Task SupremeSpikedShieldImplicitSelectedCreatesOneImplicitProviderFilterAndAggregatesStunRecoveryRows()
     {
         var fixture = Fixture.Create(Catalog(
             Stat(0, "explicit.suppress", "+#% chance to Suppress Spell Damage", "explicit"),
@@ -45,7 +45,10 @@ public sealed class PathOfExileTradeImplicitProductionTests
 
         await fixture.SearchAsync();
 
-        Assert.Equal(4, fixture.Window.CurrentSearchState!.Modifiers.Count);
+        Assert.Equal(3, fixture.Window.CurrentSearchState!.Modifiers.Count);
+        var recovery = Assert.Single(fixture.Window.CurrentSearchState.Modifiers, modifier =>
+            modifier.Text == "24% increased Stun and Block Recovery");
+        Assert.Equal(2, recovery.Contributors.Count);
         var json = fixture.SingleSearchJson();
         using var document = JsonDocument.Parse(json);
         var query = document.RootElement.GetProperty("query");
@@ -107,6 +110,15 @@ public sealed class PathOfExileTradeImplicitProductionTests
         fixture.OpenText(CorpusItem(10));
         fixture.SelectRow("Has 1 Abyssal Socket");
 
+        var selectedState = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
+        var selectedComponent = Assert.Single(selectedState.Draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("Has 1 Abyssal Socket", StringComparison.Ordinal));
+        Assert.False(selectedComponent.SupportsValueBounds);
+        Assert.Equal("Stygian Vise", selectedComponent.GuaranteedExactBaseName);
+        Assert.Equal(BaseSearchMode.ExactBase, selectedState.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Stygian Vise", selectedState.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Empty(fixture.SearchClient.Calls);
+
         await fixture.SearchAsync();
 
         var json = fixture.SingleSearchJson();
@@ -134,6 +146,131 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.Contains(state.ValidationResult.Diagnostics, diagnostic =>
             diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierRepresentedByExactBase &&
             diagnostic.Severity == TradeSearchValidationSeverity.Info);
+    }
+
+    [Fact]
+    public void StygianViseDeselectingAbyssalSocketRestoresCategoryWithoutInventingAnotherExactBase()
+    {
+        var fixture = Fixture.Create(Catalog());
+        fixture.OpenText(CorpusItem(10));
+        var row = fixture.SelectRow("Has 1 Abyssal Socket");
+
+        fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: false);
+
+        var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
+        Assert.Equal(BaseSearchMode.Category, state.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Belt", state.Draft.Base.ActiveCriterion?.Category);
+        Assert.Null(state.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Empty(fixture.SearchClient.Calls);
+    }
+
+    [Theory]
+    [InlineData(9, 22, 31)]
+    [InlineData(10, 25, 35)]
+    public async Task CataclysmLeagueSameIdentityExplicitChildrenComposeIntoOneParentFilter(
+        int firstMinimum,
+        int secondMinimum,
+        int expectedMinimum)
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "explicit.stun-recovery", "#% increased Stun and Block Recovery", "explicit")));
+        fixture.OpenText(CataclysmLeagueSlinkBootsText);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+            modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+
+        Assert.Equal("Explicit", Assert.Single(row.FilterVariants).Label);
+        Assert.All(row.Contributors, contributor => Assert.True(contributor.IsInteractionEnabled));
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
+        if (firstMinimum != 9 || secondMinimum != 22)
+        {
+            fixture.Window.RaiseModifierContributorBoundsChanged(row.SourceIndex, 0, firstMinimum.ToString(), string.Empty);
+            fixture.Window.RaiseModifierContributorBoundsChanged(row.SourceIndex, 1, secondMinimum.ToString(), string.Empty);
+        }
+
+        row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+            modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Equal(expectedMinimum.ToString(), row.MinimumText);
+        Assert.Equal(2, row.ActiveContributorCount);
+
+        await fixture.SearchAsync();
+
+        using var document = JsonDocument.Parse(fixture.SingleSearchJson());
+        var query = document.RootElement.GetProperty("query");
+        var filter = Assert.Single(query.GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stun-recovery", filter.GetProperty("id").GetString());
+        Assert.Equal(expectedMinimum, filter.GetProperty("value").GetProperty("min").GetInt32());
+    }
+
+    [Fact]
+    public async Task CataclysmLeagueSlinkBoots_ManualParentMinimumSuspendsAndReactivatesSelectedChildren()
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "explicit.stun-recovery", "#% increased Stun and Block Recovery", "explicit")));
+        fixture.OpenText(CataclysmLeagueSlinkBootsText);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+            modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Equal("31", row.MinimumText);
+
+        fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "20", string.Empty);
+        Assert.Equal("20", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
+        Assert.Equal("9", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
+        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: false);
+        Assert.Equal("22", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: false);
+        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
+        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+
+        fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "20", string.Empty);
+        var suspended = fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex];
+        Assert.Equal("20", suspended.MinimumText);
+        Assert.All(suspended.Contributors, contributor =>
+        {
+            Assert.True(contributor.IsSelected);
+            Assert.True(contributor.IsInactive);
+            Assert.Equal(
+                SearchComponentContributorInactiveReason.ParentBoundBelowSelectedChildFloor,
+                contributor.InactiveReason);
+        });
+
+        await fixture.SearchAsync();
+        using var suspendedDocument = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(
+            Assert.Single(fixture.SearchClient.Calls).Request!));
+        var suspendedFilter = Assert.Single(suspendedDocument.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal("explicit.stun-recovery", suspendedFilter.GetProperty("id").GetString());
+        Assert.Equal(20, suspendedFilter.GetProperty("value").GetProperty("min").GetInt32());
+
+        fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "31", string.Empty);
+        var reactivated = fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex];
+        Assert.All(reactivated.Contributors, contributor =>
+        {
+            Assert.True(contributor.IsSelected);
+            Assert.False(contributor.IsInactive);
+        });
+
+        await fixture.SearchAsync();
+        using var restoredDocument = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(
+            fixture.SearchClient.Calls[1].Request!));
+        var restoredFilter = Assert.Single(restoredDocument.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal("explicit.stun-recovery", restoredFilter.GetProperty("id").GetString());
+        Assert.Equal(31, restoredFilter.GetProperty("value").GetProperty("min").GetInt32());
     }
 
     [Fact]
@@ -248,10 +385,16 @@ public sealed class PathOfExileTradeImplicitProductionTests
             .EnumerateArray()
             .Select(filter =>
             {
-                Assert.False(filter.TryGetProperty("value", out _));
                 Assert.False(filter.TryGetProperty("min", out _));
                 Assert.False(filter.TryGetProperty("max", out _));
-                Assert.Single(filter.EnumerateObject());
+                Assert.All(filter.EnumerateObject(), property =>
+                    Assert.Contains(property.Name, new[] { "id", "value" }));
+                if (filter.TryGetProperty("value", out var value))
+                {
+                    Assert.All(value.EnumerateObject(), property =>
+                        Assert.Contains(property.Name, new[] { "min", "max" }));
+                }
+
                 return filter.GetProperty("id").GetString()!;
             })
             .ToArray();
@@ -387,16 +530,20 @@ Item Level: 84
                 modifierResolutions,
                 catalog);
             Assert.True(draftResult.IsSuccess);
-            var draft = draftResult.Draft!;
+            var draft = Controller
+                .PrepareDraftAsync(draftResult.Draft!)
+                .GetAwaiter()
+                .GetResult();
             Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
             return draft;
         }
 
-        public void SelectRow(string textFragment)
+        public PriceCheckerModifierViewModel SelectRow(string textFragment)
         {
             var row = Assert.Single(Window.CurrentSearchState!.Modifiers, row =>
                 row.Text.Contains(textFragment, StringComparison.Ordinal));
             Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+            return row;
         }
 
         public Task SearchAsync()
@@ -419,6 +566,7 @@ Item Level: 84
                 Category(1, "armour.shield", "Shield"),
                 Category(2, "accessory.ring", "Ring"),
                 Category(3, "accessory.belt", "Belt"),
+                Category(4, "armour.boots", "Boots"),
             ]);
         }
 
@@ -447,6 +595,12 @@ Item Level: 84
         public FakeStatCatalogProvider(PathOfExileTradeStatCatalog catalog)
         {
             this.catalog = catalog;
+        }
+
+        public bool TryGetCachedCatalog(out PathOfExileTradeStatCatalog cachedCatalog)
+        {
+            cachedCatalog = catalog;
+            return true;
         }
 
         public Task<PathOfExileTradeStatCatalogProviderResult> GetCatalogAsync(
@@ -545,6 +699,8 @@ Item Level: 84
 
         public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -552,7 +708,7 @@ Item Level: 84
         public event EventHandler? HorizontalResizeStarted;
         public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
         public event EventHandler? HorizontalResizeCompleted;
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 
@@ -597,6 +753,75 @@ Item Level: 84
                 this,
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
         }
+
+        public void RaiseModifierContributorSelectionChanged(
+            int modifierIndex,
+            int contributorIndex,
+            bool isSelected)
+        {
+            ModifierSelectionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierSelectionChangedEventArgs(
+                    modifierIndex,
+                    isSelected,
+                    contributorIndex));
+        }
+
+        public void RaiseModifierContributorBoundsChanged(
+            int modifierIndex,
+            int contributorIndex,
+            string minimumText,
+            string maximumText)
+        {
+            ModifierBoundsChanged?.Invoke(
+                this,
+                new PriceCheckerModifierBoundsChangedEventArgs(
+                    modifierIndex,
+                    minimumText,
+                    maximumText,
+                    contributorIndex));
+        }
+
+        public void RaiseModifierBoundsChanged(
+            int modifierIndex,
+            string minimumText,
+            string maximumText)
+        {
+            ModifierBoundsChanged?.Invoke(
+                this,
+                new PriceCheckerModifierBoundsChangedEventArgs(
+                    modifierIndex,
+                    minimumText,
+                    maximumText));
+        }
     }
 #pragma warning restore CS0067
+
+    private const string CataclysmLeagueSlinkBootsText = """
+Item Class: Boots
+Rarity: Rare
+Cataclysm League
+Slink Boots
+--------
+Quality: +10% (augmented)
+Evasion Rating: 326 (augmented)
+--------
+Requirements:
+Level: 69
+Dex: 120
+--------
+Sockets: G-G-R-G
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Moth's" (Tier: 5) - Defences, Evasion }
+14(14-20)% increased Evasion Rating
+9(8-9)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Troll" (Tier: 3) - Life }
+Regenerate 46.8(32.1-48) Life per second
+{ Suffix Modifier "of the Whelpling" (Tier: 8) - Elemental, Fire, Resistance }
++6(6-11)% to Fire Resistance
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+22(20-22)% increased Stun and Block Recovery
+""";
 }

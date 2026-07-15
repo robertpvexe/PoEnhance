@@ -5,7 +5,9 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTradeSelectedModifierMapper
 {
-    public PathOfExileTradeSelectedModifierMappingResult Map(TradeSearchDraft? draft)
+    public PathOfExileTradeSelectedModifierMappingResult Map(
+        TradeSearchDraft? draft,
+        PathOfExileTradeStatCatalog? catalog = null)
     {
         var selectedModifiers = (draft?.ModifierFilters ?? [])
             .Select((modifier, index) => new IndexedModifier(index, modifier))
@@ -18,9 +20,17 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         }
 
         var filters = new List<PathOfExileTradeSelectedModifierFilter>();
+        var contributorFilters = new List<PathOfExileTradeSelectedModifierFilter>();
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
         foreach (var selectedModifier in selectedModifiers)
         {
+            AddActiveContributorFilters(
+                selectedModifier.Index,
+                selectedModifier.Modifier,
+                catalog,
+                contributorFilters,
+                diagnostics);
+
             if (TryCreateResolvedProviderFilter(
                     selectedModifier.Index,
                     selectedModifier.Modifier,
@@ -71,10 +81,132 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 ToProviderResolutionDiagnostic(selectedModifier.Index, selectedModifier.Modifier));
         }
 
+        filters.AddRange(contributorFilters);
         var collapsedFilters = CollapseSharedPresenceFilters(filters, diagnostics);
-        return diagnostics.Count == 0
+        var result = diagnostics.Count == 0
             ? PathOfExileTradeSelectedModifierMappingResult.Success(collapsedFilters)
             : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
+        return result;
+    }
+
+    private static void AddActiveContributorFilters(
+        int parentIndex,
+        ResolvedSearchComponent parent,
+        PathOfExileTradeStatCatalog? catalog,
+        List<PathOfExileTradeSelectedModifierFilter> filters,
+        List<PathOfExileTradeSelectedModifierMappingDiagnostic> diagnostics)
+    {
+        if (!SearchComponentContributorActivation.IsFilteringActive(parent))
+        {
+            return;
+        }
+
+        var selected = parent.Contributors
+            .Where(contributor => contributor.IsSelected)
+            .ToArray();
+        var parentProviderIdentity = string.IsNullOrWhiteSpace(parent.ProviderStatId)
+            ? null
+            : PathOfExileTradeProviderIdentity.Create(parent.ProviderStatId);
+        var resolved = new List<ResolvedContributor>(selected.Length);
+        foreach (var contributor in selected)
+        {
+            PathOfExileTradeProviderLocalityDecision? localityDecision = null;
+            PathOfExileTradeStatEntry? providerEntry = null;
+            if (contributor.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                !string.IsNullOrWhiteSpace(contributor.ProviderIdentity) &&
+                catalog is not null &&
+                catalog.TryGetByProviderIdentity(contributor.ProviderIdentity, out var retainedEntry))
+            {
+                providerEntry = retainedEntry;
+                localityDecision = PathOfExileTradeProviderLocalityCompatibility
+                    .EvaluateRetainedSourceIdentity(
+                        contributor.Source,
+                        PathOfExileTradeStatCandidateClassifier.ToCandidate(retainedEntry));
+            }
+
+            if (contributor.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+                string.IsNullOrWhiteSpace(contributor.ProviderIdentity) ||
+                providerEntry is null ||
+                localityDecision?.IsCompatible != true)
+            {
+                var localityAmbiguous = localityDecision?.Status ==
+                    PathOfExileTradeProviderLocalityDecisionStatus.Ambiguous;
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    contributor.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Ambiguous ||
+                        localityAmbiguous
+                        ? PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityAmbiguous
+                        : PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityUnavailable,
+                    localityDecision?.Reason ?? contributor.ProviderDiagnosticMessage ??
+                        $"Selected contributor has no exact retained source provider identity: {SafeModifierText(contributor.Source.OriginalText)}",
+                    parentIndex,
+                    localityDecision?.ReasonCode ?? contributor.ProviderDiagnosticCode));
+                continue;
+            }
+
+            resolved.Add(new ResolvedContributor(contributor, providerEntry));
+        }
+
+        foreach (var providerGroup in resolved.GroupBy(
+                     contributor => contributor.Contributor.ProviderIdentity!,
+                     StringComparer.Ordinal))
+        {
+            var compatibilityGroups = providerGroup
+                .GroupBy(contributor => ContributorCompatibilityKey.Create(parent, contributor.Contributor))
+                .ToArray();
+            if (compatibilityGroups.Length != 1)
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorBoundsIncompatible,
+                    "Selected contributors sharing one retained provider identity have incompatible source semantics and cannot be combined faithfully.",
+                    parentIndex));
+                continue;
+            }
+
+            var compatible = compatibilityGroups[0]
+                .Select(contributor => contributor.Contributor)
+                .ToArray();
+            if (parent.ContributorProjection != SearchComponentContributorProjection.Additive ||
+                compatible.Any(contributor => !contributor.RequestedMinimum.HasValue))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorBoundsIncompatible,
+                    "Selected contributors sharing one retained provider identity do not have complete additive Min values.",
+                    parentIndex));
+                continue;
+            }
+
+            var maximumCount = compatible.Count(contributor => contributor.RequestedMaximum.HasValue);
+            if (maximumCount != 0 && maximumCount != compatible.Length)
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorBoundsIncompatible,
+                    "Selected contributors sharing one retained provider identity have only partially specified Max values.",
+                    parentIndex));
+                continue;
+            }
+
+            if (string.Equals(
+                    providerGroup.Key,
+                    parentProviderIdentity,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            filters.Add(new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = parentIndex,
+                SourceIndexes = [parentIndex],
+                StatId = providerGroup.First().ProviderEntry.Id,
+                OriginalText = string.Join(" + ", compatible.Select(contributor => contributor.Source.OriginalText)),
+                NormalizedItemTemplate = ToProviderTemplate(compatible[0].Source.CanonicalSignature),
+                ExtractedNumericValues = [],
+                Minimum = compatible.Sum(contributor => contributor.RequestedMinimum!.Value),
+                Maximum = maximumCount == compatible.Length
+                    ? compatible.Sum(contributor => contributor.RequestedMaximum!.Value)
+                    : null,
+            });
+        }
     }
 
     private static bool TryCreateResolvedProviderFilter(
@@ -168,12 +300,20 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     {
         var code = modifier.ProviderResolutionStatus switch
         {
+            SearchComponentProviderResolutionStatus.Ambiguous
+                when modifier.ProviderDiagnosticCode ==
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageAmbiguous =>
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageAmbiguous,
             SearchComponentProviderResolutionStatus.Ambiguous =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
             SearchComponentProviderResolutionStatus.NotFound
                 when modifier.ProviderDiagnosticCode ==
                     PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            SearchComponentProviderResolutionStatus.Unsupported
+                when modifier.ProviderDiagnosticCode ==
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable =>
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
             SearchComponentProviderResolutionStatus.NotFound
                 when modifier.ProviderDiagnosticCode == PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch =>
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
@@ -208,6 +348,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 $"Selected modifier has no exact GameData Trade provenance: {safeModifierText}",
             PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable =>
                 $"Selected modifier type is unavailable in the Trade stat catalog: {safeModifierText}",
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable =>
+                $"Selected aggregate has no Trade filter covering every contributor: {safeModifierText}",
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageAmbiguous =>
+                $"Selected aggregate has multiple Trade filters covering every contributor: {safeModifierText}",
             _ => $"Selected modifier cannot be mapped to Trade search: {safeModifierText}",
         };
     }
@@ -243,4 +387,36 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     private sealed record IndexedModifier(
         int Index,
         ResolvedSearchComponent Modifier);
+
+    private sealed record ResolvedContributor(
+        SearchComponentContributor Contributor,
+        PathOfExileTradeStatEntry ProviderEntry);
+
+    private sealed record ContributorCompatibilityKey(
+        string ProviderDomain,
+        PoEnhance.Core.Items.GameData.ModifierLocality Locality,
+        string CanonicalSignature,
+        ModifierBoundShape ValueShape,
+        int Arity,
+        string TranslationIdentity,
+        string TranslationHandlers,
+        SearchComponentContributorProjection Projection)
+    {
+        public static ContributorCompatibilityKey Create(
+            ResolvedSearchComponent parent,
+            SearchComponentContributor contributor)
+        {
+            var source = contributor.Source;
+            return new ContributorCompatibilityKey(
+                source.ProviderDomain.Trim().ToLowerInvariant(),
+                source.Locality,
+                source.CanonicalSignature.Trim(),
+                contributor.ValueBoundShape,
+                source.CanonicalNumericValues.Count,
+                source.TranslationIdentity?.Trim() ?? string.Empty,
+                string.Join("|", source.TranslationHandlers.Select(handlers =>
+                    string.Join(">", handlers))),
+                parent.ContributorProjection);
+        }
+    }
 }

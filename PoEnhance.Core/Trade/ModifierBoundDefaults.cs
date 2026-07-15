@@ -114,6 +114,7 @@ internal static partial class ModifierBoundDefaults
         var translation = branches[0].Translation;
         var variant = branches[0].Variant;
         var numericIndexes = branches[0].NumericIndexes;
+        var translationIdentity = BranchKey(branches[0]);
         observedValues = branches[0].ObservedValues;
 
         var handlers = numericIndexes
@@ -136,7 +137,10 @@ internal static partial class ModifierBoundDefaults
                 "The GameData translation is presence-only and has no displayed numeric value.",
                 ModifierBoundShape.PresenceOnly,
                 observedValues,
-                retainedHandlers);
+                retainedHandlers)
+            {
+                TranslationIdentity = translationIdentity,
+            };
         }
 
         if (numericIndexes.Count != observedValues.Count)
@@ -168,7 +172,10 @@ internal static partial class ModifierBoundDefaults
                 null,
                 ModifierBoundShape.Scalar,
                 observedValues,
-                retainedHandlers);
+                retainedHandlers)
+            {
+                TranslationIdentity = translationIdentity,
+            };
         }
 
         if (numericIndexes.Count == 2 &&
@@ -183,13 +190,58 @@ internal static partial class ModifierBoundDefaults
                 "The damage range requires confirmation against the resolved two-value Trade stat.",
                 ModifierBoundShape.ArithmeticMeanRange,
                 observedValues,
-                retainedHandlers);
+                retainedHandlers)
+            {
+                TranslationIdentity = translationIdentity,
+            };
         }
 
         return Unsupported(
             "The translated numeric tuple has no proven single-value provider projection.",
             observedValues,
             retainedHandlers);
+    }
+
+    internal static IReadOnlyList<string> FindTranslationIdentities(
+        ModifierDefinition modifier,
+        IReadOnlyList<ModifierStat> stats,
+        GameDataCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(modifier);
+        ArgumentNullException.ThrowIfNull(stats);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (stats.Count == 0 || stats.Any(stat => string.IsNullOrWhiteSpace(stat.StatId)))
+        {
+            return [];
+        }
+
+        var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
+        return statIds
+            .SelectMany(catalog.FindStatTranslationsByStatId)
+            .Concat(catalog.FindStatTranslationsByStatIdGroup(statIds))
+            .DistinctBy(translation => translation.Id, StringComparer.Ordinal)
+            .Where(translation => statIds.All(statId => translation.StatIds.Contains(
+                statId,
+                StringComparer.Ordinal)))
+            .SelectMany(translation =>
+            {
+                var translationStats = AlignTranslationStats(translation, modifier.Stats);
+                return translation.Variants
+                    .Where(variant => TranslationVariantMatches(
+                        translation,
+                        variant,
+                        translationStats,
+                        stats))
+                    .Select(variant => BranchKey(new BoundTranslationBranch(
+                        translation,
+                        variant,
+                        NumericIndexesForComponent(variant, translationStats, stats),
+                        [])));
+            })
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(identity => identity, StringComparer.Ordinal)
+            .ToArray();
     }
 
     internal static IReadOnlyList<decimal> ExtractObservedValues(string? source)
@@ -294,23 +346,13 @@ internal static partial class ModifierBoundDefaults
         IReadOnlyList<ModifierStat> componentStats,
         string sourceLine)
     {
-        if (translation.StatIds.Count != variant.ValueFormats.Count ||
-            translation.StatIds.Count != variant.Conditions.Count ||
-            translation.StatIds.Count != translationStats.Count)
+        if (!TranslationVariantMatches(
+                translation,
+                variant,
+                translationStats,
+                componentStats))
         {
             return null;
-        }
-
-        for (var index = 0; index < translationStats.Count; index++)
-        {
-            var stat = translationStats[index];
-            if (!VariantConditionMatches(
-                    variant.Conditions[index],
-                    stat?.MinValue ?? 0m,
-                    stat?.MaxValue ?? 0m))
-            {
-                return null;
-            }
         }
 
         var allNumericIndexes = variant.ValueFormats
@@ -318,10 +360,10 @@ internal static partial class ModifierBoundDefaults
             .Where(candidate => candidate.format is "#" or "+#")
             .Select(candidate => candidate.index)
             .ToArray();
-        var componentNumericIndexes = allNumericIndexes
-            .Where(index => translationStats[index] is not null &&
-                ComponentContainsStat(componentStats, translationStats[index]!))
-            .ToArray();
+        var componentNumericIndexes = NumericIndexesForComponent(
+            variant,
+            translationStats,
+            componentStats);
         if (componentNumericIndexes.Length != allNumericIndexes.Length ||
             !TryExtractObservedValues(sourceLine, variant, componentNumericIndexes, out var observedValues))
         {
@@ -333,6 +375,57 @@ internal static partial class ModifierBoundDefaults
             variant,
             componentNumericIndexes,
             observedValues);
+    }
+
+    private static bool TranslationVariantMatches(
+        StatTranslationDefinition translation,
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat?> translationStats,
+        IReadOnlyList<ModifierStat> componentStats)
+    {
+        if (translation.StatIds.Count != variant.ValueFormats.Count ||
+            translation.StatIds.Count != variant.Conditions.Count ||
+            translation.StatIds.Count != translationStats.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < translationStats.Count; index++)
+        {
+            var stat = translationStats[index];
+            if (!VariantConditionMatches(
+                    variant.Conditions[index],
+                    stat?.MinValue ?? 0m,
+                    stat?.MaxValue ?? 0m))
+            {
+                return false;
+            }
+        }
+
+        var allNumericIndexes = variant.ValueFormats
+            .Select((format, index) => new { format, index })
+            .Where(candidate => candidate.format is "#" or "+#")
+            .Select(candidate => candidate.index)
+            .ToArray();
+        var componentNumericIndexes = NumericIndexesForComponent(
+            variant,
+            translationStats,
+            componentStats);
+        return componentNumericIndexes.Length == allNumericIndexes.Length;
+    }
+
+    private static int[] NumericIndexesForComponent(
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat?> translationStats,
+        IReadOnlyList<ModifierStat> componentStats)
+    {
+        return variant.ValueFormats
+            .Select((format, index) => new { format, index })
+            .Where(candidate => candidate.format is "#" or "+#")
+            .Select(candidate => candidate.index)
+            .Where(index => translationStats[index] is not null &&
+                ComponentContainsStat(componentStats, translationStats[index]!))
+            .ToArray();
     }
 
     private static IReadOnlyList<ModifierStat?> AlignTranslationStats(
@@ -518,4 +611,7 @@ internal readonly record struct ModifierBoundDefaultResult(
     string? UnsupportedReason,
     ModifierBoundShape Shape,
     IReadOnlyList<decimal> ObservedValues,
-    IReadOnlyList<IReadOnlyList<string>> TranslationHandlers);
+    IReadOnlyList<IReadOnlyList<string>> TranslationHandlers)
+{
+    public string? TranslationIdentity { get; init; }
+}

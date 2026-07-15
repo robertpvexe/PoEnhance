@@ -10,11 +10,19 @@ public sealed record ModifierDefinition
 
     public ModifierGenerationType GenerationType { get; init; }
 
+    /// <summary>
+    /// The provider-neutral source generation-family identity retained from the imported
+    /// game data (for example prefix, corrupted, or searing_exarch_implicit).
+    /// </summary>
+    public string? SourceGenerationType { get; init; }
+
     public int? Tier { get; init; }
 
     public int? RequiredLevel { get; init; }
 
     public string? Domain { get; init; }
+
+    public bool IsEssenceOnly { get; init; }
 
     public IReadOnlyList<string> Tags { get; init; } = [];
 

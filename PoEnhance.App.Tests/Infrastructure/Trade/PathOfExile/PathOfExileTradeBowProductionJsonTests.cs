@@ -401,6 +401,8 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
         public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -408,7 +410,7 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         public event EventHandler? HorizontalResizeStarted;
         public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
         public event EventHandler? HorizontalResizeCompleted;
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 

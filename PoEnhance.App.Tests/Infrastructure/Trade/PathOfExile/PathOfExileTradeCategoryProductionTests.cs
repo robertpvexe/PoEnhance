@@ -110,8 +110,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             [
                 Stat(0, "explicit.stat_mana_leech", "#% of Physical Attack Damage Leeched as Mana (Local)"),
                 CraftedStat(1, "crafted.stat_210067635", "#% increased Attack Speed (Local)"),
+                PseudoStat(2, "pseudo.pseudo_total_attack_speed", "+#% total Attack Speed"),
             ]),
-            RareReaverAxeWithCraftedAttackSpeedAndManaLeechText,
+            ArmageddonThirstCraftedAttackSpeedText,
             expectedRarity: "Rare",
             expectedModifierCount: 2);
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
@@ -147,6 +148,393 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .GetProperty("value")
             .GetProperty("min")
             .GetDecimal());
+    }
+
+    [Fact]
+    public async Task PriceCheckerProductionPath_CraftedAttackSpeedCanSelectOfficialPseudoWithoutAutomaticRequest()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat(0, "explicit.stat_mana_leech", "#% of Physical Attack Damage Leeched as Mana (Local)"),
+                CraftedStat(1, "crafted.stat_210067635", "#% increased Attack Speed (Local)"),
+                PseudoStat(2, "pseudo.pseudo_total_attack_speed", "+#% total Attack Speed"),
+            ]),
+            ArmageddonThirstCraftedAttackSpeedText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 2);
+        fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        var attackSpeed = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Equal("20", attackSpeed.MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(attackSpeed.SourceIndex, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.SearchClient.Calls);
+        attackSpeed = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Equal("Crafted", attackSpeed.SelectedFilterVariant?.Label);
+        var pseudo = Assert.Single(attackSpeed.FilterVariants, option => option.Label == "Pseudo");
+        fixture.Controller.UpdateModifierFilterVariant(attackSpeed.SourceIndex, pseudo.Identity);
+
+        Assert.Single(fixture.SearchClient.Calls);
+        attackSpeed = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Equal("Pseudo", attackSpeed.SelectedFilterVariant?.Label);
+        Assert.Equal("20", attackSpeed.MinimumText);
+        Assert.Equal(string.Empty, attackSpeed.MaximumText);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(2, fixture.SearchClient.Calls.Count);
+        var call = fixture.SearchClient.Calls[^1];
+        var serializedJson = PathOfExileTradeJson.SerializeSearchRequest(call.Request!);
+        using var document = JsonDocument.Parse(serializedJson);
+        var statGroup = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("and", statGroup.GetProperty("type").GetString());
+        var filter = Assert.Single(statGroup.GetProperty("filters").EnumerateArray());
+        Assert.Equal("pseudo.pseudo_total_attack_speed", filter.GetProperty("id").GetString());
+        Assert.Equal(20m, filter.GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.DoesNotContain("crafted.stat_210067635", serializedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ArmageddonThirst_CraftedLocalAttackSpeedUsesApplicableGameDataFamiliesAndDistinctKinds()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                ProviderStat(0, "crafted.stat_210067635", "#% increased Attack Speed (Local)", "Crafted"),
+                ProviderStat(1, "crafted.stat_681332047", "#% increased Attack Speed", "Crafted"),
+                ProviderStat(2, "explicit.stat_210067635", "#% increased Attack Speed (Local)", "Explicit"),
+                ProviderStat(3, "explicit.stat_681332047", "#% increased Attack Speed", "Explicit"),
+                ProviderStat(4, "implicit.stat_210067635", "#% increased Attack Speed (Local)", "Implicit"),
+                ProviderStat(5, "implicit.stat_681332047", "#% increased Attack Speed", "Implicit"),
+                ProviderStat(6, "fractured.stat_210067635", "#% increased Attack Speed (Local)", "Fractured"),
+                ProviderStat(7, "fractured.stat_681332047", "#% increased Attack Speed", "Fractured"),
+                ProviderStat(8, "enchant.stat_210067635", "#% increased Attack Speed (Local)", "Enchant"),
+                ProviderStat(9, "scourge.stat_681332047", "#% increased Attack Speed", "Scourge"),
+                ProviderStat(10, "pseudo.pseudo_total_attack_speed", "+#% total Attack Speed", "Pseudo"),
+            ]),
+            ArmageddonThirstCraftedAttackSpeedText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 2);
+        var source = Assert.Single(fixture.MagicReaverAxeDraft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
+
+        Assert.Contains(source.ProviderDomainEvidence, evidence =>
+            evidence.ProviderDomain == "Crafted" && evidence.IsSourceExact);
+        Assert.Contains(source.ProviderDomainEvidence, evidence =>
+            evidence.ProviderDomain == "Explicit" && !evidence.IsSourceExact);
+        Assert.Contains(source.ProviderDomainEvidence, evidence =>
+            evidence.ProviderDomain == "Fractured" && evidence.IsProjectedDomain);
+        Assert.Contains(source.ProviderDomainEvidence, evidence =>
+            evidence.ProviderDomain == "Implicit" && !evidence.IsSourceExact);
+        Assert.DoesNotContain(source.ProviderDomainEvidence, evidence =>
+            evidence.ProviderDomain is "Enchant" or "Scourge");
+
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.MagicReaverAxeDraft);
+        var attackSpeed = Assert.Single(prepared.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
+
+        Assert.Equal("crafted.stat_210067635", attackSpeed.ProviderStatId);
+        Assert.Equal(["Crafted", "Explicit", "Fractured", "Implicit", "Pseudo"], attackSpeed.FilterVariants
+            .Select(option => option.Label)
+            .OrderBy(label => label, StringComparer.Ordinal));
+        Assert.Single(attackSpeed.FilterVariants, option => option.Label == "Pseudo");
+        Assert.Equal(
+            attackSpeed.FilterVariants.Count,
+            attackSpeed.FilterVariants.Select(option => option.Label).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task HorrorMangler_PseudoParentAndSelectedFixedCraftedContributorEmitTwoAndFilters()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                ProviderStat(0, "explicit.stat_1509134228", "#% increased Physical Damage", "Explicit"),
+                ProviderStat(1, "crafted.stat_1509134228", "#% increased Physical Damage", "Crafted"),
+                ProviderStat(2, "fractured.stat_1509134228", "#% increased Physical Damage", "Fractured"),
+                ProviderStat(3, "pseudo.pseudo_increased_physical_damage", "#% total increased Physical Damage", "Pseudo"),
+                ProviderStat(4, "explicit.stat_803737631", "+# to Accuracy Rating", "Explicit"),
+            ]),
+            Features.PriceChecking.PriceCheckerProductionPathCorpusTests
+                .HorrorManglerExplicitAndCraftedPhysicalDamageText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 2);
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.MagicReaverAxeDraft);
+        var accuracy = Assert.Single(prepared.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, accuracy.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_803737631", accuracy.ProviderStatId);
+        Assert.Null(accuracy.ProviderDiagnosticCode);
+        var parentIndex = prepared.ModifierFilters
+            .Select((modifier, index) => new { Modifier = modifier, Index = index })
+            .Single(entry => entry.Modifier.OriginalText.Contains(
+                "increased Physical Damage",
+                StringComparison.Ordinal))
+            .Index;
+        var parent = prepared.ModifierFilters[parentIndex];
+
+        Assert.Equal(
+            ["Crafted", "Explicit", "Fractured", "Pseudo"],
+            parent.FilterVariants.Select(option => option.Label).OrderBy(label => label, StringComparer.Ordinal));
+        Assert.Equal("Pseudo", Assert.Single(parent.FilterVariants, option =>
+            option.Identity == parent.SelectedFilterVariantIdentity).Label);
+        Assert.Equal(
+            parent.FilterVariants.Count,
+            parent.FilterVariants.Select(option => option.Label).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(2, parent.Contributors.Count);
+        Assert.Equal(
+            [
+                PathOfExileTradeProviderIdentity.Create("explicit.stat_1509134228"),
+                PathOfExileTradeProviderIdentity.Create("crafted.stat_1509134228"),
+            ],
+            parent.Contributors.Select(contributor => contributor.ProviderIdentity));
+        Assert.All(parent.Contributors, contributor =>
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, contributor.ProviderResolutionStatus));
+
+        fixture.Controller.UpdateCurrentDraft(prepared, new TradeSearchDraftValidator().Validate(prepared));
+        fixture.Controller.UpdateModifierSelection(parentIndex, isSelected: true);
+        var selectedParentRow = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal(
+            parent.FilterVariants.Select(option => (option.Identity, option.Label)),
+            selectedParentRow.FilterVariants.Select(option => (option.Identity, option.Label)));
+        Assert.True(selectedParentRow.HasMultipleFilterVariants);
+        Assert.True(selectedParentRow.CanSelectFilterVariant);
+        fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: true);
+
+        var row = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal(
+            parent.FilterVariants.Select(option => (option.Identity, option.Label)),
+            row.FilterVariants.Select(option => (option.Identity, option.Label)));
+        Assert.True(row.IsSelected);
+        Assert.True(row.HasMultipleFilterVariants);
+        Assert.True(row.CanSelectFilterVariant);
+        Assert.Equal("116", row.MinimumText);
+        Assert.Equal("116", row.Contributors[1].MinimumText);
+        Assert.Equal("Crafted Prefix", row.Contributors[1].ProvenanceLabel);
+        Assert.True(row.Contributors[1].IsInteractionEnabled);
+        Assert.True(fixture.Window.CurrentSearchState.CanSearch);
+        Assert.Empty(fixture.SearchClient.Calls);
+        var currentValidation = new TradeSearchDraftValidator().Validate(fixture.Window.CurrentState!.Draft);
+        Assert.True(
+            currentValidation.IsValid,
+            string.Join(" | ", currentValidation.Diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code}: {diagnostic.Message}")));
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.True(
+            fixture.Window.CurrentSearchState?.Status == PriceCheckerSearchViewStatus.ZeroResults,
+            $"{fixture.Window.CurrentSearchState?.Status}: {fixture.Window.CurrentSearchState?.Message}");
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(call.Request!));
+        var statGroup = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("and", statGroup.GetProperty("type").GetString());
+        var filters = statGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(2, filters.Length);
+        Assert.Equal(
+            ["pseudo.pseudo_increased_physical_damage", "crafted.stat_1509134228"],
+            filters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(
+            [116m, 116m],
+            filters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
+        Assert.Equal(2, filters.Select(filter => filter.GetProperty("id").GetString()).Distinct().Count());
+
+        var fractured = Assert.Single(parent.FilterVariants, option => option.Label == "Fractured");
+        fixture.Controller.UpdateModifierFilterVariant(parentIndex, fractured.Identity);
+
+        var standaloneRow = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal("Fractured", standaloneRow.SelectedFilterVariant?.Label);
+        Assert.Equal("116", standaloneRow.MinimumText);
+        Assert.True(standaloneRow.Contributors[1].IsSelected);
+        Assert.True(standaloneRow.Contributors[1].IsInactive);
+        Assert.False(standaloneRow.Contributors[1].CanEditBounds);
+        Assert.Single(fixture.SearchClient.Calls);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(2, fixture.SearchClient.Calls.Count);
+        var standaloneCall = fixture.SearchClient.Calls[1];
+        using var standaloneDocument = JsonDocument.Parse(
+            PathOfExileTradeJson.SerializeSearchRequest(standaloneCall.Request!));
+        var standaloneFilters = standaloneDocument.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        var standaloneFilter = Assert.Single(standaloneFilters);
+        Assert.Equal("fractured.stat_1509134228", standaloneFilter.GetProperty("id").GetString());
+        Assert.Equal(116m, standaloneFilter.GetProperty("value").GetProperty("min").GetDecimal());
+
+        var pseudo = Assert.Single(parent.FilterVariants, option => option.Label == "Pseudo");
+        fixture.Controller.UpdateModifierFilterVariant(parentIndex, pseudo.Identity);
+
+        var restoredRow = fixture.Window.CurrentSearchState.Modifiers[parentIndex];
+        Assert.Equal("116", restoredRow.MinimumText);
+        Assert.True(restoredRow.Contributors[1].IsSelected);
+        Assert.True(restoredRow.Contributors[1].IsInteractionEnabled);
+        Assert.Equal(2, fixture.SearchClient.Calls.Count);
+
+        fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: false);
+        fixture.Controller.UpdateModifierContributorSelection(parentIndex, 0, isSelected: true);
+        var explicitRow = fixture.Window.CurrentSearchState.Modifiers[parentIndex];
+        Assert.Equal("30", explicitRow.MinimumText);
+        Assert.True(explicitRow.Contributors[0].IsSelected);
+        Assert.True(explicitRow.Contributors[0].IsInteractionEnabled);
+        Assert.True(fixture.Window.CurrentSearchState.CanSearch);
+        Assert.True(new TradeSearchDraftValidator().Validate(fixture.Window.CurrentState!.Draft).IsValid);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(3, fixture.SearchClient.Calls.Count);
+        using var explicitDocument = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(
+            fixture.SearchClient.Calls[2].Request!));
+        var explicitFilters = explicitDocument.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(
+            ["pseudo.pseudo_increased_physical_damage", "explicit.stat_1509134228"],
+            explicitFilters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(
+            [30m, 30m],
+            explicitFilters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
+    }
+
+    [Fact]
+    public async Task HorrorMangler_ManualParentMinimumBelowSelectedChildSuspendsContributorAndEmitsParentOnly()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                ProviderStat(0, "explicit.stat_1509134228", "#% increased Physical Damage", "Explicit"),
+                ProviderStat(1, "crafted.stat_1509134228", "#% increased Physical Damage", "Crafted"),
+                ProviderStat(2, "fractured.stat_1509134228", "#% increased Physical Damage", "Fractured"),
+                ProviderStat(3, "pseudo.pseudo_increased_physical_damage", "#% total increased Physical Damage", "Pseudo"),
+                ProviderStat(4, "explicit.stat_803737631", "+# to Accuracy Rating", "Explicit"),
+            ]),
+            Features.PriceChecking.PriceCheckerProductionPathCorpusTests
+                .HorrorManglerExplicitAndCraftedPhysicalDamageText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 2);
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.MagicReaverAxeDraft);
+        var parentIndex = prepared.ModifierFilters
+            .Select((modifier, index) => new { Modifier = modifier, Index = index })
+            .Single(entry => entry.Modifier.OriginalText.Contains(
+                "increased Physical Damage",
+                StringComparison.Ordinal))
+            .Index;
+
+        fixture.Controller.UpdateCurrentDraft(prepared, new TradeSearchDraftValidator().Validate(prepared));
+        var initial = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal("146", initial.MinimumText);
+        Assert.All(initial.Contributors, contributor => Assert.False(contributor.IsSelected));
+
+        fixture.Controller.UpdateModifierBounds(parentIndex, "100", string.Empty);
+        fixture.Controller.UpdateModifierExpansion(parentIndex, isExpanded: true);
+        fixture.Controller.UpdateModifierExpansion(parentIndex, isExpanded: false);
+        Assert.Equal("100", fixture.Window.CurrentSearchState!.Modifiers[parentIndex].MinimumText);
+
+        fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: true);
+        var childSelected = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal("116", childSelected.MinimumText);
+        Assert.True(childSelected.Contributors[1].IsSelected);
+        Assert.False(childSelected.Contributors[1].IsInactive);
+
+        fixture.Controller.UpdateModifierBounds(parentIndex, "100", string.Empty);
+        childSelected = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal("100", childSelected.MinimumText);
+        Assert.True(childSelected.Contributors[1].IsInactive);
+        Assert.Equal(
+            SearchComponentContributorInactiveReason.ParentBoundBelowSelectedChildFloor,
+            childSelected.Contributors[1].InactiveReason);
+        Assert.False(childSelected.Contributors[1].CanEditBounds);
+
+        fixture.Controller.UpdateModifierBounds(parentIndex, "116", string.Empty);
+        var reactivated = fixture.Window.CurrentSearchState!.Modifiers[parentIndex];
+        Assert.Equal("116", reactivated.MinimumText);
+        Assert.True(reactivated.Contributors[1].IsSelected);
+        Assert.False(reactivated.Contributors[1].IsInactive);
+
+        fixture.Controller.UpdateModifierBounds(parentIndex, "100", string.Empty);
+        await fixture.Controller.SearchAsync();
+
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(
+            Assert.Single(fixture.SearchClient.Calls).Request!));
+        var filters = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        var parentFilter = Assert.Single(filters);
+        Assert.Equal("pseudo.pseudo_increased_physical_damage", parentFilter.GetProperty("id").GetString());
+        Assert.Equal(100m, parentFilter.GetProperty("value").GetProperty("min").GetDecimal());
+
+        fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: false);
+        Assert.False(fixture.Window.CurrentSearchState!.Modifiers[parentIndex].Contributors[1].IsSelected);
+    }
+
+    [Fact]
+    public async Task MixedAttackSpeedAggregate_RetainsAndSearchesCraftedContributorIdentityGenerically()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                ProviderStat(0, "explicit.stat_210067635", "#% increased Attack Speed (Local)", "Explicit"),
+                ProviderStat(1, "crafted.stat_210067635", "#% increased Attack Speed (Local)", "Crafted"),
+                ProviderStat(2, "pseudo.pseudo_total_attack_speed", "+#% total Attack Speed", "Pseudo"),
+            ]),
+            MixedExplicitAndCraftedAttackSpeedText,
+            expectedRarity: "Rare",
+            expectedModifierCount: 1);
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.MagicReaverAxeDraft);
+        var aggregate = Assert.Single(prepared.ModifierFilters);
+
+        Assert.Equal("47% increased Attack Speed", aggregate.OriginalText);
+        Assert.Equal(["Explicit", "Crafted"], aggregate.Sources.Select(source => source.ProviderDomain));
+        Assert.Equal(
+            [
+                PathOfExileTradeProviderIdentity.Create("explicit.stat_210067635"),
+                PathOfExileTradeProviderIdentity.Create("crafted.stat_210067635"),
+            ],
+            aggregate.Contributors.Select(contributor => contributor.ProviderIdentity));
+        Assert.All(aggregate.Contributors, contributor =>
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, contributor.ProviderResolutionStatus));
+        Assert.Equal("Pseudo", Assert.Single(aggregate.FilterVariants, option =>
+            option.Identity == aggregate.SelectedFilterVariantIdentity).Label);
+
+        fixture.Controller.UpdateCurrentDraft(prepared, new TradeSearchDraftValidator().Validate(prepared));
+        fixture.Controller.UpdateModifierContributorSelection(0, 1, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(call.Request!));
+        var filters = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(
+            ["pseudo.pseudo_total_attack_speed", "crafted.stat_210067635"],
+            filters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(
+            [20m, 20m],
+            filters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
     }
 
     [Fact]
@@ -394,6 +782,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         [
             Stat(0, "explicit.stat_681332047", "#% increased Attack Speed"),
             Stat(1, "explicit.stat_210067635", "#% increased Attack Speed (Local)"),
+            PseudoStat(2, "pseudo.pseudo_total_attack_speed", "+#% total Attack Speed"),
         ]);
     }
 
@@ -429,6 +818,39 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         };
     }
 
+    private static PathOfExileTradeStatEntry PseudoStat(
+        int order,
+        string id,
+        string text)
+    {
+        return new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = order,
+            GroupId = "pseudo",
+            GroupLabel = "Pseudo",
+            Id = id,
+            Text = text,
+            Type = "pseudo",
+        };
+    }
+
+    private static PathOfExileTradeStatEntry ProviderStat(
+        int order,
+        string id,
+        string text,
+        string kind)
+    {
+        return new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = order,
+            GroupId = kind.ToLowerInvariant(),
+            GroupLabel = kind,
+            Id = id,
+            Text = text,
+            Type = kind.ToLowerInvariant(),
+        };
+    }
+
     private const string MagicReaverAxeText = """
 Item Class: One Hand Axes
 Rarity: Magic
@@ -453,7 +875,7 @@ Item Level: 85
 26(26-27)% increased Attack Speed
 """;
 
-    private const string RareReaverAxeWithCraftedAttackSpeedAndManaLeechText = """
+    internal const string ArmageddonThirstCraftedAttackSpeedText = """
 Item Class: One Hand Axes
 Rarity: Rare
 Armageddon Thirst
@@ -469,6 +891,26 @@ Item Level: 85
 --------
 { Suffix Modifier "of Thirst" (Tier: 1) - Attack, Physical, Mana }
 2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
+20(16-20)% increased Attack Speed
+""";
+
+    private const string MixedExplicitAndCraftedAttackSpeedText = """
+Item Class: One Hand Axes
+Rarity: Rare
+Tempest Edge
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 38-114
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.70 (augmented)
+Weapon Range: 1.1 metres
+--------
+Item Level: 85
+--------
+{ Suffix Modifier "of Celebration" (Tier: 1) - Attack, Speed }
+27(26-27)% increased Attack Speed
 { Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
 20(16-20)% increased Attack Speed
 """;
@@ -537,6 +979,12 @@ Adds 14(11-15) to 25(23-26) Cold Damage
         public FakeStatCatalogProvider(PathOfExileTradeStatCatalog catalog)
         {
             this.catalog = catalog;
+        }
+
+        public bool TryGetCachedCatalog(out PathOfExileTradeStatCatalog cachedCatalog)
+        {
+            cachedCatalog = catalog;
+            return true;
         }
 
         public Task<PathOfExileTradeStatCatalogProviderResult> GetCatalogAsync(
@@ -646,6 +1094,8 @@ Adds 14(11-15) to 25(23-26) Cold Damage
 
         public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -653,7 +1103,7 @@ Adds 14(11-15) to 25(23-26) Cold Damage
         public event EventHandler? HorizontalResizeStarted;
         public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
         public event EventHandler? HorizontalResizeCompleted;
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 

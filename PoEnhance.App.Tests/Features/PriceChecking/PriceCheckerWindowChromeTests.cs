@@ -69,7 +69,7 @@ public sealed class PriceCheckerWindowChromeTests
         Assert.True(xaml.IndexOf("x:Name=\"HorizontalDragThumb\"", StringComparison.Ordinal) <
             xaml.IndexOf("x:Name=\"PinToggleButton\"", StringComparison.Ordinal));
         Assert.True(xaml.IndexOf("x:Name=\"PinToggleButton\"", StringComparison.Ordinal) <
-            xaml.IndexOf("x:Name=\"ResetPositionButton\"", StringComparison.Ordinal));
+            xaml.IndexOf("x:Name=\"ResetItemButton\"", StringComparison.Ordinal));
     }
 
     private static string ExtractElement(

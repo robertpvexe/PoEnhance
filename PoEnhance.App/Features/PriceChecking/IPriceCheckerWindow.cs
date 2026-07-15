@@ -24,6 +24,8 @@ internal interface IPriceCheckerWindow
 
     event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+    event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
     event EventHandler? BaseCriterionToggleRequested;
 
     event EventHandler<bool>? PinStateChanged;
@@ -38,7 +40,7 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? HorizontalResizeCompleted;
 
-    event EventHandler? ResetPositionRequested;
+    event EventHandler? ResetItemRequested;
 
     bool IsClosed { get; }
 

@@ -44,6 +44,52 @@ public sealed class OrdinaryItemCorpusOfflineAuditTests
         OrdinaryItemCorpusAuditAssertions.AssertReportConsistency(audit);
         OrdinaryItemCorpusAuditAssertions.AssertMarkdownAndJsonAgree();
     }
+
+    [Fact]
+    public async Task OrdinaryItemCorpus_OfflineAuditRetainsDistinctSourceEffectsAfterProductionAggregation()
+    {
+        var audit = await OrdinaryItemCorpusAuditRunner.Run(includeLiveCatalog: false);
+
+        var brigandine = SingleItem(audit, 11);
+        Assert.Equal(10, brigandine.LogicalEffectCount);
+        Assert.Contains(brigandine.Effects, effect =>
+            effect.SourceModifierIndex == 3 &&
+            effect.CleanedText == "37(33-38)% increased Armour and Evasion");
+        Assert.Contains(brigandine.Effects, effect =>
+            effect.SourceModifierIndex == 4 &&
+            effect.CleanedText == "68(68-79)% increased Armour and Evasion");
+
+        var shield = SingleItem(audit, 13);
+        Assert.Equal(8, shield.LogicalEffectCount);
+        Assert.Contains(shield.Effects, effect =>
+            effect.SourceModifierIndex == 1 && effect.SourceLineIndex == 0 &&
+            effect.CleanedText == "+15(11-15) to maximum Energy Shield");
+        Assert.Contains(shield.Effects, effect =>
+            effect.SourceModifierIndex == 3 && effect.SourceLineIndex == 1 &&
+            effect.CleanedText == "+26(23-28) to maximum Energy Shield");
+
+        var helmet = SingleItem(audit, 24);
+        Assert.Equal(5, helmet.LogicalEffectCount);
+        Assert.Equal(
+            [0, 3],
+            helmet.Effects
+                .Where(effect => effect.CleanedText.Contains("increased Stun and Block Recovery", StringComparison.Ordinal))
+                .Select(effect => effect.SourceModifierIndex)
+                .Order());
+
+        var boots = SingleItem(audit, 33);
+        Assert.Equal(5, boots.LogicalEffectCount);
+        Assert.Equal(
+            [0, 3],
+            boots.Effects
+                .Where(effect => effect.CleanedText.Contains("increased Stun and Block Recovery", StringComparison.Ordinal))
+                .Select(effect => effect.SourceModifierIndex)
+                .Order());
+        Assert.Empty(audit.Failures);
+    }
+
+    private static AuditItem SingleItem(OrdinaryItemAuditReport audit, int sourceIndex) =>
+        Assert.Single(audit.Items, item => item.SourceIndex == sourceIndex);
 }
 
 public sealed class OrdinaryItemCorpusLiveCatalogTests
@@ -250,6 +296,12 @@ internal static partial class OrdinaryItemCorpusAuditRunner
         {
             foreach (var component in draft.ModifierFilters)
             {
+                if (component.Sources.Count > 1)
+                {
+                    effects.AddRange(component.Sources.Select(source => CreateSourceAuditEffect(source, parsed)));
+                    continue;
+                }
+
                 var sourceModifier = component.SourceModifierIndex >= 0 &&
                     parsed is not null &&
                     component.SourceModifierIndex < parsed.Modifiers.Count
@@ -328,6 +380,53 @@ internal static partial class OrdinaryItemCorpusAuditRunner
             ValidationDiagnosticCodes = validation?.Diagnostics.Select(diagnostic => diagnostic.Code).ToArray() ?? [],
             Live = live,
             Failures = itemFailures,
+        };
+    }
+
+    private static AuditEffect CreateSourceAuditEffect(
+        SearchComponentSourceProvenance source,
+        ParsedItem? parsed)
+    {
+        var sourceModifier = source.SourceModifierIndex >= 0 &&
+            parsed is not null &&
+            source.SourceModifierIndex < parsed.Modifiers.Count
+            ? parsed.Modifiers[source.SourceModifierIndex]
+            : null;
+        var sourceEffect = sourceModifier is not null &&
+            source.SourceLineIndex >= 0 &&
+            source.SourceLineIndex < sourceModifier.Effects.Count
+            ? sourceModifier.Effects[source.SourceLineIndex]
+            : null;
+        var normalization = PathOfExileTradeStatTemplateNormalizer.NormalizeModifierText(source.OriginalText);
+        return new AuditEffect
+        {
+            ComponentId = source.ComponentId,
+            SourceModifierIndex = source.SourceModifierIndex,
+            SourceLineIndex = source.SourceLineIndex,
+            CleanedText = source.OriginalText,
+            NormalizedTemplate = normalization.NormalizedTemplate,
+            ExtractedNumericValues = normalization.ExtractedNumericValues,
+            SourceKind = SourceKindLabel(source, sourceModifier),
+            ParsedKind = source.ParsedKind.ToString(),
+            SourceModifierName = sourceModifier?.Name ?? source.ParsedModifierName,
+            Tier = sourceModifier?.Tier,
+            Rank = sourceModifier?.Rank,
+            IsCrafted = sourceModifier?.IsCrafted ?? source.IsCrafted,
+            Locality = source.Locality == ModifierLocality.Global
+                ? "Unmarked"
+                : source.Locality.ToString(),
+            ReminderTextExcluded = sourceEffect?.ReminderLines.Count > 0 &&
+                !sourceEffect.ReminderLines.Any(line => source.OriginalText.Contains(line, StringComparison.Ordinal)),
+            UnscalableValueExcluded = sourceEffect?.HasUnscalableValue == true &&
+                !source.OriginalText.Contains("Unscalable Value", StringComparison.Ordinal),
+            FlavourTextExcluded = parsed is null ||
+                !parsed.FlavourTextLines.Any(line => source.OriginalText.Contains(line, StringComparison.Ordinal)),
+            ResolutionStatus = source.ProviderResolutionStatus.ToString(),
+            ResolvedModifierId = source.ResolvedModifierId,
+            ResolvedModifierName = source.ResolvedModifierName,
+            ResolvedStatIds = source.ResolvedStatIds,
+            IsSearchable = source.ProviderResolutionStatus is SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.BaseGuaranteed,
         };
     }
 
@@ -781,6 +880,31 @@ internal static partial class OrdinaryItemCorpusAuditRunner
             ParsedModifierKind.Prefix => "prefix",
             ParsedModifierKind.Suffix => "suffix",
             _ => component.ParsedKind.ToString(),
+        };
+    }
+
+    private static string SourceKindLabel(
+        SearchComponentSourceProvenance source,
+        ParsedModifier? sourceModifier)
+    {
+        if (sourceModifier?.IsCrafted == true)
+        {
+            return "crafted";
+        }
+
+        if (source.ParsedKind == ParsedModifierKind.Implicit &&
+            (sourceModifier?.CategoryText?.Contains("Eater", StringComparison.OrdinalIgnoreCase) == true ||
+                sourceModifier?.CategoryText?.Contains("Exarch", StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return "special implicit";
+        }
+
+        return source.ParsedKind switch
+        {
+            ParsedModifierKind.Implicit => "implicit",
+            ParsedModifierKind.Prefix => "prefix",
+            ParsedModifierKind.Suffix => "suffix",
+            _ => source.ParsedKind.ToString(),
         };
     }
 

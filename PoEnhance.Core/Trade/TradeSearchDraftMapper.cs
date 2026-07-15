@@ -24,6 +24,13 @@ public sealed class TradeSearchDraftMapper
         }
 
         var modifierResolutionByIndex = BuildModifierResolutionIndex(parsedItem, modifierResolutions ?? []);
+        var aggregation = CanonicalModifierEffectAggregator.Aggregate(
+            CreateSearchComponents(
+                    parsedItem,
+                    itemBaseResolution,
+                    modifierResolutionByIndex,
+                    gameDataCatalog)
+                .ToArray());
         var draft = new TradeSearchDraft
         {
             ItemClass = TrimToNull(parsedItem.ItemClass),
@@ -36,12 +43,8 @@ public sealed class TradeSearchDraftMapper
             ItemLevel = parsedItem.ItemLevel,
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
-            ModifierFilters = CreateSearchComponents(
-                    parsedItem,
-                    itemBaseResolution,
-                    modifierResolutionByIndex,
-                    gameDataCatalog)
-                .ToArray(),
+            ModifierFilters = aggregation.Components,
+            ModifierAggregationDiagnostics = aggregation.Diagnostics,
             ListingMode = listingMode,
         };
 
@@ -170,6 +173,7 @@ public sealed class TradeSearchDraftMapper
                          modifier,
                          modifierResolutionByIndex.GetValueOrDefault(modifierIndex),
                          itemBaseResolution,
+                         parsedItem.TraditionalInfluences,
                          catalog))
             {
                 yield return component;
@@ -207,6 +211,10 @@ public sealed class TradeSearchDraftMapper
                 GenerationType = implicitModifier.GenerationType,
                 Locality = DetermineLocality(implicitModifier.Stats, catalog),
                 IsBaseImplicit = true,
+                GuaranteedExactBaseName = GuaranteedExactBaseName(
+                    implicitModifier,
+                    itemBaseResolution,
+                    catalog),
                 ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                 ResolvedModifierId = TrimToNull(implicitModifier.Id),
                 ResolvedModifierName = TrimToNull(implicitModifier.Name),
@@ -225,6 +233,7 @@ public sealed class TradeSearchDraftMapper
         ParsedModifier modifier,
         ModifierCandidateResolutionResult? resolution,
         ItemBaseResolutionResult? itemBaseResolution,
+        IReadOnlyList<string> traditionalInfluences,
         GameDataCatalog? catalog)
     {
         var exactCandidate = resolution?.Status == ModifierCandidateResolutionStatus.Exact &&
@@ -262,6 +271,8 @@ public sealed class TradeSearchDraftMapper
                         sourceLineIndex: index,
                         sourceComponentIndex: index,
                         componentLines: [valueLines[index]],
+                        itemBaseResolution,
+                        traditionalInfluences,
                         catalog,
                         isBaseImplicit: true);
                 }
@@ -280,6 +291,8 @@ public sealed class TradeSearchDraftMapper
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
+                    itemBaseResolution,
+                    traditionalInfluences,
                     catalog);
             }
 
@@ -303,6 +316,8 @@ public sealed class TradeSearchDraftMapper
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
+                    itemBaseResolution,
+                    traditionalInfluences,
                     catalog);
             }
 
@@ -325,6 +340,8 @@ public sealed class TradeSearchDraftMapper
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
+                    itemBaseResolution,
+                    traditionalInfluences,
                     catalog);
             }
 
@@ -340,6 +357,8 @@ public sealed class TradeSearchDraftMapper
             sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
             sourceComponentIndex: 0,
             componentLines: valueLines,
+            itemBaseResolution,
+            traditionalInfluences,
             catalog);
     }
 
@@ -352,14 +371,22 @@ public sealed class TradeSearchDraftMapper
         int sourceLineIndex,
         int sourceComponentIndex,
         IReadOnlyList<string> componentLines,
+        ItemBaseResolutionResult? itemBaseResolution,
+        IReadOnlyList<string> traditionalInfluences,
         GameDataCatalog? catalog,
         bool isBaseImplicit = false)
     {
         var statIds = StatIds(stats).ToArray();
         var isSearchable = exactCandidate is not null && statIds.Length > 0;
         var boundDefault = ModifierBoundDefaults.Create(exactCandidate, stats, componentLines, catalog);
+        var hasUnscalableValue = sourceLineIndex >= 0 &&
+            modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.HasUnscalableValue == true;
+        var supportsValueBounds = !hasUnscalableValue && boundDefault.IsSupported;
+        var valueBoundShape = hasUnscalableValue
+            ? ModifierBoundShape.PresenceOnly
+            : boundDefault.Shape;
 
-        return new ResolvedSearchComponent
+        var component = new ResolvedSearchComponent
         {
             ComponentId = $"modifier:{modifierIndex}:{sourceComponentIndex}",
             SourceModifierIndex = modifierIndex,
@@ -380,6 +407,12 @@ public sealed class TradeSearchDraftMapper
             IsFractured = modifier.IsFractured,
             IsVeiled = modifier.IsVeiled,
             IsBaseImplicit = isBaseImplicit,
+            GuaranteedExactBaseName = isBaseImplicit &&
+                !supportsValueBounds &&
+                exactCandidate is not null &&
+                catalog is not null
+                ? GuaranteedExactBaseName(exactCandidate, itemBaseResolution, catalog)
+                : null,
             ResolutionStatus = resolution?.Status,
             ResolvedModifierId = TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
@@ -390,20 +423,66 @@ public sealed class TradeSearchDraftMapper
                 : exactCandidate is null
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
-            SupportsValueBounds = boundDefault.IsSupported,
-            ValueBoundsUnsupportedReason = boundDefault.UnsupportedReason,
-            ValueBoundShape = boundDefault.Shape,
-            ObservedNumericValues = boundDefault.ObservedValues,
+            SupportsValueBounds = supportsValueBounds,
+            ValueBoundsUnsupportedReason = hasUnscalableValue
+                ? "The copied modifier is a presence-only value and has no numeric Trade bound."
+                : boundDefault.UnsupportedReason,
+            ValueBoundShape = valueBoundShape,
+            ObservedNumericValues = hasUnscalableValue ? [] : boundDefault.ObservedValues,
+            CanonicalNumericValues = valueBoundShape switch
+            {
+                ModifierBoundShape.Scalar => [boundDefault.ObservedCanonicalValue],
+                ModifierBoundShape.ArithmeticMeanRange => boundDefault.ObservedValues,
+                _ => [],
+            },
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
+            ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,
             DefaultBoundDirection = boundDefault.Direction,
-            RequestedMinimum = boundDefault.IsSupported && boundDefault.Direction == ModifierBoundDirection.Minimum
+            RequestedMinimum = supportsValueBounds && boundDefault.Direction == ModifierBoundDirection.Minimum
                 ? boundDefault.ObservedCanonicalValue
                 : null,
-            RequestedMaximum = boundDefault.IsSupported && boundDefault.Direction == ModifierBoundDirection.Maximum
+            RequestedMaximum = supportsValueBounds && boundDefault.Direction == ModifierBoundDirection.Maximum
                 ? boundDefault.ObservedCanonicalValue
                 : null,
             IsSelected = false,
         };
+
+        return exactCandidate is null || catalog is null
+            ? component
+            : component with
+            {
+                ProviderDomainEvidence = ModifierProviderDomainEvidenceResolver.Resolve(
+                    component,
+                    exactCandidate,
+                    componentLines,
+                    itemBaseResolution,
+                    traditionalInfluences,
+                    catalog),
+            };
+    }
+
+    private static string? GuaranteedExactBaseName(
+        ModifierDefinition modifier,
+        ItemBaseResolutionResult? itemBaseResolution,
+        GameDataCatalog catalog)
+    {
+        var modifierId = TrimToNull(modifier.Id);
+        if (modifierId is null)
+        {
+            return null;
+        }
+
+        var currentItemClass = itemBaseResolution?.MatchedItemBase?.ItemClass;
+        var compatibleBases = catalog.ItemBases
+            .Where(itemBase => itemBase.ImplicitModifierIds.Any(implicitModifierId =>
+                string.Equals(implicitModifierId?.Trim(), modifierId, StringComparison.OrdinalIgnoreCase)))
+            .Where(itemBase => string.IsNullOrWhiteSpace(currentItemClass) ||
+                ItemBaseClassCompatibility.AreCompatible(currentItemClass, itemBase.ItemClass))
+            .Select(itemBase => itemBase.Name?.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return compatibleBases.Length == 1 ? compatibleBases[0] : null;
     }
 
     private static bool TryResolveParsedBaseImplicit(

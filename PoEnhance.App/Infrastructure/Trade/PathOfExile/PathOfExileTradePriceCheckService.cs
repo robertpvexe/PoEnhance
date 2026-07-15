@@ -152,7 +152,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
             draft = ResolveProviderComponents(draft!, catalogResult.Catalog);
             effectiveDraft = draft;
-            var mappingResult = selectedModifierMapper.Map(draft);
+            var mappingResult = selectedModifierMapper.Map(draft, catalogResult.Catalog);
             if (!mappingResult.IsSuccess)
             {
                 return MappingFailure(
@@ -360,7 +360,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
         var resolvedComponents = draft.ModifierFilters
             .Select(component => component.IsSelected &&
-                component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.NotResolved &&
+                component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact &&
+                component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed &&
                 CanUseAvailableExactBaseFallback(draft, component)
                     ? component with
                     {
@@ -539,13 +540,30 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         ResolvedSearchComponent component,
         PathOfExileTradeStatCatalog catalog)
     {
+        if (component.Sources.Count > 0)
+        {
+            component = component with
+            {
+                Sources = component.Sources
+                    .Select(source => ResolveContributorSourceIdentity(draft, source, catalog))
+                    .ToArray(),
+            };
+        }
+
         if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry))
         {
+            var discoverySource = component.Sources
+                .Where(source =>
+                    source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact)
+                .Select(source => catalog.TryGetByProviderIdentity(source.ProviderIdentity, out var entry)
+                    ? entry
+                    : null)
+                .FirstOrDefault(entry => entry is not null) ?? previouslyResolvedEntry;
             return PathOfExileTradeModifierVariantResolver.Apply(
                 component,
                 catalog,
-                PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry));
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(discoverySource));
         }
 
         if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
@@ -557,12 +575,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ProviderStatId = null,
                 ProviderStatText = null,
                 ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
             };
-        }
-
-        if (component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.NotResolved)
-        {
-            return component;
         }
 
         if (IsGuaranteedByActiveExactBase(draft, component))
@@ -570,7 +584,25 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return component with
             {
                 ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
             };
+        }
+
+        if (component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.NotResolved)
+        {
+            return component.IsSelected && CanUseAvailableExactBaseFallback(draft, component)
+                ? component with
+                {
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
+                    ProviderStatId = null,
+                    ProviderStatText = null,
+                    ProviderDiagnosticCode = null,
+                    ProviderDiagnosticMessage = null,
+                }
+                : component;
         }
 
         if (!CanResolveProviderComponent(component))
@@ -626,6 +658,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 .OrderBy(statId => statId, StringComparer.Ordinal)
                 .ToArray(),
             ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
+            ProviderDiagnosticMessage = null,
         };
         return providerStatus == SearchComponentProviderResolutionStatus.Exact
             ? PathOfExileTradeModifierVariantResolver.Apply(
@@ -665,6 +698,96 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         };
     }
 
+    private SearchComponentSourceProvenance ResolveContributorSourceIdentity(
+        TradeSearchDraft draft,
+        SearchComponentSourceProvenance source,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        if (source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            catalog.TryGetByProviderIdentity(source.ProviderIdentity, out var retainedEntry) &&
+            IsCompatibleRetainedContributorIdentity(source, retainedEntry))
+        {
+            return source;
+        }
+
+        var sourceComponent = ToSourceComponent(source);
+        var match = statMatcher.Match(
+            sourceComponent,
+            catalog,
+            CreateMatchContext(draft, sourceComponent));
+        var status = match.Status switch
+        {
+            PathOfExileTradeStatMatchStatus.Exact => SearchComponentProviderResolutionStatus.Exact,
+            PathOfExileTradeStatMatchStatus.Ambiguous => SearchComponentProviderResolutionStatus.Ambiguous,
+            PathOfExileTradeStatMatchStatus.NotFound => SearchComponentProviderResolutionStatus.NotFound,
+            _ => SearchComponentProviderResolutionStatus.Unsupported,
+        };
+        return source with
+        {
+            ProviderResolutionStatus = status,
+            ProviderIdentity = match.ExactCandidate is null
+                ? null
+                : PathOfExileTradeProviderIdentity.Create(match.ExactCandidate.StatId),
+        };
+    }
+
+    private static bool IsCompatibleRetainedContributorIdentity(
+        SearchComponentSourceProvenance source,
+        PathOfExileTradeStatEntry providerEntry)
+    {
+        var candidate = PathOfExileTradeStatCandidateClassifier.ToCandidate(providerEntry);
+        return PathOfExileTradeProviderLocalityCompatibility
+            .EvaluateRetainedSourceIdentity(source, candidate)
+            .IsCompatible;
+    }
+
+    private static ResolvedSearchComponent ToSourceComponent(SearchComponentSourceProvenance source)
+    {
+        var scalar = source.CanonicalNumericValues.Count == 1
+            ? source.CanonicalNumericValues[0]
+            : (decimal?)null;
+        return new ResolvedSearchComponent
+        {
+            ComponentId = source.ComponentId,
+            SourceModifierIndex = source.SourceModifierIndex,
+            SourceLineIndex = source.SourceLineIndex,
+            SourceComponentIndex = source.SourceComponentIndex,
+            OriginalText = source.OriginalText,
+            CanonicalSignature = source.CanonicalSignature,
+            ParsedKind = source.ParsedKind,
+            GenerationType = source.GenerationType,
+            Locality = source.Locality,
+            ParsedModifierName = source.ParsedModifierName,
+            CategoryText = source.CategoryText,
+            IsCrafted = source.IsCrafted,
+            IsFractured = source.IsFractured,
+            IsVeiled = source.IsVeiled,
+            IsBaseImplicit = source.IsBaseImplicit,
+            ResolutionStatus = string.IsNullOrWhiteSpace(source.ResolvedModifierId)
+                ? null
+                : ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = source.ResolvedModifierId,
+            ResolvedModifierName = source.ResolvedModifierName,
+            ResolvedStatIds = source.ResolvedStatIds,
+            IsSearchable = !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
+                source.ResolvedStatIds.Count > 0,
+            SupportsValueBounds = source.ValueBoundShape is
+                ModifierBoundShape.Scalar or ModifierBoundShape.ArithmeticMeanRange,
+            ValueBoundShape = source.ValueBoundShape,
+            ObservedNumericValues = source.ObservedNumericValues,
+            CanonicalNumericValues = source.CanonicalNumericValues,
+            ValueBoundTranslationHandlers = source.TranslationHandlers,
+            ValueBoundTranslationIdentity = source.TranslationIdentity,
+            DefaultBoundDirection = source.DefaultBoundDirection,
+            RequestedMinimum = source.DefaultBoundDirection == ModifierBoundDirection.Minimum
+                ? scalar
+                : null,
+            RequestedMaximum = source.DefaultBoundDirection == ModifierBoundDirection.Maximum
+                ? scalar
+                : null,
+        };
+    }
+
     private static bool IsGuaranteedByActiveExactBase(
         TradeSearchDraft draft,
         ResolvedSearchComponent component)
@@ -680,43 +803,31 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             TrimToNull(draft.Base.ResolvedBaseName);
         return activeExactBase is not null &&
             observedExactBase is not null &&
-            string.Equals(activeExactBase, observedExactBase, StringComparison.Ordinal);
+            string.Equals(activeExactBase, observedExactBase, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsGuaranteedByAvailableExactBase(
         TradeSearchDraft draft,
         ResolvedSearchComponent component)
     {
-        if (!component.IsBaseImplicit)
+        if (string.IsNullOrWhiteSpace(component.GuaranteedExactBaseName))
         {
             return false;
         }
 
         var availableExactBase = TrimToNull(draft.Base.AvailableCriteria.ExactBase?.ExactBaseName);
-        var observedExactBase = TrimToNull(draft.Base.Observed?.ExactBaseName) ??
-            TrimToNull(draft.Base.ResolvedBaseName);
         return availableExactBase is not null &&
-            observedExactBase is not null &&
-            string.Equals(availableExactBase, observedExactBase, StringComparison.Ordinal);
+            string.Equals(
+                availableExactBase,
+                component.GuaranteedExactBaseName.Trim(),
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool CanUseAvailableExactBaseFallback(
         TradeSearchDraft draft,
         ResolvedSearchComponent component)
     {
-        return IsGuaranteedByAvailableExactBase(draft, component) &&
-            IsKnownProviderlessDeterministicBaseIntrinsic(component);
-    }
-
-    private static bool IsKnownProviderlessDeterministicBaseIntrinsic(
-        ResolvedSearchComponent component)
-    {
-        return component.ResolvedStatIds.Any(statId =>
-                string.Equals(statId, "local_has_X_abyss_sockets", StringComparison.Ordinal)) ||
-            string.Equals(
-                component.CanonicalSignature?.Trim(),
-                "Has # Abyssal Socket",
-                StringComparison.Ordinal);
+        return IsGuaranteedByAvailableExactBase(draft, component);
     }
 
     private static TradeSearchDraft ActivateAvailableExactBase(TradeSearchDraft draft)

@@ -4,4 +4,5 @@ internal enum PathOfExileTradeProviderStatLocality
 {
     Unmarked,
     Local,
+    Global,
 }

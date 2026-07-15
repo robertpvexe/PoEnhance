@@ -26,5 +26,7 @@ public sealed record TradeSearchDraft
 
     public IReadOnlyList<ResolvedSearchComponent> ModifierFilters { get; init; } = [];
 
+    public IReadOnlyList<TradeSearchDraftDiagnostic> ModifierAggregationDiagnostics { get; init; } = [];
+
     public TradeListingMode ListingMode { get; init; } = TradeListingMode.InstantBuyout;
 }

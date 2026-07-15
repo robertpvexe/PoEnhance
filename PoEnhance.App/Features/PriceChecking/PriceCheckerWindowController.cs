@@ -104,12 +104,13 @@ internal sealed class PriceCheckerWindowController
                 "Price Checker update was superseded by a newer item");
         }
 
+        var preparedValidation = ReferenceEquals(preparedDraft, update.Draft)
+            ? update.ValidationResult
+            : draftValidator.Validate(preparedDraft);
         return PublishUpdate(update with
         {
             Draft = preparedDraft,
-            ValidationResult = ReferenceEquals(preparedDraft, update.Draft)
-                ? update.ValidationResult
-                : draftValidator.Validate(preparedDraft),
+            ValidationResult = preparedValidation,
             Presentation = presentation,
         });
     }
@@ -231,7 +232,6 @@ internal sealed class PriceCheckerWindowController
         window.HorizontalResizeStarted += OnWindowHorizontalResizeStarted;
         window.HorizontalResizeDelta += OnWindowHorizontalResizeDelta;
         window.HorizontalResizeCompleted += OnWindowHorizontalResizeCompleted;
-        window.ResetPositionRequested += OnWindowResetPositionRequested;
         searchController.AttachWindow(window);
         isAutoCloseArmed = false;
         isPinned = window.IsPinned;
@@ -260,7 +260,6 @@ internal sealed class PriceCheckerWindowController
         closedWindow.HorizontalResizeStarted -= OnWindowHorizontalResizeStarted;
         closedWindow.HorizontalResizeDelta -= OnWindowHorizontalResizeDelta;
         closedWindow.HorizontalResizeCompleted -= OnWindowHorizontalResizeCompleted;
-        closedWindow.ResetPositionRequested -= OnWindowResetPositionRequested;
         window = null;
         currentClientBounds = null;
         currentPlacementKey = null;
@@ -435,27 +434,6 @@ internal sealed class PriceCheckerWindowController
         isAutoCloseArmed = true;
         horizontalResizeSession = CreateHorizontalResizeSession();
         horizontalResizeUpdateScheduled = false;
-    }
-
-    private void OnWindowResetPositionRequested(object? sender, EventArgs e)
-    {
-        if (window is null ||
-            currentClientBounds is null ||
-            currentPlacementKey is null)
-        {
-            return;
-        }
-
-        isAutoCloseArmed = true;
-        placementStore.ResetHorizontalCorrection(currentPlacementKey);
-        currentHorizontalCorrection = 0d;
-        var requestedPanelWidth = currentPanelWidth ?? placementCalculator.CalculatePanelWidth(currentClientBounds);
-        currentPlacement = placementCalculator.CalculatePlacement(
-            currentClientBounds,
-            currentHorizontalCorrection,
-            requestedPanelWidth);
-        currentPanelWidth = currentPlacement.Width;
-        window.ApplyPlacement(currentPlacement);
     }
 
     private HorizontalResizeSession? CreateHorizontalResizeSession()

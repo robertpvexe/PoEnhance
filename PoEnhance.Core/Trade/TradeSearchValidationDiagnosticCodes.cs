@@ -22,5 +22,22 @@ public static class TradeSearchValidationDiagnosticCodes
 
     public const string InvalidModifierRange = "TRADE_VALIDATION_INVALID_MODIFIER_RANGE";
 
+    public const string InvalidContributorVariant = "TRADE_VALIDATION_INVALID_CONTRIBUTOR_VARIANT";
+
+    public const string InvalidContributorSourceIdentity =
+        "TRADE_VALIDATION_INVALID_CONTRIBUTOR_SOURCE_IDENTITY";
+
+    public const string InvalidContributorMinimum =
+        "TRADE_VALIDATION_INVALID_CONTRIBUTOR_MINIMUM";
+
+    public const string InvalidContributorRange = "TRADE_VALIDATION_INVALID_CONTRIBUTOR_RANGE";
+
+    public const string InvalidContributorParent = "TRADE_VALIDATION_INVALID_CONTRIBUTOR_PARENT";
+
+    public const string InvalidContributorParentFloor = "TRADE_VALIDATION_INVALID_CONTRIBUTOR_PARENT_FLOOR";
+
+    public const string UnsupportedContributorProjection =
+        "TRADE_VALIDATION_UNSUPPORTED_CONTRIBUTOR_PROJECTION";
+
     public const string UnsupportedSpecialItemFact = "TRADE_VALIDATION_UNSUPPORTED_SPECIAL_ITEM_FACT";
 }

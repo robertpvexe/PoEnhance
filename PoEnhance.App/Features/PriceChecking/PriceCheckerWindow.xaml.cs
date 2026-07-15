@@ -16,6 +16,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private const uint SetWindowPosNoZOrder = 0x0004;
     private const uint SetWindowPosNoActivate = 0x0010;
     private const string NotDetectedText = "Not detected";
+    private const string ModifierContributorRowTag = "ModifierContributorRow";
     private bool isClosed;
     private bool isHorizontalResizeActive;
     private bool isOfferCapacityReportScheduled;
@@ -49,7 +50,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         LoadMoreButton.Click += OnLoadMoreButtonClick;
         TradeButton.Click += OnTradeButtonClick;
         ResultsPanel.SizeChanged += (_, _) => ScheduleOfferCapacityReport();
-        ResetPositionButton.Click += OnResetPositionButtonClick;
+        ResetItemButton.Click += OnResetItemButtonClick;
         CloseButton.Click += (_, _) => Close();
         KeyDown += OnKeyDown;
         SourceInitialized += (_, _) => PriceCheckerWindowChrome.ApplyToolWindowExtendedStyle(this);
@@ -78,6 +79,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+    public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
     public event EventHandler? BaseCriterionToggleRequested;
 
     public event EventHandler<bool>? PinStateChanged;
@@ -90,7 +93,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler? HorizontalResizeCompleted;
 
-    public event EventHandler? ResetPositionRequested;
+    public event EventHandler? ResetItemRequested;
 
     public bool IsClosed => isClosed;
 
@@ -307,10 +310,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         PinStateChanged?.Invoke(this, IsPinned);
     }
 
-    private void OnResetPositionButtonClick(object sender, RoutedEventArgs e)
+    private void OnResetItemButtonClick(object sender, RoutedEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
-        ResetPositionRequested?.Invoke(this, EventArgs.Empty);
+        ResetItemRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnBaseCriterionButtonClick(object sender, RoutedEventArgs e)
@@ -370,55 +373,123 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private void OnModifierSelectionClick(object sender, RoutedEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
-        if (sender is not CheckBox { DataContext: PriceCheckerModifierViewModel modifier })
+        if (sender is not CheckBox checkBox)
         {
             return;
         }
 
-        ModifierSelectionChanged?.Invoke(
-            this,
-            new PriceCheckerModifierSelectionChangedEventArgs(
-                modifier.SourceIndex,
-                ((CheckBox)sender).IsChecked == true));
+        switch (checkBox.DataContext)
+        {
+            case PriceCheckerModifierViewModel modifier:
+                ModifierSelectionChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierSelectionChangedEventArgs(
+                        modifier.SourceIndex,
+                        checkBox.IsChecked == true));
+                break;
+            case PriceCheckerModifierContributorViewModel contributor when contributor.IsInteractionEnabled:
+                ModifierSelectionChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierSelectionChangedEventArgs(
+                        contributor.ParentSourceIndex,
+                        checkBox.IsChecked == true,
+                        contributor.ContributorIndex));
+                break;
+        }
     }
 
     private void OnModifierBoundTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (sender is not TextBox { DataContext: PriceCheckerModifierViewModel modifier })
+        if (sender is not TextBox textBox || !textBox.IsKeyboardFocusWithin)
         {
             return;
         }
 
         PanelInteraction?.Invoke(this, EventArgs.Empty);
-        ModifierBoundsChanged?.Invoke(
-            this,
-            new PriceCheckerModifierBoundsChangedEventArgs(
-                modifier.SourceIndex,
-                modifier.MinimumText,
-                modifier.MaximumText));
+        switch (textBox.DataContext)
+        {
+            case PriceCheckerModifierViewModel modifier:
+                ModifierBoundsChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierBoundsChangedEventArgs(
+                        modifier.SourceIndex,
+                        modifier.MinimumText,
+                        modifier.MaximumText));
+                break;
+            case PriceCheckerModifierContributorViewModel contributor:
+                ModifierBoundsChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierBoundsChangedEventArgs(
+                        contributor.ParentSourceIndex,
+                        contributor.MinimumText,
+                        contributor.MaximumText,
+                        contributor.ContributorIndex));
+                break;
+        }
     }
 
     private void OnModifierFilterVariantDropDownClosed(object sender, EventArgs e)
     {
         if (sender is not ComboBox
             {
-                DataContext: PriceCheckerModifierViewModel modifier,
                 SelectedItem: PriceCheckerModifierFilterVariantViewModel selected,
-            } ||
-            string.Equals(
-                modifier.SelectedFilterVariant?.Identity,
-                selected.Identity,
-                StringComparison.Ordinal))
+            } comboBox)
         {
             return;
         }
 
+        switch (comboBox.DataContext)
+        {
+            case PriceCheckerModifierViewModel modifier when !string.Equals(
+                modifier.SelectedFilterVariant?.Identity,
+                selected.Identity,
+                StringComparison.Ordinal):
+                PanelInteraction?.Invoke(this, EventArgs.Empty);
+                ModifierFilterVariantChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierFilterVariantChangedEventArgs(
+                        modifier.SourceIndex,
+                        selected.Identity));
+                break;
+        }
+    }
+
+    private void OnModifierExpansionClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: PriceCheckerModifierViewModel modifier })
+        {
+            return;
+        }
+
+        e.Handled = true;
         PanelInteraction?.Invoke(this, EventArgs.Empty);
-        ModifierFilterVariantChanged?.Invoke(
+        ModifierExpansionChanged?.Invoke(
             this,
-            new PriceCheckerModifierFilterVariantChangedEventArgs(
+            new PriceCheckerModifierExpansionChangedEventArgs(
                 modifier.SourceIndex,
-                selected.Identity));
+                !modifier.IsExpanded));
+    }
+
+    private void OnModifierContributorRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!ShouldToggleModifierContributorRowFrom(e.OriginalSource as DependencyObject) ||
+            sender is not FrameworkElement
+            {
+                DataContext: PriceCheckerModifierContributorViewModel contributor,
+            } ||
+            !contributor.IsInteractionEnabled)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ModifierSelectionChanged?.Invoke(
+            this,
+            new PriceCheckerModifierSelectionChangedEventArgs(
+                contributor.ParentSourceIndex,
+                !contributor.IsSelected,
+                contributor.ContributorIndex));
     }
 
     private void OnModifierRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -462,6 +533,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 return false;
             }
 
+            if (source is FrameworkElement { Tag: ModifierContributorRowTag })
+            {
+                return false;
+            }
+
             if (source is ListBoxItem)
             {
                 return true;
@@ -476,6 +552,26 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         }
 
         return true;
+    }
+
+    internal static bool ShouldToggleModifierContributorRowFrom(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is ComboBoxItem || source is ButtonBase or TextBoxBase or Selector)
+            {
+                return false;
+            }
+
+            if (source is FrameworkElement { Tag: ModifierContributorRowTag })
+            {
+                return true;
+            }
+
+            source = InteractiveParent(source);
+        }
+
+        return false;
     }
 
     private static DependencyObject? InteractiveParent(DependencyObject source)

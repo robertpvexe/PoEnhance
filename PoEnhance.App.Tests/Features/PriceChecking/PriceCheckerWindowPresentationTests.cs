@@ -125,7 +125,7 @@ Item Level: 82
     {
         var xaml = LoadWindowXaml();
         var title = ExtractElement(xaml, "<TextBlock x:Name=\"TitleDisplayNameText\"", "/>");
-        var reset = ExtractElement(xaml, "<Button x:Name=\"ResetPositionButton\"", "</Button>");
+        var reset = ExtractElement(xaml, "<Button x:Name=\"ResetItemButton\"", "</Button>");
         var close = ExtractElement(xaml, "<Button x:Name=\"CloseButton\"", "</Button>");
         var criterionStyle = ExtractElement(xaml, "<Style x:Key=\"BaseCriterionButtonStyle\"", "</Style>");
 
@@ -152,6 +152,7 @@ Item Level: 82
             "TitleForegroundResourceKey(draft.Rarity)",
             LoadWindowCodeBehind());
         Assert.Contains("x:Name=\"PinToggleButton\"", xaml);
+        Assert.Contains("ToolTip=\"Reset item\"", reset);
         Assert.Contains("Width=\"20\"", ExtractElement(reset, "<Canvas", "</Canvas>"));
         Assert.Equal(3, reset.Split("<Path x:Name=", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("<TextBlock", reset);
@@ -188,11 +189,54 @@ Item Level: 82
         Assert.Contains("Text=\"{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
         Assert.Contains("Text=\"{Binding MaximumText, UpdateSourceTrigger=PropertyChanged}\"", modifiers);
         Assert.Contains("TextChanged=\"OnModifierBoundTextChanged\"", modifiers);
+        Assert.Contains("!textBox.IsKeyboardFocusWithin", LoadWindowCodeBehind());
+        Assert.Contains("ToolTip=\"{Binding SourceBreakdown}\"", modifiers);
         Assert.Contains("ReferenceEquals(ModifierListBox.ItemsSource, state.Modifiers)", LoadWindowCodeBehind());
         Assert.Contains("IsEnabled=\"False\"", advanced);
         Assert.Contains("x:Name=\"SearchButton\"", xaml);
         Assert.Contains("x:Name=\"LoadMoreButton\"", xaml);
         Assert.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Disabled\"", modifiers);
+    }
+
+    [Fact]
+    public void WindowXaml_RendersOneFlatIndentedContributorLevelInTheParentColumns()
+    {
+        var xaml = LoadWindowXaml();
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var contributors = ExtractElement(
+            modifiers,
+            "<ItemsControl ItemsSource=\"{Binding Contributors}\"",
+            "</ItemsControl>");
+        var parentRow = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
+        var contributorRow = ExtractElement(
+            contributors,
+            "<Grid Margin=\"24,1,6,3\"",
+            "</Grid>");
+
+        Assert.Contains("Click=\"OnModifierExpansionClick\"", modifiers);
+        Assert.True(
+            parentRow.IndexOf("<Button Grid.Column=\"0\"", StringComparison.Ordinal) <
+            parentRow.IndexOf("<CheckBox Grid.Column=\"1\"", StringComparison.Ordinal));
+        Assert.Contains("<ColumnDefinition Width=\"24\"", parentRow);
+        Assert.Contains("Binding=\"{Binding HasContributors}\"", parentRow);
+        Assert.Contains("Binding=\"{Binding IsExpanded}\"", contributors);
+        Assert.Contains("Value=\"Collapsed\"", contributors);
+        Assert.Contains("Value=\"Visible\"", contributors);
+        Assert.Contains("Tag=\"ModifierContributorRow\"", contributorRow);
+        Assert.Contains("OnModifierContributorRowPreviewMouseLeftButtonDown", contributorRow);
+        Assert.Contains("<ColumnDefinition Width=\"*\"", contributorRow);
+        Assert.Equal(2, contributorRow.Split(
+            "<ColumnDefinition Width=\"78\"",
+            StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("<ColumnDefinition Width=\"92\"", contributorRow);
+        Assert.DoesNotContain("<ComboBox", contributorRow);
+        Assert.Contains("IsHitTestVisible=\"{Binding IsInteractionEnabled}\"", contributorRow);
+        Assert.Contains("Binding=\"{Binding IsInactive}\"", contributorRow);
+        Assert.Contains("Grid.ColumnSpan=\"3\"", contributorRow);
+        Assert.Contains("Text=\"{Binding ProvenanceLabel}\"", contributorRow);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", contributorRow);
+        Assert.DoesNotContain("OnModifierExpansionClick", contributorRow);
+        Assert.DoesNotContain("ItemsSource=\"{Binding Contributors}\"", contributorRow);
     }
 
     [Fact]
@@ -314,11 +358,21 @@ Item Level: 82
                 var plainSurface = new TextBlock { Text = "Modifier text" };
                 surface.Children.Add(plainSurface);
 
+                var contributorSurface = new Grid { Tag = "ModifierContributorRow" };
+                var contributorText = new TextBlock { Text = "30% increased Physical Damage" };
+                var contributorTextBox = new TextBox();
+                contributorSurface.Children.Add(contributorText);
+                contributorSurface.Children.Add(contributorTextBox);
+                surface.Children.Add(contributorSurface);
+
                 Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboBox));
                 Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboOptionContent));
                 Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(textBox));
                 Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(buttonContent));
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(contributorText));
                 Assert.True(PriceCheckerWindow.ShouldToggleModifierRowFrom(plainSurface));
+                Assert.True(PriceCheckerWindow.ShouldToggleModifierContributorRowFrom(contributorText));
+                Assert.False(PriceCheckerWindow.ShouldToggleModifierContributorRowFrom(contributorTextBox));
             }
             catch (Exception exception)
             {

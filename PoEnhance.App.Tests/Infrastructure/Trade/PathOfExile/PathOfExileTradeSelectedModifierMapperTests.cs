@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -50,6 +51,204 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
         var filter = Assert.Single(result.Filters);
         Assert.Equal(40m, filter.Minimum);
         Assert.Equal(60m, filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_AggregatedPhysicalDamageEmitsOnceAndHybridAccuracyOnlyWhenSelected()
+    {
+        var physical = Modifier(
+            "91% increased Physical Damage",
+            providerStatId: "explicit.physical",
+            canonicalSignature: "<number>% increased Physical Damage") with
+        {
+            SupportsValueBounds = true,
+            RequestedMinimum = 91m,
+        };
+        var accuracy = Modifier(
+            "+93 to Accuracy Rating",
+            providerStatId: "explicit.accuracy.local",
+            canonicalSignature: "+<number> to Accuracy Rating") with
+        {
+            IsSelected = false,
+            SupportsValueBounds = true,
+            RequestedMinimum = 93m,
+        };
+
+        var physicalOnly = mapper.Map(Draft([physical, accuracy]));
+        var bothSelected = mapper.Map(Draft([physical, accuracy with { IsSelected = true }]));
+
+        var physicalFilter = Assert.Single(physicalOnly.Filters);
+        Assert.Equal("explicit.physical", physicalFilter.StatId);
+        Assert.Equal(91m, physicalFilter.Minimum);
+        Assert.DoesNotContain(physicalOnly.Filters, filter => filter.StatId == "explicit.accuracy.local");
+        Assert.Equal(
+            ["explicit.physical", "explicit.accuracy.local"],
+            bothSelected.Filters.Select(filter => filter.StatId));
+        Assert.Equal(93m, bothSelected.Filters[1].Minimum);
+    }
+
+    [Theory]
+    [InlineData(
+        SearchComponentProviderResolutionStatus.Ambiguous,
+        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityAmbiguous)]
+    [InlineData(
+        SearchComponentProviderResolutionStatus.Unsupported,
+        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityUnavailable)]
+    public void Map_SelectedOpaqueContributorWithoutExactCoverageBlocksInsteadOfFallingBack(
+        SearchComponentProviderResolutionStatus status,
+        string expectedCode)
+    {
+        var pseudo = new SearchFilterVariant
+        {
+            Identity = "pseudo-parent",
+            Label = "Pseudo",
+            Description = "#% increased total Physical Damage",
+            ProviderKind = "pseudo",
+            SupportsContributorComposition = true,
+            SupportsValueBounds = true,
+        };
+        var source = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:0:0",
+            OriginalText = "30% increased Physical Damage",
+            CanonicalSignature = "<number>% increased Physical Damage",
+            ParsedKind = ParsedModifierKind.Prefix,
+            ProviderDomain = "Explicit",
+            ResolvedModifierId = "physical-hybrid",
+            ResolvedStatIds = ["local_physical_damage_+%"],
+            CanonicalNumericValues = [30m],
+        };
+        var parent = Modifier(
+            "146% increased Physical Damage",
+            providerStatId: "pseudo.total-physical",
+            canonicalSignature: "<number>% increased Physical Damage") with
+        {
+            SupportsValueBounds = true,
+            RequestedMinimum = 30m,
+            FilterVariants = [pseudo],
+            SelectedFilterVariantIdentity = pseudo.Identity,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                new SearchComponentContributor
+                {
+                    ContributorId = "contributor:0",
+                    Source = source,
+                    DisplayText = source.OriginalText,
+                    IsSelected = true,
+                    SupportsValueBounds = true,
+                    RequestedMinimum = 30m,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ProviderResolutionStatus = status,
+                    ProviderDiagnosticMessage = "Contributor coverage is not exact.",
+                },
+            ],
+        };
+
+        var result = mapper.Map(Draft([parent]), ContributorCatalog());
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(expectedCode, Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Theory]
+    [InlineData(9, 22, 31)]
+    [InlineData(10, 25, 35)]
+    public void Map_StunRecoveryChildrenSharingSourceIdentityAggregateIntoOneAndFilter(
+        int firstMinimum,
+        int secondMinimum,
+        int expectedMinimum)
+    {
+        var parent = ContributorAggregate(
+            pseudo: true,
+            parentMinimum: expectedMinimum,
+            firstMinimum,
+            secondMinimum);
+
+        var result = mapper.Map(Draft([parent]), ContributorCatalog());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            ["pseudo.total-stun-recovery", "explicit.stun-recovery"],
+            result.Filters.Select(filter => filter.StatId));
+        Assert.Equal([expectedMinimum, expectedMinimum], result.Filters.Select(filter => filter.Minimum));
+        Assert.Equal(2, result.Filters.Select(filter => filter.StatId).Distinct(StringComparer.Ordinal).Count());
+
+        var draft = Draft([parent]);
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            new TradeSearchDraftValidator().Validate(draft),
+            "Mirage",
+            result.Filters);
+        Assert.True(build.IsSuccess);
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var group = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        Assert.Equal(2, group.GetProperty("filters").GetArrayLength());
+    }
+
+    [Fact]
+    public void Map_NonPseudoParentIgnoresSelectedChildrenIncludingMissingSourceIdentity()
+    {
+        var resolvedParent = ContributorAggregate(
+            pseudo: false,
+            parentMinimum: 31m,
+            firstMinimum: 9m,
+            secondMinimum: 22m);
+        var parent = resolvedParent with
+        {
+            Contributors = resolvedParent.Contributors
+                .Select(contributor => contributor with
+                {
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+                    ProviderIdentity = null,
+                    ProviderDiagnosticMessage = "Missing retained source identity.",
+                })
+                .ToArray(),
+        };
+
+        var result = mapper.Map(Draft([parent]));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("fractured.stun-recovery", filter.StatId);
+        Assert.Equal(31m, filter.Minimum);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Map_ExactOpaqueContributorMissingFromCurrentCatalogFailsWithoutFallback()
+    {
+        var resolvedParent = ContributorAggregate(
+            pseudo: true,
+            parentMinimum: 9m,
+            firstMinimum: 9m,
+            secondMinimum: 22m);
+        var parent = resolvedParent with
+        {
+            Contributors = resolvedParent.Contributors
+                .Select((contributor, index) => index == 0
+                    ? contributor with
+                    {
+                        IsSelected = true,
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                        ProviderIdentity = "variant-missing-from-catalog",
+                    }
+                    : contributor with { IsSelected = false })
+                .ToArray(),
+        };
+
+        var result = mapper.Map(Draft([parent]), ContributorCatalog());
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityUnavailable,
+            Assert.Single(result.Diagnostics).Code);
     }
 
     [Fact]
@@ -373,6 +572,87 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
             ProviderCandidateStatIds = providerCandidateStatIds ?? [],
             ProviderDiagnosticCode = providerDiagnosticCode,
         };
+    }
+
+    private static ResolvedSearchComponent ContributorAggregate(
+        bool pseudo,
+        decimal parentMinimum,
+        decimal firstMinimum,
+        decimal secondMinimum)
+    {
+        var parentVariant = new SearchFilterVariant
+        {
+            Identity = pseudo ? "parent-pseudo" : "parent-fractured",
+            Label = pseudo ? "Pseudo" : "Fractured",
+            Description = "#% increased Stun and Block Recovery",
+            ProviderKind = pseudo ? "pseudo" : "fractured",
+            SupportsContributorComposition = pseudo,
+            SupportsValueBounds = true,
+        };
+
+        SearchComponentContributor Child(string id, decimal minimum) => new()
+        {
+            ContributorId = id,
+            Source = new SearchComponentSourceProvenance
+            {
+                ComponentId = id,
+                OriginalText = $"{minimum}% increased Stun and Block Recovery",
+                CanonicalSignature = "<number>% increased Stun and Block Recovery",
+                ParsedKind = ParsedModifierKind.Suffix,
+                Locality = ModifierLocality.Global,
+                ProviderDomain = "Explicit",
+                ResolvedModifierId = id,
+                ResolvedStatIds = ["stun_and_block_recovery_+%"],
+                CanonicalNumericValues = [minimum],
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                TranslationHandlers = [[]],
+                TranslationIdentity = "identity:stun-recovery",
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stun-recovery"),
+            },
+            DisplayText = $"{minimum}% increased Stun and Block Recovery",
+            IsSelected = true,
+            RequestedMinimum = minimum,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stun-recovery"),
+        };
+
+        return Modifier(
+            $"{firstMinimum + secondMinimum}% increased Stun and Block Recovery",
+            providerStatId: pseudo ? "pseudo.total-stun-recovery" : "fractured.stun-recovery",
+            canonicalSignature: "<number>% increased Stun and Block Recovery") with
+        {
+            RequestedMinimum = parentMinimum,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            CanonicalNumericValues = [firstMinimum + secondMinimum],
+            FilterVariants = [parentVariant],
+            SelectedFilterVariantIdentity = parentVariant.Identity,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Child("stun-source-1", firstMinimum),
+                Child("stun-source-2", secondMinimum),
+            ],
+        };
+    }
+
+    private static PathOfExileTradeStatCatalog ContributorCatalog()
+    {
+        return new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.stun-recovery",
+                Text = "#% increased Stun and Block Recovery",
+                Type = "explicit",
+            },
+        ]);
     }
 
     private static TradeSearchDraft Draft(

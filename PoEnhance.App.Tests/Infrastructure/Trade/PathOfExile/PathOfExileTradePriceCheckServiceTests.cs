@@ -959,6 +959,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     OriginalText = originalText,
                     CanonicalSignature = "+# to maximum Life",
                     ParsedKind = PoEnhance.Core.Items.Parsing.ParsedModifierKind.Prefix,
+                    Locality = ModifierLocality.Global,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.life",
                     ResolvedStatIds = ["base_maximum_life"],
@@ -1094,6 +1095,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     GenerationType = ModifierGenerationType.Implicit,
                     Locality = ModifierLocality.Global,
                     IsBaseImplicit = true,
+                    GuaranteedExactBaseName = exactBaseName,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.implicit.caster",
                     ResolvedStatIds = ["kinetic_wand_implicit_cannot_roll_caster_modifiers"],
@@ -1152,6 +1154,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     ComponentId = "base-implicit:0:StygianBeltImplicit1",
                     OriginalText = "Has 1 Abyssal Socket",
                     CanonicalSignature = "Has # Abyssal Socket",
+                    GuaranteedExactBaseName = exactBaseName,
                     ResolvedModifierId = "StygianBeltImplicit1",
                     ResolvedStatIds = ["local_has_X_abyss_sockets"],
                 },
@@ -1594,7 +1597,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         public PathOfExileTradeSelectedModifierMappingResult Result { get; set; } =
             PathOfExileTradeSelectedModifierMappingResult.Success([ProviderFilter(0, "explicit.stat_life")]);
 
-        public PathOfExileTradeSelectedModifierMappingResult Map(TradeSearchDraft? draft)
+        public PathOfExileTradeSelectedModifierMappingResult Map(
+            TradeSearchDraft? draft,
+            PathOfExileTradeStatCatalog? catalog = null)
         {
             Calls.Add(new MappingCall(draft));
             return Result;

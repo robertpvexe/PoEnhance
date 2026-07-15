@@ -816,54 +816,6 @@ public sealed class PriceCheckerWindowControllerTests
     }
 
     [Fact]
-    public void ResetPosition_ClearsCorrectionAndReturnsToAutomaticPosition()
-    {
-        using var fixture = ControllerFixture.Create();
-        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
-        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
-        window.RaiseHorizontalDragDelta(-25);
-        window.RaiseHorizontalDragCompleted();
-
-        window.RaiseResetPositionRequested();
-
-        var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
-        Assert.Equal(0, fixture.PlacementStore.LoadHorizontalCorrection(key));
-        Assert.Equal(
-            fixture.Calculator.CalculateAutomaticLeft(fixture.Bounds),
-            window.CurrentPlacement?.Left);
-
-        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
-        Assert.Equal(
-            fixture.Calculator.CalculateAutomaticLeft(fixture.Bounds),
-            window.CurrentPlacement?.Left);
-    }
-
-    [Fact]
-    public void ResetPosition_DoesNotClearCurrentOrSavedPanelWidth()
-    {
-        using var fixture = ControllerFixture.Create();
-        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
-        var window = Assert.Single(fixture.WindowFactory.CreatedWindows);
-        window.RaiseHorizontalResizeDelta(-50);
-        window.RaiseHorizontalResizeCompleted();
-        window.RaiseHorizontalDragDelta(-25);
-        window.RaiseHorizontalDragCompleted();
-
-        window.RaiseResetPositionRequested();
-
-        var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
-        Assert.Equal(0, fixture.PlacementStore.LoadHorizontalCorrection(key));
-        Assert.Equal(410, fixture.PlacementStore.LoadPanelWidth(key));
-        Assert.Equal(410, window.CurrentPlacement?.Width);
-        Assert.Equal(
-            fixture.Calculator.CalculateAutomaticLeft(fixture.Bounds, 410),
-            window.CurrentPlacement?.Left);
-
-        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
-        Assert.Equal(410, window.CurrentPlacement?.Width);
-    }
-
-    [Fact]
     public void ShowOrUpdate_WhenPlacementKeyChangesLoadsCorrectionForNewKey()
     {
         using var fixture = ControllerFixture.Create();
@@ -1396,6 +1348,12 @@ Item Level: 80
             remove { }
         }
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -1410,7 +1368,7 @@ Item Level: 80
 
         public event EventHandler? HorizontalResizeCompleted;
 
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 
@@ -1575,10 +1533,10 @@ Item Level: 80
             return true;
         }
 
-        public void RaiseResetPositionRequested()
+        public void RaiseResetItemRequested()
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
-            ResetPositionRequested?.Invoke(this, EventArgs.Empty);
+            ResetItemRequested?.Invoke(this, EventArgs.Empty);
         }
 
         public void RaisePanelActivated()

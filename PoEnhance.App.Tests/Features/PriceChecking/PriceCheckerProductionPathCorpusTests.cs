@@ -13,7 +13,7 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerProductionPathCorpusTests
 {
     [Fact]
-    public void ShowOrUpdate_TwoPhysicalPrefixesPreserveIndependentGameDataProvenance()
+    public void ShowOrUpdate_PureAndHybridPhysicalDamageAggregateAndPreserveSourceProvenance()
     {
         using var harness = ProductionPathHarness.Create();
 
@@ -51,31 +51,54 @@ Item Level: 85
             .Where(component => component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal))
             .ToArray();
 
-        Assert.Equal(2, physicalComponents.Length);
-        Assert.Equal([0, 1], physicalComponents.Select(component => component.SourceModifierIndex));
-        Assert.Equal([0, 0], physicalComponents.Select(component => component.SourceComponentIndex));
-        Assert.Equal(2, physicalComponents.Select(component => component.ComponentId).Distinct().Count());
-        Assert.Single(physicalComponents.Select(component => component.CanonicalSignature).Distinct());
-        Assert.All(physicalComponents, component =>
+        var physical = Assert.Single(physicalComponents);
+        Assert.Equal("91% increased Physical Damage", physical.OriginalText);
+        Assert.Equal("<number>% increased Physical Damage", physical.CanonicalSignature);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, physical.ResolutionStatus);
+        Assert.Equal(["local_physical_damage_+%"], physical.ResolvedStatIds);
+        Assert.Equal(ModifierLocality.Local, physical.Locality);
+        Assert.True(physical.IsSearchable);
+        Assert.True(physical.SupportsValueBounds);
+        Assert.Equal(91m, physical.RequestedMinimum);
+        Assert.Null(physical.RequestedMaximum);
+        Assert.Equal([91m], physical.CanonicalNumericValues);
+        Assert.Equal(2, physical.SourceCount);
+        Assert.Equal([0, 1], physical.Sources.Select(source => source.SourceModifierIndex));
+        Assert.Equal([0, 0], physical.Sources.Select(source => source.SourceComponentIndex));
+        Assert.Equal([52m, 39m], physical.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
+        Assert.Equal(2, physical.Sources.Select(source => source.ResolvedModifierId).Distinct().Count());
+        Assert.Equal(SearchComponentContributorProjection.Additive, physical.ContributorProjection);
+        Assert.Equal(
+            ["52% increased Physical Damage", "39% increased Physical Damage"],
+            physical.Contributors.Select(contributor => contributor.DisplayText));
+        Assert.Equal([52m, 39m], physical.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.All(physical.Contributors, contributor =>
         {
-            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
-            Assert.False(string.IsNullOrWhiteSpace(component.ResolvedModifierId));
-            Assert.Equal(["local_physical_damage_+%"], component.ResolvedStatIds);
-            Assert.Equal(ModifierLocality.Local, component.Locality);
-            Assert.True(component.IsSearchable);
-            Assert.True(component.SupportsValueBounds);
+            Assert.False(contributor.IsSelected);
+            Assert.Equal("Explicit", contributor.Source.ProviderDomain);
         });
-        Assert.Equal([52m, 39m], physicalComponents.Select(component => component.RequestedMinimum));
-        Assert.All(physicalComponents, component => Assert.Null(component.RequestedMaximum));
-        Assert.Equal(2, physicalComponents.Select(component => component.ResolvedModifierId).Distinct().Count());
 
         var accuracy = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
         Assert.Equal(1, accuracy.SourceModifierIndex);
         Assert.Equal(1, accuracy.SourceComponentIndex);
         Assert.Equal(["local_accuracy_rating"], accuracy.ResolvedStatIds);
-        Assert.Equal(physicalComponents[1].ResolvedModifierId, accuracy.ResolvedModifierId);
+        Assert.Equal(physical.Sources[1].ResolvedModifierId, accuracy.ResolvedModifierId);
         Assert.Equal(ModifierLocality.Local, accuracy.Locality);
+        Assert.Equal(93m, accuracy.RequestedMinimum);
+
+        var physicalRow = Assert.Single(snapshot.SearchState.Modifiers, row =>
+            row.Text.Contains("increased Physical Damage", StringComparison.Ordinal));
+        Assert.Equal("91% increased Physical Damage", physicalRow.Text);
+        Assert.Equal("91", physicalRow.MinimumText);
+        Assert.Equal(2, physicalRow.SourceCount);
+        Assert.Contains("2 sources", physicalRow.SectionLabel, StringComparison.Ordinal);
+        Assert.Contains("52(50-64)% increased Physical Damage", physicalRow.SourceBreakdown, StringComparison.Ordinal);
+        Assert.Contains("39(35-44)% increased Physical Damage", physicalRow.SourceBreakdown, StringComparison.Ordinal);
+        Assert.Equal(2, physicalRow.Contributors.Count);
+        Assert.Equal(
+            ["Explicit Prefix", "Hybrid Prefix"],
+            physicalRow.Contributors.Select(contributor => contributor.ProvenanceLabel));
 
         var craftedAttackSpeed = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
@@ -93,6 +116,106 @@ Item Level: 85
         Assert.True(manaLeech.SupportsValueBounds);
         Assert.Equal(2.83m, manaLeech.RequestedMinimum);
         Assert.Null(manaLeech.RequestedMaximum);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_HorrorManglerExplicitAndCraftedPhysicalDamageAggregateTo146()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText(HorrorManglerExplicitAndCraftedPhysicalDamageText);
+
+        var physical = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal));
+        Assert.Equal("146% increased Physical Damage", physical.OriginalText);
+        Assert.Equal(146m, physical.RequestedMinimum);
+        Assert.Null(physical.RequestedMaximum);
+        Assert.Equal(2, physical.SourceCount);
+        Assert.Equal([30m, 116m], physical.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
+        Assert.Equal(["Explicit", "Crafted"], physical.Sources.Select(source => source.ProviderDomain));
+        Assert.Equal([false, true], physical.Sources.Select(source => source.IsCrafted));
+        Assert.Equal(SearchComponentContributorProjection.Additive, physical.ContributorProjection);
+        Assert.Equal(2, physical.Contributors.Count);
+        Assert.Equal(
+            ["30% increased Physical Damage", "116% increased Physical Damage"],
+            physical.Contributors.Select(contributor => contributor.DisplayText));
+        Assert.Equal([30m, 116m], physical.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.All(physical.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.Equal(physical.Sources, physical.Contributors.Select(contributor => contributor.Source));
+        Assert.DoesNotContain(snapshot.Draft.ModifierAggregationDiagnostics, diagnostic =>
+            diagnostic.Message.Contains("provider domain", StringComparison.OrdinalIgnoreCase));
+
+        var accuracy = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
+        Assert.Equal("+60(47-72) to Accuracy Rating", accuracy.OriginalText);
+        Assert.Equal(60m, accuracy.RequestedMinimum);
+        Assert.Single(accuracy.Sources);
+
+        var physicalRow = Assert.Single(snapshot.SearchState.Modifiers, row =>
+            row.Text.Contains("increased Physical Damage", StringComparison.Ordinal));
+        Assert.Equal("146% increased Physical Damage", physicalRow.Text);
+        Assert.Equal("146", physicalRow.MinimumText);
+        Assert.Equal(2, physicalRow.SourceCount);
+        Assert.Contains("2 sources", physicalRow.SectionLabel, StringComparison.Ordinal);
+        Assert.False(physicalRow.IsExpanded);
+        Assert.Equal(2, physicalRow.Contributors.Count);
+        Assert.Equal(["30", "116"], physicalRow.Contributors.Select(contributor => contributor.MinimumText));
+        Assert.Equal(
+            ["Hybrid Prefix", "Crafted Prefix"],
+            physicalRow.Contributors.Select(contributor => contributor.ProvenanceLabel));
+        Assert.DoesNotContain(snapshot.SearchState.Modifiers, row =>
+            row.Text.StartsWith("30% increased Physical Damage", StringComparison.Ordinal) ||
+            row.Text.StartsWith("116% increased Physical Damage", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ShowOrUpdate_CataclysmLeagueAggregatesStunRecoveryAndRetainsFixedSourceProvenance()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText("""
+Item Class: Boots
+Rarity: Rare
+Cataclysm League
+Slink Boots
+--------
+Quality: +10% (augmented)
+Evasion Rating: 326 (augmented)
+--------
+Requirements:
+Level: 69
+Dex: 120
+--------
+Sockets: G-G-R-G
+--------
+Item Level: 84
+--------
+{ Prefix Modifier "Moth's" (Tier: 5) - Defences, Evasion }
+14(14-20)% increased Evasion Rating
+9(8-9)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Troll" (Tier: 3) - Life }
+Regenerate 46.8(32.1-48) Life per second
+{ Suffix Modifier "of the Whelpling" (Tier: 8) - Elemental, Fire, Resistance }
++6(6-11)% to Fire Resistance
+{ Suffix Modifier "of Steel Skin" (Tier: 3) }
+22(20-22)% increased Stun and Block Recovery
+""");
+
+        var stunRecovery = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Equal("31% increased Stun and Block Recovery", stunRecovery.OriginalText);
+        Assert.Equal(31m, stunRecovery.RequestedMinimum);
+        Assert.Equal(SearchComponentContributorProjection.Additive, stunRecovery.ContributorProjection);
+        Assert.Equal([9m, 22m], stunRecovery.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.Equal(stunRecovery.Sources, stunRecovery.Contributors.Select(contributor => contributor.Source));
+
+        var row = Assert.Single(snapshot.SearchState.Modifiers, modifier =>
+            modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Equal("31", row.MinimumText);
+        Assert.Equal(["9", "22"], row.Contributors.Select(contributor => contributor.MinimumText));
+        Assert.Equal(
+            ["Hybrid Prefix", "Explicit Suffix"],
+            row.Contributors.Select(contributor => contributor.ProvenanceLabel));
     }
 
     [Fact]
@@ -202,7 +325,7 @@ Item Level: 85
     }
 
     [Fact]
-    public void ShowOrUpdate_WaspsSupremeSpikedShield_ResolvesMagicPrefixSuffixBaseAndPreservesModifierRows()
+    public void ShowOrUpdate_WaspsSupremeSpikedShield_AggregatesEquivalentExplicitRecoveryEffects()
     {
         using var harness = ProductionPathHarness.Create();
 
@@ -249,11 +372,11 @@ Item Level: 84
         Assert.Equal("Supreme Spiked Shield", snapshot.Draft.Base.Observed?.ExactBaseName);
         Assert.Equal("Shield", snapshot.Draft.Base.ActiveCriterion?.Category);
         Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
-        Assert.Equal(4, snapshot.Draft.ModifierFilters.Count);
+        Assert.Equal(3, snapshot.Draft.ModifierFilters.Count);
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
         Assert.Equal("Wasp's Supreme Spiked Shield of Thick Skin", snapshot.WindowState.Draft.DisplayName);
-        Assert.Equal(4, snapshot.SearchState.Modifiers.Count);
+        Assert.Equal(3, snapshot.SearchState.Modifiers.Count);
         Assert.Contains(
             snapshot.SearchState.Modifiers,
             row => row.Text.Contains("chance to Suppress Spell Damage", StringComparison.Ordinal));
@@ -262,10 +385,9 @@ Item Level: 84
             row => row.Text.Contains("increased Evasion and Energy Shield", StringComparison.Ordinal));
         Assert.Contains(
             snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("13(12-13)% increased Stun and Block Recovery", StringComparison.Ordinal));
-        Assert.Contains(
-            snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("11(11-13)% increased Stun and Block Recovery", StringComparison.Ordinal));
+            row => row.Text == "24% increased Stun and Block Recovery" &&
+                row.SourceCount == 2 &&
+                row.MinimumText == "24");
     }
 
     public static IEnumerable<object[]> OpeningStateFixtures()
@@ -379,6 +501,32 @@ Item Level: 84
         TradeSearchDraft Draft,
         PriceCheckerWindowState WindowState,
         PriceCheckerSearchViewState SearchState);
+
+    internal const string HorrorManglerExplicitAndCraftedPhysicalDamageText = """
+Item Class: One Hand Axes
+Rarity: Rare
+Horror Mangler
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 94-283 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 61
+Str: 167
+Dex: 57
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Reaver's" (Tier: 3) - Damage, Physical, Attack }
+30(25-34)% increased Physical Damage
++60(47-72) to Accuracy Rating
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 4) - Damage, Physical, Attack }
+116(100-129)% increased Physical Damage
+""";
 
     private sealed class ProductionPathHarness : IDisposable
     {
@@ -538,6 +686,8 @@ Item Level: 84
 
         public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
         public event EventHandler<bool>? PinStateChanged;
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -545,7 +695,7 @@ Item Level: 84
         public event EventHandler? HorizontalResizeStarted;
         public event EventHandler<PriceCheckerHorizontalResizeEventArgs>? HorizontalResizeDelta;
         public event EventHandler? HorizontalResizeCompleted;
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 

@@ -7,6 +7,7 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 internal static partial class PathOfExileTradeStatTemplateNormalizer
 {
     private const string LocalProviderAnnotationSuffix = " (Local)";
+    private const string GlobalProviderAnnotationSuffix = " (Global)";
 
     public static string NormalizeTemplate(string? text)
     {
@@ -22,13 +23,20 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
 
     public static string NormalizeLookupTemplate(string? text)
     {
-        return StripProviderLocalAnnotation(NormalizeTemplate(text));
+        return StripProviderLocalityAnnotation(NormalizeTemplate(text));
     }
 
     public static bool HasProviderLocalAnnotation(string? text)
     {
         return NormalizeText(text).EndsWith(
             LocalProviderAnnotationSuffix,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool HasProviderGlobalAnnotation(string? text)
+    {
+        return NormalizeText(text).EndsWith(
+            GlobalProviderAnnotationSuffix,
             StringComparison.OrdinalIgnoreCase);
     }
 
@@ -111,10 +119,15 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
             .Any(match => !StrictAttachedRangeAnnotationRegex().IsMatch(match.Value));
     }
 
-    private static string StripProviderLocalAnnotation(string text)
+    private static string StripProviderLocalityAnnotation(string text)
     {
-        return text.EndsWith(LocalProviderAnnotationSuffix, StringComparison.OrdinalIgnoreCase)
-            ? text[..^LocalProviderAnnotationSuffix.Length]
+        if (text.EndsWith(LocalProviderAnnotationSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return text[..^LocalProviderAnnotationSuffix.Length];
+        }
+
+        return text.EndsWith(GlobalProviderAnnotationSuffix, StringComparison.OrdinalIgnoreCase)
+            ? text[..^GlobalProviderAnnotationSuffix.Length]
             : text;
     }
 

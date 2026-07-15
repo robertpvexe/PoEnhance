@@ -176,6 +176,137 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
+    public void Validate_SelectedContributorFloor_AllowsExactAdditiveMinimum()
+    {
+        var draft = ValidDraft(modifiers: [ContributorParent(146m, firstSelected: true, secondSelected: true)]);
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.InvalidContributorParentFloor);
+    }
+
+    [Fact]
+    public void Validate_SelectedContributorFloor_BelowSelectedSumSuspendsChildrenWithoutBlockingSearch()
+    {
+        var draft = ValidDraft(modifiers: [ContributorParent(145m, firstSelected: true, secondSelected: true)]);
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.InvalidContributorParentFloor);
+    }
+
+    [Fact]
+    public void Validate_SelectedContributorWithoutProvenProjection_IsRejected()
+    {
+        var parent = ContributorParent(146m, firstSelected: true, secondSelected: false) with
+        {
+            ContributorProjection = SearchComponentContributorProjection.None,
+        };
+
+        var result = validator.Validate(ValidDraft(modifiers: [parent]));
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnsupportedContributorProjection,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
+    public void Validate_ActiveContributorWithoutExactSourceIdentity_IsRejected()
+    {
+        var parent = ContributorParent(31m, firstSelected: true, secondSelected: false);
+        parent = parent with
+        {
+            Contributors = parent.Contributors
+                .Select((contributor, index) => index == 0
+                    ? contributor with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Ambiguous,
+                        ProviderIdentity = null,
+                        ProviderDiagnosticMessage = "Contributor variant is ambiguous.",
+                    }
+                    : contributor)
+                .ToArray(),
+        };
+
+        var result = validator.Validate(ValidDraft(modifiers: [parent]));
+
+        Assert.False(result.IsValid);
+        Assert.Single(result.Diagnostics);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.InvalidContributorSourceIdentity,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
+    public void Validate_ActiveAdditiveContributorWithoutMinimum_IsRejectedPrecisely()
+    {
+        var parent = ContributorParent(30m, firstSelected: true, secondSelected: false);
+        parent = parent with
+        {
+            Contributors = parent.Contributors
+                .Select((contributor, index) => index == 0
+                    ? contributor with { RequestedMinimum = null }
+                    : contributor)
+                .ToArray(),
+        };
+
+        var result = validator.Validate(ValidDraft(modifiers: [parent]));
+
+        Assert.False(result.IsValid);
+        Assert.Single(result.Diagnostics);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.InvalidContributorMinimum,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
+    public void Validate_SelectedContributorUnderDeselectedParentIsInactiveAndDoesNotBlock()
+    {
+        var parent = ContributorParent(30m, firstSelected: true, secondSelected: false) with
+        {
+            IsSelected = false,
+        };
+
+        var result = validator.Validate(ValidDraft(modifiers: [parent]));
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Validate_SelectedContributorRejectsInvertedRange()
+    {
+        var parent = ContributorParent(31m, firstSelected: true, secondSelected: false);
+        parent = parent with
+        {
+            Contributors = parent.Contributors
+                .Select((contributor, index) => index == 0
+                    ? contributor with { RequestedMinimum = 31m, RequestedMaximum = 30m }
+                    : contributor)
+                .ToArray(),
+        };
+
+        var result = validator.Validate(ValidDraft(modifiers: [parent]));
+
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.InvalidContributorRange,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
     public void Validate_MinimumOnlyRange_IsValid()
     {
         var draft = ValidDraft(modifiers:
@@ -513,6 +644,62 @@ Item Level: 82
             ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
             IsSearchable = false,
             IsSelected = false,
+        };
+    }
+
+    private static ResolvedSearchComponent ContributorParent(
+        decimal minimum,
+        bool firstSelected,
+        bool secondSelected)
+    {
+        var variant = new SearchFilterVariant
+        {
+            Identity = "variant-exact",
+            Label = "Pseudo",
+            Description = "#% increased total Physical Damage",
+            ProviderKind = "pseudo",
+            SupportsContributorComposition = true,
+            SupportsValueBounds = true,
+        };
+        SearchComponentContributor Contributor(string id, decimal value, bool selected) => new()
+        {
+            ContributorId = id,
+            Source = new SearchComponentSourceProvenance
+            {
+                ComponentId = id,
+                OriginalText = $"{value}% increased Physical Damage",
+                CanonicalSignature = "<number>% increased Physical Damage",
+                ParsedKind = ParsedModifierKind.Prefix,
+                ProviderDomain = "Explicit",
+                ResolvedModifierId = id,
+                ResolvedStatIds = ["local_physical_damage_+%"],
+                CanonicalNumericValues = [value],
+            },
+            DisplayText = $"{value}% increased Physical Damage",
+            IsSelected = selected,
+            RequestedMinimum = value,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = $"identity-{id}",
+        };
+
+        return ExactModifier() with
+        {
+            OriginalText = "146% increased Physical Damage",
+            CanonicalSignature = "<number>% increased Physical Damage",
+            RequestedMinimum = minimum,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            IsSelected = true,
+            FilterVariants = [variant],
+            SelectedFilterVariantIdentity = variant.Identity,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Contributor("source-30", 30m, firstSelected),
+                Contributor("source-116", 116m, secondSelected),
+            ],
         };
     }
 

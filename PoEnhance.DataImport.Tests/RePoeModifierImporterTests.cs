@@ -32,6 +32,8 @@ public sealed class RePoeModifierImporterTests
         Assert.Equal("AbyssJewelLife", life.GroupId);
         Assert.Equal("Hale", life.Name);
         Assert.Equal(ModifierGenerationType.Prefix, life.GenerationType);
+        Assert.Equal("prefix", life.SourceGenerationType);
+        Assert.False(life.IsEssenceOnly);
         Assert.Equal(1, life.RequiredLevel);
         Assert.Equal("abyss_jewel", life.Domain);
         Assert.Equal(["life", "resource"], life.Tags);
@@ -63,6 +65,7 @@ public sealed class RePoeModifierImporterTests
             modifier.Id == "ItemFoundRarityIncreaseImplicitRing1");
 
         Assert.Equal(ModifierGenerationType.Implicit, implicitModifier.GenerationType);
+        Assert.Equal("unique", implicitModifier.SourceGenerationType);
         Assert.Equal("base_item_found_rarity_+%", Assert.Single(implicitModifier.Stats).StatId);
     }
 

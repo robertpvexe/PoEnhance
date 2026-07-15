@@ -105,28 +105,6 @@ internal sealed class PriceCheckerPlacementStore
         }
     }
 
-    public void ResetHorizontalCorrection(PriceCheckerPlacementKey key)
-    {
-        try
-        {
-            if (!File.Exists(filePath))
-            {
-                return;
-            }
-
-            var state = LoadState();
-            if (state.HorizontalCorrections.Remove(key.ToStorageKey()))
-            {
-                SaveStateAtomically(state);
-            }
-        }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or JsonException)
-        {
-            Log.Warning(exception, "Price Checker placement could not be reset");
-        }
-    }
-
     private PriceCheckerPlacementFile LoadState()
     {
         var json = File.ReadAllText(filePath);

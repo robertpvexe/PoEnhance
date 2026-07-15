@@ -129,6 +129,7 @@ public sealed class TradeSearchDraftValidator
         for (var index = 0; index < draft.ModifierFilters.Count; index++)
         {
             var modifier = draft.ModifierFilters[index];
+            ValidateContributors(modifier, index, diagnostics);
             if (!modifier.IsSelected)
             {
                 continue;
@@ -179,6 +180,85 @@ public sealed class TradeSearchDraftValidator
                     "The selected modifier type is no longer available in the official Trade stat catalog.",
                     index));
             }
+
+            else if (modifier.SourceCount > 1 &&
+                modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Unsupported or
+                    SearchComponentProviderResolutionStatus.Ambiguous)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved,
+                    modifier.ProviderDiagnosticMessage ??
+                        "The aggregate has no unambiguous provider filter that covers every contributor.",
+                    index));
+            }
+
+        }
+    }
+
+    private static void ValidateContributors(
+        ResolvedSearchComponent parent,
+        int parentIndex,
+        List<TradeSearchValidationDiagnostic> diagnostics)
+    {
+        if (!SearchComponentContributorActivation.IsFilteringActive(parent))
+        {
+            return;
+        }
+
+        var selected = parent.Contributors
+            .Where(contributor => contributor.IsSelected)
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            return;
+        }
+
+        var hasInvalidAdditiveMinimum = false;
+        foreach (var contributor in selected)
+        {
+            if (contributor.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+                string.IsNullOrWhiteSpace(contributor.ProviderIdentity))
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.InvalidContributorSourceIdentity,
+                    contributor.ProviderDiagnosticMessage ??
+                        $"Selected contributor '{contributor.DisplayText}' has no exact retained source provider identity.",
+                    parentIndex));
+            }
+
+            if (parent.ContributorProjection == SearchComponentContributorProjection.Additive &&
+                !contributor.RequestedMinimum.HasValue)
+            {
+                hasInvalidAdditiveMinimum = true;
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.InvalidContributorMinimum,
+                    $"Selected contributor '{contributor.DisplayText}' needs a valid Min value for additive projection.",
+                    parentIndex));
+            }
+
+            if (contributor.RequestedMinimum.HasValue &&
+                contributor.RequestedMaximum.HasValue &&
+                contributor.RequestedMinimum.Value > contributor.RequestedMaximum.Value)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.InvalidContributorRange,
+                    "A selected contributor minimum cannot be greater than its maximum.",
+                    parentIndex));
+            }
+        }
+
+        if (hasInvalidAdditiveMinimum)
+        {
+            return;
+        }
+
+        if (!SearchComponentContributorMath.TryGetActiveAdditiveMinimumFloor(parent, out _))
+        {
+            diagnostics.Add(Error(
+                TradeSearchValidationDiagnosticCodes.UnsupportedContributorProjection,
+                "The selected contributor values cannot be projected faithfully onto the parent modifier.",
+                parentIndex));
         }
     }
 

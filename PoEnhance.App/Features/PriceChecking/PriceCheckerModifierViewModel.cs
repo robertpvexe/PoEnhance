@@ -1,12 +1,22 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
 namespace PoEnhance.App.Features.PriceChecking;
 
-public sealed record PriceCheckerModifierViewModel
+public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 {
+    private string minimumText = string.Empty;
+    private string maximumText = string.Empty;
+
     public required int SourceIndex { get; init; }
 
     public required string Text { get; init; }
 
     public string SectionLabel { get; init; } = string.Empty;
+
+    public int SourceCount { get; init; } = 1;
+
+    public string? SourceBreakdown { get; init; }
 
     public bool IsSelected { get; init; }
 
@@ -26,7 +36,37 @@ public sealed record PriceCheckerModifierViewModel
 
     public bool CanSelectFilterVariant => IsSelected && HasMultipleFilterVariants;
 
-    public string MinimumText { get; set; } = string.Empty;
+    public IReadOnlyList<PriceCheckerModifierContributorViewModel> Contributors { get; init; } = [];
 
-    public string MaximumText { get; set; } = string.Empty;
+    public bool HasContributors => Contributors.Count > 0;
+
+    public bool IsExpanded { get; init; }
+
+    public int ActiveContributorCount { get; init; }
+
+    public string MinimumText
+    {
+        get => minimumText;
+        set => SetField(ref minimumText, value);
+    }
+
+    public string MaximumText
+    {
+        get => maximumText;
+        set => SetField(ref maximumText, value);
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void SetField(ref string field, string value, [CallerMemberName] string? propertyName = null)
+    {
+        value ??= string.Empty;
+        if (string.Equals(field, value, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 }

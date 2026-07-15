@@ -116,6 +116,20 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
 
         Assert.Equal(typeof(string), viewModelType.GetProperty("MinimumText")?.PropertyType);
         Assert.Equal(typeof(string), viewModelType.GetProperty("MaximumText")?.PropertyType);
+        var contributorType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierContributorViewModel);
+        Assert.Equal(typeof(string), contributorType.GetProperty("MinimumText")?.PropertyType);
+        Assert.Equal(typeof(string), contributorType.GetProperty("MaximumText")?.PropertyType);
+        Assert.Null(contributorType.GetProperty("FilterVariants"));
+        Assert.Null(contributorType.GetProperty("SelectedFilterVariant"));
+        Assert.DoesNotContain(contributorType.GetProperties().Select(property => property.Name), name =>
+            Contains(name, "StatId") ||
+            Contains(name, "TradeStat") ||
+            Contains(name, "Provider") ||
+            Contains(name, "Tier"));
+        Assert.DoesNotContain(contributorType.GetProperties().Select(property => property.PropertyType), type =>
+            Contains(type, "PathOfExileTrade") ||
+            Contains(type, "Json") ||
+            Contains(type, "Provider"));
         var variantType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierFilterVariantViewModel);
         Assert.Equal(typeof(string), variantType.GetProperty("Identity")?.PropertyType);
         Assert.Equal(typeof(string), variantType.GetProperty("Label")?.PropertyType);
@@ -152,6 +166,21 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
     }
 
     [Fact]
+    public void ContributorCoreState_RetainsOnlyOpaqueProviderIdentity()
+    {
+        Assert.Equal(
+            typeof(string),
+            typeof(SearchComponentContributor).GetProperty("ProviderIdentity")?.PropertyType);
+        Assert.Null(typeof(SearchComponentContributor).GetProperty("ProviderStatId"));
+        Assert.Null(typeof(SearchComponentContributor).GetProperty("ProviderStatText"));
+        Assert.Equal(
+            typeof(string),
+            typeof(SearchComponentSourceProvenance).GetProperty("ProviderIdentity")?.PropertyType);
+        Assert.Null(typeof(SearchComponentSourceProvenance).GetProperty("ProviderStatId"));
+        Assert.Null(typeof(SearchComponentSourceProvenance).GetProperty("ProviderStatText"));
+    }
+
+    [Fact]
     public void ModifierBoundProjection_HasNoItemModifierBaseOrProviderStatIdentityExceptions()
     {
         var root = RepositoryRoot();
@@ -181,6 +210,35 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         Assert.DoesNotContain("Fire Damage", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Lightning Damage", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Physical Damage", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ModifierDomainEligibility_HasNoEffectItemBaseClassOrProviderStatIdentityExceptions()
+    {
+        var root = RepositoryRoot();
+        var sources = new[]
+        {
+            Path.Combine(root, "PoEnhance.Core", "Trade", "ModifierProviderDomainEligibilityIndex.cs"),
+            Path.Combine(root, "PoEnhance.Core", "Trade", "ModifierProviderDomainEvidenceResolver.cs"),
+            Path.Combine(
+                root,
+                "PoEnhance.App",
+                "Infrastructure",
+                "Trade",
+                "PathOfExile",
+                "PathOfExileTradeModifierVariantDiscovery.cs"),
+        };
+        var source = string.Join(Environment.NewLine, sources.Select(File.ReadAllText));
+
+        Assert.DoesNotContain(".stat_", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Accuracy Rating", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Attack Speed", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Physical Damage", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maximum Life", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Elemental Resistance", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("One Hand Axe", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Jewellery", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Jewel", source, StringComparison.Ordinal);
     }
 
     [Fact]

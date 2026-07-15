@@ -21,7 +21,9 @@ internal static class PathOfExileTradeStatCandidateClassifier
             ProviderKind = GetProviderKind(entry.GroupId, entry.GroupLabel, entry.Type),
             ProviderLocality = PathOfExileTradeStatTemplateNormalizer.HasProviderLocalAnnotation(entry.Text)
                 ? PathOfExileTradeProviderStatLocality.Local
-                : PathOfExileTradeProviderStatLocality.Unmarked,
+                : PathOfExileTradeStatTemplateNormalizer.HasProviderGlobalAnnotation(entry.Text)
+                    ? PathOfExileTradeProviderStatLocality.Global
+                    : PathOfExileTradeProviderStatLocality.Unmarked,
             OptionMetadata = entry.OptionMetadata,
         };
     }

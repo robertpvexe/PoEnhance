@@ -26,6 +26,12 @@ internal sealed class PriceCheckerSearchController
     private readonly HashSet<string> displayedOfferIds = new(StringComparer.Ordinal);
     private readonly List<PriceCheckerOfferViewModel> displayedOffers = [];
     private readonly Dictionary<int, ModifierBoundInput> modifierBoundInputs = [];
+    private readonly Dictionary<ModifierContributorKey, ModifierBoundInput> contributorBoundInputs = [];
+    private readonly Dictionary<int, decimal?> canonicalContributorParentMinimums = [];
+    private readonly Dictionary<int, decimal?> manualContributorParentMinimums = [];
+    private readonly Dictionary<int, PriceCheckerParentMinimumState> parentMinimumStates = [];
+    private readonly HashSet<int> expandedModifierIndexes = [];
+    private PriceCheckerItemResetSnapshot? initialItemSnapshot;
     private PriceCheckerSuccessfulSearchIdentity? successfulSearch;
     private int? paginationProviderTotal;
     private bool? paginationInexact;
@@ -80,7 +86,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged += OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged += OnModifierFilterVariantChanged;
+        priceCheckerWindow.ModifierExpansionChanged += OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
+        priceCheckerWindow.ResetItemRequested += OnResetItemRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
 
@@ -98,7 +106,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged -= OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged -= OnModifierFilterVariantChanged;
+        priceCheckerWindow.ModifierExpansionChanged -= OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
+        priceCheckerWindow.ResetItemRequested -= OnResetItemRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
         generation++;
@@ -171,12 +181,23 @@ internal sealed class PriceCheckerSearchController
         CancelActiveRequest();
         ClearPaginationState();
         currentDraft = ResetModifierSelections(draft);
+        expandedModifierIndexes.Clear();
         InitializeModifierBoundInputs(currentDraft);
+        var synchronizedModifiers = currentDraft.ModifierFilters
+            .Select((modifier, index) => SynchronizeContributorParentMinimum(index, modifier))
+            .ToArray();
+        if (synchronizedModifiers.Where((modifier, index) =>
+                !ReferenceEquals(modifier, currentDraft.ModifierFilters[index])).Any())
+        {
+            currentDraft = currentDraft with { ModifierFilters = synchronizedModifiers };
+        }
+
         userSelectedBaseCriterion = currentDraft.Base.ActiveCriterion;
         currentPresentation = presentation ?? new PriceCheckerItemPresentation();
         currentValidationResult = ReferenceEquals(currentDraft, draft)
             ? validationResult
             : draftValidator.Validate(currentDraft);
+        initialItemSnapshot = CaptureInitialItemSnapshot();
         PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
     }
@@ -365,7 +386,15 @@ internal sealed class PriceCheckerSearchController
 
         var modifierFilters = currentDraft.ModifierFilters
             .Select((modifier, index) => index == modifierIndex
-                ? modifier with { IsSelected = isSelected }
+                ? modifier with
+                {
+                    IsSelected = isSelected,
+                    Contributors = !isSelected
+                        ? modifier.Contributors
+                            .Select(contributor => contributor with { IsSelected = false })
+                            .ToArray()
+                        : modifier.Contributors,
+                }
                 : modifier)
             .ToArray();
         var userSelectedDraft = currentDraft with
@@ -377,8 +406,57 @@ internal sealed class PriceCheckerSearchController
             },
         };
         currentDraft = priceCheckService.ResolveEffectiveDraft(userSelectedDraft);
+        currentDraft = ReplaceModifier(
+            currentDraft,
+            modifierIndex,
+            SynchronizeContributorParentMinimum(
+                modifierIndex,
+                currentDraft.ModifierFilters[modifierIndex]));
         currentValidationResult = draftValidator.Validate(currentDraft);
 
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    public void UpdateModifierContributorSelection(
+        int modifierIndex,
+        int contributorIndex,
+        bool isSelected)
+    {
+        if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
+            !SearchComponentContributorActivation.SupportsComposition(parent) ||
+            contributor.IsSelected == isSelected)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+
+        var contributors = parent.Contributors
+            .Select((candidate, index) => index == contributorIndex
+                ? candidate with { IsSelected = isSelected }
+                : candidate)
+            .ToArray();
+        var nextParent = parent with
+        {
+            IsSelected = parent.IsSelected || isSelected,
+            Contributors = contributors,
+        };
+        manualContributorParentMinimums.Remove(modifierIndex);
+        parentMinimumStates[modifierIndex] = nextParent.Contributors.Any(candidate => candidate.IsSelected)
+            ? PriceCheckerParentMinimumState.ChildDerived
+            : PriceCheckerParentMinimumState.CanonicalDefault;
+        nextParent = SynchronizeContributorParentMinimum(modifierIndex, nextParent);
+
+        currentDraft = currentDraft! with
+        {
+            ModifierFilters = currentDraft.ModifierFilters
+                .Select((modifier, index) => index == modifierIndex ? nextParent : modifier)
+                .ToArray(),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
         PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
     }
@@ -391,6 +469,7 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
+        var previousInput = modifierBoundInputs.GetValueOrDefault(modifierIndex);
         var input = new ModifierBoundInput(minimumText ?? string.Empty, maximumText ?? string.Empty);
         modifierBoundInputs[modifierIndex] = input;
         var component = currentDraft.ModifierFilters[modifierIndex];
@@ -401,6 +480,14 @@ internal sealed class PriceCheckerSearchController
             RequestedMinimum = parsedMinimum.IsValid ? parsedMinimum.Value : component.RequestedMinimum,
             RequestedMaximum = parsedMaximum.IsValid ? parsedMaximum.Value : component.RequestedMaximum,
         };
+        if (component.Contributors.Count > 0 &&
+            parsedMinimum.IsValid &&
+            !string.Equals(previousInput?.MinimumText, input.MinimumText, StringComparison.Ordinal))
+        {
+            manualContributorParentMinimums[modifierIndex] = parsedMinimum.Value;
+            parentMinimumStates[modifierIndex] = PriceCheckerParentMinimumState.ManualOverride;
+            next = SynchronizeContributorParentMinimum(modifierIndex, next);
+        }
 
         if (next == component && !HasInvalidBoundInput(input))
         {
@@ -417,6 +504,53 @@ internal sealed class PriceCheckerSearchController
                 .ToArray(),
         };
         currentValidationResult = draftValidator.Validate(currentDraft);
+        RefreshDisplayedContributorActivity(modifierIndex, next);
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
+    public void UpdateModifierContributorBounds(
+        int modifierIndex,
+        int contributorIndex,
+        string? minimumText,
+        string? maximumText)
+    {
+        if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
+            !SearchComponentContributorActivation.SupportsComposition(parent) ||
+            !contributor.SupportsValueBounds)
+        {
+            return;
+        }
+
+        var key = new ModifierContributorKey(modifierIndex, contributorIndex);
+        var input = new ModifierBoundInput(minimumText ?? string.Empty, maximumText ?? string.Empty);
+        contributorBoundInputs[key] = input;
+        var parsedMinimum = ParseBound(input.MinimumText);
+        var parsedMaximum = ParseBound(input.MaximumText);
+        var nextContributor = contributor with
+        {
+            RequestedMinimum = parsedMinimum.IsValid ? parsedMinimum.Value : contributor.RequestedMinimum,
+            RequestedMaximum = parsedMaximum.IsValid ? parsedMaximum.Value : contributor.RequestedMaximum,
+        };
+        if (nextContributor == contributor && !HasInvalidBoundInput(input))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        var nextParent = parent with
+        {
+            Contributors = parent.Contributors
+                .Select((candidate, childIndex) => childIndex == contributorIndex
+                    ? nextContributor
+                    : candidate)
+                .ToArray(),
+        };
+        nextParent = SynchronizeContributorParentMinimum(modifierIndex, nextParent);
+        currentDraft = ReplaceModifier(currentDraft!, modifierIndex, nextParent);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        RefreshDisplayedContributorActivity(modifierIndex, nextParent);
         ApplyState(CreateBoundChangeInvalidatedState());
     }
 
@@ -457,6 +591,7 @@ internal sealed class PriceCheckerSearchController
                         ProviderStatText = null,
                         ProviderCandidateStatIds = [],
                         ProviderDiagnosticCode = null,
+                        ProviderDiagnosticMessage = null,
                     }
                     : modifier)
                 .ToArray(),
@@ -481,7 +616,59 @@ internal sealed class PriceCheckerSearchController
             };
         }
 
+        currentDraft = ReplaceModifier(
+            currentDraft,
+            modifierIndex,
+            SynchronizeContributorParentMinimum(
+                modifierIndex,
+                currentDraft.ModifierFilters[modifierIndex]));
+
         currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    public void UpdateModifierExpansion(int modifierIndex, bool isExpanded)
+    {
+        if (currentDraft?.ModifierFilters.ElementAtOrDefault(modifierIndex)?.Contributors.Count is not > 0)
+        {
+            return;
+        }
+
+        if (isExpanded)
+        {
+            expandedModifierIndexes.Add(modifierIndex);
+        }
+        else
+        {
+            expandedModifierIndexes.Remove(modifierIndex);
+        }
+
+        ApplyState(CurrentViewState with { Modifiers = CreateModifierRows() });
+    }
+
+    public void ResetCurrentItem()
+    {
+        if (initialItemSnapshot is null)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+
+        var snapshot = initialItemSnapshot;
+        currentDraft = snapshot.Draft;
+        currentValidationResult = snapshot.ValidationResult;
+        currentPresentation = snapshot.Presentation;
+        userSelectedBaseCriterion = snapshot.UserSelectedBaseCriterion;
+        RestoreDictionary(modifierBoundInputs, snapshot.ModifierBoundInputs);
+        RestoreDictionary(contributorBoundInputs, snapshot.ContributorBoundInputs);
+        RestoreDictionary(canonicalContributorParentMinimums, snapshot.CanonicalParentMinimums);
+        RestoreDictionary(manualContributorParentMinimums, snapshot.ManualParentMinimums);
+        RestoreDictionary(parentMinimumStates, snapshot.ParentMinimumStates);
+
         PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
     }
@@ -577,11 +764,30 @@ internal sealed class PriceCheckerSearchController
         object? sender,
         PriceCheckerModifierSelectionChangedEventArgs e)
     {
+        if (e.ContributorIndex.HasValue)
+        {
+            UpdateModifierContributorSelection(
+                e.ModifierIndex,
+                e.ContributorIndex.Value,
+                e.IsSelected);
+            return;
+        }
+
         UpdateModifierSelection(e.ModifierIndex, e.IsSelected);
     }
 
     private void OnModifierBoundsChanged(object? sender, PriceCheckerModifierBoundsChangedEventArgs e)
     {
+        if (e.ContributorIndex.HasValue)
+        {
+            UpdateModifierContributorBounds(
+                e.ModifierIndex,
+                e.ContributorIndex.Value,
+                e.MinimumText,
+                e.MaximumText);
+            return;
+        }
+
         UpdateModifierBounds(e.ModifierIndex, e.MinimumText, e.MaximumText);
     }
 
@@ -592,9 +798,21 @@ internal sealed class PriceCheckerSearchController
         UpdateModifierFilterVariant(e.ModifierIndex, e.VariantIdentity);
     }
 
+    private void OnModifierExpansionChanged(
+        object? sender,
+        PriceCheckerModifierExpansionChangedEventArgs e)
+    {
+        UpdateModifierExpansion(e.ModifierIndex, e.IsExpanded);
+    }
+
     private void OnBaseCriterionToggleRequested(object? sender, EventArgs e)
     {
         ToggleBaseCriterion();
+    }
+
+    private void OnResetItemRequested(object? sender, EventArgs e)
+    {
+        ResetCurrentItem();
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -683,6 +901,15 @@ internal sealed class PriceCheckerSearchController
             .Any(pair => HasInvalidBoundInput(pair.Value)))
         {
             return ValidationState("Modifier Min and Max must be finite decimal numbers.");
+        }
+
+        if (contributorBoundInputs.Any(pair =>
+                currentDraft.ModifierFilters.ElementAtOrDefault(pair.Key.ModifierIndex) is { } parent &&
+                SearchComponentContributorActivation.IsFilteringActive(parent) &&
+                parent.Contributors.ElementAtOrDefault(pair.Key.ContributorIndex)?.IsSelected == true &&
+                HasInvalidBoundInput(pair.Value)))
+        {
+            return ValidationState("Contributor Min and Max must be finite decimal numbers.");
         }
 
         if (!currentValidationResult.IsValid)
@@ -1019,20 +1246,46 @@ internal sealed class PriceCheckerSearchController
         return draft.ModifierFilters
             .Select((modifier, index) =>
             {
-                var variants = modifier.FilterVariants
-                    .Select(option => new PriceCheckerModifierFilterVariantViewModel
+                var variants = CreateVariantViewModels(modifier.FilterVariants);
+                var contributorsEnabled = SearchComponentContributorActivation.SupportsComposition(modifier);
+                var contributors = modifier.Contributors
+                    .Select((contributor, contributorIndex) =>
                     {
-                        Identity = option.Identity,
-                        Label = option.Label,
-                        Description = option.Description,
-                        SupportsValueBounds = option.SupportsValueBounds,
+                        var inactiveReason = SearchComponentContributorActivation.GetInactiveReason(
+                            modifier,
+                            contributor);
+                        return new PriceCheckerModifierContributorViewModel
+                        {
+                            ParentSourceIndex = index,
+                            ContributorIndex = contributorIndex,
+                            Text = SafeModifierText(contributor.DisplayText),
+                            ProvenanceLabel = ContributorProvenanceLabel(contributor.Source),
+                            SourceBreakdown = SourceDetail(contributor.Source, contributorIndex),
+                            IsSelected = contributor.IsSelected,
+                            SupportsValueBounds = contributor.SupportsValueBounds,
+                            ValueBoundsUnsupportedReason = contributor.ValueBoundsUnsupportedReason,
+                            IsInteractionEnabled = contributorsEnabled,
+                            InactiveReason = inactiveReason,
+                            MinimumText = ContributorBoundText(
+                                index,
+                                contributorIndex,
+                                contributor.RequestedMinimum,
+                                minimum: true),
+                            MaximumText = ContributorBoundText(
+                                index,
+                                contributorIndex,
+                                contributor.RequestedMaximum,
+                                minimum: false),
+                        };
                     })
                     .ToArray();
                 return new PriceCheckerModifierViewModel
                 {
                     SourceIndex = index,
                     Text = SafeModifierText(modifier.OriginalText),
-                    SectionLabel = SectionLabel(modifier),
+                    SectionLabel = SectionLabelWithSources(modifier),
+                    SourceCount = modifier.SourceCount,
+                    SourceBreakdown = SourceBreakdown(modifier),
                     IsSelected = modifier.IsSelected,
                     SupportsValueBounds = modifier.SupportsValueBounds,
                     ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
@@ -1043,7 +1296,24 @@ internal sealed class PriceCheckerSearchController
                         StringComparison.Ordinal)),
                     MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
                     MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
+                    Contributors = contributors,
+                    IsExpanded = expandedModifierIndexes.Contains(index),
+                    ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier),
                 };
+            })
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PriceCheckerModifierFilterVariantViewModel> CreateVariantViewModels(
+        IReadOnlyList<SearchFilterVariant> variants)
+    {
+        return variants
+            .Select(option => new PriceCheckerModifierFilterVariantViewModel
+            {
+                Identity = option.Identity,
+                Label = option.Label,
+                Description = option.Description,
+                SupportsValueBounds = option.SupportsValueBounds,
             })
             .ToArray();
     }
@@ -1051,12 +1321,32 @@ internal sealed class PriceCheckerSearchController
     private void InitializeModifierBoundInputs(TradeSearchDraft draft)
     {
         modifierBoundInputs.Clear();
+        contributorBoundInputs.Clear();
+        canonicalContributorParentMinimums.Clear();
+        manualContributorParentMinimums.Clear();
+        parentMinimumStates.Clear();
         for (var index = 0; index < draft.ModifierFilters.Count; index++)
         {
             var modifier = draft.ModifierFilters[index];
             modifierBoundInputs[index] = new ModifierBoundInput(
                 FormatBound(modifier.RequestedMinimum),
                 FormatBound(modifier.RequestedMaximum));
+            if (modifier.Contributors.Count > 0 &&
+                modifier.ContributorProjection == SearchComponentContributorProjection.Additive)
+            {
+                canonicalContributorParentMinimums[index] = modifier.CanonicalNumericValues.Count == 1
+                    ? modifier.CanonicalNumericValues[0]
+                    : modifier.RequestedMinimum;
+                parentMinimumStates[index] = PriceCheckerParentMinimumState.CanonicalDefault;
+            }
+            for (var contributorIndex = 0; contributorIndex < modifier.Contributors.Count; contributorIndex++)
+            {
+                var contributor = modifier.Contributors[contributorIndex];
+                contributorBoundInputs[new ModifierContributorKey(index, contributorIndex)] =
+                    new ModifierBoundInput(
+                        FormatBound(contributor.RequestedMinimum),
+                        FormatBound(contributor.RequestedMaximum));
+            }
         }
     }
 
@@ -1065,6 +1355,130 @@ internal sealed class PriceCheckerSearchController
         return modifierBoundInputs.TryGetValue(index, out var input)
             ? (minimum ? input.MinimumText : input.MaximumText)
             : FormatBound(value);
+    }
+
+    private string ContributorBoundText(
+        int modifierIndex,
+        int contributorIndex,
+        decimal? value,
+        bool minimum)
+    {
+        return contributorBoundInputs.TryGetValue(
+                new ModifierContributorKey(modifierIndex, contributorIndex),
+                out var input)
+            ? (minimum ? input.MinimumText : input.MaximumText)
+            : FormatBound(value);
+    }
+
+    private bool TryGetContributor(
+        int modifierIndex,
+        int contributorIndex,
+        out ResolvedSearchComponent parent,
+        out SearchComponentContributor contributor)
+    {
+        parent = null!;
+        contributor = null!;
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count)
+        {
+            return false;
+        }
+
+        parent = currentDraft.ModifierFilters[modifierIndex];
+        if (contributorIndex < 0 || contributorIndex >= parent.Contributors.Count)
+        {
+            return false;
+        }
+
+        contributor = parent.Contributors[contributorIndex];
+        return true;
+    }
+
+    private ResolvedSearchComponent SynchronizeContributorParentMinimum(
+        int modifierIndex,
+        ResolvedSearchComponent parent)
+    {
+        if (parent.Contributors.Count == 0 ||
+            parent.ContributorProjection != SearchComponentContributorProjection.Additive ||
+            !canonicalContributorParentMinimums.TryGetValue(modifierIndex, out var canonicalMinimum))
+        {
+            return parent;
+        }
+
+        var state = parentMinimumStates.GetValueOrDefault(
+            modifierIndex,
+            PriceCheckerParentMinimumState.CanonicalDefault);
+        decimal? requiredMinimum;
+        if (state == PriceCheckerParentMinimumState.ManualOverride &&
+            manualContributorParentMinimums.TryGetValue(modifierIndex, out var manualMinimum))
+        {
+            requiredMinimum = manualMinimum;
+        }
+        else
+        {
+            requiredMinimum = canonicalMinimum;
+            if (state == PriceCheckerParentMinimumState.ChildDerived &&
+                parent.Contributors.Any(contributor => contributor.IsSelected))
+            {
+                if (!SearchComponentContributorMath.TryGetSelectedAdditiveMinimumFloor(parent, out var childFloor))
+                {
+                    return parent;
+                }
+
+                requiredMinimum = childFloor;
+            }
+        }
+
+        var input = modifierBoundInputs.GetValueOrDefault(modifierIndex) ??
+            new ModifierBoundInput(
+                FormatBound(parent.RequestedMinimum),
+                FormatBound(parent.RequestedMaximum));
+        var minimumText = FormatBound(requiredMinimum);
+        modifierBoundInputs[modifierIndex] = input with { MinimumText = minimumText };
+        var displayed = CurrentViewState.Modifiers.ElementAtOrDefault(modifierIndex);
+        if (displayed is not null)
+        {
+            displayed.MinimumText = minimumText;
+        }
+
+        return parent with { RequestedMinimum = requiredMinimum };
+    }
+
+    private static TradeSearchDraft ReplaceModifier(
+        TradeSearchDraft draft,
+        int modifierIndex,
+        ResolvedSearchComponent modifier)
+    {
+        return draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select((candidate, index) => index == modifierIndex ? modifier : candidate)
+                .ToArray(),
+        };
+    }
+
+    private void RefreshDisplayedContributorActivity(
+        int modifierIndex,
+        ResolvedSearchComponent parent)
+    {
+        var row = CurrentViewState.Modifiers.ElementAtOrDefault(modifierIndex);
+        if (row is null)
+        {
+            return;
+        }
+
+        foreach (var (contributor, contributorIndex) in parent.Contributors.Select(
+                     (contributor, index) => (contributor, index)))
+        {
+            var displayed = row.Contributors.ElementAtOrDefault(contributorIndex);
+            if (displayed is not null)
+            {
+                displayed.InactiveReason = SearchComponentContributorActivation.GetInactiveReason(
+                    parent,
+                    contributor);
+            }
+        }
     }
 
     private static BoundParseResult ParseBound(string? text)
@@ -1092,6 +1506,45 @@ internal sealed class PriceCheckerSearchController
 
     private sealed record ModifierBoundInput(string MinimumText, string MaximumText);
 
+    private readonly record struct ModifierContributorKey(int ModifierIndex, int ContributorIndex);
+
+    private PriceCheckerItemResetSnapshot CaptureInitialItemSnapshot()
+    {
+        return new PriceCheckerItemResetSnapshot(
+            currentDraft!,
+            currentValidationResult!,
+            currentPresentation,
+            userSelectedBaseCriterion,
+            new Dictionary<int, ModifierBoundInput>(modifierBoundInputs),
+            new Dictionary<ModifierContributorKey, ModifierBoundInput>(contributorBoundInputs),
+            new Dictionary<int, decimal?>(canonicalContributorParentMinimums),
+            new Dictionary<int, decimal?>(manualContributorParentMinimums),
+            new Dictionary<int, PriceCheckerParentMinimumState>(parentMinimumStates));
+    }
+
+    private static void RestoreDictionary<TKey, TValue>(
+        IDictionary<TKey, TValue> destination,
+        IReadOnlyDictionary<TKey, TValue> source)
+        where TKey : notnull
+    {
+        destination.Clear();
+        foreach (var (key, value) in source)
+        {
+            destination[key] = value;
+        }
+    }
+
+    private sealed record PriceCheckerItemResetSnapshot(
+        TradeSearchDraft Draft,
+        TradeSearchValidationResult ValidationResult,
+        PriceCheckerItemPresentation Presentation,
+        BaseSearchCriterion? UserSelectedBaseCriterion,
+        IReadOnlyDictionary<int, ModifierBoundInput> ModifierBoundInputs,
+        IReadOnlyDictionary<ModifierContributorKey, ModifierBoundInput> ContributorBoundInputs,
+        IReadOnlyDictionary<int, decimal?> CanonicalParentMinimums,
+        IReadOnlyDictionary<int, decimal?> ManualParentMinimums,
+        IReadOnlyDictionary<int, PriceCheckerParentMinimumState> ParentMinimumStates);
+
     private readonly record struct BoundParseResult(bool IsValid, decimal? Value = null)
     {
         public static BoundParseResult Empty => new(true, null);
@@ -1100,7 +1553,8 @@ internal sealed class PriceCheckerSearchController
 
     private static TradeSearchDraft ResetModifierSelections(TradeSearchDraft draft)
     {
-        if (!draft.ModifierFilters.Any(modifier => modifier.IsSelected))
+        if (!draft.ModifierFilters.Any(modifier =>
+                modifier.IsSelected || modifier.Contributors.Any(contributor => contributor.IsSelected)))
         {
             return draft;
         }
@@ -1108,7 +1562,13 @@ internal sealed class PriceCheckerSearchController
         return draft with
         {
             ModifierFilters = draft.ModifierFilters
-                .Select(modifier => modifier with { IsSelected = false })
+                .Select(modifier => modifier with
+                {
+                    IsSelected = false,
+                    Contributors = modifier.Contributors
+                        .Select(contributor => contributor with { IsSelected = false })
+                        .ToArray(),
+                })
                 .ToArray(),
         };
     }
@@ -1140,6 +1600,64 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
+    private static string SectionLabelWithSources(ResolvedSearchComponent modifier)
+    {
+        var section = SectionLabel(modifier);
+        var selected = SearchComponentContributorActivation.ActiveSelectionCount(modifier);
+        var label = modifier.SourceCount > 1
+            ? string.IsNullOrWhiteSpace(section)
+                ? $"{modifier.SourceCount} sources"
+                : $"{section} · {modifier.SourceCount} sources"
+            : section;
+        return selected > 0 ? $"{label} · {selected} selected" : label;
+    }
+
+    private static string ContributorProvenanceLabel(SearchComponentSourceProvenance source)
+    {
+        var section = source.ParsedKind switch
+        {
+            ParsedModifierKind.Prefix => "Prefix",
+            ParsedModifierKind.Suffix => "Suffix",
+            ParsedModifierKind.Implicit => "Implicit",
+            ParsedModifierKind.Unique => "Unique",
+            _ => string.Empty,
+        };
+        if (source.IsCrafted)
+        {
+            return string.IsNullOrWhiteSpace(section) ? "Crafted" : $"Crafted {section}";
+        }
+
+        if (source.IsHybrid)
+        {
+            return string.IsNullOrWhiteSpace(section) ? "Hybrid" : $"Hybrid {section}";
+        }
+
+        return string.IsNullOrWhiteSpace(section)
+            ? source.ProviderDomain
+            : string.Equals(source.ProviderDomain, section, StringComparison.OrdinalIgnoreCase)
+                ? section
+                : $"{source.ProviderDomain} {section}";
+    }
+
+    private static string? SourceBreakdown(ResolvedSearchComponent modifier)
+    {
+        if (modifier.SourceCount <= 1)
+        {
+            return null;
+        }
+
+        return string.Join(Environment.NewLine, modifier.Sources.Select((source, index) =>
+        {
+            var observed = string.Join(", ", source.ObservedNumericValues.Select(value => FormatBound(value)));
+            var canonical = string.Join(", ", source.CanonicalNumericValues.Select(value => FormatBound(value)));
+            var identity = TrimToNull(source.ResolvedModifierId) ?? source.ComponentId;
+            var translation = TrimToNull(source.TranslationIdentity) ?? "none";
+            var transforms = string.Join(" | ", source.TranslationHandlers
+                .Select(handlers => handlers.Count == 0 ? "identity" : string.Join(" → ", handlers)));
+            return $"{index + 1}. {SafeModifierText(source.OriginalText)} [{source.ProviderDomain}; {identity}; observed {observed}; canonical {canonical}; translation {translation}; transforms {transforms}; provider {source.ProviderResolutionStatus}]";
+        }));
+    }
+
     private static string SafeModifierText(string? text)
     {
         var safe = new string(
@@ -1156,6 +1674,17 @@ internal sealed class PriceCheckerSearchController
         return safe.Length <= MaximumModifierTextLength
             ? safe
             : $"{safe[..MaximumModifierTextLength]}...";
+    }
+
+    private static string SourceDetail(SearchComponentSourceProvenance source, int index)
+    {
+        var observed = string.Join(", ", source.ObservedNumericValues.Select(value => FormatBound(value)));
+        var canonical = string.Join(", ", source.CanonicalNumericValues.Select(value => FormatBound(value)));
+        var identity = TrimToNull(source.ResolvedModifierId) ?? source.ComponentId;
+        var translation = TrimToNull(source.TranslationIdentity) ?? "none";
+        var transforms = string.Join(" | ", source.TranslationHandlers
+            .Select(handlers => handlers.Count == 0 ? "identity" : string.Join(" → ", handlers)));
+        return $"{index + 1}. {SafeModifierText(source.OriginalText)} [{source.ProviderDomain}; {identity}; observed {observed}; canonical {canonical}; translation {translation}; transforms {transforms}; provider {source.ProviderResolutionStatus}]";
     }
 
     private static string FormatPrice(PathOfExileTradeListingPrice? price)
@@ -1235,6 +1764,21 @@ internal sealed class PriceCheckerSearchController
             .ToList() ?? [];
         if (currentDraft is not null)
         {
+            diagnostics.AddRange(currentDraft.ModifierAggregationDiagnostics
+                .Select(diagnostic => new PriceCheckerDeveloperDiagnostic(
+                    diagnostic.Code,
+                    diagnostic.Message)));
+            diagnostics.AddRange(currentDraft.ModifierFilters
+                .Where(modifier => !string.IsNullOrWhiteSpace(modifier.ProviderDiagnosticMessage))
+                .Select(modifier => new PriceCheckerDeveloperDiagnostic(
+                    modifier.ProviderDiagnosticCode ?? "AGGREGATE_PROVIDER_COVERAGE",
+                    modifier.ProviderDiagnosticMessage!)));
+            diagnostics.AddRange(currentDraft.ModifierFilters
+                .SelectMany(modifier => modifier.Contributors)
+                .Where(contributor => !string.IsNullOrWhiteSpace(contributor.ProviderDiagnosticMessage))
+                .Select(contributor => new PriceCheckerDeveloperDiagnostic(
+                    contributor.ProviderDiagnosticCode ?? "CONTRIBUTOR_PROVIDER_COVERAGE",
+                    contributor.ProviderDiagnosticMessage!)));
             diagnostics.AddRange(currentDraft.ModifierFilters
                 .Where(modifier => modifier.IsSelected && !modifier.SupportsValueBounds)
                 .Select(modifier => new PriceCheckerDeveloperDiagnostic(

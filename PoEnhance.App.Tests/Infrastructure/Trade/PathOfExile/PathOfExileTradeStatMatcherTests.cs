@@ -445,7 +445,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("Adds 10 to 20 Fire Damage", ParsedModifierKind.Prefix),
             catalog,
-            Context(locality: ModifierLocality.Global));
+            Context(locality: ModifierLocality.Global, internalStatIds: ["global_fire_damage"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.global_fire", result.ExactCandidate?.StatId);
@@ -507,7 +507,11 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("20% increased Armour", ParsedModifierKind.Prefix),
             catalog,
-            Context(itemClass: "Rings", parsedBaseType: "Iron Ring", locality: ModifierLocality.Global));
+            Context(
+                itemClass: "Rings",
+                parsedBaseType: "Iron Ring",
+                locality: ModifierLocality.Global,
+                internalStatIds: ["global_armour_+%"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.global_armour", result.ExactCandidate?.StatId);
@@ -619,10 +623,10 @@ public sealed class PathOfExileTradeStatMatcherTests
                 locality: ModifierLocality.Local,
                 internalStatIds: ["local_physical_damage_percent"]));
 
-        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
         Assert.Null(result.ExactCandidate);
         Assert.Equal(
-            PathOfExileTradeStatMatchDiagnosticCodes.ExpectedLocalCandidateMissing,
+            PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
             Assert.Single(result.Diagnostics).Code);
     }
 
@@ -657,7 +661,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("Adds 12(10-14) to 25(20-30) Fire Damage to Spells", ParsedModifierKind.Prefix),
             catalog,
-            WeaponContext(ModifierLocality.Global));
+            WeaponContext(ModifierLocality.Global, ["spell_added_fire_damage"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.stat_1133016593", result.ExactCandidate?.StatId);
@@ -675,7 +679,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("Adds 12(10-14) to 25(20-30) Fire Damage to Attacks", ParsedModifierKind.Prefix),
             catalog,
-            WeaponContext(ModifierLocality.Global));
+            WeaponContext(ModifierLocality.Global, ["attack_added_fire_damage"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.stat_1573130764", result.ExactCandidate?.StatId);
@@ -693,7 +697,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("+101(100-114) to maximum Life", ParsedModifierKind.Prefix),
             catalog,
-            WeaponContext(ModifierLocality.Global));
+            WeaponContext(ModifierLocality.Global, ["maximum_life"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.stat_3299347043", result.ExactCandidate?.StatId);
@@ -712,7 +716,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("+53(51-55) to Dexterity", ParsedModifierKind.Suffix),
             catalog,
-            WeaponContext(ModifierLocality.Global));
+            WeaponContext(ModifierLocality.Global, ["dexterity"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.stat_3261801346", result.ExactCandidate?.StatId);
@@ -754,7 +758,7 @@ public sealed class PathOfExileTradeStatMatcherTests
         var result = matcher.Match(
             Modifier("+47(46-48)% to Lightning Resistance", ParsedModifierKind.Suffix),
             catalog,
-            WeaponContext(ModifierLocality.Global));
+            WeaponContext(ModifierLocality.Global, ["lightning_resistance"]));
 
         Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
         Assert.Equal("explicit.stat_1671376347", result.ExactCandidate?.StatId);

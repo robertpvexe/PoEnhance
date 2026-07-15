@@ -8,6 +8,12 @@ public sealed record SearchFilterVariant
 
     public required string Description { get; init; }
 
+    public string ProviderKind { get; init; } = string.Empty;
+
+    public SearchFilterVariantMode Mode { get; init; } = SearchFilterVariantMode.Standalone;
+
+    public bool SupportsContributorComposition { get; init; }
+
     public bool SupportsValueBounds { get; init; }
 
     public string? ValueBoundsUnsupportedReason { get; init; }

@@ -121,36 +121,6 @@ public sealed class PriceCheckerPlacementStoreTests
     }
 
     [Fact]
-    public void ResetHorizontalCorrection_ClearsCorrection()
-    {
-        using var temp = TempDirectory.Create();
-        var path = Path.Combine(temp.Path, "placement.json");
-        var store = new PriceCheckerPlacementStore(path);
-        var key = Key();
-        store.SaveHorizontalCorrection(key, 31);
-
-        store.ResetHorizontalCorrection(key);
-
-        Assert.Equal(0, store.LoadHorizontalCorrection(key));
-    }
-
-    [Fact]
-    public void ResetHorizontalCorrection_DoesNotClearPanelWidth()
-    {
-        using var temp = TempDirectory.Create();
-        var path = Path.Combine(temp.Path, "placement.json");
-        var store = new PriceCheckerPlacementStore(path);
-        var key = Key();
-        store.SaveHorizontalCorrection(key, 31);
-        store.SavePanelWidth(key, 420);
-
-        store.ResetHorizontalCorrection(key);
-
-        Assert.Equal(0, store.LoadHorizontalCorrection(key));
-        Assert.Equal(420, store.LoadPanelWidth(key));
-    }
-
-    [Fact]
     public void ResolveDefaultPath_UsesLocalApplicationData()
     {
         var resolver = new PriceCheckerPlacementStorePathResolver(

@@ -176,12 +176,35 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         var candidatesAfterKind = group.Candidates;
         if (expectedLocality is ModifierLocality.Local or ModifierLocality.Global)
         {
-            var expectedProviderLocality = expectedLocality == ModifierLocality.Local
-                ? PathOfExileTradeProviderStatLocality.Local
-                : PathOfExileTradeProviderStatLocality.Unmarked;
-            var localityCandidates = candidatesAfterKind
-                .Where(candidate => candidate.ProviderLocality == expectedProviderLocality)
+            var hasExactGameDataProvenance =
+                !string.IsNullOrWhiteSpace(context?.ResolvedModifierId) &&
+                context.InternalStatIds.Count > 0 &&
+                context.InternalStatIds.All(statId => !string.IsNullOrWhiteSpace(statId));
+            var localityEvaluations = candidatesAfterKind
+                .Select(candidate => new
+                {
+                    Candidate = candidate,
+                    Decision = PathOfExileTradeProviderLocalityCompatibility.EvaluateExactGameDataMatch(
+                        expectedLocality,
+                        hasExactGameDataProvenance,
+                        candidate),
+                })
                 .ToArray();
+            var localityCandidates = localityEvaluations
+                .Where(evaluation => evaluation.Decision.IsCompatible)
+                .Select(evaluation => evaluation.Candidate)
+                .ToArray();
+            var expectedMarker = expectedLocality == ModifierLocality.Local
+                ? PathOfExileTradeProviderStatLocality.Local
+                : PathOfExileTradeProviderStatLocality.Global;
+            var explicitlyMarkedCandidates = localityCandidates
+                .Where(candidate => candidate.ProviderLocality == expectedMarker)
+                .ToArray();
+            if (explicitlyMarkedCandidates.Length > 0)
+            {
+                localityCandidates = explicitlyMarkedCandidates;
+            }
+
             var localityRejections = kindRejections
                 .Concat(Rejections(
                     candidatesAfterKind,
@@ -191,23 +214,6 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
             if (localityCandidates.Length == 0)
             {
-                if (TrySelectSoleUnmarkedPresenceCandidate(
-                        expectedLocality,
-                        candidatesAfterKind,
-                        context,
-                        out var unmarkedPresenceCandidate))
-                {
-                    return Exact(
-                        normalization,
-                        expectedLocality,
-                        initialCandidates,
-                        [unmarkedPresenceCandidate],
-                        kindRejections,
-                        context,
-                        group.Key.ToString(),
-                        unmarkedPresenceCandidate);
-                }
-
                 var code = expectedLocality == ModifierLocality.Local
                     ? PathOfExileTradeStatMatchDiagnosticCodes.ExpectedLocalCandidateMissing
                     : PathOfExileTradeStatMatchDiagnosticCodes.ExpectedUnmarkedCandidateMissing;
@@ -246,27 +252,6 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             context,
             group.Key.ToString(),
             source.Kind == ParsedModifierKind.Implicit);
-    }
-
-    private static bool TrySelectSoleUnmarkedPresenceCandidate(
-        ModifierLocality expectedLocality,
-        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates,
-        PathOfExileTradeStatMatchContext? context,
-        out PathOfExileTradeStatMatchCandidate candidate)
-    {
-        candidate = null!;
-        if (expectedLocality != ModifierLocality.Local ||
-            candidates.Count != 1 ||
-            candidates[0].ProviderLocality != PathOfExileTradeProviderStatLocality.Unmarked ||
-            string.IsNullOrWhiteSpace(context?.ResolvedModifierId) ||
-            context.InternalStatIds.Count == 0 ||
-            context.InternalStatIds.Any(string.IsNullOrWhiteSpace))
-        {
-            return false;
-        }
-
-        candidate = candidates[0];
-        return true;
     }
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(

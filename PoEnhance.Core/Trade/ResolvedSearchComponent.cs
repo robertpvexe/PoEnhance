@@ -36,6 +36,8 @@ public sealed record ResolvedSearchComponent
 
     public bool IsBaseImplicit { get; init; }
 
+    public string? GuaranteedExactBaseName { get; init; }
+
     public ModifierCandidateResolutionStatus? ResolutionStatus { get; init; }
 
     public string? ResolvedModifierId { get; init; }
@@ -60,7 +62,11 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<decimal> ObservedNumericValues { get; init; } = [];
 
+    public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
+
     public IReadOnlyList<IReadOnlyList<string>> ValueBoundTranslationHandlers { get; init; } = [];
+
+    public string? ValueBoundTranslationIdentity { get; init; }
 
     public ModifierBoundDirection DefaultBoundDirection { get; init; } = ModifierBoundDirection.Minimum;
 
@@ -80,4 +86,16 @@ public sealed record ResolvedSearchComponent
     public IReadOnlyList<string> ProviderCandidateStatIds { get; init; } = [];
 
     public string? ProviderDiagnosticCode { get; init; }
+
+    public string? ProviderDiagnosticMessage { get; init; }
+
+    public IReadOnlyList<SearchComponentProviderDomainEvidence> ProviderDomainEvidence { get; init; } = [];
+
+    public IReadOnlyList<SearchComponentSourceProvenance> Sources { get; init; } = [];
+
+    public int SourceCount => Sources.Count == 0 ? 1 : Sources.Count;
+
+    public IReadOnlyList<SearchComponentContributor> Contributors { get; init; } = [];
+
+    public SearchComponentContributorProjection ContributorProjection { get; init; }
 }

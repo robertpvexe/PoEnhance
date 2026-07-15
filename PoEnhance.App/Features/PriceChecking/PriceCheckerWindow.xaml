@@ -443,6 +443,66 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="ModifierContributorExpandButtonStyle"
+               TargetType="{x:Type Button}">
+            <Setter Property="Width"
+                    Value="22" />
+            <Setter Property="Height"
+                    Value="22" />
+            <Setter Property="Background"
+                    Value="Transparent" />
+            <Setter Property="BorderBrush"
+                    Value="Transparent" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ExpandBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="3">
+                            <Grid>
+                                <Path x:Name="CollapsedChevron"
+                                      Width="6"
+                                      Height="10"
+                                      Data="M 1 1 L 5 5 L 1 9"
+                                      Stroke="#BDBDBD"
+                                      StrokeThickness="1.25" />
+                                <Path x:Name="ExpandedChevron"
+                                      Width="10"
+                                      Height="6"
+                                      Data="M 1 1 L 5 5 L 9 1"
+                                      Stroke="#BDBDBD"
+                                      StrokeThickness="1.25"
+                                      Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsExpanded}"
+                                         Value="True">
+                                <Setter TargetName="CollapsedChevron"
+                                        Property="Visibility"
+                                        Value="Collapsed" />
+                                <Setter TargetName="ExpandedChevron"
+                                        Property="Visibility"
+                                        Value="Visible" />
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="ExpandBorder"
+                                        Property="Background"
+                                        Value="#242424" />
+                                <Setter TargetName="ExpandBorder"
+                                        Property="BorderBrush"
+                                        Value="#4C4C4C" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="ModifierRowStyle"
                TargetType="{x:Type ListBoxItem}">
             <Setter Property="Padding"
@@ -581,12 +641,12 @@
                                   FontSize="14"
                                   ToolTip="Pin"
                                   Style="{StaticResource TitleBarPinStyle}" />
-                    <Button x:Name="ResetPositionButton"
+                    <Button x:Name="ResetItemButton"
                             Width="28"
                             Height="28"
                             Margin="0,4,4,4"
                             Padding="0"
-                            ToolTip="Reset position"
+                            ToolTip="Reset item"
                             Style="{StaticResource TitleBarButtonStyle}">
                         <Canvas x:Name="ResetGlyphCanvas"
                                 Width="20"
@@ -697,28 +757,30 @@
                 <Grid Grid.Row="2"
                       Margin="0,10,6,4">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="24" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="92" />
                         <ColumnDefinition Width="78" />
                         <ColumnDefinition Width="78" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock FontWeight="SemiBold"
+                    <TextBlock Grid.ColumnSpan="2"
+                               FontWeight="SemiBold"
                                Foreground="#EEEEEE"
                                Text="Modifiers" />
                     <TextBlock x:Name="ModifierCountText"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Margin="0,0,8,0"
                                Foreground="#AFAFAF" />
-                    <TextBlock Grid.Column="2"
-                               HorizontalAlignment="Center"
-                               Foreground="#AFAFAF"
-                               Text="Mod Type" />
                     <TextBlock Grid.Column="3"
                                HorizontalAlignment="Center"
                                Foreground="#AFAFAF"
-                               Text="Min" />
+                               Text="Mod Type" />
                     <TextBlock Grid.Column="4"
+                               HorizontalAlignment="Center"
+                               Foreground="#AFAFAF"
+                               Text="Min" />
+                    <TextBlock Grid.Column="5"
                                HorizontalAlignment="Center"
                                Foreground="#AFAFAF"
                                Text="Max" />
@@ -734,22 +796,45 @@
                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
+                            <StackPanel>
                             <Grid Margin="6,4,6,4">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="92" />
                                     <ColumnDefinition Width="78" />
                                     <ColumnDefinition Width="78" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox Grid.Column="0"
+                                <Button Grid.Column="0"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Click="OnModifierExpansionClick"
+                                        ToolTip="Show or hide source contributors">
+                                    <Button.Style>
+                                        <Style TargetType="{x:Type Button}"
+                                               BasedOn="{StaticResource ModifierContributorExpandButtonStyle}">
+                                            <Setter Property="Visibility"
+                                                    Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasContributors}"
+                                                             Value="True">
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <CheckBox Grid.Column="1"
                                           Margin="0,0,8,0"
                                           VerticalAlignment="Top"
                                           Click="OnModifierSelectionClick"
                                           FocusVisualStyle="{x:Null}"
                                           IsChecked="{Binding IsSelected, Mode=OneWay}" />
-                                <StackPanel Grid.Column="1"
-                                            VerticalAlignment="Top">
+                                <StackPanel Grid.Column="2"
+                                            VerticalAlignment="Top"
+                                            ToolTip="{Binding SourceBreakdown}">
                                     <TextBlock Foreground="#EEEEEE"
                                                Text="{Binding Text}"
                                                TextTrimming="CharacterEllipsis"
@@ -760,7 +845,7 @@
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="NoWrap" />
                                 </StackPanel>
-                                <Grid Grid.Column="2">
+                                <Grid Grid.Column="3">
                                     <Border Height="24"
                                             Margin="3,0"
                                             Background="#191919"
@@ -802,7 +887,7 @@
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
                                 </Grid>
-                                <TextBox Grid.Column="3"
+                                <TextBox Grid.Column="4"
                                          Margin="3,0"
                                          IsEnabled="{Binding CanEditBounds}"
                                          IsTabStop="{Binding CanEditBounds}"
@@ -811,7 +896,7 @@
                                          Text="{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}"
                                          TextChanged="OnModifierBoundTextChanged"
                                          ToolTip="Minimum Trade stat value" />
-                                <TextBox Grid.Column="4"
+                                <TextBox Grid.Column="5"
                                          Margin="3,0"
                                          IsEnabled="{Binding CanEditBounds}"
                                          IsTabStop="{Binding CanEditBounds}"
@@ -821,6 +906,113 @@
                                          TextChanged="OnModifierBoundTextChanged"
                                          ToolTip="Maximum Trade stat value" />
                             </Grid>
+                            <ItemsControl ItemsSource="{Binding Contributors}">
+                                <ItemsControl.Style>
+                                    <Style TargetType="{x:Type ItemsControl}">
+                                        <Setter Property="Visibility"
+                                                Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsExpanded}"
+                                                         Value="True">
+                                                <Setter Property="Visibility"
+                                                        Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ItemsControl.Style>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="24,1,6,3"
+                                              Background="#151515"
+                                              IsHitTestVisible="{Binding IsInteractionEnabled}"
+                                              Tag="ModifierContributorRow"
+                                              ToolTip="{Binding SourceBreakdown}"
+                                              PreviewMouseLeftButtonDown="OnModifierContributorRowPreviewMouseLeftButtonDown">
+                                            <Grid.Style>
+                                                <Style TargetType="{x:Type Grid}">
+                                                    <Setter Property="Opacity"
+                                                            Value="1" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsInactive}"
+                                                                     Value="True">
+                                                            <Setter Property="Opacity"
+                                                                    Value="0.52" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Grid.Style>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="78" />
+                                                <ColumnDefinition Width="78" />
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox Grid.Column="0"
+                                                      Margin="0,0,8,0"
+                                                      VerticalAlignment="Top"
+                                                      Click="OnModifierSelectionClick"
+                                                      FocusVisualStyle="{x:Null}"
+                                                      IsEnabled="{Binding IsInteractionEnabled}"
+                                                      IsChecked="{Binding IsSelected, Mode=OneWay}" />
+                                            <StackPanel Grid.Column="1"
+                                                        VerticalAlignment="Top">
+                                                <TextBlock FontSize="12"
+                                                           Foreground="#D8D8D8"
+                                                           Text="{Binding Text}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           TextWrapping="NoWrap"
+                                                           ToolTip="{Binding Text}" />
+                                                <TextBlock Margin="0,1,0,0"
+                                                           FontSize="11"
+                                                           Foreground="#8F8F8F"
+                                                           Text="{Binding ProvenanceLabel}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           TextWrapping="NoWrap" />
+                                            </StackPanel>
+                                            <TextBox Grid.Column="2"
+                                                     Margin="3,0"
+                                                     IsEnabled="{Binding CanEditBounds}"
+                                                     IsTabStop="{Binding CanEditBounds}"
+                                                     VerticalAlignment="Center"
+                                                     Style="{StaticResource ModifierBoundTextBoxStyle}"
+                                                     Text="{Binding MinimumText, UpdateSourceTrigger=PropertyChanged}"
+                                                     TextChanged="OnModifierBoundTextChanged"
+                                                     ToolTip="Minimum contributor Trade stat value" />
+                                            <TextBox Grid.Column="3"
+                                                     Margin="3,0"
+                                                     IsEnabled="{Binding CanEditBounds}"
+                                                     IsTabStop="{Binding CanEditBounds}"
+                                                     VerticalAlignment="Center"
+                                                     Style="{StaticResource ModifierBoundTextBoxStyle}"
+                                                     Text="{Binding MaximumText, UpdateSourceTrigger=PropertyChanged}"
+                                                     TextChanged="OnModifierBoundTextChanged"
+                                                     ToolTip="Maximum contributor Trade stat value" />
+                                            <Border Grid.Column="1"
+                                                    Grid.ColumnSpan="3"
+                                                    Height="1"
+                                                    Margin="0,8,3,0"
+                                                    VerticalAlignment="Top"
+                                                    Background="#B88A8A"
+                                                    IsHitTestVisible="False">
+                                                <Border.Style>
+                                                    <Style TargetType="{x:Type Border}">
+                                                        <Setter Property="Visibility"
+                                                                Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsInactive}"
+                                                                         Value="True">
+                                                                <Setter Property="Visibility"
+                                                                        Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

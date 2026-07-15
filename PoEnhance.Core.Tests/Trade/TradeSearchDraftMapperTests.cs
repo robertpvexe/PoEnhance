@@ -428,7 +428,7 @@ Item Level: 84
     }
 
     [Fact]
-    public void CreateDraft_IdenticalEffectTemplatesFromDifferentSourcesDoNotOverwriteProvenance()
+    public void CreateDraft_IdenticalEffectTemplatesWithoutCanonicalValuesDoNotOverwriteProvenance()
     {
         var item = parser.Parse("""
 Item Class: One Hand Axes

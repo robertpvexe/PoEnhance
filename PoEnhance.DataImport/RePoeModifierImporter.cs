@@ -155,8 +155,10 @@ public sealed class RePoeModifierImporter
             GroupId = groupId,
             Name = ReadOptionalString(record, "name"),
             GenerationType = ReadGenerationType(record),
+            SourceGenerationType = ReadOptionalString(record, "generation_type"),
             RequiredLevel = ReadOptionalNonNegativeInt(record, "required_level"),
             Domain = ReadOptionalString(record, "domain"),
+            IsEssenceOnly = ReadOptionalBoolean(record, "is_essence_only"),
             Tags = ReadTags(record, sourceRecordId, diagnostics),
             Stats = stats,
             SpawnWeights = ReadSpawnWeights(record, sourceRecordId, diagnostics),
@@ -373,6 +375,13 @@ public sealed class RePoeModifierImporter
 
         var value = property.GetString()?.Trim();
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static bool ReadOptionalBoolean(JsonElement record, string propertyName)
+    {
+        return record.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+            property.GetBoolean();
     }
 
     private static bool TryReadDecimal(JsonElement element, string propertyName, out decimal? value)

@@ -4,6 +4,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Features.PriceChecking;
 
@@ -19,6 +20,114 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Controller.CurrentViewState.Status);
         Assert.True(fixture.Controller.CurrentViewState.CanSearch);
         Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public void UpdateCurrentDraft_AggregationDiagnosticsStayInDeveloperSurface()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Armoured Shell") with
+        {
+            ModifierAggregationDiagnostics =
+            [
+                new TradeSearchDraftDiagnostic(
+                    TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped,
+                    "Canonical modifier aggregation was skipped: incompatible numeric shape."),
+            ],
+        };
+
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+
+        var diagnostic = Assert.Single(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics);
+        Assert.Equal(TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped, diagnostic.Code);
+        Assert.Contains("incompatible numeric shape", diagnostic.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("aggregation", fixture.Window.CurrentSearchState?.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResetItem_RestoresInitialEditableStateWithoutRequestsOrPresentationChanges()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer("id-1")],
+            total: 2,
+            resultIds: ["id-1", "id-2"],
+            fetchedResultIds: ["id-1"]);
+        var draft = DraftWithBothBaseCriteria() with
+        {
+            ModifierFilters = [ContributorModifier()],
+        };
+        var placement = new PriceCheckerPlacement(10, 20, 400, 500);
+        fixture.Window.ApplyPlacement(placement);
+        fixture.Window.SetPinned(true);
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "25", "40");
+        fixture.Window.RaiseModifierBoundsChanged(0, "20", "60");
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-fractured");
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState!.CanOpenTrade);
+
+        fixture.Window.RaiseResetItemRequested();
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsSelected);
+        Assert.Equal("146", row.MinimumText);
+        Assert.Empty(row.MaximumText);
+        Assert.Equal("Pseudo", row.SelectedFilterVariant?.Label);
+        Assert.True(row.IsExpanded);
+        Assert.All(row.Contributors, contributor =>
+        {
+            Assert.False(contributor.IsSelected);
+            Assert.False(contributor.IsInactive);
+            Assert.Equal("", contributor.MaximumText);
+        });
+        Assert.Equal(BaseSearchMode.Category, fixture.Window.CurrentState!.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState.Status);
+        Assert.Equal("Ready to search.", fixture.Window.CurrentSearchState.Message);
+        Assert.Empty(fixture.Window.CurrentSearchState.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanLoadMore);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Same(placement, fixture.Window.CurrentPlacement);
+        Assert.True(fixture.Window.IsPinned);
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ResetItem_CancelsStaleSearchAndNewItemReplacesItsSnapshot()
+    {
+        var fixture = SearchFixture.Create();
+        var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.Handler = _ => completion.Task;
+        fixture.Controller.UpdateCurrentDraft(Draft("First Loop"), ValidationSuccess());
+
+        var pendingSearch = fixture.Controller.SearchAsync();
+        await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 1);
+        fixture.Window.RaiseResetItemRequested();
+        completion.SetResult(SuccessResult([Offer("old")], total: 1));
+        await pendingSearch;
+
+        Assert.Empty(fixture.Window.CurrentSearchState!.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Equal("First Loop", fixture.Window.CurrentState!.Draft.DisplayName);
+
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Second Loop", modifiers: [Modifier("+10 to maximum Life")]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseResetItemRequested();
+
+        Assert.Equal("Second Loop", fixture.Window.CurrentState!.Draft.DisplayName);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).IsSelected);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
     }
 
     [Fact]
@@ -82,6 +191,54 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Empty(fixture.PriceCheckService.Calls);
         Assert.Equal("Modifier Min and Max must be finite decimal numbers.", fixture.Window.CurrentSearchState?.Message);
         Assert.Equal("abc", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+    }
+
+    [Fact]
+    public async Task MixedDomainAggregateWithoutWideProviderVariantBlocksSearchWithoutRequest()
+    {
+        var fixture = SearchFixture.Create();
+        var aggregate = Modifier(
+            "146% increased Physical Damage",
+            supportsValueBounds: true,
+            minimum: 146m) with
+        {
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            ProviderDiagnosticMessage =
+                "No aggregate-wide Trade variant covers contributor domains [Crafted, Explicit].",
+            Sources =
+            [
+                new SearchComponentSourceProvenance
+                {
+                    ComponentId = "modifier:0:0",
+                    ProviderDomain = "Explicit",
+                },
+                new SearchComponentSourceProvenance
+                {
+                    ComponentId = "modifier:1:0",
+                    ProviderDomain = "Crafted",
+                },
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [aggregate]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Contains(
+            fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics,
+            diagnostic => diagnostic.Code ==
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable &&
+                diagnostic.Message.Contains(
+                    "No aggregate-wide Trade variant",
+                    StringComparison.Ordinal));
+        Assert.Equal(
+            "Select a supported Trade search.",
+            fixture.Window.CurrentSearchState?.Message);
     }
 
     [Fact]
@@ -158,7 +315,7 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.True(fixture.Window.CurrentSearchState?.CanLoadMore);
         Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
 
-        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-explicit");
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-pseudo");
 
         Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
         Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
@@ -166,11 +323,13 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
         var selectedRow = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
         Assert.True(selectedRow.IsSelected);
-        Assert.Equal("Explicit", selectedRow.SelectedFilterVariant?.Label);
+        Assert.Equal("Pseudo", selectedRow.SelectedFilterVariant?.Label);
+        Assert.Equal("20", selectedRow.MinimumText);
+        Assert.Equal(string.Empty, selectedRow.MaximumText);
         Assert.Single(fixture.PriceCheckService.Calls);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
         Assert.Equal(
-            "variant-explicit",
+            "variant-pseudo",
             Assert.Single(fixture.Window.CurrentState?.Draft.ModifierFilters ?? []).SelectedFilterVariantIdentity);
     }
 
@@ -323,6 +482,417 @@ public sealed class PriceCheckerSearchControllerTests
         var activeSearch = fixture.Controller.SearchAsync();
         await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 1);
         fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-pseudo");
+        completion.SetResult(SuccessResult([Offer("stale")], total: 1));
+        await activeSearch;
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.True(fixture.PriceCheckService.Calls[0].CancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void ModifierContributors_ExpandAndCollapseWithoutChangingStateOrRequests()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+
+        var collapsed = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(collapsed.IsExpanded);
+        Assert.Equal(2, collapsed.Contributors.Count);
+        Assert.All(collapsed.Contributors, contributor => Assert.False(contributor.IsSelected));
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+
+        var expanded = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(expanded.IsExpanded);
+        Assert.Equal(["30% increased Physical Damage", "116% increased Physical Damage"],
+            expanded.Contributors.Select(contributor => contributor.Text));
+        Assert.Equal(["30", "116"], expanded.Contributors.Select(contributor => contributor.MinimumText));
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: false);
+
+        var recollapsed = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(recollapsed.IsExpanded);
+        Assert.Equal(["30", "116"], recollapsed.Contributors.Select(contributor => contributor.MinimumText));
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierContributors_ExpansionPreservesSuccessfulResultsAndTradeIdentity()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("id-1")], total: 1);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+        var successfulState = fixture.Window.CurrentSearchState!;
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: false);
+
+        var collapsedAgain = fixture.Window.CurrentSearchState!;
+        Assert.Equal(PriceCheckerSearchViewStatus.Success, collapsedAgain.Status);
+        Assert.Equal(successfulState.Offers, collapsedAgain.Offers);
+        Assert.True(collapsedAgain.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void ModifierContributor_SelectionSelectsParentAndParentDeselectionClearsChildrenWithoutLocking()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier(parentMinimum: 10m)]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+
+        var selected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(selected.IsSelected);
+        Assert.True(selected.Contributors[0].IsSelected);
+        Assert.Equal("30", selected.MinimumText);
+        Assert.Contains("1 selected", selected.SectionLabel, StringComparison.Ordinal);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+
+        var deselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(deselected.IsSelected);
+        Assert.All(deselected.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.Equal("146", deselected.MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var reselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(reselected.IsSelected);
+        Assert.All(reselected.Contributors, contributor => Assert.False(contributor.IsSelected));
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+
+        var childDeselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(childDeselected.IsSelected);
+        Assert.False(childDeselected.Contributors[0].IsSelected);
+        Assert.Equal("146", childDeselected.MinimumText);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void ModifierContributor_LastExplicitChildSelectionReplacesManualParentMinimum()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier(parentMinimum: 0m)]),
+            ValidationSuccess());
+        Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        Assert.Equal("30", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+        Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        Assert.Equal("116", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: false);
+        Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        var secondOnlyFixture = SearchFixture.Create();
+        secondOnlyFixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier(parentMinimum: 0m)]),
+            ValidationSuccess());
+        secondOnlyFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+        Assert.Equal(
+            "116",
+            Assert.Single(secondOnlyFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        var higherFixture = SearchFixture.Create();
+        higherFixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        higherFixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        higherFixture.Window.RaiseModifierBoundsChanged(0, "200", string.Empty);
+        higherFixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        Assert.Equal("30", Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+
+        higherFixture.Window.RaiseModifierBoundsChanged(0, "20", string.Empty);
+        var manuallyLowered = Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("20", manuallyLowered.MinimumText);
+        Assert.True(manuallyLowered.Contributors[0].IsSelected);
+        Assert.True(manuallyLowered.Contributors[0].IsInactive);
+
+        higherFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+        var childDerivedAgain = Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("146", childDerivedAgain.MinimumText);
+        Assert.All(childDerivedAgain.Contributors, contributor => Assert.False(contributor.IsInactive));
+
+        var editedChildrenFixture = SearchFixture.Create();
+        editedChildrenFixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        editedChildrenFixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        editedChildrenFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+        editedChildrenFixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "50", string.Empty);
+        editedChildrenFixture.Window.RaiseModifierContributorBoundsChanged(0, 1, "45", string.Empty);
+        Assert.Equal(
+            "95",
+            Assert.Single(editedChildrenFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+    }
+
+    [Fact]
+    public void ModifierContributor_ArmageddonSecondChildImmediatelyReplacesUntouchedCanonicalMinimum()
+    {
+        var fixture = SearchFixture.Create();
+        var source = ContributorModifier(parentMinimum: 91m);
+        var contributors = source.Contributors
+            .Select((contributor, index) => contributor with
+            {
+                RequestedMinimum = index == 0 ? 52m : 39m,
+                Source = contributor.Source with
+                {
+                    OriginalText = index == 0
+                        ? "52% increased Physical Damage"
+                        : "39% increased Physical Damage",
+                    ObservedNumericValues = [index == 0 ? 52m : 39m],
+                    CanonicalNumericValues = [index == 0 ? 52m : 39m],
+                },
+            })
+            .ToArray();
+        var armageddon = source with
+        {
+            OriginalText = "91% increased Physical Damage",
+            RequestedMinimum = 91m,
+            ObservedNumericValues = [91m],
+            CanonicalNumericValues = [91m],
+            Sources = contributors.Select(contributor => contributor.Source).ToArray(),
+            Contributors = contributors,
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armageddon Thirst", modifiers: [armageddon]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("39", row.MinimumText);
+        Assert.True(row.Contributors[1].IsSelected);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void ModifierContributor_BoundsSurviveCollapseAndReselectionWithoutReplacingRowsOrRequests()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        var rowsDuringEdit = fixture.Window.CurrentSearchState!.Modifiers;
+        var parentDuringEdit = Assert.Single(rowsDuringEdit);
+        var childDuringEdit = parentDuringEdit.Contributors[0];
+        var changedProperties = new List<string?>();
+        parentDuringEdit.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+        var updateCount = fixture.Window.ModifierCollections.Count;
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "3", string.Empty);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35", "4");
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "-", "40");
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "2,", "40");
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35.5", "40");
+
+        Assert.Same(rowsDuringEdit, fixture.Window.CurrentSearchState?.Modifiers);
+        Assert.Same(parentDuringEdit, Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []));
+        Assert.Same(childDuringEdit, parentDuringEdit.Contributors[0]);
+        Assert.All(
+            fixture.Window.ModifierCollections.Skip(updateCount),
+            collection => Assert.Same(rowsDuringEdit, collection));
+        Assert.Equal("35.5", parentDuringEdit.MinimumText);
+        Assert.Contains(nameof(PriceCheckerModifierViewModel.MinimumText), changedProperties);
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: false);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+
+        var parent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        var child = parent.Contributors[0];
+        Assert.True(child.IsSelected);
+        Assert.Equal("35.5", child.MinimumText);
+        Assert.Equal("40", child.MaximumText);
+        Assert.Equal("35.5", parent.MinimumText);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void ModifierContributor_ParentTypeDisablesWithoutClearingAndPseudoRestoresStateAndFloor()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
+        {
+            ModifierFilters = draft.ModifierFilters.Select(modifier => modifier with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderStatId = modifier.SelectedFilterVariantIdentity == "variant-parent-fractured"
+                    ? "fractured.physical"
+                    : "pseudo.total-physical",
+                ProviderStatText = "#% increased Physical Damage",
+            }).ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35", "40");
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-fractured");
+
+        var inactiveParent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("35", inactiveParent.MinimumText);
+        Assert.Equal(0, inactiveParent.ActiveContributorCount);
+        Assert.True(inactiveParent.Contributors[0].IsSelected);
+        Assert.True(inactiveParent.Contributors[0].IsInactive);
+        Assert.False(inactiveParent.Contributors[0].CanEditBounds);
+        Assert.DoesNotContain("selected", inactiveParent.SectionLabel, StringComparison.Ordinal);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "99", "100");
+        Assert.True(Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].IsSelected);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-pseudo");
+
+        var restoredParent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("35", restoredParent.MinimumText);
+        Assert.Equal(1, restoredParent.ActiveContributorCount);
+        Assert.True(restoredParent.Contributors[0].IsSelected);
+        Assert.True(restoredParent.Contributors[0].IsInteractionEnabled);
+        Assert.Equal("35", restoredParent.Contributors[0].MinimumText);
+        Assert.Equal("40", restoredParent.Contributors[0].MaximumText);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierContributor_InvalidRetainedChildDoesNotBlockNonPseudoParentButBlocksWhenPseudoReturns()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
+        {
+            ModifierFilters = draft.ModifierFilters.Select(modifier => modifier with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderStatId = modifier.SelectedFilterVariantIdentity == "variant-parent-fractured"
+                    ? "fractured.physical"
+                    : "pseudo.total-physical",
+                ProviderStatText = "#% increased Physical Damage",
+            }).ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "-", string.Empty);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-fractured");
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.NotEqual(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-pseudo");
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Contributor Min and Max must be finite decimal numbers.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
+    }
+
+    [Fact]
+    public void ModifierContributor_MissingRetainedSourceIdentityProducesPreciseDeveloperDiagnostic()
+    {
+        var fixture = SearchFixture.Create();
+        var parent = ContributorModifier() with
+        {
+            Contributors = ContributorModifier().Contributors
+                .Select((contributor, index) => index == 0
+                    ? contributor with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+                        ProviderIdentity = null,
+                        ProviderDiagnosticMessage =
+                            "Contributor '30% increased Physical Damage' has no exact retained source provider identity.",
+                    }
+                    : contributor)
+                .ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [parent]),
+            ValidationSuccess());
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+
+        Assert.Contains(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.InvalidContributorSourceIdentity &&
+            diagnostic.Message.Contains("30% increased Physical Damage", StringComparison.Ordinal) &&
+            diagnostic.Message.Contains("retained source provider identity", StringComparison.Ordinal));
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierContributor_ChangeInvalidatesSuccessfulSearchWithoutAutomaticRequests()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer("id-1")],
+            total: 2,
+            resultIds: ["id-1", "id-2"],
+            fetchedResultIds: ["id-1"]);
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.True(fixture.Window.CurrentSearchState?.CanLoadMore);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ModifierContributor_ChangePreventsStaleSearchCompletionFromRestoringResults()
+    {
+        var fixture = SearchFixture.Create();
+        var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.Handler = _ => completion.Task;
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Horror Mangler", modifiers: [ContributorModifier()]),
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var activeSearch = fixture.Controller.SearchAsync();
+        await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 1);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
         completion.SetResult(SuccessResult([Offer("stale")], total: 1));
         await activeSearch;
 
@@ -1745,7 +2315,7 @@ public sealed class PriceCheckerSearchControllerTests
             {
                 Identity = "variant-pseudo",
                 Label = "Pseudo",
-                Description = "#% increased total Attack Speed",
+                Description = "+#% total Attack Speed",
                 SupportsValueBounds = true,
             },
             new()
@@ -1782,6 +2352,114 @@ public sealed class PriceCheckerSearchControllerTests
         {
             FilterVariants = variants,
             SelectedFilterVariantIdentity = "variant-crafted",
+        };
+    }
+
+    private static ResolvedSearchComponent ContributorModifier(decimal parentMinimum = 146m)
+    {
+        var parentVariant = new SearchFilterVariant
+        {
+            Identity = "variant-parent-pseudo",
+            Label = "Pseudo",
+            Description = "#% increased total Physical Damage",
+            ProviderKind = "pseudo",
+            SupportsContributorComposition = true,
+            SupportsValueBounds = true,
+        };
+        var fracturedParentVariant = new SearchFilterVariant
+        {
+            Identity = "variant-parent-fractured",
+            Label = "Fractured",
+            Description = "#% increased Physical Damage",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var explicitSource = ContributorSource(
+            "modifier:0:0",
+            "30% increased Physical Damage",
+            30m,
+            "Explicit");
+        var craftedSource = ContributorSource(
+            "modifier:1:0",
+            "116% increased Physical Damage",
+            116m,
+            "Crafted");
+        return Modifier(
+            "146% increased Physical Damage",
+            supportsValueBounds: true,
+            minimum: parentMinimum) with
+        {
+            CanonicalSignature = "<number>% increased Physical Damage",
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            CanonicalNumericValues = [146m],
+            IsSelected = false,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "pseudo.total-physical",
+            ProviderStatText = parentVariant.Description,
+            FilterVariants = [parentVariant, fracturedParentVariant],
+            SelectedFilterVariantIdentity = parentVariant.Identity,
+            Sources = [explicitSource, craftedSource],
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Contributor(
+                    "contributor-explicit",
+                    explicitSource,
+                    30m,
+                    "explicit.physical"),
+                Contributor(
+                    "contributor-crafted",
+                    craftedSource,
+                    116m,
+                    "crafted.physical"),
+            ],
+        };
+    }
+
+    private static SearchComponentContributor Contributor(
+        string id,
+        SearchComponentSourceProvenance source,
+        decimal minimum,
+        string providerStatId)
+    {
+        return new SearchComponentContributor
+        {
+            ContributorId = id,
+            Source = source,
+            DisplayText = source.OriginalText,
+            RequestedMinimum = minimum,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create(providerStatId),
+        };
+    }
+
+    private static SearchComponentSourceProvenance ContributorSource(
+        string componentId,
+        string text,
+        decimal value,
+        string providerDomain)
+    {
+        return new SearchComponentSourceProvenance
+        {
+            ComponentId = componentId,
+            OriginalText = text,
+            CanonicalSignature = "<number>% increased Physical Damage",
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Local,
+            ProviderDomain = providerDomain,
+            IsCrafted = providerDomain == "Crafted",
+            ResolvedModifierId = $"{providerDomain.ToLowerInvariant()}.physical",
+            ResolvedStatIds = ["local_physical_damage_+%"],
+            ObservedNumericValues = [value],
+            CanonicalNumericValues = [value],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create(
+                $"{providerDomain.ToLowerInvariant()}.physical"),
         };
     }
 
@@ -2096,6 +2774,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerModifierFilterVariantChangedEventArgs>? ModifierFilterVariantChanged;
 
+        public event EventHandler<PriceCheckerModifierExpansionChangedEventArgs>? ModifierExpansionChanged;
+
         public event EventHandler? BaseCriterionToggleRequested;
 
         public event EventHandler<bool>? PinStateChanged;
@@ -2110,7 +2790,7 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler? HorizontalResizeCompleted;
 
-        public event EventHandler? ResetPositionRequested;
+        public event EventHandler? ResetItemRequested;
 
         public bool IsClosed { get; private set; }
 
@@ -2221,9 +2901,72 @@ public sealed class PriceCheckerSearchControllerTests
                 new PriceCheckerModifierFilterVariantChangedEventArgs(modifierIndex, variantIdentity));
         }
 
+        public void RaiseModifierContributorSelectionChanged(
+            int modifierIndex,
+            int contributorIndex,
+            bool isSelected)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ModifierSelectionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierSelectionChangedEventArgs(
+                    modifierIndex,
+                    isSelected,
+                    contributorIndex));
+        }
+
+        public void RaiseModifierContributorBoundsChanged(
+            int modifierIndex,
+            int contributorIndex,
+            string minimumText,
+            string maximumText)
+        {
+            var contributor = CurrentSearchState?.Modifiers
+                .ElementAtOrDefault(modifierIndex)?
+                .Contributors.ElementAtOrDefault(contributorIndex);
+            if (contributor is not null)
+            {
+                contributor.MinimumText = minimumText;
+                contributor.MaximumText = maximumText;
+            }
+            ModifierBoundsChanged?.Invoke(
+                this,
+                new PriceCheckerModifierBoundsChangedEventArgs(
+                    modifierIndex,
+                    minimumText,
+                    maximumText,
+                    contributorIndex));
+        }
+
+        public void RaiseModifierContributorFilterVariantChanged(
+            int modifierIndex,
+            int contributorIndex,
+            string variantIdentity)
+        {
+            ModifierFilterVariantChanged?.Invoke(
+                this,
+                new PriceCheckerModifierFilterVariantChangedEventArgs(
+                    modifierIndex,
+                    variantIdentity,
+                    contributorIndex));
+        }
+
+        public void RaiseModifierExpansionChanged(int modifierIndex, bool isExpanded)
+        {
+            ModifierExpansionChanged?.Invoke(
+                this,
+                new PriceCheckerModifierExpansionChangedEventArgs(modifierIndex, isExpanded));
+        }
+
         public void RaiseBaseCriterionToggleRequested()
         {
             BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseResetItemRequested()
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ResetItemRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 #pragma warning restore CS0067

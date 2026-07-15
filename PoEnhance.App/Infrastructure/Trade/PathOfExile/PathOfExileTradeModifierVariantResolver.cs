@@ -1,11 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
+using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
-internal static partial class PathOfExileTradeModifierVariantResolver
+internal static class PathOfExileTradeModifierVariantResolver
 {
     private const string UnsupportedBoundsMessage =
         "This Trade filter has incompatible numeric semantics; retained Min/Max text is not sent.";
@@ -15,25 +13,59 @@ internal static partial class PathOfExileTradeModifierVariantResolver
         PathOfExileTradeStatCatalog catalog,
         PathOfExileTradeStatMatchCandidate sourceExactCandidate)
     {
+        return Apply(component, catalog, sourceExactCandidate, includePseudo: true);
+    }
+
+    private static ResolvedSearchComponent Apply(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeStatMatchCandidate sourceExactCandidate,
+        bool includePseudo)
+    {
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(sourceExactCandidate);
 
-        var candidates = DiscoverCandidates(catalog, sourceExactCandidate)
-            .DistinctBy(candidate => candidate.StatId, StringComparer.Ordinal)
+        var discovery = PathOfExileTradeModifierVariantDiscovery.Discover(
+            component,
+            catalog,
+            sourceExactCandidate);
+        var discoveredCandidates = discovery.Candidates
+            .Where(candidate => includePseudo || !string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                "pseudo",
+                StringComparison.Ordinal))
             .ToArray();
-        if (!candidates.Any(candidate => string.Equals(
-                candidate.StatId,
-                sourceExactCandidate.StatId,
-                StringComparison.Ordinal)))
-        {
-            candidates = [sourceExactCandidate, .. candidates];
-        }
+
+        var contributors = ResolveContributors(component, component.Sources);
+        var candidates = discoveredCandidates;
 
         var options = candidates
-            .Select(candidate => CreateOption(sourceExactCandidate, candidate))
+            .Select(candidate => CreateOption(component, sourceExactCandidate, candidate))
             .ToArray();
         var requestedIdentity = component.SelectedFilterVariantIdentity?.Trim();
+        if (candidates.Length == 0)
+        {
+            var localityDiagnostic = discovery.Diagnostics.FirstOrDefault(diagnostic =>
+                diagnostic.Code ==
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantLocalityAmbiguous);
+            return component with
+            {
+                FilterVariants = [],
+                SelectedFilterVariantIdentity = requestedIdentity,
+                ProviderResolutionStatus = localityDiagnostic is null
+                    ? SearchComponentProviderResolutionStatus.Unsupported
+                    : SearchComponentProviderResolutionStatus.Ambiguous,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderDiagnosticCode = localityDiagnostic?.Code ??
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                ProviderDiagnosticMessage = DiagnosticMessage(null, discovery.Diagnostics),
+                Sources = component.Sources,
+                Contributors = contributors,
+            };
+        }
+
         var selectedIndex = string.IsNullOrWhiteSpace(requestedIdentity)
             ? -1
             : Array.FindIndex(options, option => string.Equals(
@@ -42,24 +74,34 @@ internal static partial class PathOfExileTradeModifierVariantResolver
                 StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(requestedIdentity) && selectedIndex < 0)
         {
+            var requestedTrace = discovery.Trace.FirstOrDefault(trace => string.Equals(
+                IdentityFor(trace.ProviderStatId),
+                requestedIdentity,
+                StringComparison.Ordinal));
+            var localityAmbiguous = requestedTrace?.RejectionReason ==
+                $"{PathOfExileTradeModifierVariantDiscovery.SemanticMismatch}:" +
+                    PathOfExileTradeProviderLocalityCompatibility.AmbiguousLocalityEvidence;
             return component with
             {
                 FilterVariants = options,
                 SelectedFilterVariantIdentity = requestedIdentity,
-                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+                ProviderResolutionStatus = localityAmbiguous
+                    ? SearchComponentProviderResolutionStatus.Ambiguous
+                    : SearchComponentProviderResolutionStatus.NotFound,
                 ProviderStatId = null,
                 ProviderStatText = null,
-                ProviderDiagnosticCode =
-                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                ProviderDiagnosticCode = localityAmbiguous
+                    ? PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantLocalityAmbiguous
+                    : PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                ProviderDiagnosticMessage = DiagnosticMessage(null, discovery.Diagnostics),
+                Sources = component.Sources,
+                Contributors = contributors,
             };
         }
 
         if (selectedIndex < 0)
         {
-            selectedIndex = Array.FindIndex(candidates, candidate => string.Equals(
-                candidate.StatId,
-                sourceExactCandidate.StatId,
-                StringComparison.Ordinal));
+            selectedIndex = DefaultCandidateIndex(component, candidates, sourceExactCandidate);
         }
 
         selectedIndex = Math.Max(0, selectedIndex);
@@ -72,69 +114,181 @@ internal static partial class PathOfExileTradeModifierVariantResolver
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
             ProviderStatId = selectedCandidate.StatId,
             ProviderStatText = selectedCandidate.Text,
-            ProviderDiagnosticCode = null,
+            ProviderDiagnosticCode = discovery.Diagnostics.FirstOrDefault()?.Code,
+            ProviderDiagnosticMessage = DiagnosticMessage(null, discovery.Diagnostics),
+            Sources = component.Sources,
+            Contributors = contributors,
         };
 
         return ApplyBounds(resolved, selectedOption, selectedCandidate);
     }
 
+    internal static PathOfExileTradeModifierVariantDiscoveryResult DiscoverForAudit(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeStatMatchCandidate sourceExactCandidate)
+    {
+        return PathOfExileTradeModifierVariantDiscovery.Discover(
+            component,
+            catalog,
+            sourceExactCandidate);
+    }
+
+    private static string? DiagnosticMessage(
+        string? primary,
+        IReadOnlyList<PathOfExileTradeModifierVariantDiscoveryDiagnostic> diagnostics)
+    {
+        var messages = new[] { primary }
+            .Concat(diagnostics.Select(diagnostic => diagnostic.Message))
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return messages.Length == 0 ? null : string.Join(" ", messages);
+    }
+
+    private static int DefaultCandidateIndex(
+        ResolvedSearchComponent component,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates,
+        PathOfExileTradeStatMatchCandidate sourceExactCandidate)
+    {
+        var sourceDomains = component.Sources
+            .Select(source => source.ProviderDomain?.Trim())
+            .Where(domain => !string.IsNullOrWhiteSpace(domain))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (sourceDomains.Length > 1)
+        {
+            var aggregateIndex = Array.FindIndex(candidates.ToArray(), candidate => string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                "pseudo",
+                StringComparison.Ordinal));
+            if (aggregateIndex >= 0)
+            {
+                return aggregateIndex;
+            }
+        }
+
+        return Array.FindIndex(candidates.ToArray(), candidate => string.Equals(
+            candidate.StatId,
+            sourceExactCandidate.StatId,
+            StringComparison.Ordinal));
+    }
+
+    private static IReadOnlyList<SearchComponentContributor> ResolveContributors(
+        ResolvedSearchComponent parent,
+        IReadOnlyList<SearchComponentSourceProvenance> sources)
+    {
+        if (sources.Count <= 1)
+        {
+            return [];
+        }
+
+        var previousById = parent.Contributors.ToDictionary(
+            contributor => contributor.ContributorId,
+            StringComparer.Ordinal);
+        return sources.Select((source, index) =>
+        {
+            var contributorId = ContributorId(source, index);
+            previousById.TryGetValue(contributorId, out var previous);
+            var scalar = source.CanonicalNumericValues.Count == 1
+                ? source.CanonicalNumericValues[0]
+                : (decimal?)null;
+            var isExact = source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                !string.IsNullOrWhiteSpace(source.ProviderIdentity);
+            var isAmbiguous = source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Ambiguous;
+
+            return new SearchComponentContributor
+            {
+                ContributorId = contributorId,
+                Source = source,
+                DisplayText = previous?.DisplayText ??
+                    CanonicalModifierEffectAggregator.RenderAggregateText(
+                        source.CanonicalSignature,
+                        source.CanonicalNumericValues),
+                IsSelected = previous?.IsSelected == true,
+                RequestedMinimum = previous?.RequestedMinimum ??
+                    (parent.DefaultBoundDirection == ModifierBoundDirection.Minimum ? scalar : null),
+                RequestedMaximum = previous?.RequestedMaximum ??
+                    (parent.DefaultBoundDirection == ModifierBoundDirection.Maximum ? scalar : null),
+                SupportsValueBounds = parent.SupportsValueBounds && scalar.HasValue,
+                ValueBoundsUnsupportedReason = parent.SupportsValueBounds && scalar.HasValue
+                    ? null
+                    : parent.ValueBoundsUnsupportedReason,
+                ValueBoundShape = scalar.HasValue ? ModifierBoundShape.Scalar : ModifierBoundShape.Unsupported,
+                DefaultBoundDirection = parent.DefaultBoundDirection,
+                ProviderResolutionStatus = source.ProviderResolutionStatus,
+                ProviderIdentity = source.ProviderIdentity,
+                ProviderDiagnosticCode = isExact
+                    ? null
+                    : isAmbiguous
+                        ? PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityAmbiguous
+                        : PathOfExileTradeSelectedModifierMappingDiagnosticCodes.ContributorSourceIdentityUnavailable,
+                ProviderDiagnosticMessage = isExact
+                    ? null
+                    : isAmbiguous
+                        ? $"Contributor '{source.OriginalText}' has ambiguous retained source provider provenance."
+                        : $"Contributor '{source.OriginalText}' has no exact retained source provider identity.",
+            };
+        }).ToArray();
+    }
+
+    private static string ContributorId(SearchComponentSourceProvenance source, int index)
+    {
+        return $"{source.ComponentId}:{source.SourceModifierIndex}:{source.SourceComponentIndex}:{index}";
+    }
+
     internal static string IdentityFor(string providerStatId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(providerStatId);
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(providerStatId.Trim()));
-        return $"variant-{Convert.ToHexString(hash.AsSpan(0, 10)).ToLowerInvariant()}";
-    }
-
-    private static IEnumerable<PathOfExileTradeStatMatchCandidate> DiscoverCandidates(
-        PathOfExileTradeStatCatalog catalog,
-        PathOfExileTradeStatMatchCandidate source)
-    {
-        var sourceKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(source);
-        var sourceEffect = EffectIdentity(
-            source.Text,
-            removePseudoBreadth: string.Equals(sourceKind, "pseudo", StringComparison.Ordinal));
-        foreach (var entry in catalog.Entries)
-        {
-            var candidate = PathOfExileTradeStatCandidateClassifier.ToCandidate(entry);
-            var kind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
-            if (string.Equals(kind, PathOfExileTradeStatCandidateClassifier.UnknownProviderKind, StringComparison.Ordinal) ||
-                !string.Equals(
-                    sourceEffect,
-                    EffectIdentity(candidate.Text, removePseudoBreadth: string.Equals(kind, "pseudo", StringComparison.Ordinal)),
-                    StringComparison.Ordinal) ||
-                !HasCompatibleLocality(source, candidate, kind))
-            {
-                continue;
-            }
-
-            yield return candidate;
-        }
-    }
-
-    private static bool HasCompatibleLocality(
-        PathOfExileTradeStatMatchCandidate source,
-        PathOfExileTradeStatMatchCandidate candidate,
-        string candidateKind)
-    {
-        return string.Equals(candidateKind, "pseudo", StringComparison.Ordinal) ||
-            candidate.ProviderLocality == source.ProviderLocality;
+        return PathOfExileTradeProviderIdentity.Create(providerStatId);
     }
 
     private static SearchFilterVariant CreateOption(
+        ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate source,
         PathOfExileTradeStatMatchCandidate candidate)
     {
         var kind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
         var supportsBounds = HasCompatibleNumericSemantics(source, candidate);
+        var supportsContributorComposition = SupportsContributorComposition(component, candidate);
         var label = ConciseLabel(candidate, kind);
         return new SearchFilterVariant
         {
             Identity = IdentityFor(candidate.StatId),
             Label = label,
             Description = candidate.Text,
+            ProviderKind = kind,
+            Mode = supportsContributorComposition
+                ? SearchFilterVariantMode.Aggregate
+                : SearchFilterVariantMode.Standalone,
+            SupportsContributorComposition = supportsContributorComposition,
             SupportsValueBounds = supportsBounds,
             ValueBoundsUnsupportedReason = supportsBounds ? null : UnsupportedBoundsMessage,
         };
+    }
+
+    private static bool SupportsContributorComposition(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate candidate)
+    {
+        if (component.Sources.Count <= 1 ||
+            component.ContributorProjection != SearchComponentContributorProjection.Additive ||
+            component.Sources.Any(source =>
+                source.ValueBoundShape != ModifierBoundShape.Scalar ||
+                source.CanonicalNumericValues.Count != 1))
+        {
+            return false;
+        }
+
+        var kind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
+        if (string.Equals(kind, "pseudo", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var candidateIdentity = PathOfExileTradeProviderIdentity.Create(candidate.StatId);
+        return component.Sources.All(source =>
+            source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            string.Equals(source.ProviderIdentity, candidateIdentity, StringComparison.Ordinal));
     }
 
     private static ResolvedSearchComponent ApplyBounds(
@@ -165,33 +319,9 @@ internal static partial class PathOfExileTradeModifierVariantResolver
         PathOfExileTradeStatMatchCandidate source,
         PathOfExileTradeStatMatchCandidate candidate)
     {
-        var sourceTokens = NumericTokens(source.Text);
-        var candidateTokens = NumericTokens(candidate.Text);
-        return sourceTokens.Count > 0 && sourceTokens.SequenceEqual(candidateTokens, StringComparer.Ordinal);
-    }
-
-    private static IReadOnlyList<string> NumericTokens(string? text)
-    {
-        var normalized = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(text);
-        return NumericTokenRegex().Matches(normalized)
-            .Select(match => $"{match.Groups["sign"].Value}{(match.Groups["percent"].Success ? "%" : "flat")}")
-            .ToArray();
-    }
-
-    private static string EffectIdentity(string? text, bool removePseudoBreadth)
-    {
-        var normalized = PathOfExileTradeStatTemplateNormalizer
-            .NormalizeLookupTemplate(text)
-            .ToLowerInvariant();
-        normalized = NumericAndUnitRegex().Replace(normalized, " ");
-        if (removePseudoBreadth)
-        {
-            normalized = PseudoBreadthRegex().Replace(normalized, " ");
-        }
-
-        return string.Join(' ', normalized.Split(
-            [' ', '\t', '\r', '\n'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return PathOfExileTradePseudoVariantCompatibility.HasCompatibleNumericSemantics(
+            source,
+            candidate);
     }
 
     private static string ConciseLabel(PathOfExileTradeStatMatchCandidate candidate, string kind)
@@ -206,12 +336,4 @@ internal static partial class PathOfExileTradeModifierVariantResolver
         return char.ToUpperInvariant(value[0]) + value[1..].ToLowerInvariant();
     }
 
-    [GeneratedRegex(@"(?<sign>[+-]?)#(?<percent>%?)", RegexOptions.CultureInvariant)]
-    private static partial Regex NumericTokenRegex();
-
-    [GeneratedRegex(@"[+-]?#%?", RegexOptions.CultureInvariant)]
-    private static partial Regex NumericAndUnitRegex();
-
-    [GeneratedRegex(@"\b(?:total|combined)\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
-    private static partial Regex PseudoBreadthRegex();
 }
