@@ -67,6 +67,11 @@ artifacts/
 local-data/
 data/repoe/
 
+# Project-local Codex disposable output. Keep configuration and active session state unignored.
+/.codex/cache/
+/.codex/logs/
+/.codex/worktrees/
+
 # Tye
 .tye/
 
