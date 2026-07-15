@@ -450,6 +450,10 @@ Item Level: 85
         public event EventHandler? SearchRequested;
 
         public event EventHandler? LoadMoreRequested;
+
+        public event EventHandler? TradeRequested;
+
+        public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;

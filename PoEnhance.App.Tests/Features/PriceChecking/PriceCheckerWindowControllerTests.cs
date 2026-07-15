@@ -1370,6 +1370,18 @@ Item Level: 80
             remove { }
         }
 
+        public event EventHandler? TradeRequested
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;

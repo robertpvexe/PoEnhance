@@ -10,6 +10,8 @@ public sealed record PriceCheckerSearchViewState
 
     public bool CanLoadMore { get; init; }
 
+    public bool CanOpenTrade { get; init; }
+
     public string Message { get; init; } = string.Empty;
 
     public string Summary { get; init; } = string.Empty;

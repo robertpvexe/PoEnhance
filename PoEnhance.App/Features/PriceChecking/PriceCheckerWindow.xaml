@@ -524,11 +524,30 @@
                                 Content="Search"
                                 Style="{StaticResource PriceCheckerButtonStyle}" />
                         <ToggleButton Grid.Column="2"
-                                Margin="6,0,0,0"
+                                Margin="6,0,8,0"
                                 IsEnabled="False"
                                 IsTabStop="False"
                                 ToolTip="Advanced filters are not available yet"
                                 Style="{StaticResource AdvancedPlaceholderStyle}" />
+                        <Button x:Name="TradeButton"
+                                Grid.Column="3"
+                                Width="22"
+                                Height="22"
+                                Padding="0"
+                                HorizontalAlignment="Left"
+                                IsEnabled="False"
+                                ToolTip="Open on Trade"
+                                Style="{StaticResource TitleBarButtonStyle}">
+                            <Canvas Width="16"
+                                    Height="16"
+                                    UseLayoutRounding="True">
+                                <Path Data="M 8,3 L 13,3 L 13,8 M 13,3 L 7,9 M 11,9 L 11,13 L 3,13 L 3,5 L 7,5"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeLineJoin="Round" />
+                            </Canvas>
+                        </Button>
                     </Grid>
                     <TextBlock x:Name="SearchStatusText"
                                Margin="0,6,0,0"
@@ -540,7 +559,8 @@
                                TextWrapping="Wrap" />
                 </StackPanel>
 
-                <Grid Grid.Row="6"
+                <Grid x:Name="ResultsPanel"
+                      Grid.Row="6"
                       Margin="0,8,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -591,12 +611,12 @@
                              Foreground="#EEEEEE"
                              ItemContainerStyle="{StaticResource OfferRowStyle}"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
                              VerticalAlignment="Stretch"
                              Visibility="Collapsed">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid Height="44"
+                                <Grid Height="36"
                                       Margin="8,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -611,8 +631,8 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    TextWrapping="NoWrap"
                                                    ToolTip="{Binding ItemName}" />
-                                        <TextBlock Margin="0,1,0,0"
-                                                   FontSize="11"
+                                        <TextBlock Margin="0"
+                                                   FontSize="10"
                                                    FontWeight="Light"
                                                    Foreground="#9A9A9A"
                                                    Text="{Binding SellerAccountName}"

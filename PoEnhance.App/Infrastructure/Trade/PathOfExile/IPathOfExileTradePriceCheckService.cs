@@ -19,6 +19,16 @@ internal interface IPathOfExileTradePriceCheckService
         string? leagueIdentifier,
         CancellationToken cancellationToken = default);
 
+    Task<PathOfExileTradePriceCheckResult> CheckAsync(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier,
+        int initialFetchResultCount,
+        CancellationToken cancellationToken = default)
+    {
+        return CheckAsync(draft, validationResult, leagueIdentifier, cancellationToken);
+    }
+
     Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
         string? searchQueryId,
         IReadOnlyList<string?>? resultIds,

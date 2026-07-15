@@ -51,6 +51,26 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         string? leagueIdentifier,
         CancellationToken cancellationToken = default)
     {
+        return await CheckAsync(
+                draft,
+                validationResult,
+                leagueIdentifier,
+                PathOfExileTradeEndpointBuilder.MaximumFetchResultIds,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<PathOfExileTradePriceCheckResult> CheckAsync(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier,
+        int initialFetchResultCount,
+        CancellationToken cancellationToken = default)
+    {
+        initialFetchResultCount = Math.Clamp(
+            initialFetchResultCount,
+            0,
+            PathOfExileTradeEndpointBuilder.MaximumFetchResultIds);
         var effectiveDraft = draft;
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
         PathOfExileTradeItemIdentity? providerItemIdentity = null;
@@ -232,9 +252,24 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             };
         }
 
-        var fetchIds = resultIds
-            .Take(PathOfExileTradeEndpointBuilder.MaximumFetchResultIds)
-            .ToArray();
+        var fetchIds = resultIds.Take(initialFetchResultCount).ToArray();
+
+        if (fetchIds.Length == 0)
+        {
+            return new PathOfExileTradePriceCheckResult
+            {
+                IsSuccess = true,
+                Stage = PathOfExileTradePriceCheckStage.Completed,
+                SearchQueryId = searchQueryId,
+                ResultIds = resultIds,
+                ProviderTotal = searchResponse.Total,
+                Inexact = searchResponse.Inexact,
+                EffectiveDraft = effectiveDraft,
+                CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+                SearchRateLimitSnapshot = searchResult.RateLimitSnapshot,
+                Diagnostics = catalogDiagnostics.Concat(searchDiagnostics).ToArray(),
+            };
+        }
 
         if (cancellationToken.IsCancellationRequested)
         {

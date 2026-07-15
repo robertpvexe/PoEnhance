@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using PoEnhance.Core.Trade;
 
@@ -16,6 +17,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private const string NotDetectedText = "Not detected";
     private bool isClosed;
     private bool isHorizontalResizeActive;
+    private bool isOfferCapacityReportScheduled;
 
     public PriceCheckerWindow()
     {
@@ -44,6 +46,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         BaseCriterionButton.Click += OnBaseCriterionButtonClick;
         SearchButton.Click += OnSearchButtonClick;
         LoadMoreButton.Click += OnLoadMoreButtonClick;
+        TradeButton.Click += OnTradeButtonClick;
+        ResultsPanel.SizeChanged += (_, _) => ScheduleOfferCapacityReport();
         ResetPositionButton.Click += OnResetPositionButtonClick;
         CloseButton.Click += (_, _) => Close();
         KeyDown += OnKeyDown;
@@ -62,6 +66,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     public event EventHandler? SearchRequested;
 
     public event EventHandler? LoadMoreRequested;
+
+    public event EventHandler? TradeRequested;
+
+    public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
 
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
@@ -138,6 +146,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ValidationPanel.Visibility = state.ValidationResult.Diagnostics.Count == 0
             ? Visibility.Collapsed
             : Visibility.Visible;
+        ScheduleOfferCapacityReport();
     }
 
     public void UpdateSearch(PriceCheckerSearchViewState state)
@@ -148,7 +157,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         LoadMoreButton.IsEnabled = state.CanLoadMore;
         LoadMoreButton.Visibility = state.CanLoadMore
             ? Visibility.Visible
-            : Visibility.Collapsed;
+            : Visibility.Hidden;
+        TradeButton.IsEnabled = state.CanOpenTrade;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
         ModifierCountText.Text = FormatModifierCount(
@@ -156,12 +166,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             state.ModifierCount);
         ModifierListBox.ItemsSource = state.Modifiers;
         OfferListBox.ItemsSource = state.Offers;
-        OfferColumnHeader.Visibility = state.Offers.Count == 0
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        OfferColumnHeader.Visibility = Visibility.Visible;
         OfferListBox.Visibility = state.Offers.Count == 0
             ? Visibility.Collapsed
             : Visibility.Visible;
+        ScheduleOfferCapacityReport();
     }
 
     public void ApplyPlacement(PriceCheckerPlacement placement)
@@ -307,13 +316,49 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private void OnSearchButtonClick(object sender, RoutedEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ReportOfferCapacity();
         SearchRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnLoadMoreButtonClick(object sender, RoutedEventArgs e)
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ReportOfferCapacity();
         LoadMoreRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ScheduleOfferCapacityReport()
+    {
+        if (isOfferCapacityReportScheduled)
+        {
+            return;
+        }
+
+        isOfferCapacityReportScheduled = true;
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            new Action(() =>
+            {
+                isOfferCapacityReportScheduled = false;
+                ReportOfferCapacity();
+            }));
+    }
+
+    private void ReportOfferCapacity()
+    {
+        var availableHeight = ResultsPanel.RowDefinitions.Count > 1
+            ? ResultsPanel.RowDefinitions[1].ActualHeight
+            : 0d;
+        OfferCapacityChanged?.Invoke(
+            this,
+            new PriceCheckerOfferCapacityChangedEventArgs(
+                PriceCheckerOfferCapacityCalculator.Calculate(availableHeight)));
+    }
+
+    private void OnTradeButtonClick(object sender, RoutedEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        TradeRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnModifierSelectionClick(object sender, RoutedEventArgs e)

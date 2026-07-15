@@ -43,6 +43,26 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
+    public async Task CheckAsync_InitialFetchUsesOnlyTheMeasuredVisibleCapacity()
+    {
+        var fixture = ServiceFixture.Create();
+        var ids = Enumerable.Range(1, 12).Select(index => $"id-{index}").ToArray();
+        fixture.SearchClient.Enqueue(SearchSuccess(ids, total: 12));
+        fixture.FetchClient.Enqueue(FetchSuccess(ids.Take(6).Select(Offer).ToArray()));
+
+        var result = await fixture.Service.CheckAsync(
+            Draft(),
+            ValidationSuccess(),
+            League,
+            initialFetchResultCount: 6);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ids.Take(6), result.FetchedResultIds);
+        Assert.Equal(ids.Take(6), result.Offers.Select(offer => offer.Id));
+        Assert.Equal(ids.Take(6), Assert.Single(fixture.FetchClient.Calls).ResultIds);
+    }
+
+    [Fact]
     public async Task FetchMoreAsync_FetchesOnlyRequestedNextBatchWithoutRepeatingSearchAndReturnsProviderOrder()
     {
         var fixture = ServiceFixture.Create();

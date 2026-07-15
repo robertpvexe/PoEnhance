@@ -335,6 +335,254 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task TradeButton_IsDisabledUntilTheCurrentSearchSucceedsWithAQueryId()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+    }
+
+    [Fact]
+    public async Task TradeButton_OpensTheSuccessfulSearchWithoutAnotherSearchOrFetch()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseTradeRequested();
+
+        var uri = Assert.Single(fixture.ExternalUrlLauncher.OpenedUris);
+        Assert.Equal("https://www.pathofexile.com/trade/search/Mirage/query-1", uri.AbsoluteUri);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task TradeButton_LoadMoreKeepsTheSameLinkEnabled()
+    {
+        var fixture = SearchFixture.Create();
+        var ids = Enumerable.Range(1, 11).Select(index => $"id-{index}").ToArray();
+        fixture.PriceCheckService.Result = SuccessResult(
+            OffersFor(ids.Take(10)),
+            total: 11,
+            resultIds: ids,
+            fetchedResultIds: ids.Take(10).ToArray());
+        fixture.PriceCheckService.PendingLoadMoreResults.Enqueue(SuccessResult(
+            OffersFor(ids.Skip(10)),
+            total: 11,
+            fetchedResultIds: ids.Skip(10).ToArray()));
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+
+        await fixture.Controller.LoadMoreAsync();
+        fixture.Window.RaiseTradeRequested();
+
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.Equal(
+            "https://www.pathofexile.com/trade/search/Mirage/query-1",
+            Assert.Single(fixture.ExternalUrlLauncher.OpenedUris).AbsoluteUri);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Single(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task TradeButton_QueryRelevantChangesInvalidateTheSuccessfulSearchLink()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = DraftWithBothBaseCriteria() with
+        {
+            ModifierFilters = [Modifier("+10 to maximum Life")],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        await fixture.Controller.SearchAsync();
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        await fixture.Controller.SearchAsync();
+        fixture.Controller.UpdateCurrentDraft(Draft("New Ctrl+D item"), ValidationSuccess());
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+    }
+
+    [Fact]
+    public async Task TradeButton_FailedOrCancelledSearchAndStaleCompletionCannotEnableIt()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        fixture.PriceCheckService.Result = FailureResult("Failed.");
+        await fixture.Controller.SearchAsync();
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.Search,
+            IsCancelled = true,
+        };
+        await fixture.Controller.SearchAsync();
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+
+        var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PriceCheckService.Handler = _ => completion.Task;
+        var staleSearch = fixture.Controller.SearchAsync();
+        await WaitUntilAsync(() => fixture.PriceCheckService.Calls.Count == 3);
+        fixture.Controller.UpdateCurrentDraft(Draft("New Ctrl+D item"), ValidationSuccess());
+        completion.SetResult(SuccessResult([Offer("late")], total: 1));
+        await staleSearch;
+
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+    }
+
+    [Fact]
+    public async Task TradeButton_BrowserFailurePreservesSuccessfulResults()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.ExternalUrlLauncher.ShouldOpen = false;
+        fixture.PriceCheckService.Result = SuccessResult([Offer("id-1")], total: 1);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseTradeRequested();
+
+        Assert.Equal("Could not open Trade in your browser.", fixture.Window.CurrentSearchState?.Message);
+        Assert.Single(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.Empty(fixture.ExternalUrlLauncher.OpenedUris);
+    }
+
+    [Fact]
+    public async Task OfferCapacity_OfTwentyThreeFetchesTenThenTenThenThreeWithoutAnotherSearch()
+    {
+        var fixture = SearchFixture.Create();
+        var ids = Enumerable.Range(1, 30).Select(index => $"id-{index}").ToArray();
+        fixture.Window.RaiseOfferCapacityChanged(23);
+        fixture.PriceCheckService.Result = SuccessResult(
+            OffersFor(ids.Take(10)),
+            total: 30,
+            resultIds: ids,
+            fetchedResultIds: ids.Take(10).ToArray());
+        fixture.PriceCheckService.PendingLoadMoreResults.Enqueue(SuccessResult(
+            OffersFor(ids.Skip(10).Take(10).Reverse()),
+            total: 30,
+            fetchedResultIds: ids.Skip(10).Take(10).ToArray()));
+        fixture.PriceCheckService.PendingLoadMoreResults.Enqueue(SuccessResult(
+            OffersFor(ids.Skip(20).Take(3).Reverse()),
+            total: 30,
+            fetchedResultIds: ids.Skip(20).Take(3).ToArray()));
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+        await fixture.Controller.LoadMoreAsync();
+        await fixture.Controller.LoadMoreAsync();
+
+        Assert.Equal(10, fixture.PriceCheckService.Calls.Single().InitialFetchResultCount);
+        Assert.Equal(23, fixture.Window.CurrentSearchState?.Offers.Count);
+        Assert.Equal(ids.Skip(20).Take(3), fixture.PriceCheckService.LoadMoreCalls[1].ResultIds);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.Single(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public async Task OfferCapacity_OfSixteenFetchesTenThenExactlySix()
+    {
+        var fixture = SearchFixture.Create();
+        var ids = Enumerable.Range(1, 20).Select(index => $"id-{index}").ToArray();
+        fixture.Window.RaiseOfferCapacityChanged(16);
+        fixture.PriceCheckService.Result = SuccessResult(
+            OffersFor(ids.Take(10)),
+            total: 20,
+            resultIds: ids,
+            fetchedResultIds: ids.Take(10).ToArray());
+        fixture.PriceCheckService.PendingLoadMoreResults.Enqueue(SuccessResult(
+            OffersFor(ids.Skip(10).Take(6)),
+            total: 20,
+            fetchedResultIds: ids.Skip(10).Take(6).ToArray()));
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+        await fixture.Controller.LoadMoreAsync();
+
+        Assert.Equal(16, fixture.Window.CurrentSearchState?.Offers.Count);
+        Assert.Equal(ids.Skip(10).Take(6), Assert.Single(fixture.PriceCheckService.LoadMoreCalls).ResultIds);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+    }
+
+    [Fact]
+    public async Task OfferCapacity_BelowTenNeverFetchesOrDisplaysMoreThanFits()
+    {
+        var fixture = SearchFixture.Create();
+        var ids = Enumerable.Range(1, 12).Select(index => $"id-{index}").ToArray();
+        fixture.Window.RaiseOfferCapacityChanged(6);
+        fixture.PriceCheckService.Result = SuccessResult(
+            OffersFor(ids.Take(6)),
+            total: 12,
+            resultIds: ids,
+            fetchedResultIds: ids.Take(6).ToArray());
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(6, fixture.PriceCheckService.Calls.Single().InitialFetchResultCount);
+        Assert.Equal(6, fixture.Window.CurrentSearchState?.Offers.Count);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task OfferCapacity_ZeroHidesLoadMoreAndDoesNotFetchOffers()
+    {
+        var fixture = SearchFixture.Create();
+        var ids = Enumerable.Range(1, 12).Select(index => $"id-{index}").ToArray();
+        fixture.Window.RaiseOfferCapacityChanged(0);
+        fixture.PriceCheckService.Result = SuccessResult(
+            [],
+            total: 12,
+            resultIds: ids,
+            fetchedResultIds: []);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+        await fixture.Controller.LoadMoreAsync();
+
+        Assert.Equal(0, fixture.PriceCheckService.Calls.Single().InitialFetchResultCount);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task OfferCapacity_NewItemUsesItsOwnMeasuredCapacity()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Window.RaiseOfferCapacityChanged(23);
+        fixture.Controller.UpdateCurrentDraft(Draft("First item"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseOfferCapacityChanged(6);
+        fixture.Controller.UpdateCurrentDraft(Draft("New Ctrl+D item"), ValidationSuccess());
+        fixture.PriceCheckService.Result = SuccessResult(
+            OffersFor(Enumerable.Range(101, 6).Select(index => $"id-{index}")),
+            total: 6,
+            resultIds: Enumerable.Range(101, 6).Select(index => $"id-{index}").ToArray(),
+            fetchedResultIds: Enumerable.Range(101, 6).Select(index => $"id-{index}").ToArray());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(6, fixture.PriceCheckService.Calls[1].InitialFetchResultCount);
+        Assert.Equal(6, fixture.Window.CurrentSearchState?.Offers.Count);
+    }
+
+    [Fact]
     public async Task SearchAsync_MapsOneFetchedOfferToFourStructuredColumns()
     {
         var fixture = SearchFixture.Create();
@@ -1237,6 +1485,7 @@ public sealed class PriceCheckerSearchControllerTests
         TradeSearchDraft? Draft,
         TradeSearchValidationResult? ValidationResult,
         string? LeagueIdentifier,
+        int InitialFetchResultCount,
         CancellationToken CancellationToken);
 
     private sealed record LoadMoreCall(
@@ -1253,10 +1502,12 @@ public sealed class PriceCheckerSearchControllerTests
         private SearchFixture(
             FakeWindow window,
             FakePriceCheckService priceCheckService,
+            FakeExternalUrlLauncher externalUrlLauncher,
             PriceCheckerSearchController controller)
         {
             Window = window;
             PriceCheckService = priceCheckService;
+            ExternalUrlLauncher = externalUrlLauncher;
             Controller = controller;
         }
 
@@ -1264,15 +1515,41 @@ public sealed class PriceCheckerSearchControllerTests
 
         public FakePriceCheckService PriceCheckService { get; }
 
+        public FakeExternalUrlLauncher ExternalUrlLauncher { get; }
+
         public PriceCheckerSearchController Controller { get; }
 
         public static SearchFixture Create()
         {
-            var window = new FakeWindow();
+            var window = new FakeWindow
+            {
+                OfferCapacity = 100,
+            };
             var priceCheckService = new FakePriceCheckService();
-            var controller = new PriceCheckerSearchController(priceCheckService);
+            var externalUrlLauncher = new FakeExternalUrlLauncher();
+            var controller = new PriceCheckerSearchController(
+                priceCheckService,
+                externalUrlLauncher: externalUrlLauncher);
             controller.AttachWindow(window);
-            return new SearchFixture(window, priceCheckService, controller);
+            return new SearchFixture(window, priceCheckService, externalUrlLauncher, controller);
+        }
+    }
+
+    private sealed class FakeExternalUrlLauncher : IExternalUrlLauncher
+    {
+        public bool ShouldOpen { get; set; } = true;
+
+        public List<Uri> OpenedUris { get; } = [];
+
+        public bool TryOpen(Uri uri)
+        {
+            if (!ShouldOpen)
+            {
+                return false;
+            }
+
+            OpenedUris.Add(uri);
+            return true;
         }
     }
 
@@ -1324,7 +1601,27 @@ public sealed class PriceCheckerSearchControllerTests
             string? leagueIdentifier,
             CancellationToken cancellationToken = default)
         {
-            var call = new PriceCheckCall(draft, validationResult, leagueIdentifier, cancellationToken);
+            return CheckAsync(
+                draft,
+                validationResult,
+                leagueIdentifier,
+                PathOfExileTradeEndpointBuilder.MaximumFetchResultIds,
+                cancellationToken);
+        }
+
+        public Task<PathOfExileTradePriceCheckResult> CheckAsync(
+            TradeSearchDraft? draft,
+            TradeSearchValidationResult? validationResult,
+            string? leagueIdentifier,
+            int initialFetchResultCount,
+            CancellationToken cancellationToken = default)
+        {
+            var call = new PriceCheckCall(
+                draft,
+                validationResult,
+                leagueIdentifier,
+                initialFetchResultCount,
+                cancellationToken);
             Calls.Add(call);
             return Handler is null
                 ? Task.FromResult(Result)
@@ -1367,6 +1664,10 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler? LoadMoreRequested;
 
+        public event EventHandler? TradeRequested;
+
+        public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler? BaseCriterionToggleRequested;
@@ -1395,6 +1696,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public PriceCheckerSearchViewState? CurrentSearchState { get; private set; }
 
+        public int? OfferCapacity { get; set; }
+
         public PriceCheckerPlacement? GetDisplayedPlacement()
         {
             return CurrentPlacement;
@@ -1408,6 +1711,12 @@ public sealed class PriceCheckerSearchControllerTests
         public void UpdateSearch(PriceCheckerSearchViewState state)
         {
             CurrentSearchState = state;
+            if (OfferCapacity.HasValue)
+            {
+                OfferCapacityChanged?.Invoke(
+                    this,
+                    new PriceCheckerOfferCapacityChangedEventArgs(OfferCapacity.Value));
+            }
         }
 
         public void ApplyPlacement(PriceCheckerPlacement placement)
@@ -1441,6 +1750,18 @@ public sealed class PriceCheckerSearchControllerTests
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             LoadMoreRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseTradeRequested()
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            TradeRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseOfferCapacityChanged(int capacity)
+        {
+            OfferCapacity = capacity;
+            OfferCapacityChanged?.Invoke(this, new PriceCheckerOfferCapacityChangedEventArgs(capacity));
         }
 
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)

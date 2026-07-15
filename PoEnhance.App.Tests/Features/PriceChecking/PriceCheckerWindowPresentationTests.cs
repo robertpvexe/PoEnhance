@@ -136,6 +136,28 @@ Item Level: 82
     }
 
     [Fact]
+    public void WindowXaml_AddsTheCompactTradeButtonBesideTheDisabledAdvancedPlaceholder()
+    {
+        var xaml = LoadWindowXaml();
+        var actionRow = ExtractElement(xaml, "<StackPanel Grid.Row=\"5\"", "</StackPanel>");
+        var trade = ExtractElement(xaml, "<Button x:Name=\"TradeButton\"", "</Button>");
+        var advanced = ExtractElement(actionRow, "<ToggleButton Grid.Column=\"2\"", "/>");
+
+        Assert.Contains("<ToggleButton Grid.Column=\"2\"", actionRow);
+        Assert.Contains("Grid.Column=\"3\"", trade);
+        Assert.Contains("Width=\"22\"", trade);
+        Assert.Contains("Height=\"22\"", trade);
+        Assert.Contains("HorizontalAlignment=\"Left\"", trade);
+        Assert.Contains("IsEnabled=\"False\"", trade);
+        Assert.Contains("ToolTip=\"Open on Trade\"", trade);
+        Assert.Contains("TitleBarButtonStyle", trade);
+        Assert.Contains("<Canvas", trade);
+        Assert.Contains("<Path", trade);
+        Assert.DoesNotContain("TextBlock", trade);
+        Assert.Contains("Margin=\"6,0,8,0\"", advanced);
+    }
+
+    [Fact]
     public void WindowXaml_UsesAnInvisibleFourColumnOfferLayoutWithoutGridLines()
     {
         var xaml = LoadWindowXaml();
@@ -149,9 +171,13 @@ Item Level: 82
         Assert.Contains("Text=\"Price\"", header);
         Assert.Equal(4, header.Split("<ColumnDefinition", StringSplitOptions.None).Length - 1);
         Assert.Equal(4, offers.Split("<ColumnDefinition", StringSplitOptions.None).Length - 1);
-        Assert.Contains("Height=\"44\"", offers);
+        Assert.Contains("Height=\"36\"", offers);
+        Assert.Contains("<StackPanel VerticalAlignment=\"Center\"", offers);
         Assert.Contains("ItemName", offers);
         Assert.Contains("SellerAccountName", offers);
+        Assert.Contains("FontWeight=\"SemiBold\"", offers);
+        Assert.Contains("FontSize=\"10\"", offers);
+        Assert.Contains("Margin=\"0\"", offers);
         Assert.Contains("ListedText", offers);
         Assert.Contains("ItemLevelText", offers);
         Assert.Contains("PriceText", offers);
@@ -160,6 +186,7 @@ Item Level: 82
         Assert.DoesNotContain("BorderBrush", offers);
         Assert.DoesNotContain("BorderBrush", rowStyle);
         Assert.Contains("FocusVisualStyle", rowStyle);
+        Assert.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Disabled\"", offers);
     }
 
     private static string LoadWindowXaml()

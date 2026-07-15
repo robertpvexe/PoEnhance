@@ -14,6 +14,10 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? LoadMoreRequested;
 
+    event EventHandler? TradeRequested;
+
+    event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+
     event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
     event EventHandler? BaseCriterionToggleRequested;
