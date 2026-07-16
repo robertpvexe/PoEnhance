@@ -185,5 +185,7 @@ public sealed class GameDataPackageJsonTests
         Assert.Empty(package.Stats);
         Assert.Empty(package.StatTranslations);
         Assert.Empty(package.ItemPropertySemantics);
+        Assert.Null(package.Manifest.ReviewedItemPropertySemantics);
+        Assert.Null(package.Manifest.ItemPropertySemanticAugmentation);
     }
 }

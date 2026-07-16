@@ -18,6 +18,8 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Contains("\"inputFiles\": [", json);
         Assert.Contains("\"reviewedItemPropertySemantics\": {", json);
         Assert.Contains("\"reviewVersion\": \"weapon-dps-v1\"", json);
+        Assert.Contains("\"itemPropertySemanticAugmentation\": {", json);
+        Assert.Contains("\"operationId\": \"augment-package-semantics\"", json);
         Assert.Contains("\n", json);
         Assert.Contains("  \"sources\": [", json);
     }
@@ -37,6 +39,7 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Equal(manifest.League, roundTrippedManifest.League);
         Assert.Equal(manifest.Patch, roundTrippedManifest.Patch);
         Assert.Equal(manifest.ReviewedItemPropertySemantics, roundTrippedManifest.ReviewedItemPropertySemantics);
+        Assert.Equal(manifest.ItemPropertySemanticAugmentation, roundTrippedManifest.ItemPropertySemanticAugmentation);
         Assert.Equal(manifest.Sources.Count, roundTrippedManifest.Sources.Count);
     }
 
@@ -71,6 +74,15 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Equal(new DateTimeOffset(2026, 1, 15, 12, 10, 0, TimeSpan.Zero), poedb.RetrievedAtUtc);
         Assert.Equal("poedb-dev-snapshot", poedb.SourceVersion);
         Assert.Equal("https://poedb.tw", poedb.SourceUri);
+
+        var augmentation = Assert.IsType<GameDataPackageItemPropertySemanticAugmentation>(
+            roundTrippedManifest.ItemPropertySemanticAugmentation);
+        Assert.Equal("augment-package-semantics", augmentation.OperationId);
+        Assert.Equal("input-package", augmentation.InputPackageLabel);
+        Assert.Equal("poenhance-game-data.json", augmentation.InputPackageDisplayPath);
+        Assert.Equal(64_000_000, augmentation.InputPackageSizeBytes);
+        Assert.Equal("d3020e21620b72377673b7e2307f99ba0f6cae1000372d8dc2cdb6e88fe93740", augmentation.InputPackageSha256);
+        Assert.Equal("dev-2026-01-15-base", augmentation.InputPackageDataVersion);
     }
 
     [Fact]
@@ -94,6 +106,7 @@ public sealed class GameDataPackageManifestJsonTests
 
         Assert.NotNull(manifest);
         Assert.Null(manifest.ReviewedItemPropertySemantics);
+        Assert.Null(manifest.ItemPropertySemanticAugmentation);
         Assert.True(GameDataPackageManifestValidator.Validate(manifest).IsValid);
     }
 

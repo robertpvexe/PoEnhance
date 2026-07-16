@@ -1,7 +1,5 @@
 using System.Security.Cryptography;
 using System.Diagnostics;
-using System.Text;
-using System.Text.Json;
 using PoEnhance.GameData;
 
 namespace PoEnhance.DataImport;
@@ -10,8 +8,6 @@ public sealed class RePoeGameDataPackageBuildService
 {
     private const int CurrentSchemaVersion = 1;
     private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
-    private const string ReviewedSemanticSourceId = "poenhance.item-property-semantics";
-    private const string ReviewedSemanticInputLabel = "item-property-semantics.json";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
     private readonly RePoeModifierImporter _modifierImporter = new();
@@ -98,7 +94,7 @@ public sealed class RePoeGameDataPackageBuildService
         }
 
         var createdAtUtc = NormalizeCreatedAtUtc(request.CreatedAtUtc ?? DateTimeOffset.UtcNow);
-        var reviewedSemanticInput = CreateReviewedSemanticInput(
+        var reviewedSemanticInput = ReviewedItemPropertySemanticProvenanceFactory.Create(
             request.ItemPropertySemanticsPath!,
             semanticInputBytes);
         var manifest = CreateManifest(request, createdAtUtc, inputFiles, reviewedSemanticInput);
@@ -127,7 +123,7 @@ public sealed class RePoeGameDataPackageBuildService
 
         try
         {
-            WritePackageAtomically(package, outputPath, out var fileSize, out var sha256);
+            GameDataPackageAtomicWriter.Write(package, outputPath, out var fileSize, out var sha256);
             return new GameDataPackageBuildResult
             {
                 ExitCode = GameDataPackageBuildExitCode.Success,
@@ -238,24 +234,6 @@ public sealed class RePoeGameDataPackageBuildService
                     InputFiles = CreateInputFingerprints(request.SourceDataRootPath!, inputFiles),
                 },
             ],
-        };
-    }
-
-    private static GameDataPackageReviewedItemPropertySemanticInput CreateReviewedSemanticInput(
-        string inputPath,
-        byte[] inputBytes)
-    {
-        using var document = JsonDocument.Parse(inputBytes);
-        var root = document.RootElement;
-        return new GameDataPackageReviewedItemPropertySemanticInput
-        {
-            SourceId = ReviewedSemanticSourceId,
-            Label = ReviewedSemanticInputLabel,
-            DisplayPath = Path.GetFileName(Path.GetFullPath(inputPath)),
-            SizeBytes = inputBytes.LongLength,
-            Sha256 = ComputeSha256(inputBytes),
-            SchemaVersion = root.GetProperty("schemaVersion").GetInt32(),
-            ReviewVersion = root.GetProperty("reviewVersion").GetString(),
         };
     }
 
@@ -481,86 +459,11 @@ public sealed class RePoeGameDataPackageBuildService
         };
     }
 
-    private static void WritePackageAtomically(
-        GameDataPackage package,
-        string outputPath,
-        out long fileSize,
-        out string sha256)
-    {
-        var outputDirectory = Path.GetDirectoryName(outputPath);
-        if (string.IsNullOrWhiteSpace(outputDirectory))
-        {
-            outputDirectory = Directory.GetCurrentDirectory();
-            outputPath = Path.Combine(outputDirectory, outputPath);
-        }
-
-        Directory.CreateDirectory(outputDirectory);
-
-        var tempPath = Path.Combine(
-            outputDirectory,
-            $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
-
-        try
-        {
-            var json = GameDataPackageJson.Serialize(package);
-            using (var stream = new FileStream(
-                       tempPath,
-                       FileMode.CreateNew,
-                       FileAccess.Write,
-                       FileShare.None,
-                       bufferSize: 64 * 1024,
-                       FileOptions.SequentialScan))
-            {
-                var bytes = Encoding.UTF8.GetBytes(json);
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(flushToDisk: true);
-            }
-
-            if (File.Exists(outputPath))
-            {
-                File.Replace(tempPath, outputPath, destinationBackupFileName: null);
-            }
-            else
-            {
-                File.Move(tempPath, outputPath);
-            }
-
-            fileSize = new FileInfo(outputPath).Length;
-            sha256 = ComputeSha256(outputPath);
-        }
-        catch
-        {
-            TryDelete(tempPath);
-            throw;
-        }
-    }
-
     private static string ComputeSha256(string filePath)
     {
         using var stream = File.OpenRead(filePath);
         var hash = SHA256.HashData(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
-    }
-
-    private static string ComputeSha256(byte[] bytes)
-    {
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
-
-    private static void TryDelete(string filePath)
-    {
-        try
-        {
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-            }
-        }
-        catch
-        {
-            // Best effort cleanup only. The build already failed.
-        }
     }
 
     private static bool IsInsidePoEnhanceAppDirectory(string outputPath)

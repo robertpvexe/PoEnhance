@@ -25,6 +25,12 @@ public static class GameDataValidationErrorCodes
     public const string ManifestReviewedItemPropertySemanticsSha256Invalid = "manifest.reviewedItemPropertySemantics.sha256.invalid";
     public const string ManifestReviewedItemPropertySemanticsSchemaVersionInvalid = "manifest.reviewedItemPropertySemantics.schemaVersion.invalid";
     public const string ManifestReviewedItemPropertySemanticsReviewVersionRequired = "manifest.reviewedItemPropertySemantics.reviewVersion.required";
+    public const string ManifestItemPropertySemanticAugmentationOperationIdRequired = "manifest.itemPropertySemanticAugmentation.operationId.required";
+    public const string ManifestItemPropertySemanticAugmentationInputPackageLabelRequired = "manifest.itemPropertySemanticAugmentation.inputPackageLabel.required";
+    public const string ManifestItemPropertySemanticAugmentationInputPackageDisplayPathRequired = "manifest.itemPropertySemanticAugmentation.inputPackageDisplayPath.required";
+    public const string ManifestItemPropertySemanticAugmentationInputPackageSizeInvalid = "manifest.itemPropertySemanticAugmentation.inputPackageSizeBytes.invalid";
+    public const string ManifestItemPropertySemanticAugmentationInputPackageSha256Invalid = "manifest.itemPropertySemanticAugmentation.inputPackageSha256.invalid";
+    public const string ManifestItemPropertySemanticAugmentationInputPackageDataVersionRequired = "manifest.itemPropertySemanticAugmentation.inputPackageDataVersion.required";
 
     public const string ItemBaseRequired = "itemBase.required";
     public const string ItemBaseIdRequired = "itemBase.id.required";

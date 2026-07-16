@@ -40,6 +40,7 @@ public static class GameDataPackageManifestValidator
         }
 
         ValidateReviewedItemPropertySemantics(manifest.ReviewedItemPropertySemantics, errors);
+        ValidateItemPropertySemanticAugmentation(manifest.ItemPropertySemanticAugmentation, errors);
 
         if (manifest.Sources is null || manifest.Sources.Count == 0)
         {
@@ -161,6 +162,66 @@ public static class GameDataPackageManifestValidator
     private static bool IsSha256(string? value)
     {
         return value is { Length: 64 } && value.All(Uri.IsHexDigit);
+    }
+
+    private static void ValidateItemPropertySemanticAugmentation(
+        GameDataPackageItemPropertySemanticAugmentation? augmentation,
+        List<GameDataValidationError> errors)
+    {
+        if (augmentation is null)
+        {
+            return;
+        }
+
+        const string path = "manifest.itemPropertySemanticAugmentation";
+        if (string.IsNullOrWhiteSpace(augmentation.OperationId))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationOperationIdRequired,
+                $"{path}.operationId",
+                "Item-property semantic augmentation OperationId is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(augmentation.InputPackageLabel))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageLabelRequired,
+                $"{path}.inputPackageLabel",
+                "Item-property semantic augmentation InputPackageLabel is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(augmentation.InputPackageDisplayPath) ||
+            Path.IsPathRooted(augmentation.InputPackageDisplayPath))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageDisplayPathRequired,
+                $"{path}.inputPackageDisplayPath",
+                "Item-property semantic augmentation InputPackageDisplayPath must be a non-rooted display path."));
+        }
+
+        if (augmentation.InputPackageSizeBytes <= 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageSizeInvalid,
+                $"{path}.inputPackageSizeBytes",
+                "Item-property semantic augmentation InputPackageSizeBytes must be greater than zero."));
+        }
+
+        if (!IsSha256(augmentation.InputPackageSha256))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageSha256Invalid,
+                $"{path}.inputPackageSha256",
+                "Item-property semantic augmentation InputPackageSha256 must contain 64 hexadecimal characters."));
+        }
+
+        if (string.IsNullOrWhiteSpace(augmentation.InputPackageDataVersion))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageDataVersionRequired,
+                $"{path}.inputPackageDataVersion",
+                "Item-property semantic augmentation InputPackageDataVersion is required."));
+        }
     }
 
     private static bool IsUtc(DateTimeOffset value)

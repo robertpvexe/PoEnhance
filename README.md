@@ -125,6 +125,18 @@ dotnet run --project .\PoEnhance.DataTool -- build-package `
   --data-version dev-001
 ```
 
+When a valid existing package must be bridged because its original RePoE exports are no longer available, `augment-package-semantics` can produce a separate candidate with the reviewed semantic dataset:
+
+```powershell
+dotnet run --project .\PoEnhance.DataTool\PoEnhance.DataTool.csproj -- augment-package-semantics `
+  --input-package .\artifacts\poenhance-game-data.json `
+  --item-property-semantics .\data\semantics\item-property-semantics.json `
+  --output .\artifacts\poenhance-game-data.candidate.json `
+  --data-version dev-milestone-3-semantics-weapon-dps-v1
+```
+
+The augmentation command never overwrites its input, and a failure preserves any previous candidate. Normal future league updates should continue to use the full source-guarded `build-package` pipeline.
+
 Generated packages are local artifacts and are not committed. Use local paths such as `artifacts/`, `local-data/`, or `data/repoe/` for generated packages and local source snapshots.
 
 The current active-fork package build imports 4,639 item bases, 38,800 modifiers, 22,774 stats, and 11,060 stat translations with zero validation errors. `Inscribed Ultimatum` and `Card Belt` are still not exact imported item-base names; `Engraved Ultimatum` remains the catalog base for the related Ultimatum map record.

@@ -14,5 +14,7 @@ public sealed record GameDataPackageManifest
 
     public GameDataPackageReviewedItemPropertySemanticInput? ReviewedItemPropertySemantics { get; init; }
 
+    public GameDataPackageItemPropertySemanticAugmentation? ItemPropertySemanticAugmentation { get; init; }
+
     public IReadOnlyList<GameDataPackageSource> Sources { get; init; } = [];
 }

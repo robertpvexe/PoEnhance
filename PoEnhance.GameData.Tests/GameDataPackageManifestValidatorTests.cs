@@ -112,4 +112,31 @@ public sealed class GameDataPackageManifestValidatorTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == GameDataValidationErrorCodes.ManifestSourceIdRequired);
     }
+
+    [Fact]
+    public void Validate_InvalidAugmentationProvenance_ReturnsUnderstandableErrors()
+    {
+        var manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest() with
+        {
+            ItemPropertySemanticAugmentation = new GameDataPackageItemPropertySemanticAugmentation
+            {
+                OperationId = " ",
+                InputPackageLabel = " ",
+                InputPackageDisplayPath = Path.GetFullPath("package.json"),
+                InputPackageSizeBytes = 0,
+                InputPackageSha256 = "not-a-hash",
+                InputPackageDataVersion = " ",
+            },
+        };
+
+        var result = GameDataPackageManifestValidator.Validate(manifest);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationOperationIdRequired);
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageSha256Invalid);
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.ManifestItemPropertySemanticAugmentationInputPackageDataVersionRequired);
+    }
 }

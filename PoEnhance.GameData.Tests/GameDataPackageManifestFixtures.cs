@@ -23,6 +23,15 @@ internal static class GameDataPackageManifestFixtures
                 SchemaVersion = 1,
                 ReviewVersion = "weapon-dps-v1",
             },
+            ItemPropertySemanticAugmentation = new GameDataPackageItemPropertySemanticAugmentation
+            {
+                OperationId = "augment-package-semantics",
+                InputPackageLabel = "input-package",
+                InputPackageDisplayPath = "poenhance-game-data.json",
+                InputPackageSizeBytes = 64_000_000,
+                InputPackageSha256 = "d3020e21620b72377673b7e2307f99ba0f6cae1000372d8dc2cdb6e88fe93740",
+                InputPackageDataVersion = "dev-2026-01-15-base",
+            },
             Sources =
             [
                 new GameDataPackageSource
