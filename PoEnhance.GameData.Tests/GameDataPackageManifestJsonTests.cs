@@ -16,6 +16,8 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Contains("\"sourceId\": \"repoe\"", json);
         Assert.Contains("\"sourceBranch\": \"master\"", json);
         Assert.Contains("\"inputFiles\": [", json);
+        Assert.Contains("\"reviewedItemPropertySemantics\": {", json);
+        Assert.Contains("\"reviewVersion\": \"weapon-dps-v1\"", json);
         Assert.Contains("\n", json);
         Assert.Contains("  \"sources\": [", json);
     }
@@ -34,6 +36,7 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Equal(manifest.CreatedAtUtc, roundTrippedManifest.CreatedAtUtc);
         Assert.Equal(manifest.League, roundTrippedManifest.League);
         Assert.Equal(manifest.Patch, roundTrippedManifest.Patch);
+        Assert.Equal(manifest.ReviewedItemPropertySemantics, roundTrippedManifest.ReviewedItemPropertySemantics);
         Assert.Equal(manifest.Sources.Count, roundTrippedManifest.Sources.Count);
     }
 
@@ -68,5 +71,46 @@ public sealed class GameDataPackageManifestJsonTests
         Assert.Equal(new DateTimeOffset(2026, 1, 15, 12, 10, 0, TimeSpan.Zero), poedb.RetrievedAtUtc);
         Assert.Equal("poedb-dev-snapshot", poedb.SourceVersion);
         Assert.Equal("https://poedb.tw", poedb.SourceUri);
+    }
+
+    [Fact]
+    public void Deserialize_OldManifestWithoutReviewedSemanticProvenance_RemainsCompatible()
+    {
+        const string json = """
+            {
+              "schemaVersion": 1,
+              "dataVersion": "old-package",
+              "createdAtUtc": "2026-01-15T12:00:00+00:00",
+              "sources": [
+                {
+                  "sourceId": "repoe",
+                  "retrievedAtUtc": "2026-01-15T12:05:00+00:00"
+                }
+              ]
+            }
+            """;
+
+        var manifest = GameDataPackageManifestJson.Deserialize(json);
+
+        Assert.NotNull(manifest);
+        Assert.Null(manifest.ReviewedItemPropertySemantics);
+        Assert.True(GameDataPackageManifestValidator.Validate(manifest).IsValid);
+    }
+
+    [Fact]
+    public void Serialize_ReviewedSemanticFingerprint_IsDeterministic()
+    {
+        var manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest();
+
+        var first = GameDataPackageManifestJson.Serialize(manifest);
+        var second = GameDataPackageManifestJson.Serialize(manifest);
+
+        Assert.Equal(first, second);
+        Assert.True(
+            first.IndexOf("\"label\"", StringComparison.Ordinal) <
+            first.IndexOf("\"displayPath\"", StringComparison.Ordinal));
+        Assert.True(
+            first.IndexOf("\"sizeBytes\"", StringComparison.Ordinal) <
+            first.IndexOf("\"sha256\"", StringComparison.Ordinal));
     }
 }

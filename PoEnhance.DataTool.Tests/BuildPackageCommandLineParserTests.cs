@@ -16,6 +16,8 @@ public sealed class BuildPackageCommandLineParserTests
             "stats.json",
             "--translations",
             "stat_translations.json",
+            "--item-property-semantics",
+            "reviewed-semantics.json",
             "--output",
             "package.json",
             "--source-root",
@@ -43,6 +45,7 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("mods.json", result.Request.ModsPath);
         Assert.Equal("stats.json", result.Request.StatsPath);
         Assert.Equal("stat_translations.json", result.Request.TranslationsPath);
+        Assert.Equal("reviewed-semantics.json", result.Request.ItemPropertySemanticsPath);
         Assert.Equal("package.json", result.Request.OutputPath);
         Assert.Equal("repoe", result.Request.SourceRootPath);
         Assert.Equal("repoe-data", result.Request.SourceDataRootPath);
@@ -53,6 +56,57 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("3.26.0", result.Request.Patch);
         Assert.Equal("repoe-commit", result.Request.SourceVersion);
         Assert.True(result.VerboseDiagnostics);
+    }
+
+    [Fact]
+    public void Parse_MissingItemPropertySemantics_ReturnsClearError()
+    {
+        var args = CreateValidArguments();
+        var optionIndex = args.IndexOf("--item-property-semantics");
+        args.RemoveRange(optionIndex, 2);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error =>
+            error.Contains("Missing required option '--item-property-semantics'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Parse_BlankItemPropertySemantics_ReturnsClearError()
+    {
+        var args = CreateValidArguments();
+        args[args.IndexOf("--item-property-semantics") + 1] = "   ";
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("--item-property-semantics", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Parse_ItemPropertySemanticsPath_IsForwardedExactlyForServiceValidation()
+    {
+        var args = CreateValidArguments();
+        const string suppliedPath = @"Z:\not-present\reviewed.json";
+        args[args.IndexOf("--item-property-semantics") + 1] = suppliedPath;
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(suppliedPath, result.Request!.ItemPropertySemanticsPath);
+    }
+
+    [Fact]
+    public void GetUsage_DocumentsRequiredItemPropertySemanticsOption()
+    {
+        var usage = BuildPackageCommandLineParser.GetUsage();
+
+        Assert.Contains("--item-property-semantics <path>", usage, StringComparison.Ordinal);
+        Assert.Contains(
+            @"--item-property-semantics .\data\semantics\item-property-semantics.json",
+            usage,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -156,5 +210,38 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Contains(result.Errors, error => error.Contains("--mods", StringComparison.Ordinal));
         Assert.Contains(result.Errors, error => error.Contains("--source-root", StringComparison.Ordinal));
         Assert.Contains(result.Errors, error => error.Contains("--data-version", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("--item-property-semantics", StringComparison.Ordinal));
+    }
+
+    private static List<string> CreateValidArguments()
+    {
+        return
+        [
+            "build-package",
+            "--base-items",
+            "base_items.json",
+            "--mods",
+            "mods.json",
+            "--stats",
+            "stats.json",
+            "--translations",
+            "stat_translations.json",
+            "--item-property-semantics",
+            "reviewed-semantics.json",
+            "--output",
+            "package.json",
+            "--source-root",
+            "repoe",
+            "--source-data-root",
+            "repoe-data",
+            "--source-uri",
+            "https://github.com/repoe-fork/repoe",
+            "--source-branch",
+            "master",
+            "--source-version",
+            "repoe-commit",
+            "--data-version",
+            "dev-001",
+        ];
     }
 }

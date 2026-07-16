@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using PoEnhance.GameData;
 
 namespace PoEnhance.DataImport.Tests;
@@ -27,8 +28,20 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
         Assert.Equal(6, result.FinalCounts.ItemBases);
         Assert.Equal(4, result.FinalCounts.Modifiers);
-        Assert.Equal(19, result.FinalCounts.Stats);
+        Assert.Equal(30, result.FinalCounts.Stats);
         Assert.Equal(6, result.FinalCounts.StatTranslations);
+        Assert.Equal(6, result.FinalCounts.ItemPropertySemantics);
+        Assert.Equal(6, result.Package.ItemPropertySemantics.Count);
+        Assert.Equal(
+            [
+                "weapon.physical-damage.increased-percent.local",
+                "weapon.physical-damage.added.local",
+                "weapon.fire-damage.added.local",
+                "weapon.cold-damage.added.local",
+                "weapon.lightning-damage.added.local",
+                "weapon.chaos-damage.added.local",
+            ],
+            result.Package.ItemPropertySemantics.Select(descriptor => descriptor.Id));
         Assert.Equal(new FileInfo(outputPath).Length, result.OutputFileSizeBytes);
         Assert.Equal(ComputeSha256(outputPath), result.Sha256);
     }
@@ -60,6 +73,16 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             Assert.False(string.IsNullOrWhiteSpace(input.Sha256));
             Assert.True(input.SizeBytes > 0);
         });
+        Assert.DoesNotContain(source.InputFiles, input => input.Label == "item-property-semantics.json");
+        var semanticInput = Assert.IsType<GameDataPackageReviewedItemPropertySemanticInput>(
+            package.Manifest.ReviewedItemPropertySemantics);
+        Assert.Equal("poenhance.item-property-semantics", semanticInput.SourceId);
+        Assert.Equal("item-property-semantics.json", semanticInput.Label);
+        Assert.Equal("item-property-semantics.json", semanticInput.DisplayPath);
+        Assert.Equal(new FileInfo(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath).Length, semanticInput.SizeBytes);
+        Assert.Equal(ComputeSha256(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath), semanticInput.Sha256);
+        Assert.Equal(1, semanticInput.SchemaVersion);
+        Assert.Equal("weapon-dps-v1", semanticInput.ReviewVersion);
         Assert.True(GameDataPackageValidator.Validate(package).IsValid);
     }
 
@@ -78,6 +101,38 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(File.ReadAllText(firstPath), File.ReadAllText(secondPath));
         Assert.Equal(first.Sha256, second.Sha256);
         Assert.Equal(ComputeSha256(firstPath), first.Sha256);
+        Assert.Equal(
+            first.Package!.ItemPropertySemantics.Select(descriptor => descriptor.Id),
+            second.Package!.ItemPropertySemantics.Select(descriptor => descriptor.Id));
+        Assert.Equal(
+            first.Package.ItemPropertySemantics.Select(descriptor => string.Join("\0", descriptor.OrderedStatIds)),
+            second.Package.ItemPropertySemantics.Select(descriptor => string.Join("\0", descriptor.OrderedStatIds)));
+        Assert.Equal(
+            first.Package.Manifest.ReviewedItemPropertySemantics,
+            second.Package.Manifest.ReviewedItemPropertySemantics);
+    }
+
+    [Fact]
+    public void Build_SemanticInputOutsideRePoeDataRoot_IsAcceptedAsSeparateReviewedInput()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var request = CreateWorkspaceRequest(workspace, workspace.PathFor("package.json"));
+        var semanticPath = workspace.WriteText(
+            Path.Combine("reviewed", "item-property-semantics.json"),
+            File.ReadAllText(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath));
+        request = request with { ItemPropertySemanticsPath = semanticPath };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.Success, result.ExitCode);
+        Assert.NotNull(result.Package);
+        Assert.Equal(6, result.Package.ItemPropertySemantics.Count);
+        Assert.DoesNotContain(
+            Assert.Single(result.Package.Manifest.Sources).InputFiles,
+            input => input.Label == "item-property-semantics.json");
+        Assert.Equal(
+            "poenhance.item-property-semantics",
+            result.Package.Manifest.ReviewedItemPropertySemantics?.SourceId);
     }
 
     [Fact]
@@ -97,6 +152,72 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Code == RePoeImportDiagnosticCodes.BuildInputFileMissing &&
             diagnostic.Severity == ImportDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Build_MissingSemanticArgument_ReturnsInvalidArgumentsAndPreservesOutput()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.WriteText("package.json", "existing valid package");
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            ItemPropertySemanticsPath = null,
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.InvalidArguments, result.ExitCode);
+        Assert.Equal("existing valid package", File.ReadAllText(outputPath));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.BuildArgumentInvalid &&
+            diagnostic.SourceRecordId == "--item-property-semantics");
+    }
+
+    [Fact]
+    public void Build_NonexistentSemanticFile_ReturnsMissingInputAndPreservesOutput()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.WriteText("package.json", "existing valid package");
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            ItemPropertySemanticsPath = workspace.PathFor("reviewed", "missing.json"),
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.MissingInputFile, result.ExitCode);
+        Assert.Equal("existing valid package", File.ReadAllText(outputPath));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.BuildInputFileMissing &&
+            diagnostic.SourceRecordId == "--item-property-semantics");
+    }
+
+    [Theory]
+    [InlineData("malformed", ItemPropertySemanticImportDiagnosticCodes.JsonMalformed)]
+    [InlineData("review-version-mismatch", ItemPropertySemanticImportDiagnosticCodes.ReviewVersionMismatch)]
+    [InlineData("unknown-stat", ItemPropertySemanticImportDiagnosticCodes.ValidationFailed)]
+    [InlineData("duplicate-vector", ItemPropertySemanticImportDiagnosticCodes.ValidationFailed)]
+    public void Build_InvalidSemanticInput_PreservesExistingOutput(
+        string invalidInput,
+        string expectedDiagnosticCode)
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.WriteText("package.json", "existing valid package");
+        var semanticJson = CreateInvalidSemanticJson(invalidInput);
+        var semanticPath = workspace.WriteText(
+            Path.Combine("reviewed", "item-property-semantics.json"),
+            semanticJson);
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            ItemPropertySemanticsPath = semanticPath,
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.SourceImportFailure, result.ExitCode);
+        Assert.Equal("existing valid package", File.ReadAllText(outputPath));
+        Assert.Empty(Directory.GetFiles(workspace.Root, "*.tmp", SearchOption.AllDirectories));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == expectedDiagnosticCode);
     }
 
     [Fact]
@@ -258,8 +379,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             result.SourceSummaries,
             itemBases => AssertSummary(itemBases, "ItemBases", 6, 6, 0),
             modifiers => AssertSummary(modifiers, "Modifiers", 4, 4, 0),
-            stats => AssertSummary(stats, "Stats", 19, 19, 0),
-            translations => AssertSummary(translations, "StatTranslations", 6, 6, 0));
+            stats => AssertSummary(stats, "Stats", 30, 30, 0),
+            translations => AssertSummary(translations, "StatTranslations", 6, 6, 0),
+            semantics => AssertSummary(semantics, "ItemPropertySemantics", 6, 6, 0));
     }
 
     [Fact]
@@ -290,6 +412,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             ModsPath = RePoeImportTestFixtures.ReducedModsPath,
             StatsPath = RePoeImportTestFixtures.ReducedStatsPath,
             TranslationsPath = RePoeImportTestFixtures.ReducedStatTranslationsPath,
+            ItemPropertySemanticsPath = RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath,
             OutputPath = outputPath,
             SourceRootPath = testSource.SourceRoot,
             SourceDataRootPath = testSource.DataRoot,
@@ -333,6 +456,32 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         var destinationPath = Path.Combine(dataRoot, fileName);
         File.Copy(sourcePath, destinationPath, overwrite: true);
         return destinationPath;
+    }
+
+    private static string CreateInvalidSemanticJson(string invalidInput)
+    {
+        if (invalidInput == "malformed")
+        {
+            return "{ not valid json";
+        }
+
+        var root = JsonNode.Parse(File.ReadAllText(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath))!;
+        switch (invalidInput)
+        {
+            case "review-version-mismatch":
+                root["reviewVersion"] = "other-review";
+                break;
+            case "unknown-stat":
+                root["descriptors"]![0]!["orderedStatIds"]![0] = "unknown_package_stat";
+                break;
+            case "duplicate-vector":
+                root["descriptors"]![1]!["orderedStatIds"] = new JsonArray("local_physical_damage_+%");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(invalidInput));
+        }
+
+        return root.ToJsonString();
     }
 
     private static TestSource CreateSharedTestSource()

@@ -10,6 +10,8 @@ public sealed record GameDataPackageBuildRequest
 
     public string? TranslationsPath { get; init; }
 
+    public string? ItemPropertySemanticsPath { get; init; }
+
     public string? OutputPath { get; init; }
 
     public string? SourceRootPath { get; init; }

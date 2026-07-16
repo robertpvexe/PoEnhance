@@ -39,6 +39,8 @@ public static class GameDataPackageManifestValidator
                 "CreatedAtUtc must be a UTC timestamp."));
         }
 
+        ValidateReviewedItemPropertySemantics(manifest.ReviewedItemPropertySemantics, errors);
+
         if (manifest.Sources is null || manifest.Sources.Count == 0)
         {
             errors.Add(Error(
@@ -87,6 +89,78 @@ public static class GameDataPackageManifestValidator
         }
 
         return new GameDataValidationResult(errors);
+    }
+
+    private static void ValidateReviewedItemPropertySemantics(
+        GameDataPackageReviewedItemPropertySemanticInput? input,
+        List<GameDataValidationError> errors)
+    {
+        if (input is null)
+        {
+            return;
+        }
+
+        const string path = "manifest.reviewedItemPropertySemantics";
+        if (string.IsNullOrWhiteSpace(input.SourceId))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsSourceIdRequired,
+                $"{path}.sourceId",
+                "Reviewed item-property semantic SourceId is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(input.Label))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsLabelRequired,
+                $"{path}.label",
+                "Reviewed item-property semantic Label is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(input.DisplayPath) || Path.IsPathRooted(input.DisplayPath))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsDisplayPathRequired,
+                $"{path}.displayPath",
+                "Reviewed item-property semantic DisplayPath must be a non-rooted display path."));
+        }
+
+        if (input.SizeBytes <= 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsSizeInvalid,
+                $"{path}.sizeBytes",
+                "Reviewed item-property semantic SizeBytes must be greater than zero."));
+        }
+
+        if (!IsSha256(input.Sha256))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsSha256Invalid,
+                $"{path}.sha256",
+                "Reviewed item-property semantic Sha256 must contain 64 hexadecimal characters."));
+        }
+
+        if (input.SchemaVersion < 1)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsSchemaVersionInvalid,
+                $"{path}.schemaVersion",
+                "Reviewed item-property semantic SchemaVersion must be 1 or greater."));
+        }
+
+        if (string.IsNullOrWhiteSpace(input.ReviewVersion))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ManifestReviewedItemPropertySemanticsReviewVersionRequired,
+                $"{path}.reviewVersion",
+                "Reviewed item-property semantic ReviewVersion is required."));
+        }
+    }
+
+    private static bool IsSha256(string? value)
+    {
+        return value is { Length: 64 } && value.All(Uri.IsHexDigit);
     }
 
     private static bool IsUtc(DateTimeOffset value)

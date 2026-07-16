@@ -13,6 +13,16 @@ internal static class GameDataPackageManifestFixtures
             CreatedAtUtc = new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero),
             League = "Mercenaries",
             Patch = "3.26.0",
+            ReviewedItemPropertySemantics = new GameDataPackageReviewedItemPropertySemanticInput
+            {
+                SourceId = "poenhance.item-property-semantics",
+                Label = "item-property-semantics.json",
+                DisplayPath = "data/semantics/item-property-semantics.json",
+                SizeBytes = 4_096,
+                Sha256 = "34662c1f373de8fe1b19efd500b97020985ff3c07044c941c837aa200a3f16d8",
+                SchemaVersion = 1,
+                ReviewVersion = "weapon-dps-v1",
+            },
             Sources =
             [
                 new GameDataPackageSource

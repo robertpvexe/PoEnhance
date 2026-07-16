@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using PoEnhance.GameData;
 
 namespace PoEnhance.DataImport;
@@ -9,11 +10,14 @@ public sealed class RePoeGameDataPackageBuildService
 {
     private const int CurrentSchemaVersion = 1;
     private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
+    private const string ReviewedSemanticSourceId = "poenhance.item-property-semantics";
+    private const string ReviewedSemanticInputLabel = "item-property-semantics.json";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
     private readonly RePoeModifierImporter _modifierImporter = new();
     private readonly RePoeStatsImporter _statsImporter = new();
     private readonly RePoeStatTranslationsImporter _translationImporter = new();
+    private readonly ReviewedItemPropertySemanticImporter _itemPropertySemanticImporter = new();
     private readonly GameDataPackageBuilder _packageBuilder = new();
 
     public GameDataPackageBuildResult Build(GameDataPackageBuildRequest request)
@@ -46,23 +50,35 @@ public sealed class RePoeGameDataPackageBuildService
             }
         }
 
+        if (!File.Exists(request.ItemPropertySemanticsPath!))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildInputFileMissing,
+                ImportDiagnosticSeverity.Error,
+                "--item-property-semantics",
+                "Required reviewed item-property semantic input file is missing."));
+        }
+
         if (HasErrors(diagnostics))
         {
             return Failure(GameDataPackageBuildExitCode.MissingInputFile, diagnostics);
         }
 
-        var createdAtUtc = NormalizeCreatedAtUtc(request.CreatedAtUtc ?? DateTimeOffset.UtcNow);
-        var manifest = CreateManifest(request, createdAtUtc, inputFiles);
-
         var baseItems = _baseItemImporter.Import(request.BaseItemsPath!);
         var modifiers = _modifierImporter.Import(request.ModsPath!);
         var stats = _statsImporter.Import(request.StatsPath!);
         var translations = _translationImporter.Import(request.TranslationsPath!, stats.ImportedRecords);
+        var semanticInputBytes = File.ReadAllBytes(request.ItemPropertySemanticsPath!);
+        using var semanticInputStream = new MemoryStream(semanticInputBytes, writable: false);
+        var itemPropertySemantics = _itemPropertySemanticImporter.Import(
+            semanticInputStream,
+            stats.ImportedRecords);
 
         diagnostics.AddRange(baseItems.Diagnostics);
         diagnostics.AddRange(modifiers.Diagnostics);
         diagnostics.AddRange(stats.Diagnostics);
         diagnostics.AddRange(translations.Diagnostics);
+        diagnostics.AddRange(itemPropertySemantics.Diagnostics);
 
         var summaries = new[]
         {
@@ -70,6 +86,7 @@ public sealed class RePoeGameDataPackageBuildService
             Summary("Modifiers", modifiers),
             Summary("Stats", stats),
             Summary("StatTranslations", translations),
+            Summary("ItemPropertySemantics", itemPropertySemantics),
         };
 
         if (HasErrors(diagnostics))
@@ -80,12 +97,19 @@ public sealed class RePoeGameDataPackageBuildService
                 summaries);
         }
 
+        var createdAtUtc = NormalizeCreatedAtUtc(request.CreatedAtUtc ?? DateTimeOffset.UtcNow);
+        var reviewedSemanticInput = CreateReviewedSemanticInput(
+            request.ItemPropertySemanticsPath!,
+            semanticInputBytes);
+        var manifest = CreateManifest(request, createdAtUtc, inputFiles, reviewedSemanticInput);
+
         var packageCreation = _packageBuilder.CreatePackage(
             manifest,
             baseItems.ImportedRecords,
             modifiers.ImportedRecords,
             stats.ImportedRecords,
-            translations.ImportedRecords);
+            translations.ImportedRecords,
+            itemPropertySemantics.ImportedRecords);
         diagnostics.AddRange(packageCreation.Diagnostics);
 
         if (packageCreation.Package is null || HasErrors(diagnostics))
@@ -141,6 +165,7 @@ public sealed class RePoeGameDataPackageBuildService
         AddRequiredArgumentDiagnostic(request.ModsPath, "--mods", diagnostics);
         AddRequiredArgumentDiagnostic(request.StatsPath, "--stats", diagnostics);
         AddRequiredArgumentDiagnostic(request.TranslationsPath, "--translations", diagnostics);
+        AddRequiredArgumentDiagnostic(request.ItemPropertySemanticsPath, "--item-property-semantics", diagnostics);
         AddRequiredArgumentDiagnostic(request.OutputPath, "--output", diagnostics);
         AddRequiredArgumentDiagnostic(request.SourceRootPath, "--source-root", diagnostics);
         AddRequiredArgumentDiagnostic(request.SourceDataRootPath, "--source-data-root", diagnostics);
@@ -188,7 +213,8 @@ public sealed class RePoeGameDataPackageBuildService
     private static GameDataPackageManifest CreateManifest(
         GameDataPackageBuildRequest request,
         DateTimeOffset createdAtUtc,
-        IReadOnlyList<(string Label, string Path)> inputFiles)
+        IReadOnlyList<(string Label, string Path)> inputFiles,
+        GameDataPackageReviewedItemPropertySemanticInput reviewedSemanticInput)
     {
         return new GameDataPackageManifest
         {
@@ -197,6 +223,7 @@ public sealed class RePoeGameDataPackageBuildService
             CreatedAtUtc = createdAtUtc,
             League = TrimToNull(request.League),
             Patch = TrimToNull(request.Patch),
+            ReviewedItemPropertySemantics = reviewedSemanticInput,
             Sources =
             [
                 new GameDataPackageSource
@@ -211,6 +238,24 @@ public sealed class RePoeGameDataPackageBuildService
                     InputFiles = CreateInputFingerprints(request.SourceDataRootPath!, inputFiles),
                 },
             ],
+        };
+    }
+
+    private static GameDataPackageReviewedItemPropertySemanticInput CreateReviewedSemanticInput(
+        string inputPath,
+        byte[] inputBytes)
+    {
+        using var document = JsonDocument.Parse(inputBytes);
+        var root = document.RootElement;
+        return new GameDataPackageReviewedItemPropertySemanticInput
+        {
+            SourceId = ReviewedSemanticSourceId,
+            Label = ReviewedSemanticInputLabel,
+            DisplayPath = Path.GetFileName(Path.GetFullPath(inputPath)),
+            SizeBytes = inputBytes.LongLength,
+            Sha256 = ComputeSha256(inputBytes),
+            SchemaVersion = root.GetProperty("schemaVersion").GetInt32(),
+            ReviewVersion = root.GetProperty("reviewVersion").GetString(),
         };
     }
 
@@ -432,6 +477,7 @@ public sealed class RePoeGameDataPackageBuildService
             Modifiers = package?.Modifiers?.Count ?? 0,
             Stats = package?.Stats?.Count ?? 0,
             StatTranslations = package?.StatTranslations?.Count ?? 0,
+            ItemPropertySemantics = package?.ItemPropertySemantics?.Count ?? 0,
         };
     }
 
@@ -493,6 +539,12 @@ public sealed class RePoeGameDataPackageBuildService
     {
         using var stream = File.OpenRead(filePath);
         var hash = SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeSha256(byte[] bytes)
+    {
+        var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 

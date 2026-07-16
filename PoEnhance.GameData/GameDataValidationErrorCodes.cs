@@ -18,6 +18,13 @@ public static class GameDataValidationErrorCodes
     public const string ManifestSourceIdRequired = "manifest.source.sourceId.required";
     public const string ManifestSourceIdDuplicate = "manifest.source.sourceId.duplicate";
     public const string ManifestSourceRetrievedAtUtcNotUtc = "manifest.source.retrievedAtUtc.notUtc";
+    public const string ManifestReviewedItemPropertySemanticsSourceIdRequired = "manifest.reviewedItemPropertySemantics.sourceId.required";
+    public const string ManifestReviewedItemPropertySemanticsLabelRequired = "manifest.reviewedItemPropertySemantics.label.required";
+    public const string ManifestReviewedItemPropertySemanticsDisplayPathRequired = "manifest.reviewedItemPropertySemantics.displayPath.required";
+    public const string ManifestReviewedItemPropertySemanticsSizeInvalid = "manifest.reviewedItemPropertySemantics.sizeBytes.invalid";
+    public const string ManifestReviewedItemPropertySemanticsSha256Invalid = "manifest.reviewedItemPropertySemantics.sha256.invalid";
+    public const string ManifestReviewedItemPropertySemanticsSchemaVersionInvalid = "manifest.reviewedItemPropertySemantics.schemaVersion.invalid";
+    public const string ManifestReviewedItemPropertySemanticsReviewVersionRequired = "manifest.reviewedItemPropertySemantics.reviewVersion.required";
 
     public const string ItemBaseRequired = "itemBase.required";
     public const string ItemBaseIdRequired = "itemBase.id.required";

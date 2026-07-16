@@ -60,6 +60,7 @@ public static class BuildPackageReportPrinter
         writer.WriteLine($"  Modifiers: {result.FinalCounts.Modifiers}");
         writer.WriteLine($"  Stats: {result.FinalCounts.Stats}");
         writer.WriteLine($"  StatTranslations: {result.FinalCounts.StatTranslations}");
+        writer.WriteLine($"  ItemPropertySemantics: {result.FinalCounts.ItemPropertySemantics}");
 
         if (!string.IsNullOrWhiteSpace(result.OutputPath))
         {

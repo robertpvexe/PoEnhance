@@ -14,6 +14,7 @@ public sealed class GameDataPackageBuilder
             modifiers: [],
             stats: [],
             statTranslations: [],
+            itemPropertySemantics: [],
             requireCompleteStatReferences: false);
     }
 
@@ -30,6 +31,25 @@ public sealed class GameDataPackageBuilder
             modifiers,
             stats,
             statTranslations,
+            itemPropertySemantics: [],
+            requireCompleteStatReferences: true);
+    }
+
+    public GameDataPackageCreationResult CreatePackage(
+        GameDataPackageManifest manifest,
+        IEnumerable<ItemBaseRecord> itemBases,
+        IEnumerable<ModifierDefinition> modifiers,
+        IEnumerable<StatDefinition> stats,
+        IEnumerable<StatTranslationDefinition> statTranslations,
+        IEnumerable<ItemPropertySemanticDescriptor> itemPropertySemantics)
+    {
+        return CreatePackage(
+            manifest,
+            itemBases,
+            modifiers,
+            stats,
+            statTranslations,
+            itemPropertySemantics,
             requireCompleteStatReferences: true);
     }
 
@@ -39,6 +59,7 @@ public sealed class GameDataPackageBuilder
         IEnumerable<ModifierDefinition> modifiers,
         IEnumerable<StatDefinition> stats,
         IEnumerable<StatTranslationDefinition> statTranslations,
+        IEnumerable<ItemPropertySemanticDescriptor> itemPropertySemantics,
         bool requireCompleteStatReferences)
     {
         var diagnostics = new List<ImportDiagnostic>();
@@ -86,6 +107,7 @@ public sealed class GameDataPackageBuilder
             Modifiers = modifierRecords,
             Stats = stats.ToArray(),
             StatTranslations = statTranslations.ToArray(),
+            ItemPropertySemantics = itemPropertySemantics.ToArray(),
         };
 
         if (requireCompleteStatReferences)

@@ -12,5 +12,7 @@ public sealed record GameDataPackageManifest
 
     public string? Patch { get; init; }
 
+    public GameDataPackageReviewedItemPropertySemanticInput? ReviewedItemPropertySemantics { get; init; }
+
     public IReadOnlyList<GameDataPackageSource> Sources { get; init; } = [];
 }

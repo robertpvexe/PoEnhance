@@ -99,5 +99,60 @@
     "alias": {},
     "is_aliased": false,
     "is_local": true
+  },
+  "local_physical_damage_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_minimum_added_physical_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_maximum_added_physical_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_minimum_added_fire_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_maximum_added_fire_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_minimum_added_cold_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_maximum_added_cold_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_minimum_added_lightning_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_maximum_added_lightning_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_minimum_added_chaos_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_maximum_added_chaos_damage": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
   }
 }

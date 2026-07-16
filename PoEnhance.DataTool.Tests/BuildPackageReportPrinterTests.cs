@@ -93,6 +93,21 @@ public sealed class BuildPackageReportPrinterTests
         Assert.DoesNotContain("INFO_A", output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Print_ReportsItemPropertySemanticCount()
+    {
+        var output = Print(new GameDataPackageBuildResult
+        {
+            ExitCode = GameDataPackageBuildExitCode.Success,
+            FinalCounts = new GameDataPackageBuildRecordCounts
+            {
+                ItemPropertySemantics = 6,
+            },
+        });
+
+        Assert.Contains("  ItemPropertySemantics: 6", output, StringComparison.Ordinal);
+    }
+
     private static string Print(GameDataPackageBuildResult result, bool verboseDiagnostics = false)
     {
         using var writer = new StringWriter();

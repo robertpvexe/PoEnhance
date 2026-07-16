@@ -9,4 +9,6 @@ public sealed record GameDataPackageBuildRecordCounts
     public int Stats { get; init; }
 
     public int StatTranslations { get; init; }
+
+    public int ItemPropertySemantics { get; init; }
 }

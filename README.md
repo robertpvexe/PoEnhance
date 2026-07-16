@@ -107,12 +107,15 @@ dotnet test
 
 Package builds are source-guarded. The command must declare the git checkout root, exported data root, repository URI, branch, and exact source SHA. The build fails before writing output if the local git checkout does not match those values or if any input JSON file is outside the declared data root. The package manifest records the source identity plus SHA-256 fingerprints for the four input files.
 
+The item-property semantic file is a reviewed, source-controlled PoEnhance input that supplies structural meaning RePoE does not expose. It is imported separately from the guarded RePoE exports and fingerprinted with its schema and review versions in package provenance. Any import or validation failure leaves the last valid output package unchanged.
+
 ```powershell
 dotnet run --project .\PoEnhance.DataTool -- build-package `
   --base-items .\artifacts\source-audit\active-poe1\base_items.json `
   --mods .\artifacts\source-audit\active-poe1\mods.json `
   --stats .\artifacts\source-audit\active-poe1\stats.json `
   --translations .\artifacts\source-audit\active-poe1\stat_translations.json `
+  --item-property-semantics .\data\semantics\item-property-semantics.json `
   --output .\artifacts\poenhance-game-data.json `
   --source-root .\artifacts\source-audit\repoe-fork `
   --source-data-root .\artifacts\source-audit\active-poe1 `
@@ -307,6 +310,7 @@ dotnet run --project .\PoEnhance.DataTool -- build-package `
   --mods .\artifacts\source-audit\active-poe1\mods.json `
   --stats .\artifacts\source-audit\active-poe1\stats.json `
   --translations .\artifacts\source-audit\active-poe1\stat_translations.json `
+  --item-property-semantics .\data\semantics\item-property-semantics.json `
   --output .\artifacts\poenhance-game-data.json `
   --source-root .\artifacts\source-audit\repoe-fork `
   --source-data-root .\artifacts\source-audit\active-poe1 `

@@ -14,8 +14,8 @@ public sealed class RePoeStatsImporterTests
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
-        Assert.Equal(19, result.SourceRecordsRead);
-        Assert.Equal(19, result.RecordsImported);
+        Assert.Equal(30, result.SourceRecordsRead);
+        Assert.Equal(30, result.RecordsImported);
         Assert.Equal(0, result.RecordsSkipped);
         Assert.Equal(
             result.ImportedRecords.OrderBy(stat => stat.Id, StringComparer.Ordinal).Select(stat => stat.Id),
