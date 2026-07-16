@@ -870,7 +870,7 @@ Adds 2 to 28(25-29) Lightning Damage
             EldritchInfluences: [],
             IsCorrupted: false,
             ItemLevel: null,
-            PropertyLines: [],
+            Properties: [],
             Modifiers: [],
             ImplicitModifiers: [],
             PrefixModifiers: [],

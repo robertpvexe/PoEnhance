@@ -15,19 +15,14 @@ public sealed record PriceCheckerItemPresentation
     {
         ArgumentNullException.ThrowIfNull(parsedItem);
 
-        var socketText = parsedItem.PropertyLines
-            .Select(line => line?.Trim())
-            .FirstOrDefault(line => line?.StartsWith("Sockets:", StringComparison.OrdinalIgnoreCase) == true);
-        if (string.IsNullOrWhiteSpace(socketText))
+        var socketProperty = parsedItem.Properties.FirstOrDefault(property =>
+            string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal));
+        if (socketProperty is null || string.IsNullOrWhiteSpace(socketProperty.RawValueText))
         {
             return new PriceCheckerItemPresentation();
         }
 
-        var socketValue = socketText["Sockets:".Length..].Trim();
-        if (socketValue.Length == 0)
-        {
-            return new PriceCheckerItemPresentation();
-        }
+        var socketValue = socketProperty.RawValueText;
 
         var largestLink = socketValue
             .Split(' ', StringSplitOptions.RemoveEmptyEntries)

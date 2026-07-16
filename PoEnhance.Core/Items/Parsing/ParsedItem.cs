@@ -15,7 +15,7 @@ public sealed record ParsedItem(
     IReadOnlyList<string> EldritchInfluences,
     bool IsCorrupted,
     int? ItemLevel,
-    IReadOnlyList<string> PropertyLines,
+    IReadOnlyList<ParsedItemProperty> Properties,
     IReadOnlyList<ParsedModifier> Modifiers,
     IReadOnlyList<ParsedModifier> ImplicitModifiers,
     IReadOnlyList<ParsedModifier> PrefixModifiers,
@@ -29,4 +29,8 @@ public sealed record ParsedItem(
     IReadOnlyList<string> UnclassifiedLines)
 {
     public string? DisplayName => string.IsNullOrWhiteSpace(Name) ? BaseType : Name;
+
+    public IReadOnlyList<string> PropertyLines { get; } = Properties
+        .Select(property => property.OriginalText)
+        .ToArray();
 }

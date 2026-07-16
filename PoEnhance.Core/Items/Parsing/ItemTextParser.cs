@@ -1,6 +1,9 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace PoEnhance.Core.Items.Parsing;
 
-public sealed class ItemTextParser
+public sealed partial class ItemTextParser
 {
     private const string ItemClassPrefix = "Item Class:";
     private const string RarityPrefix = "Rarity:";
@@ -93,7 +96,7 @@ public sealed class ItemTextParser
             classifiedLines,
             rarity,
             hasAdvancedModifierMetadata);
-        var propertyLines = new List<string>();
+        var properties = new List<ParsedItemProperty>();
         var enchantments = new List<ParsedEnchantment>();
         var modifiers = new List<ParsedModifier>();
         var uniqueModifiers = new List<ParsedModifier>();
@@ -170,7 +173,7 @@ public sealed class ItemTextParser
                 }
                 else if (pendingAdvancedModifier is null && IsPropertyLine(line, isModifierSection, isFlask))
                 {
-                    propertyLines.Add(line);
+                    properties.Add(CreateItemProperty(line, properties.Count));
                 }
                 else if (pendingAdvancedModifier is null && IsDescriptionLine(line))
                 {
@@ -238,7 +241,7 @@ public sealed class ItemTextParser
             eldritchInfluences,
             itemStates.Contains("Corrupted", StringComparer.OrdinalIgnoreCase),
             itemLevel,
-            propertyLines,
+            properties.ToArray(),
             modifiers,
             implicitModifiers,
             prefixModifiers,
@@ -802,6 +805,98 @@ public sealed class ItemTextParser
         return isFlask && IsFlaskPropertyLine(line);
     }
 
+    private static ParsedItemProperty CreateItemProperty(string line, int sourceIndex)
+    {
+        var colonIndex = line.IndexOf(':');
+        var name = colonIndex < 0
+            ? line
+            : line[..colonIndex].Trim();
+        var rawValueText = colonIndex < 0
+            ? string.Empty
+            : line[(colonIndex + 1)..].Trim();
+
+        return new ParsedItemProperty(
+            line,
+            name,
+            rawValueText,
+            NormalizePropertyName(name),
+            sourceIndex,
+            ParseNumericPropertyGroups(rawValueText));
+    }
+
+    private static string NormalizePropertyName(string name)
+    {
+        return string.Join(
+                ' ',
+                name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .ToLowerInvariant();
+    }
+
+    private static IReadOnlyList<ParsedItemPropertyNumericGroup> ParseNumericPropertyGroups(
+        string rawValueText)
+    {
+        if (string.IsNullOrWhiteSpace(rawValueText))
+        {
+            return [];
+        }
+
+        var segments = rawValueText.Split(',');
+        var groups = new List<ParsedItemPropertyNumericGroup>(segments.Length);
+        foreach (var rawSegment in segments)
+        {
+            var segment = rawSegment.Trim();
+            var match = NumericPropertyGroupPattern().Match(segment);
+            if (!match.Success)
+            {
+                return [];
+            }
+
+            var isPercentage = match.Groups["percentage"].Success;
+            var isAugmented = match.Groups["augmented"].Success;
+            if (match.Groups["scalar"].Success)
+            {
+                if (!TryParsePropertyNumber(match.Groups["scalar"].Value, out var scalar))
+                {
+                    return [];
+                }
+
+                groups.Add(new ParsedItemPropertyNumericGroup(
+                    segment,
+                    scalar,
+                    MinimumValue: null,
+                    MaximumValue: null,
+                    isPercentage,
+                    isAugmented));
+                continue;
+            }
+
+            if (!TryParsePropertyNumber(match.Groups["minimum"].Value, out var minimum) ||
+                !TryParsePropertyNumber(match.Groups["maximum"].Value, out var maximum))
+            {
+                return [];
+            }
+
+            groups.Add(new ParsedItemPropertyNumericGroup(
+                segment,
+                ScalarValue: null,
+                minimum,
+                maximum,
+                isPercentage,
+                isAugmented));
+        }
+
+        return groups.ToArray();
+    }
+
+    private static bool TryParsePropertyNumber(string value, out decimal number)
+    {
+        return decimal.TryParse(
+            value,
+            NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+            CultureInfo.InvariantCulture,
+            out number);
+    }
+
     private static bool IsFlaskPropertyLine(string line)
     {
         return line.StartsWith("Recovers ", StringComparison.OrdinalIgnoreCase) && line.Contains(" over ", StringComparison.OrdinalIgnoreCase)
@@ -1114,4 +1209,9 @@ public sealed class ItemTextParser
     }
 
     private readonly record struct LineLocation(int SectionIndex, int LineIndex);
+
+    [GeneratedRegex(
+        @"^(?:(?<minimum>[+-]?\d+(?:\.\d+)?)\s*-\s*(?<maximum>[+-]?\d+(?:\.\d+)?)|(?<scalar>[+-]?\d+(?:\.\d+)?))(?<percentage>%)?(?:\s+(?<augmented>\(augmented\)))?$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex NumericPropertyGroupPattern();
 }
