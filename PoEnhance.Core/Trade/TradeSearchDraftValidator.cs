@@ -20,9 +20,35 @@ public sealed class TradeSearchDraftValidator
         ValidateBaseIdentity(draft, diagnostics);
         ValidateItemLevel(draft, diagnostics);
         ValidateUnsupportedSpecialFacts(draft, diagnostics);
+        ValidateItemProperties(draft, diagnostics);
         ValidateModifierFilters(draft, diagnostics);
 
         return TradeSearchValidationResult.FromDiagnostics(diagnostics);
+    }
+
+    private static void ValidateItemProperties(
+        TradeSearchDraft draft,
+        List<TradeSearchValidationDiagnostic> diagnostics)
+    {
+        for (var index = 0; index < draft.ItemProperties.Length; index++)
+        {
+            var property = draft.ItemProperties[index];
+            if (!property.IsSelected)
+            {
+                continue;
+            }
+
+            if (property.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact ||
+                !property.IsSearchable)
+            {
+                diagnostics.Add(new TradeSearchValidationDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnresolved,
+                    TradeSearchValidationSeverity.Error,
+                    $"Selected item property '{property.Label}' cannot be searched: " +
+                        (property.NotSearchableReason ?? "no exact provider mapping is available."),
+                    ItemPropertyIndex: index));
+            }
+        }
     }
 
     private static void ValidateBaseIdentity(

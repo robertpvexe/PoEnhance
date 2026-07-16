@@ -176,6 +176,40 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
+    public void Validate_UnselectedUnresolvedItemPropertyDoesNotInvalidateSearch()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties = [UnresolvedItemProperty()],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Validate_SelectedUnresolvedItemPropertyIsRejectedLocally()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties = [UnresolvedItemProperty() with { IsSelected = true }],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnresolved,
+            TradeSearchValidationSeverity.Error,
+            itemPropertyIndex: 0);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Message.Contains("Total DPS", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Validate_SelectedContributorFloor_AllowsExactAdditiveMinimum()
     {
         var draft = ValidDraft(modifiers: [ContributorParent(146m, firstSelected: true, secondSelected: true)]);
@@ -632,6 +666,20 @@ Item Level: 82
         };
     }
 
+    private static TradeSearchItemProperty UnresolvedItemProperty()
+    {
+        return new TradeSearchItemProperty
+        {
+            Kind = TradeSearchItemPropertyKind.TotalDps,
+            Label = "Total DPS",
+            ObservedValue = 141m,
+            RequestedMinimum = 141m,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            IsSearchable = false,
+            NotSearchableReason = "Provider mapping for derived item properties is not available.",
+        };
+    }
+
     private static ResolvedSearchComponent UnknownModifier()
     {
         return new ResolvedSearchComponent
@@ -707,12 +755,14 @@ Item Level: 82
         TradeSearchValidationResult result,
         string code,
         TradeSearchValidationSeverity severity,
-        int? modifierFilterIndex = null)
+        int? modifierFilterIndex = null,
+        int? itemPropertyIndex = null)
     {
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Code == code &&
             diagnostic.Severity == severity &&
-            diagnostic.ModifierFilterIndex == modifierFilterIndex);
+            diagnostic.ModifierFilterIndex == modifierFilterIndex &&
+            diagnostic.ItemPropertyIndex == itemPropertyIndex);
     }
 
     private static string DiagnosticSignature(TradeSearchValidationDiagnostic diagnostic)

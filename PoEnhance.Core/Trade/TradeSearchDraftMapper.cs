@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using PoEnhance.Core.Items.Derived;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.GameData;
@@ -23,6 +25,7 @@ public sealed class TradeSearchDraftMapper
             return Unsupported("The parsed item does not contain enough identity fields for an individual-item Trade search draft.");
         }
 
+        var derivedWeaponProperties = new DerivedWeaponPropertyCalculator().Calculate(parsedItem);
         var modifierResolutionByIndex = BuildModifierResolutionIndex(parsedItem, modifierResolutions ?? []);
         var aggregation = CanonicalModifierEffectAggregator.Aggregate(
             CreateSearchComponents(
@@ -43,12 +46,115 @@ public sealed class TradeSearchDraftMapper
             ItemLevel = parsedItem.ItemLevel,
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
+            ItemProperties = CreateItemProperties(derivedWeaponProperties),
+            ItemPropertyDiagnostics = derivedWeaponProperties.Diagnostics
+                .Select(diagnostic => new TradeSearchItemPropertyDiagnostic(
+                    diagnostic.Code,
+                    diagnostic.Reason,
+                    diagnostic.SourceProperty))
+                .ToImmutableArray(),
             ModifierFilters = aggregation.Components,
             ModifierAggregationDiagnostics = aggregation.Diagnostics,
             ListingMode = listingMode,
         };
 
         return TradeSearchDraftResult.Success(draft);
+    }
+
+    private static ImmutableArray<TradeSearchItemProperty> CreateItemProperties(
+        DerivedWeaponProperties derived)
+    {
+        if (derived.Status != DerivedWeaponPropertyStatus.Success)
+        {
+            return [];
+        }
+
+        var properties = ImmutableArray.CreateBuilder<TradeSearchItemProperty>();
+        if (derived.TotalDps.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.TotalDps,
+                "Total DPS",
+                derived.TotalDps.Value,
+                derived.PhysicalDamage?.SourceProperty,
+                derived.ElementalDamage?.SourceProperty,
+                derived.ChaosDamage?.SourceProperty,
+                derived.AttacksPerSecondSourceProperty));
+        }
+
+        if (derived.PhysicalDps.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.PhysicalDps,
+                "Physical DPS",
+                derived.PhysicalDps.Value,
+                derived.PhysicalDamage?.SourceProperty,
+                derived.AttacksPerSecondSourceProperty));
+        }
+
+        if (derived.ElementalDps.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.ElementalDps,
+                "Elemental DPS",
+                derived.ElementalDps.Value,
+                derived.ElementalDamage?.SourceProperty,
+                derived.AttacksPerSecondSourceProperty));
+        }
+
+        if (derived.ChaosDps.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.ChaosDps,
+                "Chaos DPS",
+                derived.ChaosDps.Value,
+                derived.ChaosDamage?.SourceProperty,
+                derived.AttacksPerSecondSourceProperty));
+        }
+
+        if (derived.AttacksPerSecond.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.AttacksPerSecond,
+                "Attacks per Second",
+                derived.AttacksPerSecond.Value,
+                derived.AttacksPerSecondSourceProperty));
+        }
+
+        if (derived.CriticalStrikeChance.HasValue)
+        {
+            properties.Add(CreateItemProperty(
+                TradeSearchItemPropertyKind.CriticalStrikeChance,
+                "Critical Strike Chance",
+                derived.CriticalStrikeChance.Value,
+                derived.CriticalStrikeChanceSourceProperty));
+        }
+
+        return properties.ToImmutable();
+    }
+
+    private static TradeSearchItemProperty CreateItemProperty(
+        TradeSearchItemPropertyKind kind,
+        string label,
+        decimal value,
+        params ParsedItemProperty?[] sourceProperties)
+    {
+        return new TradeSearchItemProperty
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = value,
+            RequestedMinimum = value,
+            RequestedMaximum = null,
+            IsSelected = false,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            IsSearchable = false,
+            NotSearchableReason = "Provider mapping for derived item properties is not available.",
+            SourceProperties = sourceProperties
+                .Where(property => property is not null)
+                .Cast<ParsedItemProperty>()
+                .ToImmutableArray(),
+        };
     }
 
     private static TradeSearchDraftResult Unsupported(string message)

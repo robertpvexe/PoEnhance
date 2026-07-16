@@ -10,6 +10,9 @@ public static class TradeSearchValidationDiagnosticCodes
 
     public const string NegativeItemLevel = "TRADE_VALIDATION_NEGATIVE_ITEM_LEVEL";
 
+    public const string SelectedItemPropertyUnresolved =
+        "TRADE_VALIDATION_SELECTED_ITEM_PROPERTY_UNRESOLVED";
+
     public const string SelectedModifierMissingText = "TRADE_VALIDATION_SELECTED_MODIFIER_MISSING_TEXT";
 
     public const string SelectedModifierUnresolved = "TRADE_VALIDATION_SELECTED_MODIFIER_UNRESOLVED";

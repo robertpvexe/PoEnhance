@@ -4,4 +4,5 @@ public sealed record TradeSearchValidationDiagnostic(
     string Code,
     TradeSearchValidationSeverity Severity,
     string Message,
-    int? ModifierFilterIndex = null);
+    int? ModifierFilterIndex = null,
+    int? ItemPropertyIndex = null);
