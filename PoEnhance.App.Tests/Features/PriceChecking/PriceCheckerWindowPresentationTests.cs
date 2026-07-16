@@ -199,7 +199,7 @@ Item Level: 82
     }
 
     [Fact]
-    public void WindowXaml_RendersOneFlatIndentedContributorLevelInTheParentColumns()
+    public void WindowXaml_IndentsContributorIdentityAreaWhileKeepingParentColumns()
     {
         var xaml = LoadWindowXaml();
         var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
@@ -210,7 +210,7 @@ Item Level: 82
         var parentRow = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
         var contributorRow = ExtractElement(
             contributors,
-            "<Grid Margin=\"24,1,6,3\"",
+            "<Grid Margin=\"48,1,6,3\"",
             "</Grid>");
 
         Assert.Contains("Click=\"OnModifierExpansionClick\"", modifiers);
@@ -218,6 +218,7 @@ Item Level: 82
             parentRow.IndexOf("<Button Grid.Column=\"0\"", StringComparison.Ordinal) <
             parentRow.IndexOf("<CheckBox Grid.Column=\"1\"", StringComparison.Ordinal));
         Assert.Contains("<ColumnDefinition Width=\"24\"", parentRow);
+        Assert.Contains("Margin=\"48,1,6,3\"", contributorRow);
         Assert.Contains("Binding=\"{Binding HasContributors}\"", parentRow);
         Assert.Contains("Binding=\"{Binding IsExpanded}\"", contributors);
         Assert.Contains("Value=\"Collapsed\"", contributors);

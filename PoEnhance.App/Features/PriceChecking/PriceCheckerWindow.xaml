@@ -922,7 +922,7 @@
                                 </ItemsControl.Style>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Margin="24,1,6,3"
+                                        <Grid Margin="48,1,6,3"
                                               Background="#151515"
                                               IsHitTestVisible="{Binding IsInteractionEnabled}"
                                               Tag="ModifierContributorRow"
