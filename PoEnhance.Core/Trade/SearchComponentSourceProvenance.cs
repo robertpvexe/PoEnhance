@@ -24,9 +24,17 @@ public sealed record SearchComponentSourceProvenance
 
     public ModifierLocality Locality { get; init; } = ModifierLocality.Unknown;
 
+    public ModifierStatMappingProofStatus StatMappingProof { get; init; }
+
+    public ItemPropertySemanticDescriptor? ReviewedItemPropertySemantic { get; init; }
+
     public string? ParsedModifierName { get; init; }
 
     public string? CategoryText { get; init; }
+
+    public int? Tier { get; init; }
+
+    public int? Rank { get; init; }
 
     public string ProviderDomain { get; init; } = string.Empty;
 

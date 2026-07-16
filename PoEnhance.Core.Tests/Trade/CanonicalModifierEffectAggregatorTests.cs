@@ -67,12 +67,18 @@ public sealed class CanonicalModifierEffectAggregatorTests
     [Fact]
     public void Aggregate_ExplicitAndCraftedContributorsShareCanonicalTotalAndRetainDomains()
     {
+        var semantic = Semantic("weapon.physical-damage.increased-percent.local");
         var explicitComponent = Scalar(
             "modifier:0:0",
             0,
             "30% increased Physical Damage",
             30m,
-            "explicit-hybrid");
+            "explicit-hybrid") with
+        {
+            Tier = 3,
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ReviewedItemPropertySemantic = semantic,
+        };
         var craftedComponent = Scalar(
             "modifier:1:0",
             1,
@@ -81,6 +87,9 @@ public sealed class CanonicalModifierEffectAggregatorTests
             "crafted-physical") with
         {
             IsCrafted = true,
+            Rank = 4,
+            StatMappingProof = ModifierStatMappingProofStatus.WholeVector,
+            ReviewedItemPropertySemantic = semantic,
         };
 
         var result = CanonicalModifierEffectAggregator.Aggregate([explicitComponent, craftedComponent]);
@@ -91,6 +100,16 @@ public sealed class CanonicalModifierEffectAggregatorTests
         Assert.Equal(146m, aggregate.RequestedMinimum);
         Assert.Equal([30m, 116m], aggregate.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
         Assert.Equal(["Explicit", "Crafted"], aggregate.Sources.Select(source => source.ProviderDomain));
+        Assert.Same(semantic, aggregate.ReviewedItemPropertySemantic);
+        Assert.Equal(ModifierStatMappingProofStatus.Unknown, aggregate.StatMappingProof);
+        Assert.Null(aggregate.Tier);
+        Assert.Null(aggregate.Rank);
+        Assert.Equal([3, null], aggregate.Sources.Select(source => source.Tier));
+        Assert.Equal([null, 4], aggregate.Sources.Select(source => source.Rank));
+        Assert.All(aggregate.Sources, source => Assert.Same(semantic, source.ReviewedItemPropertySemantic));
+        Assert.Equal(
+            [ModifierStatMappingProofStatus.ProvenExact, ModifierStatMappingProofStatus.WholeVector],
+            aggregate.Sources.Select(source => source.StatMappingProof));
         Assert.Equal(SearchComponentContributorProjection.Additive, aggregate.ContributorProjection);
         Assert.Collection(
             aggregate.Contributors,
@@ -99,6 +118,9 @@ public sealed class CanonicalModifierEffectAggregatorTests
                 Assert.False(contributor.IsSelected);
                 Assert.Equal("30% increased Physical Damage", contributor.DisplayText);
                 Assert.Equal("Explicit", contributor.Source.ProviderDomain);
+                Assert.Equal(3, contributor.Source.Tier);
+                Assert.Null(contributor.Source.Rank);
+                Assert.Same(semantic, contributor.Source.ReviewedItemPropertySemantic);
                 Assert.Equal(30m, contributor.RequestedMinimum);
                 Assert.Null(contributor.RequestedMaximum);
             },
@@ -107,10 +129,78 @@ public sealed class CanonicalModifierEffectAggregatorTests
                 Assert.False(contributor.IsSelected);
                 Assert.Equal("116% increased Physical Damage", contributor.DisplayText);
                 Assert.Equal("Crafted", contributor.Source.ProviderDomain);
+                Assert.Null(contributor.Source.Tier);
+                Assert.Equal(4, contributor.Source.Rank);
+                Assert.Same(semantic, contributor.Source.ReviewedItemPropertySemantic);
                 Assert.Equal(116m, contributor.RequestedMinimum);
                 Assert.Null(contributor.RequestedMaximum);
             });
         Assert.All(aggregate.Contributors, contributor => Assert.NotEqual(aggregate.ComponentId, contributor.ContributorId));
+    }
+
+    [Fact]
+    public void Aggregate_DifferentReviewedSemanticsRemainSeparate()
+    {
+        var first = Scalar("modifier:0:0", 0, "30% increased Physical Damage", 30m, "first") with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ReviewedItemPropertySemantic = Semantic("semantic.first"),
+        };
+        var second = Scalar("modifier:1:0", 1, "40% increased Physical Damage", 40m, "second") with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ReviewedItemPropertySemantic = Semantic("semantic.second"),
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([first, second]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Message.Contains("different reviewed item-property semantics", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Aggregate_ReviewedSemanticPresentAndAbsentRemainSeparate()
+    {
+        var withSemantic = Scalar("modifier:0:0", 0, "30% increased Physical Damage", 30m, "with-semantic") with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ReviewedItemPropertySemantic = Semantic("semantic.physical"),
+        };
+        var withoutSemantic = Scalar("modifier:1:0", 1, "40% increased Physical Damage", 40m, "without-semantic") with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([withSemantic, withoutSemantic]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Message.Contains("different reviewed item-property semantics", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Aggregate_AbsentReviewedSemanticsPreservesExistingCompatibility()
+    {
+        var result = CanonicalModifierEffectAggregator.Aggregate(
+        [
+            Scalar("modifier:0:0", 0, "30% increased Physical Damage", 30m, "first") with
+            {
+                StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            },
+            Scalar("modifier:1:0", 1, "40% increased Physical Damage", 40m, "second") with
+            {
+                StatMappingProof = ModifierStatMappingProofStatus.PositionalFallback,
+            },
+        ]);
+
+        var aggregate = Assert.Single(result.Components);
+        Assert.Equal(70m, aggregate.RequestedMinimum);
+        Assert.Null(aggregate.ReviewedItemPropertySemantic);
+        Assert.Equal(ModifierStatMappingProofStatus.Unknown, aggregate.StatMappingProof);
+        Assert.Equal(
+            [ModifierStatMappingProofStatus.ProvenExact, ModifierStatMappingProofStatus.PositionalFallback],
+            aggregate.Sources.Select(source => source.StatMappingProof));
     }
 
     [Fact]
@@ -294,6 +384,34 @@ public sealed class CanonicalModifierEffectAggregatorTests
             ValueBoundTranslationHandlers = [[], []],
             ValueBoundTranslationIdentity = "translation:cold-range",
             DefaultBoundDirection = ModifierBoundDirection.Minimum,
+        };
+    }
+
+    private static ItemPropertySemanticDescriptor Semantic(string id)
+    {
+        return new ItemPropertySemanticDescriptor
+        {
+            Id = id,
+            OrderedStatIds = ["local_physical_damage_+%"],
+            Contributions =
+            [
+                new ItemPropertyContribution
+                {
+                    Targets = [ItemPropertyTarget.PhysicalDamage],
+                    Operation = ItemPropertyOperation.IncreasedPercent,
+                },
+            ],
+            Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+            Evidence =
+            [
+                new ItemPropertySemanticEvidence
+                {
+                    Method = ItemPropertySemanticEvidenceMethod.ReviewedOverride,
+                    SourceId = "test",
+                    ReviewVersion = "test-v1",
+                    ReviewReference = "test-review",
+                },
+            ],
         };
     }
 }

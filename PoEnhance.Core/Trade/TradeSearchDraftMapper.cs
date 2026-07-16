@@ -325,6 +325,7 @@ public sealed class TradeSearchDraftMapper
                 ResolvedModifierId = TrimToNull(implicitModifier.Id),
                 ResolvedModifierName = TrimToNull(implicitModifier.Name),
                 ResolvedStatIds = statIds,
+                StatMappingProof = ModifierStatMappingProofStatus.WholeVector,
                 IsSearchable = statIds.Length > 0,
                 NotSearchableReason = statIds.Length == 0
                     ? "The base implicit modifier has no retained stat ids."
@@ -374,6 +375,7 @@ public sealed class TradeSearchDraftMapper
                         resolution,
                         baseImplicitCandidate,
                         [matchedLineStats[index]],
+                        ModifierStatMappingProofStatus.ProvenExact,
                         sourceLineIndex: index,
                         sourceComponentIndex: index,
                         componentLines: [valueLines[index]],
@@ -394,6 +396,7 @@ public sealed class TradeSearchDraftMapper
                     resolution,
                     exactCandidate: null,
                     stats: [],
+                    ModifierStatMappingProofStatus.Unknown,
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
@@ -419,6 +422,7 @@ public sealed class TradeSearchDraftMapper
                     resolution,
                     exactCandidate,
                     [exactMatchedLineStats[index]],
+                    ModifierStatMappingProofStatus.ProvenExact,
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
@@ -443,6 +447,7 @@ public sealed class TradeSearchDraftMapper
                     resolution,
                     exactCandidate,
                     [orderedStats[index]],
+                    ModifierStatMappingProofStatus.PositionalFallback,
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
                     componentLines: [valueLines[index]],
@@ -460,6 +465,7 @@ public sealed class TradeSearchDraftMapper
             resolution,
             exactCandidate,
             orderedStats,
+            ModifierStatMappingProofStatus.WholeVector,
             sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
             sourceComponentIndex: 0,
             componentLines: valueLines,
@@ -474,6 +480,7 @@ public sealed class TradeSearchDraftMapper
         ModifierCandidateResolutionResult? resolution,
         ModifierDefinition? exactCandidate,
         IReadOnlyList<ModifierStat> stats,
+        ModifierStatMappingProofStatus statMappingProof,
         int sourceLineIndex,
         int sourceComponentIndex,
         IReadOnlyList<string> componentLines,
@@ -507,8 +514,11 @@ public sealed class TradeSearchDraftMapper
                 : DetermineLocality(stats, catalog) is ModifierLocality.Unknown
                     ? resolution?.Locality ?? ModifierLocality.Unknown
                     : DetermineLocality(stats, catalog),
+            StatMappingProof = statMappingProof,
             ParsedModifierName = TrimToNull(modifier.Name ?? resolution?.ParsedModifierName),
             CategoryText = TrimToNull(modifier.CategoryText),
+            Tier = modifier.Tier,
+            Rank = modifier.Rank,
             IsCrafted = modifier.IsCrafted,
             IsFractured = modifier.IsFractured,
             IsVeiled = modifier.IsVeiled,
@@ -553,6 +563,11 @@ public sealed class TradeSearchDraftMapper
             IsSelected = false,
         };
 
+        component = component with
+        {
+            ReviewedItemPropertySemantic = FindReviewedItemPropertySemantic(component, catalog),
+        };
+
         return exactCandidate is null || catalog is null
             ? component
             : component with
@@ -565,6 +580,27 @@ public sealed class TradeSearchDraftMapper
                     traditionalInfluences,
                     catalog),
             };
+    }
+
+    private static ItemPropertySemanticDescriptor? FindReviewedItemPropertySemantic(
+        ResolvedSearchComponent component,
+        GameDataCatalog? catalog)
+    {
+        if (catalog is null ||
+            component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
+            component.Locality != ModifierLocality.Local ||
+            component.StatMappingProof is not (
+                ModifierStatMappingProofStatus.ProvenExact or
+                ModifierStatMappingProofStatus.WholeVector) ||
+            component.ResolvedStatIds.Count == 0)
+        {
+            return null;
+        }
+
+        var descriptor = catalog.FindItemPropertySemanticByOrderedStatVector(component.ResolvedStatIds);
+        return descriptor?.Applicability == ItemPropertyApplicability.UnconditionalDisplayedLocal
+            ? descriptor
+            : null;
     }
 
     private static string? GuaranteedExactBaseName(
@@ -659,16 +695,19 @@ public sealed class TradeSearchDraftMapper
         }
 
         var matcher = new ModifierTextSignatureMatcher();
+        var allowContainingTranslationProof = stats.Length > 1;
         var matchedStats = new List<ModifierStat>();
         foreach (var valueLine in valueLines)
         {
             var lineMatches = stats
                 .Where(stat => !matchedStats.Any(matched => EqualsStat(matched, stat)))
-                .Where(stat => matcher.Match(
-                        candidate with { Stats = [stat] },
-                        catalog,
-                        [valueLine])
-                    .Outcome == ModifierTextSignatureMatchOutcome.Match)
+                .Where(stat => IsProvenLineStatAssociation(
+                    candidate,
+                    stat,
+                    valueLine,
+                    catalog,
+                    matcher,
+                    allowContainingTranslationProof))
                 .ToArray();
             if (lineMatches.Length != 1)
             {
@@ -680,6 +719,37 @@ public sealed class TradeSearchDraftMapper
 
         matchedLineStats = matchedStats;
         return true;
+    }
+
+    private static bool IsProvenLineStatAssociation(
+        ModifierDefinition candidate,
+        ModifierStat stat,
+        string valueLine,
+        GameDataCatalog catalog,
+        ModifierTextSignatureMatcher matcher,
+        bool allowContainingTranslationProof)
+    {
+        var exactGroupMatch = matcher.Match(
+            candidate with { Stats = [stat] },
+            catalog,
+            [valueLine]);
+        if (exactGroupMatch.Outcome == ModifierTextSignatureMatchOutcome.Match)
+        {
+            return true;
+        }
+
+        if (!allowContainingTranslationProof)
+        {
+            return false;
+        }
+
+        var compatibleBranch = ModifierBoundDefaults.Create(
+            candidate,
+            [stat],
+            [valueLine],
+            catalog);
+        return compatibleBranch.IsSupported &&
+            compatibleBranch.TranslationIdentity is not null;
     }
 
     private static bool EqualsStat(ModifierStat left, ModifierStat right)

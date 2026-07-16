@@ -140,8 +140,12 @@ internal static partial class CanonicalModifierEffectAggregator
             ParsedKind = component.ParsedKind,
             GenerationType = component.GenerationType,
             Locality = component.Locality,
+            StatMappingProof = component.StatMappingProof,
+            ReviewedItemPropertySemantic = component.ReviewedItemPropertySemantic,
             ParsedModifierName = component.ParsedModifierName,
             CategoryText = component.CategoryText,
+            Tier = component.Tier,
+            Rank = component.Rank,
             ProviderDomain = ProviderDomainFor(component),
             IsCrafted = component.IsCrafted,
             IsFractured = component.IsFractured,
@@ -209,7 +213,8 @@ internal static partial class CanonicalModifierEffectAggregator
             canonicalValues.Count,
             TranslationTransformIdentity(component),
             component.DefaultBoundDirection,
-            component.SupportsValueBounds ? "DirectScalar" : "DeferredRangeProjection");
+            component.SupportsValueBounds ? "DirectScalar" : "DeferredRangeProjection",
+            ReviewedSemanticIdentity(component.ReviewedItemPropertySemantic));
         return true;
     }
 
@@ -266,6 +271,9 @@ internal static partial class CanonicalModifierEffectAggregator
             RequestedMaximum = first.DefaultBoundDirection == ModifierBoundDirection.Maximum
                 ? scalarValue
                 : null,
+            StatMappingProof = CommonStatMappingProof(components),
+            Tier = null,
+            Rank = null,
             FilterVariants = [],
             SelectedFilterVariantIdentity = null,
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
@@ -280,6 +288,15 @@ internal static partial class CanonicalModifierEffectAggregator
                 .ToArray(),
             ContributorProjection = SearchComponentContributorProjection.Additive,
         };
+    }
+
+    private static ModifierStatMappingProofStatus CommonStatMappingProof(
+        IReadOnlyList<ResolvedSearchComponent> components)
+    {
+        var first = components[0].StatMappingProof;
+        return components.All(component => component.StatMappingProof == first)
+            ? first
+            : ModifierStatMappingProofStatus.Unknown;
     }
 
     private static SearchComponentContributor CreateContributor(
@@ -396,6 +413,14 @@ internal static partial class CanonicalModifierEffectAggregator
             return "different locality";
         }
 
+        if (!string.Equals(
+                ReviewedSemanticIdentity(left.ReviewedItemPropertySemantic),
+                ReviewedSemanticIdentity(right.ReviewedItemPropertySemantic),
+                StringComparison.Ordinal))
+        {
+            return "different reviewed item-property semantics";
+        }
+
         if (!string.Equals(StatVector(left), StatVector(right), StringComparison.Ordinal))
         {
             return "incompatible canonical stat vector";
@@ -455,6 +480,30 @@ internal static partial class CanonicalModifierEffectAggregator
             .Select(handlers => string.Join('\u001f', handlers.Select(handler => handler.Trim()))));
     }
 
+    private static string ReviewedSemanticIdentity(ItemPropertySemanticDescriptor? descriptor)
+    {
+        if (descriptor is null)
+        {
+            return string.Empty;
+        }
+
+        var contributions = string.Join('\u001d', descriptor.Contributions.Select(contribution =>
+            $"{(int)contribution.Operation}\u001c{string.Join('\u001b', contribution.Targets.Select(target => (int)target))}"));
+        var evidence = string.Join('\u001a', descriptor.Evidence.Select(entry => string.Join('\u0019',
+            (int)entry.Method,
+            entry.SourceId,
+            entry.ReviewVersion,
+            entry.ReviewReference,
+            entry.CompatibleSourceId,
+            entry.CompatibleSourceVersion)));
+        return string.Join('\u0018',
+            descriptor.Id,
+            string.Join('\u001f', descriptor.OrderedStatIds),
+            contributions,
+            (int)descriptor.Applicability,
+            evidence);
+    }
+
     private sealed record AggregationKey(
         string CanonicalStatVector,
         string LogicalEffectIdentity,
@@ -464,7 +513,8 @@ internal static partial class CanonicalModifierEffectAggregator
         int NumericArity,
         string TranslationTransforms,
         ModifierBoundDirection BoundDirection,
-        string ProjectionSemantics);
+        string ProjectionSemantics,
+        string ReviewedSemanticIdentity);
 
     private sealed record IndexedComponent(
         int Index,

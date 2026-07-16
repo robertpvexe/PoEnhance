@@ -205,9 +205,16 @@ Regenerate 46.8(32.1-48) Life per second
             component.OriginalText.Contains("Stun and Block Recovery", StringComparison.Ordinal));
         Assert.Equal("31% increased Stun and Block Recovery", stunRecovery.OriginalText);
         Assert.Equal(31m, stunRecovery.RequestedMinimum);
+        Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, stunRecovery.StatMappingProof);
+        Assert.Null(stunRecovery.ReviewedItemPropertySemantic);
         Assert.Equal(SearchComponentContributorProjection.Additive, stunRecovery.ContributorProjection);
         Assert.Equal([9m, 22m], stunRecovery.Contributors.Select(contributor => contributor.RequestedMinimum));
         Assert.Equal(stunRecovery.Sources, stunRecovery.Contributors.Select(contributor => contributor.Source));
+        Assert.All(stunRecovery.Sources, source =>
+        {
+            Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, source.StatMappingProof);
+            Assert.Null(source.ReviewedItemPropertySemantic);
+        });
 
         var row = Assert.Single(snapshot.SearchState.Modifiers, modifier =>
             modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
