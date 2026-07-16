@@ -24,6 +24,7 @@ public sealed class GameDataPackageValidatorTests
             Modifiers = null!,
             Stats = null!,
             StatTranslations = null!,
+            ItemPropertySemantics = null!,
         };
 
         var result = GameDataPackageValidator.Validate(package);
@@ -33,6 +34,7 @@ public sealed class GameDataPackageValidatorTests
         AssertHasError(result, GameDataValidationErrorCodes.PackageModifiersRequired);
         AssertHasError(result, GameDataValidationErrorCodes.PackageStatsRequired);
         AssertHasError(result, GameDataValidationErrorCodes.PackageStatTranslationsRequired);
+        AssertHasError(result, GameDataValidationErrorCodes.PackageItemPropertySemanticsRequired);
     }
 
     [Fact]

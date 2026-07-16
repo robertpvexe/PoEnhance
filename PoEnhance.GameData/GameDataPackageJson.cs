@@ -43,6 +43,18 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<ModifierGenerationType>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<ItemPropertyTarget>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<ItemPropertyOperation>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<ItemPropertyApplicability>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<ItemPropertySemanticEvidenceMethod>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
 
         return options;
     }

@@ -11,4 +11,6 @@ public sealed record GameDataPackage
     public IReadOnlyList<StatDefinition> Stats { get; init; } = [];
 
     public IReadOnlyList<StatTranslationDefinition> StatTranslations { get; init; } = [];
+
+    public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; init; } = [];
 }

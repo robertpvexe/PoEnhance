@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "reviewVersion": "weapon-dps-v1",
+  "descriptors": [
+    {
+      "id": "weapon.physical-damage.increased-percent.local",
+      "orderedStatIds": [
+        "local_physical_damage_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "physicalDamage"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.physical-damage.added.local",
+      "orderedStatIds": [
+        "local_minimum_added_physical_damage",
+        "local_maximum_added_physical_damage"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "physicalDamage"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.fire-damage.added.local",
+      "orderedStatIds": [
+        "local_minimum_added_fire_damage",
+        "local_maximum_added_fire_damage"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "fireDamage"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.cold-damage.added.local",
+      "orderedStatIds": [
+        "local_minimum_added_cold_damage",
+        "local_maximum_added_cold_damage"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "coldDamage"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.lightning-damage.added.local",
+      "orderedStatIds": [
+        "local_minimum_added_lightning_damage",
+        "local_maximum_added_lightning_damage"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "lightningDamage"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.chaos-damage.added.local",
+      "orderedStatIds": [
+        "local_minimum_added_chaos_damage",
+        "local_maximum_added_chaos_damage"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "chaosDamage"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "weapon-dps-v1",
+          "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    }
+  ]
+}

@@ -68,6 +68,29 @@ public static class GameDataPackageValidator
             ValidateStatTranslations(package.StatTranslations, manifestSourceIds, knownStatIds, errors);
         }
 
+        errors.AddRange(ValidateItemPropertySemantics(package.ItemPropertySemantics, package.Stats).Errors);
+
+        return new GameDataValidationResult(errors);
+    }
+
+    public static GameDataValidationResult ValidateItemPropertySemantics(
+        IReadOnlyList<ItemPropertySemanticDescriptor>? descriptors,
+        IReadOnlyCollection<StatDefinition>? knownStats = null)
+    {
+        var errors = new List<GameDataValidationError>();
+        if (descriptors is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageItemPropertySemanticsRequired,
+                "itemPropertySemantics",
+                "ItemPropertySemantics collection is required."));
+            return new GameDataValidationResult(errors);
+        }
+
+        ValidateItemPropertySemanticDescriptors(
+            descriptors,
+            BuildStatDefinitionIndex(knownStats),
+            errors);
         return new GameDataValidationResult(errors);
     }
 
@@ -724,6 +747,328 @@ public static class GameDataPackageValidator
                 }
             }
         }
+    }
+
+    private static void ValidateItemPropertySemanticDescriptors(
+        IReadOnlyList<ItemPropertySemanticDescriptor> descriptors,
+        IReadOnlyDictionary<string, StatDefinition>? knownStats,
+        List<GameDataValidationError> errors)
+    {
+        var descriptorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var statVectorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var index = 0; index < descriptors.Count; index++)
+        {
+            var path = $"itemPropertySemantics[{index}]";
+            ItemPropertySemanticDescriptor? descriptor = descriptors[index];
+            if (descriptor is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticRequired,
+                    path,
+                    $"ItemPropertySemantics[{index}] is required."));
+                continue;
+            }
+
+            var descriptorId = descriptor.Id?.Trim();
+            if (string.IsNullOrWhiteSpace(descriptorId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticIdRequired,
+                    $"{path}.id",
+                    $"ItemPropertySemantics[{index}].Id is required."));
+            }
+            else if (!descriptorIds.Add(descriptorId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticIdDuplicate,
+                    $"{path}.id",
+                    $"Item-property semantic descriptor Id '{descriptorId}' is duplicated."));
+            }
+
+            var normalizedStatIds = ValidateItemPropertySemanticStatIds(
+                descriptor.OrderedStatIds,
+                path,
+                knownStats,
+                errors);
+            if (normalizedStatIds.Count > 0 && normalizedStatIds.Count == descriptor.OrderedStatIds?.Count)
+            {
+                var vectorKey = string.Join('\u001F', normalizedStatIds);
+                if (!statVectorKeys.Add(vectorKey))
+                {
+                    errors.Add(Error(
+                        GameDataValidationErrorCodes.ItemPropertySemanticStatVectorDuplicate,
+                        $"{path}.orderedStatIds",
+                        $"ItemPropertySemantics[{index}] duplicates an existing exact ordered stat vector."));
+                }
+            }
+
+            if (!Enum.IsDefined(descriptor.Applicability))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticApplicabilityInvalid,
+                    $"{path}.applicability",
+                    $"ItemPropertySemantics[{index}].Applicability is invalid."));
+            }
+
+            ValidateItemPropertyContributions(descriptor.Contributions, path, errors);
+            ValidateItemPropertySemanticEvidence(descriptor.Evidence, path, errors);
+
+            if (descriptor.Applicability == ItemPropertyApplicability.UnconditionalDisplayedLocal &&
+                knownStats is not null)
+            {
+                for (var statIndex = 0; statIndex < normalizedStatIds.Count; statIndex++)
+                {
+                    var statId = normalizedStatIds[statIndex];
+                    if (knownStats.TryGetValue(statId, out var stat) && !stat.IsLocal)
+                    {
+                        errors.Add(Error(
+                            GameDataValidationErrorCodes.ItemPropertySemanticUnconditionalStatNotLocal,
+                            $"{path}.orderedStatIds[{statIndex}]",
+                            $"Unconditional displayed-local semantic references non-local stat Id '{statId}'."));
+                    }
+                }
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> ValidateItemPropertySemanticStatIds(
+        IReadOnlyList<string>? statIds,
+        string descriptorPath,
+        IReadOnlyDictionary<string, StatDefinition>? knownStats,
+        List<GameDataValidationError> errors)
+    {
+        if (statIds is null || statIds.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemPropertySemanticStatIdsRequired,
+                $"{descriptorPath}.orderedStatIds",
+                $"{descriptorPath}.OrderedStatIds must contain at least one stat Id."));
+            return [];
+        }
+
+        var normalizedStatIds = new List<string>(statIds.Count);
+        var seenStatIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < statIds.Count; index++)
+        {
+            var path = $"{descriptorPath}.orderedStatIds[{index}]";
+            var statId = statIds[index]?.Trim();
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticStatIdRequired,
+                    path,
+                    $"Item-property semantic stat Id at {path} is required."));
+                continue;
+            }
+
+            normalizedStatIds.Add(statId);
+            if (!seenStatIds.Add(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticStatIdDuplicate,
+                    path,
+                    $"Item-property semantic stat Id '{statId}' is duplicated in its ordered vector."));
+            }
+
+            if (knownStats is not null && !knownStats.ContainsKey(statId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticStatIdUnknown,
+                    path,
+                    $"Item-property semantic stat Id '{statId}' is not declared in package stats."));
+            }
+        }
+
+        return normalizedStatIds;
+    }
+
+    private static void ValidateItemPropertyContributions(
+        IReadOnlyList<ItemPropertyContribution>? contributions,
+        string descriptorPath,
+        List<GameDataValidationError> errors)
+    {
+        var path = $"{descriptorPath}.contributions";
+        if (contributions is null || contributions.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemPropertySemanticContributionsRequired,
+                path,
+                $"{descriptorPath}.Contributions must contain at least one contribution."));
+            return;
+        }
+
+        var contributionKeys = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < contributions.Count; index++)
+        {
+            var contributionPath = $"{path}[{index}]";
+            ItemPropertyContribution? contribution = contributions[index];
+            if (contribution is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticContributionRequired,
+                    contributionPath,
+                    $"Item-property semantic contribution at {contributionPath} is required."));
+                continue;
+            }
+
+            if (!Enum.IsDefined(contribution.Operation) || contribution.Operation == ItemPropertyOperation.Unknown)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticContributionOperationInvalid,
+                    $"{contributionPath}.operation",
+                    $"Item-property semantic contribution operation at {contributionPath} is invalid."));
+            }
+
+            var normalizedTargets = ValidateItemPropertyTargets(
+                contribution.Targets,
+                contributionPath,
+                errors);
+            if (normalizedTargets.Count == 0)
+            {
+                continue;
+            }
+
+            var contributionKey = $"{(int)contribution.Operation}\u001F{string.Join(',', normalizedTargets.Order())}";
+            if (!contributionKeys.Add(contributionKey))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticContributionDuplicate,
+                    contributionPath,
+                    $"Item-property semantic contribution at {contributionPath} is duplicated."));
+            }
+        }
+    }
+
+    private static IReadOnlyList<int> ValidateItemPropertyTargets(
+        IReadOnlyList<ItemPropertyTarget>? targets,
+        string contributionPath,
+        List<GameDataValidationError> errors)
+    {
+        var path = $"{contributionPath}.targets";
+        if (targets is null || targets.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemPropertySemanticContributionTargetsRequired,
+                path,
+                $"Item-property semantic contribution targets at {path} must contain at least one target."));
+            return [];
+        }
+
+        var normalizedTargets = new List<int>(targets.Count);
+        var seenTargets = new HashSet<ItemPropertyTarget>();
+        for (var index = 0; index < targets.Count; index++)
+        {
+            var target = targets[index];
+            var targetPath = $"{path}[{index}]";
+            if (!Enum.IsDefined(target) || target == ItemPropertyTarget.Unknown)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticContributionTargetInvalid,
+                    targetPath,
+                    $"Item-property semantic contribution target at {targetPath} is invalid."));
+                continue;
+            }
+
+            normalizedTargets.Add((int)target);
+            if (!seenTargets.Add(target))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticContributionTargetDuplicate,
+                    targetPath,
+                    $"Item-property semantic contribution target '{target}' is duplicated."));
+            }
+        }
+
+        return normalizedTargets;
+    }
+
+    private static void ValidateItemPropertySemanticEvidence(
+        IReadOnlyList<ItemPropertySemanticEvidence>? evidence,
+        string descriptorPath,
+        List<GameDataValidationError> errors)
+    {
+        var path = $"{descriptorPath}.evidence";
+        if (evidence is null || evidence.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemPropertySemanticEvidenceRequired,
+                path,
+                $"{descriptorPath}.Evidence must contain at least one entry."));
+            return;
+        }
+
+        for (var index = 0; index < evidence.Count; index++)
+        {
+            var evidencePath = $"{path}[{index}]";
+            ItemPropertySemanticEvidence? entry = evidence[index];
+            if (entry is null)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticEvidenceEntryRequired,
+                    evidencePath,
+                    $"Item-property semantic evidence at {evidencePath} is required."));
+                continue;
+            }
+
+            if (!Enum.IsDefined(entry.Method) || entry.Method == ItemPropertySemanticEvidenceMethod.Unknown)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticEvidenceMethodInvalid,
+                    $"{evidencePath}.method",
+                    $"Item-property semantic evidence method at {evidencePath} is invalid."));
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.SourceId))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticEvidenceSourceIdRequired,
+                    $"{evidencePath}.sourceId",
+                    $"Item-property semantic evidence SourceId at {evidencePath} is required."));
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.ReviewVersion))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticEvidenceReviewVersionRequired,
+                    $"{evidencePath}.reviewVersion",
+                    $"Item-property semantic evidence ReviewVersion at {evidencePath} is required."));
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.ReviewReference))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.ItemPropertySemanticEvidenceReviewReferenceRequired,
+                    $"{evidencePath}.reviewReference",
+                    $"Item-property semantic evidence ReviewReference at {evidencePath} is required."));
+            }
+        }
+    }
+
+    private static IReadOnlyDictionary<string, StatDefinition>? BuildStatDefinitionIndex(
+        IReadOnlyCollection<StatDefinition>? stats)
+    {
+        if (stats is null)
+        {
+            return null;
+        }
+
+        var index = new Dictionary<string, StatDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var stat in stats)
+        {
+            if (stat is null)
+            {
+                continue;
+            }
+
+            var statId = stat.Id?.Trim();
+            if (!string.IsNullOrWhiteSpace(statId))
+            {
+                index.TryAdd(statId, stat);
+            }
+        }
+
+        return index;
     }
 
     private static void ValidateSpawnWeights(

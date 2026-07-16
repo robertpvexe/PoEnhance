@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <None Include="TestData\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\data\semantics\item-property-semantics.json"
+          Link="TestData\Semantics\item-property-semantics.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -7,6 +7,7 @@ public static class GameDataValidationErrorCodes
     public const string PackageModifiersRequired = "package.modifiers.required";
     public const string PackageStatsRequired = "package.stats.required";
     public const string PackageStatTranslationsRequired = "package.statTranslations.required";
+    public const string PackageItemPropertySemanticsRequired = "package.itemPropertySemantics.required";
 
     public const string ManifestRequired = "manifest.required";
     public const string ManifestSchemaVersionInvalid = "manifest.schemaVersion.invalid";
@@ -76,6 +77,30 @@ public static class GameDataValidationErrorCodes
     public const string StatTranslationIndexHandlerIndexInvalid = "statTranslation.indexHandler.index.invalid";
     public const string StatTranslationIndexHandlerValueRequired = "statTranslation.indexHandler.value.required";
     public const string StatTranslationValueFormatRequired = "statTranslation.valueFormat.required";
+
+    public const string ItemPropertySemanticRequired = "itemPropertySemantic.required";
+    public const string ItemPropertySemanticIdRequired = "itemPropertySemantic.id.required";
+    public const string ItemPropertySemanticIdDuplicate = "itemPropertySemantic.id.duplicate";
+    public const string ItemPropertySemanticStatIdsRequired = "itemPropertySemantic.statIds.required";
+    public const string ItemPropertySemanticStatIdRequired = "itemPropertySemantic.statId.required";
+    public const string ItemPropertySemanticStatIdDuplicate = "itemPropertySemantic.statId.duplicate";
+    public const string ItemPropertySemanticStatIdUnknown = "itemPropertySemantic.statId.unknown";
+    public const string ItemPropertySemanticStatVectorDuplicate = "itemPropertySemantic.statVector.duplicate";
+    public const string ItemPropertySemanticContributionsRequired = "itemPropertySemantic.contributions.required";
+    public const string ItemPropertySemanticContributionRequired = "itemPropertySemantic.contribution.required";
+    public const string ItemPropertySemanticContributionDuplicate = "itemPropertySemantic.contribution.duplicate";
+    public const string ItemPropertySemanticContributionOperationInvalid = "itemPropertySemantic.contribution.operation.invalid";
+    public const string ItemPropertySemanticContributionTargetsRequired = "itemPropertySemantic.contribution.targets.required";
+    public const string ItemPropertySemanticContributionTargetInvalid = "itemPropertySemantic.contribution.target.invalid";
+    public const string ItemPropertySemanticContributionTargetDuplicate = "itemPropertySemantic.contribution.target.duplicate";
+    public const string ItemPropertySemanticApplicabilityInvalid = "itemPropertySemantic.applicability.invalid";
+    public const string ItemPropertySemanticEvidenceRequired = "itemPropertySemantic.evidence.required";
+    public const string ItemPropertySemanticEvidenceEntryRequired = "itemPropertySemantic.evidence.entry.required";
+    public const string ItemPropertySemanticEvidenceMethodInvalid = "itemPropertySemantic.evidence.method.invalid";
+    public const string ItemPropertySemanticEvidenceSourceIdRequired = "itemPropertySemantic.evidence.sourceId.required";
+    public const string ItemPropertySemanticEvidenceReviewVersionRequired = "itemPropertySemantic.evidence.reviewVersion.required";
+    public const string ItemPropertySemanticEvidenceReviewReferenceRequired = "itemPropertySemantic.evidence.reviewReference.required";
+    public const string ItemPropertySemanticUnconditionalStatNotLocal = "itemPropertySemantic.unconditional.stat.notLocal";
 
     public const string SourceReferenceRequired = "sourceReference.required";
     public const string SourceReferenceSourceIdRequired = "sourceReference.sourceId.required";

@@ -16,6 +16,9 @@ internal static class RePoeImportTestFixtures
     public static string ReducedStatTranslationsPath =>
         Path.Combine(AppContext.BaseDirectory, "TestData", "RePoE", "stat_translations.reduced.json");
 
+    public static string ReviewedItemPropertySemanticsPath =>
+        Path.Combine(AppContext.BaseDirectory, "TestData", "Semantics", "item-property-semantics.json");
+
     public static GameDataPackageManifest CreateManifestWithRePoeSource()
     {
         return new GameDataPackageManifest

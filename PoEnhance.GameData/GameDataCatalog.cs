@@ -12,6 +12,8 @@ public sealed class GameDataCatalog
         Array.AsReadOnly(Array.Empty<StatDefinition>());
     private static readonly IReadOnlyList<StatTranslationDefinition> EmptyStatTranslations =
         Array.AsReadOnly(Array.Empty<StatTranslationDefinition>());
+    private static readonly IReadOnlyList<ItemPropertySemanticDescriptor> EmptyItemPropertySemantics =
+        Array.AsReadOnly(Array.Empty<ItemPropertySemanticDescriptor>());
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesById;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesByExactName;
@@ -30,6 +32,8 @@ public sealed class GameDataCatalog
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsById;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatId;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatIdGroup;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
+        _itemPropertySemanticsByOrderedStatVector;
 
     private GameDataCatalog(
         IReadOnlyList<ItemBaseRecord> itemBases,
@@ -47,7 +51,10 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<StatDefinition>> statsById,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsById,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatId,
-        IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatIdGroup)
+        IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatIdGroup,
+        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
+        IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
+            itemPropertySemanticsByOrderedStatVector)
     {
         ItemBases = itemBases;
         _itemBasesById = itemBasesById;
@@ -65,6 +72,8 @@ public sealed class GameDataCatalog
         _translationsById = translationsById;
         _translationsByStatId = translationsByStatId;
         _translationsByStatIdGroup = translationsByStatIdGroup;
+        ItemPropertySemantics = itemPropertySemantics;
+        _itemPropertySemanticsByOrderedStatVector = itemPropertySemanticsByOrderedStatVector;
     }
 
     public static GameDataCatalog FromPackage(GameDataPackage package)
@@ -81,6 +90,7 @@ public sealed class GameDataCatalog
 
         var itemBases = ToReadOnly(package.ItemBases);
         var modifiers = ToReadOnly(package.Modifiers);
+        var itemPropertySemantics = ToReadOnly(package.ItemPropertySemantics);
 
         return new GameDataCatalog(
             itemBases,
@@ -143,12 +153,19 @@ public sealed class GameDataCatalog
             BuildIndex(
                 package.StatTranslations,
                 translation => CreateStatTranslationStatIdGroupKey(translation.StatIds),
+                StringComparer.OrdinalIgnoreCase),
+            itemPropertySemantics,
+            BuildIndex(
+                itemPropertySemantics,
+                descriptor => CreateOrderedStatVectorKey(descriptor.OrderedStatIds),
                 StringComparer.OrdinalIgnoreCase));
     }
 
     public IReadOnlyList<ItemBaseRecord> ItemBases { get; }
 
     public IReadOnlyList<ModifierDefinition> Modifiers { get; }
+
+    public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; }
 
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)
     {
@@ -231,6 +248,18 @@ public sealed class GameDataCatalog
             EmptyStatTranslations);
     }
 
+    public ItemPropertySemanticDescriptor? FindItemPropertySemanticByOrderedStatVector(
+        IReadOnlyList<string> statIds)
+    {
+        ArgumentNullException.ThrowIfNull(statIds);
+
+        var matches = Find(
+            _itemPropertySemanticsByOrderedStatVector,
+            CreateOrderedStatVectorKey(statIds),
+            EmptyItemPropertySemantics);
+        return matches.Count == 0 ? null : matches[0];
+    }
+
     private static IReadOnlyDictionary<string, IReadOnlyList<TRecord>> BuildIndex<TRecord>(
         IEnumerable<TRecord> records,
         Func<TRecord, string?> keySelector,
@@ -300,6 +329,11 @@ public sealed class GameDataCatalog
     }
 
     private static string? CreateStatTranslationStatIdGroupKey(IEnumerable<string?> statIds)
+    {
+        return CreateOrderedStatVectorKey(statIds);
+    }
+
+    private static string? CreateOrderedStatVectorKey(IEnumerable<string?> statIds)
     {
         var normalizedIds = new List<string>();
         foreach (var statId in statIds)
