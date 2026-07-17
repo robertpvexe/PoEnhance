@@ -11,6 +11,7 @@ public static class RePoeImportDiagnosticCodes
     public const string RecordMissingItemClass = "REPOE_RECORD_MISSING_ITEM_CLASS";
     public const string RecordInvalidRequiredLevel = "REPOE_RECORD_INVALID_REQUIRED_LEVEL";
     public const string RecordInvalidWeaponProperties = "REPOE_RECORD_INVALID_WEAPON_PROPERTIES";
+    public const string RecordInvalidDefenceProperties = "REPOE_RECORD_INVALID_DEFENCE_PROPERTIES";
     public const string RecordInvalidTags = "REPOE_RECORD_INVALID_TAGS";
     public const string RecordInvalidImplicits = "REPOE_RECORD_INVALID_IMPLICITS";
     public const string ModifierRecordMissingId = "REPOE_MODIFIER_RECORD_MISSING_ID";

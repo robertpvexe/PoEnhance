@@ -3,7 +3,7 @@ using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Items.Derived;
 
-public sealed class DerivedWeaponPropertyCalculator
+public sealed partial class DerivedWeaponPropertyCalculator
 {
     private const string PhysicalDamageName = "physical damage";
     private const string ElementalDamageName = "elemental damage";

@@ -292,6 +292,29 @@ public sealed class GameDataPackageValidatorTests
     }
 
     [Fact]
+    public void Validate_DefensivePropertiesRequireOrderedRangesAndProvenance()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var itemBase = package.ItemBases[0] with
+        {
+            DefenceProperties = new ItemBaseDefenceProperties
+            {
+                ArmourMinimum = 20,
+                ArmourMaximum = 10,
+                EvasionRatingMinimum = 5,
+                ChanceToBlockPercent = -1,
+                Sources = [],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package with { ItemBases = [itemBase] });
+
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseDefenceRangeInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseDefenceBlockInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseDefenceSourcesRequired);
+    }
+
+    [Fact]
     public void Validate_InvalidModifierFields_ReturnsExpectedErrors()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();

@@ -90,6 +90,62 @@ public sealed class GameDataPackageWeaponPropertyAugmentationServiceTests
     }
 
     [Fact]
+    public void Augment_ImportsDefensiveFactsWithoutChangingExistingWeaponFacts()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var input = InputPackage();
+        var shieldId = "Metadata/Items/Armours/Shields/TestShield";
+        input = input with
+        {
+            ItemBases =
+            [
+                .. input.ItemBases,
+                new ItemBaseRecord
+                {
+                    Id = shieldId,
+                    Name = "Test Shield",
+                    ItemClass = "Shield",
+                    Tags = ["armour"],
+                    Sources = [new GameDataSourceReference { SourceId = "repoe", ExternalId = shieldId }],
+                },
+            ],
+        };
+        var inputPath = workspace.WritePackage("active.json", input);
+        var defenceJson = BaseItemsJson.TrimEnd();
+        defenceJson = defenceJson[..^1] + """
+            ,
+              "Metadata/Items/Armours/Shields/TestShield": {
+                "name": "Test Shield",
+                "item_class": "Shield",
+                "domain": "item",
+                "requirements": null,
+                "tags": ["armour"],
+                "properties": {
+                  "armour": { "min": 100, "max": 120 },
+                  "evasion": { "min": 80, "max": 90 },
+                  "energy_shield": { "min": 20, "max": 25 },
+                  "ward": { "min": 10, "max": 12 },
+                  "block": 24
+                }
+              }
+            }
+            """;
+        var baseItemsPath = workspace.WriteText("base_items.json", defenceJson);
+
+        var result = service.Augment(Request(inputPath, baseItemsPath, workspace.PathFor("candidate.json")));
+
+        Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
+        var properties = Assert.IsType<ItemBaseDefenceProperties>(
+            Assert.Single(result.Package!.ItemBases, itemBase => itemBase.Id == shieldId).DefenceProperties);
+        Assert.Equal(100, properties.ArmourMinimum);
+        Assert.Equal(90, properties.EvasionRatingMaximum);
+        Assert.Equal(25, properties.EnergyShieldMaximum);
+        Assert.Equal(10, properties.WardMinimum);
+        Assert.Equal(24, properties.ChanceToBlockPercent);
+        Assert.NotNull(Assert.Single(result.Package.ItemBases, itemBase => itemBase.Name == "Reaver Axe").WeaponProperties);
+    }
+
+    [Fact]
     public void Augment_DoesNotSynthesizeMissingWeaponFactsFromNames()
     {
         using var workspace = TemporaryWorkspace.Create();

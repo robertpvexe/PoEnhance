@@ -30,14 +30,21 @@ public sealed record PriceCheckerSearchViewState
 
     public int ItemPropertyCount => ItemProperties.Count;
 
-    public int SelectedModifierCount =>
-        Modifiers.Count(modifier => modifier.IsSelected) +
-        ItemProperties.Sum(property => property.Children.Count(modifier => modifier.IsSelected));
+    public int SelectedModifierCount => AllCanonicalModifiers()
+        .Where(modifier => modifier.IsSelected)
+        .Select(modifier => modifier.SourceIndex)
+        .Distinct()
+        .Count();
 
-    public int ModifierCount =>
-        Modifiers.Count + ItemProperties.Sum(property => property.Children.Count);
+    public int ModifierCount => AllCanonicalModifiers()
+        .Select(modifier => modifier.SourceIndex)
+        .Distinct()
+        .Count();
 
     public int SelectedStatsCount => SelectedItemPropertyCount + SelectedModifierCount;
 
     public int StatsCount => ItemPropertyCount + ModifierCount;
+
+    private IEnumerable<PriceCheckerModifierViewModel> AllCanonicalModifiers() =>
+        Modifiers.Concat(ItemProperties.SelectMany(property => property.Children));
 }

@@ -21,6 +21,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string MiscFiltersKey = "misc_filters";
     private const string ProviderFoulbornFilterKey = "mutated";
     private const string WeaponFiltersKey = "weapon_filters";
+    private const string ArmourFiltersKey = "armour_filters";
     private const string ProviderPerHitDamageFilterKey = "damage";
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
@@ -161,12 +162,14 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         if (providerPropertyFilters.Any(filter =>
                 TrimToNull(filter.ProviderGroupId) is null ||
                 TrimToNull(filter.ProviderFilterId) is null ||
-                !string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) ||
-                string.Equals(filter.ProviderFilterId.Trim(), ProviderPerHitDamageFilterKey, StringComparison.Ordinal)))
+                (!string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) &&
+                 !string.Equals(filter.ProviderGroupId.Trim(), ArmourFiltersKey, StringComparison.Ordinal)) ||
+                (string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) &&
+                 string.Equals(filter.ProviderFilterId.Trim(), ProviderPerHitDamageFilterKey, StringComparison.Ordinal))))
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
-                "Selected item-property mappings require non-empty reviewed weapon filter identities and may not use the per-hit damage filter.");
+                "Selected item-property mappings require reviewed weapon or armour filter identities and may not use the per-hit damage filter.");
         }
 
         if (providerPropertyFilters
@@ -522,17 +525,21 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
 
         if (itemPropertyFilters.Count > 0)
         {
-            AddFilterGroup(
-                groups,
-                WeaponFiltersKey,
-                itemPropertyFilters.ToDictionary(
-                    filter => filter.ProviderFilterId.Trim(),
-                    filter => (object)new PathOfExileTradeSearchStatValue
-                    {
-                        Min = filter.RequestedMinimum,
-                        Max = filter.RequestedMaximum,
-                    },
-                    StringComparer.Ordinal));
+            foreach (var propertyGroup in itemPropertyFilters.GroupBy(
+                         filter => filter.ProviderGroupId.Trim(), StringComparer.Ordinal))
+            {
+                AddFilterGroup(
+                    groups,
+                    propertyGroup.Key,
+                    propertyGroup.ToDictionary(
+                        filter => filter.ProviderFilterId.Trim(),
+                        filter => (object)new PathOfExileTradeSearchStatValue
+                        {
+                            Min = filter.RequestedMinimum,
+                            Max = filter.RequestedMaximum,
+                        },
+                        StringComparer.Ordinal));
+            }
         }
 
         foreach (var requestedGroup in requestedItemFilters.GroupBy(

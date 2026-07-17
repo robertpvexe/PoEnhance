@@ -1487,7 +1487,8 @@ internal sealed class PriceCheckerSearchController
                 var children = childIndexes.Select(childIndex => CreateModifierRow(
                     draft,
                     childIndex,
-                    showsExpansionControl: false)).ToArray();
+                    showsExpansionControl: false,
+                    sectionLabelOverride: SharedWithLabel(draft, property.Kind, childIndex))).ToArray();
                 return new PriceCheckerItemPropertyViewModel
                 {
                     SourceIndex = index,
@@ -1525,7 +1526,8 @@ internal sealed class PriceCheckerSearchController
     private PriceCheckerModifierViewModel CreateModifierRow(
         TradeSearchDraft draft,
         int index,
-        bool showsExpansionControl)
+        bool showsExpansionControl,
+        string? sectionLabelOverride = null)
     {
         var modifier = draft.ModifierFilters[index];
         var variants = CreateVariantViewModels(modifier.FilterVariants);
@@ -1565,7 +1567,7 @@ internal sealed class PriceCheckerSearchController
         {
             SourceIndex = index,
             Text = SafeModifierText(modifier.OriginalText),
-            SectionLabel = SectionLabelWithSources(modifier),
+            SectionLabel = sectionLabelOverride ?? SectionLabelWithSources(modifier),
             SourceCount = modifier.SourceCount,
             SourceBreakdown = SourceBreakdown(modifier),
             IsSelected = modifier.IsSelected,
@@ -1607,36 +1609,29 @@ internal sealed class PriceCheckerSearchController
             return [];
         }
 
-        var assigned = new HashSet<int>();
-        for (var propertyIndex = 0; propertyIndex <= itemPropertyIndex; propertyIndex++)
-        {
-            var property = draft.ItemProperties[propertyIndex];
-            var group = draft.ItemPropertyContributionGroups.FirstOrDefault(candidate =>
-                candidate.ParentKind == property.Kind);
-            if (group is null)
-            {
-                continue;
-            }
+        var kind = draft.ItemProperties[itemPropertyIndex].Kind;
+        var group = draft.ItemPropertyContributionGroups.FirstOrDefault(candidate =>
+            candidate.ParentKind == kind);
+        return group?.Contributions
+            .Select(contribution => contribution.ModifierFilterIndex)
+            .Where(index => index >= 0 && index < draft.ModifierFilters.Count)
+            .Distinct()
+            .ToArray() ?? [];
+    }
 
-            var current = new List<int>();
-            foreach (var contribution in group.Contributions)
-            {
-                var modifierIndex = contribution.ModifierFilterIndex;
-                if (modifierIndex >= 0 &&
-                    modifierIndex < draft.ModifierFilters.Count &&
-                    assigned.Add(modifierIndex))
-                {
-                    current.Add(modifierIndex);
-                }
-            }
-
-            if (propertyIndex == itemPropertyIndex)
-            {
-                return current;
-            }
-        }
-
-        return [];
+    private static string? SharedWithLabel(
+        TradeSearchDraft draft,
+        TradeSearchItemPropertyKind currentParent,
+        int modifierIndex)
+    {
+        var otherLabels = draft.ItemPropertyContributionGroups
+            .Where(group => group.ParentKind != currentParent && group.Contributions.Any(contribution =>
+                contribution.ModifierFilterIndex == modifierIndex))
+            .Select(group => draft.ItemProperties.FirstOrDefault(property => property.Kind == group.ParentKind)?.Label)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return otherLabels.Length == 0 ? null : $"Shared with {string.Join(", ", otherLabels)}";
     }
 
     private static bool IsItemPropertyAvailable(TradeSearchItemProperty property)

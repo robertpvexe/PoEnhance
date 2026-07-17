@@ -29,6 +29,208 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
         Assert.Equal(expectedSearchable, property.NotSearchableReason is null);
     }
 
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EnergyShield)]
+    [InlineData(TradeSearchItemPropertyKind.Armour)]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating)]
+    [InlineData(TradeSearchItemPropertyKind.Ward)]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock)]
+    public void Resolve_DefensiveKindsUseExactOfficialArmourFilters(TradeSearchItemPropertyKind kind)
+    {
+        var unresolved = PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+            PathOfExileTradeItemPropertyTestFixtures.Property(kind, 100m));
+
+        var result = new PathOfExileTradeItemPropertyResolver().Resolve(
+            unresolved,
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+
+        var property = Assert.Single(result.ItemProperties);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable);
+    }
+
+    [Fact]
+    public void Resolve_DefensiveUnsupportedDerivationCannotBecomeSearchable()
+    {
+        var source = PathOfExileTradeItemPropertyTestFixtures.Property(
+            TradeSearchItemPropertyKind.Armour, 100m) with
+        {
+            DerivationUnsupportedReason = "Ambiguous sourced base roll.",
+        };
+
+        var result = new PathOfExileTradeItemPropertyResolver().Resolve(
+            PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(source),
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+
+        var property = Assert.Single(result.ItemProperties);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unsupported, property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+        Assert.Equal(source.DerivationUnsupportedReason, property.NotSearchableReason);
+    }
+
+    [Fact]
+    public void Resolve_ChanceToBlockAlsoSupportsProvenWeaponCategorySuchAsStaff()
+    {
+        var source = PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(
+            [PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.ChanceToBlock, 18m)]);
+        var category = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = "Staff",
+        };
+        var draft = source with
+        {
+            ItemClass = "Staves",
+            Base = source.Base with
+            {
+                Category = "Staff",
+                AvailableCriteria = source.Base.AvailableCriteria with { Category = category },
+                ActiveCriterion = category,
+            },
+        };
+
+        var result = new PathOfExileTradeItemPropertyResolver().Resolve(
+            draft,
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+
+        Assert.True(Assert.Single(result.ItemProperties).IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Resolve_CurrentOfficialEntryIgnoresCosmeticDisplayTextDriftForExactStableIdentity(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            Text = $"Cosmetically renamed {definition.Text}",
+        });
+
+        var property = ResolveDefensive(kind, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Resolve_WrongProviderGroupFailsExactStableIdentity(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            GroupId = "weapon_filters",
+        });
+
+        var property = ResolveDefensive(kind, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unresolved, property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Resolve_WrongProviderIdFailsExactStableIdentity(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            FilterId = $"wrong_{definition.FilterId}",
+        });
+
+        var property = ResolveDefensive(kind, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unresolved, property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Resolve_NonnumericEntryFailsReviewedCapability(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            SupportsMinMax = false,
+        });
+
+        var property = ResolveDefensive(kind, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unresolved, property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+        Assert.Contains("incompatible", property.NotSearchableReason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("spell_block", "Chance to Block Spell Damage")]
+    [InlineData("stun_block_recovery", "Stun and Block Recovery")]
+    [InlineData("local_increased_block", "increased Chance to Block")]
+    public void Resolve_BlockLikeSpellRecoveryOrChildEntryCannotSubstituteForReviewedParent(
+        string decoyId,
+        string decoyText)
+    {
+        var catalog = TransformDefinition("block", definition => definition with
+        {
+            FilterId = decoyId,
+            Text = decoyText,
+        });
+
+        var property = ResolveDefensive(TradeSearchItemPropertyKind.ChanceToBlock, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unresolved, property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Resolve_ChangedReviewTipDoesNotInvalidateExactStableIdentity(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            Tip = "Different provider semantics",
+        });
+
+        var property = ResolveDefensive(kind, catalog);
+
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void MapSelected_SelectedSemanticallyIncompatibleParentStillBlocksProviderMapping(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var catalog = TransformDefinition(filterId, definition => definition with
+        {
+            SupportsMinMax = false,
+        });
+        var draft = PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+            PathOfExileTradeItemPropertyTestFixtures.Property(kind, 100m, selected: true));
+
+        var result = new PathOfExileTradeItemPropertyResolver().MapSelected(draft, catalog);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedItemPropertyMappingDiagnosticCodes.NotExactlyResolved,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
     [Fact]
     public void Resolve_MissingOfficialEntryRemainsCatalogMissingAndUnresolved()
     {
@@ -101,7 +303,7 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
         property = Assert.Single(result.ItemProperties);
         Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unsupported, property.ProviderResolutionStatus);
         Assert.False(property.IsSearchable);
-        Assert.Contains("weapon-property derivation", property.NotSearchableReason, StringComparison.Ordinal);
+        Assert.Contains("successful derivation", property.NotSearchableReason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -152,5 +354,26 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
             official.CategoryOptions,
             numericFilterDefinitions: official.NumericFilterDefinitions.Where(definition =>
                 definition.FilterId != filterId));
+    }
+
+    private static PathOfExileTradeFilterCatalog TransformDefinition(
+        string filterId,
+        Func<PathOfExileTradeNumericFilterDefinition, PathOfExileTradeNumericFilterDefinition> transform)
+    {
+        var official = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        return new PathOfExileTradeFilterCatalog(
+            official.CategoryOptions,
+            numericFilterDefinitions: official.NumericFilterDefinitions.Select(definition =>
+                definition.FilterId == filterId ? transform(definition) : definition));
+    }
+
+    private static TradeSearchItemProperty ResolveDefensive(
+        TradeSearchItemPropertyKind kind,
+        PathOfExileTradeFilterCatalog catalog)
+    {
+        var draft = PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+            PathOfExileTradeItemPropertyTestFixtures.Property(kind, 100m));
+        var result = new PathOfExileTradeItemPropertyResolver().Resolve(draft, catalog);
+        return Assert.Single(result.ItemProperties);
     }
 }

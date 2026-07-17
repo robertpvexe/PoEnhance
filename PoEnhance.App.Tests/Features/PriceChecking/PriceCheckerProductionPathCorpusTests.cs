@@ -3,6 +3,7 @@ using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.GameData;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
@@ -221,7 +222,9 @@ Regenerate 46.8(32.1-48) Life per second
 
         var stunRecovery = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Stun and Block Recovery", StringComparison.Ordinal));
-        Assert.Empty(snapshot.Draft.ItemPropertyContributionGroups);
+        Assert.Equal(
+            TradeSearchItemPropertyKind.EvasionRating,
+            Assert.Single(snapshot.Draft.ItemPropertyContributionGroups).ParentKind);
         Assert.Equal("31% increased Stun and Block Recovery", stunRecovery.OriginalText);
         Assert.Equal(31m, stunRecovery.RequestedMinimum);
         Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, stunRecovery.StatMappingProof);
@@ -237,7 +240,9 @@ Regenerate 46.8(32.1-48) Life per second
 
         var row = Assert.Single(snapshot.SearchState.Modifiers, modifier =>
             modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
-        Assert.Empty(snapshot.SearchState.ItemProperties);
+        Assert.Equal(
+            TradeSearchItemPropertyKind.EvasionRating,
+            Assert.Single(snapshot.SearchState.ItemProperties).Kind);
         Assert.Equal(4, snapshot.SearchState.Stats.Count);
         Assert.True(row.ShowsExpansionControl);
         Assert.True(row.HasContributors);
@@ -511,13 +516,15 @@ Item Level: 84
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
         Assert.Equal("Wasp's Supreme Spiked Shield of Thick Skin", snapshot.WindowState.Draft.DisplayName);
-        Assert.Equal(3, snapshot.SearchState.Modifiers.Count);
+        Assert.Equal(2, snapshot.SearchState.Modifiers.Count);
         Assert.Contains(
             snapshot.SearchState.Modifiers,
             row => row.Text.Contains("chance to Suppress Spell Damage", StringComparison.Ordinal));
-        Assert.Contains(
-            snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("increased Evasion and Energy Shield", StringComparison.Ordinal));
+        Assert.All(
+            snapshot.SearchState.ItemProperties.Where(property => property.Kind is
+                TradeSearchItemPropertyKind.EnergyShield or TradeSearchItemPropertyKind.EvasionRating),
+            property => Assert.Contains(property.Children,
+                row => row.Text.Contains("increased Evasion and Energy Shield", StringComparison.Ordinal)));
         Assert.Contains(
             snapshot.SearchState.Modifiers,
             row => row.Text == "24% increased Stun and Block Recovery" &&
@@ -635,6 +642,122 @@ Item Level: 84
         Assert.Equal(label, label);
     }
 
+    [Fact]
+    public void DefensiveCorpus_UsesQ20ParentsAndSharedCanonicalHybridProjection()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var dusk = harness.OpenFixture(8);
+        var armour = Assert.Single(dusk.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.Armour);
+        Assert.Equal(2047m, armour.ObservedValue);
+        Assert.Equal("Q20", armour.CalculationBasisLabel);
+
+        var gale = harness.OpenFixture(11);
+        Assert.Collection(
+            gale.Draft.ItemProperties.Where(property => property.Kind is
+                TradeSearchItemPropertyKind.Armour or TradeSearchItemPropertyKind.EvasionRating),
+            property =>
+            {
+                Assert.Equal(TradeSearchItemPropertyKind.Armour, property.Kind);
+                Assert.Equal(2330m, property.ObservedValue);
+                Assert.Equal("Q20", property.CalculationBasisLabel);
+            },
+            property =>
+            {
+                Assert.Equal(TradeSearchItemPropertyKind.EvasionRating, property.Kind);
+                Assert.Equal(2349m, property.ObservedValue);
+                Assert.Equal("Q20", property.CalculationBasisLabel);
+            });
+
+        harness.ExpandProperty(TradeSearchItemPropertyKind.Armour);
+        var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.EvasionRating);
+        var armourRow = Assert.Single(expanded.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.Armour);
+        var evasionRow = Assert.Single(expanded.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EvasionRating);
+        var armourProjection = Assert.Single(armourRow.Children, child =>
+            child.Text.Contains("105% increased Armour and Evasion", StringComparison.Ordinal));
+        var evasionProjection = Assert.Single(evasionRow.Children, child =>
+            child.Text.Contains("105% increased Armour and Evasion", StringComparison.Ordinal));
+        Assert.Equal(armourProjection.SourceIndex, evasionProjection.SourceIndex);
+        Assert.Equal("Shared with Evasion Rating", armourProjection.SectionLabel);
+        Assert.Equal("Shared with Armour", evasionProjection.SectionLabel);
+
+        var selected = harness.SelectModifier(armourProjection.SourceIndex, true);
+        Assert.True(Assert.Single(selected.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.Armour).Children.Single(child =>
+                child.SourceIndex == armourProjection.SourceIndex).IsSelected);
+        Assert.True(Assert.Single(selected.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EvasionRating).Children.Single(child =>
+                child.SourceIndex == armourProjection.SourceIndex).IsSelected);
+        Assert.Equal(1, selected.SelectedModifierCount);
+        Assert.Equal(0, harness.SearchCount);
+    }
+
+    [Fact]
+    public void MiracleBastion_UsesSeparateQ20DefencesAndNonQ20BaseBlock()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenFixture(13);
+
+        var energyShield = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EnergyShield);
+        var evasion = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EvasionRating);
+        var block = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+        Assert.Equal((149m, "Q20"), (energyShield.ObservedValue, energyShield.CalculationBasisLabel));
+        Assert.Equal((515m, "Q20"), (evasion.ObservedValue, evasion.CalculationBasisLabel));
+        Assert.Equal(24m, block.ObservedValue);
+        Assert.Null(block.CalculationBasisLabel);
+    }
+
+    [Fact]
+    public void RuntimeCatalogResolution_GenuineDefensiveFixturesUseOnlyReviewedEvasionAndBlockEntries()
+    {
+        using var harness = ProductionPathHarness.Create();
+        var officialCatalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        var resolver = new PathOfExileTradeItemPropertyResolver();
+
+        var necrotic = resolver.Resolve(harness.OpenFixture(0).Draft, officialCatalog);
+        AssertExactProperty(necrotic, TradeSearchItemPropertyKind.EvasionRating);
+
+        var gale = resolver.Resolve(harness.OpenFixture(11).Draft, officialCatalog);
+        AssertExactProperty(gale, TradeSearchItemPropertyKind.EvasionRating);
+
+        var golden = resolver.Resolve(harness.OpenText(GoldenBucklerText).Draft, officialCatalog);
+        AssertExactProperty(golden, TradeSearchItemPropertyKind.EvasionRating);
+        AssertExactProperty(golden, TradeSearchItemPropertyKind.ChanceToBlock);
+
+        var miracle = resolver.Resolve(harness.OpenFixture(13).Draft, officialCatalog);
+        AssertExactProperty(miracle, TradeSearchItemPropertyKind.EvasionRating);
+        AssertExactProperty(miracle, TradeSearchItemPropertyKind.ChanceToBlock);
+        Assert.DoesNotContain(
+            miracle.ItemProperties,
+            property => property.NotSearchableReason?.Contains(
+                "catalog entry is incompatible",
+                StringComparison.Ordinal) == true);
+
+        var invalidDefinitions = officialCatalog.NumericFilterDefinitions.Select(definition =>
+            definition.FilterId is "ev" or "block"
+                ? definition with { SupportsMinMax = false }
+                : definition);
+        var invalidCatalog = new PathOfExileTradeFilterCatalog(
+            officialCatalog.CategoryOptions,
+            numericFilterDefinitions: invalidDefinitions);
+        var invalid = resolver.Resolve(harness.OpenFixture(13).Draft, invalidCatalog);
+        Assert.All(
+            invalid.ItemProperties.Where(property => property.Kind is
+                TradeSearchItemPropertyKind.EvasionRating or TradeSearchItemPropertyKind.ChanceToBlock),
+            property =>
+            {
+                Assert.False(property.IsSearchable);
+                Assert.Contains("catalog entry is incompatible", property.NotSearchableReason, StringComparison.Ordinal);
+            });
+    }
+
     private sealed record ProductionPathSnapshot(
         ParsedItem AfterParse,
         ItemBaseResolutionResult BaseResolution,
@@ -680,6 +803,31 @@ Item Level: 85
 116(100-129)% increased Physical Damage
 """;
 
+    internal const string GoldenBucklerText = """
+Item Class: Shields
+Rarity: Normal
+Golden Buckler
+--------
+Chance to Block: 25%
+Evasion Rating: 354
+--------
+Requirements:
+Level: 54
+Dex: 130
+--------
+Item Level: 84
+""";
+
+    private static void AssertExactProperty(
+        TradeSearchDraft draft,
+        TradeSearchItemPropertyKind kind)
+    {
+        var property = Assert.Single(draft.ItemProperties, property => property.Kind == kind);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable);
+        Assert.Null(property.NotSearchableReason);
+    }
+
     private sealed class ProductionPathHarness : IDisposable
     {
         private readonly TempDirectory tempDirectory;
@@ -687,30 +835,36 @@ Item Level: 85
         private readonly ItemTextParser parser = new();
         private readonly FakeWindowFactory windowFactory;
         private readonly PriceCheckerSearchController searchController;
+        private readonly FakePriceCheckService priceCheckService;
 
         private ProductionPathHarness(
             TempDirectory tempDirectory,
             GameDataCatalog catalog,
             PriceCheckerWindowController controller,
             FakeWindowFactory windowFactory,
-            PriceCheckerSearchController searchController)
+            PriceCheckerSearchController searchController,
+            FakePriceCheckService priceCheckService)
         {
             this.tempDirectory = tempDirectory;
             Catalog = catalog;
             Controller = controller;
             this.windowFactory = windowFactory;
             this.searchController = searchController;
+            this.priceCheckService = priceCheckService;
         }
 
         private GameDataCatalog Catalog { get; }
 
         private PriceCheckerWindowController Controller { get; }
 
+        public int SearchCount => priceCheckService.SearchCount;
+
         public static ProductionPathHarness Create()
         {
             var tempDirectory = TempDirectory.Create();
             var windowFactory = new FakeWindowFactory();
-            var searchController = new PriceCheckerSearchController(new FakePriceCheckService());
+            var priceCheckService = new FakePriceCheckService();
+            var searchController = new PriceCheckerSearchController(priceCheckService);
             var controller = new PriceCheckerWindowController(
                 new FakeBoundsProvider(),
                 new PriceCheckerPlacementCalculator(),
@@ -727,7 +881,8 @@ Item Level: 85
                 LoadGameDataCatalog(),
                 controller,
                 windowFactory,
-                searchController);
+                searchController,
+                priceCheckService);
         }
 
         public ProductionPathSnapshot OpenFixture(int fixtureIndex)
@@ -774,6 +929,12 @@ Item Level: 85
                 candidate.Kind == kind);
             searchController.UpdateItemPropertyExpansion(property.SourceIndex, isExpanded: true);
             return window.CurrentSearchState!;
+        }
+
+        public PriceCheckerSearchViewState SelectModifier(int sourceIndex, bool selected)
+        {
+            searchController.UpdateModifierSelection(sourceIndex, selected);
+            return Assert.Single(windowFactory.CreatedWindows).CurrentSearchState!;
         }
 
         public void Dispose()
@@ -947,6 +1108,8 @@ Item Level: 85
 
     private sealed class FakePriceCheckService : IPathOfExileTradePriceCheckService
     {
+        public int SearchCount { get; private set; }
+
         public Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new PathOfExileTradeFilterCatalogProviderResult());
@@ -964,6 +1127,7 @@ Item Level: 85
             string? leagueIdentifier,
             CancellationToken cancellationToken = default)
         {
+            SearchCount++;
             return Task.FromResult(new PathOfExileTradePriceCheckResult
             {
                 IsSuccess = true,

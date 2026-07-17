@@ -46,6 +46,50 @@
       "providerFilterId": "crit",
       "expectedOfficialText": "Critical Chance",
       "requiresNumericMinMax": true
+    },
+    {
+      "kind": "EnergyShield",
+      "supported": true,
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "es",
+      "expectedOfficialText": "Energy Shield",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "Armour",
+      "supported": true,
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "ar",
+      "expectedOfficialText": "Armour",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "EvasionRating",
+      "supported": true,
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "ev",
+      "expectedOfficialText": "Evasion",
+      "expectedOfficialTip": "Includes base value, local modifiers, and maximum quality",
+      "requiresExactOfficialTextMatch": false,
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "Ward",
+      "supported": true,
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "ward",
+      "expectedOfficialText": "Ward",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "ChanceToBlock",
+      "supported": true,
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "block",
+      "expectedOfficialText": "Block",
+      "expectedOfficialTip": "Includes base value and local modifiers",
+      "requiresExactOfficialTextMatch": false,
+      "requiresNumericMinMax": true
     }
   ]
 }

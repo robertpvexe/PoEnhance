@@ -129,6 +129,7 @@ internal sealed class PathOfExileTradeFiltersResponseParser
                     GroupHidden = groupHidden,
                     FilterId = ReadOptionalString(filterElement, "id")!,
                     Text = ReadOptionalString(filterElement, "text")!,
+                    Tip = ReadOptionalString(filterElement, "tip")?.Trim(),
                     SupportsMinMax = minMaxElement.GetBoolean(),
                 };
                 filterIndex++;

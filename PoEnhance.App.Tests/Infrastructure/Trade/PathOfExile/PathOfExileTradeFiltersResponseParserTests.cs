@@ -14,8 +14,11 @@ public sealed class PathOfExileTradeFiltersResponseParserTests
         var catalog = Assert.IsType<PathOfExileTradeFilterCatalog>(result.Catalog);
         Assert.Equal(
             ["damage", "aps", "crit", "dps", "pdps", "edps"],
-            catalog.NumericFilterDefinitions.Select(definition => definition.FilterId));
-        Assert.All(catalog.NumericFilterDefinitions, definition =>
+            catalog.NumericFilterDefinitions
+                .Where(definition => definition.GroupId == "weapon_filters")
+                .Select(definition => definition.FilterId));
+        Assert.All(catalog.NumericFilterDefinitions.Where(definition =>
+            definition.GroupId == "weapon_filters"), definition =>
         {
             Assert.Equal("weapon_filters", definition.GroupId);
             Assert.Equal("Weapon Filters", definition.GroupTitle);
@@ -37,6 +40,33 @@ public sealed class PathOfExileTradeFiltersResponseParserTests
         Assert.Equal("weapon.oneaxe", axe.Id);
         Assert.True(catalog.TryFindCategoryOption("Bow", out var bow));
         Assert.Equal("weapon.bow", bow.Id);
+    }
+
+    [Theory]
+    [InlineData(
+        "ev",
+        "Evasion",
+        "Includes base value, local modifiers, and maximum quality")]
+    [InlineData(
+        "block",
+        "Block",
+        "Includes base value and local modifiers")]
+    public void Parse_CurrentOfficialDefensiveEntryRetainsIdentityNumericCapabilityAndSemanticTip(
+        string filterId,
+        string expectedText,
+        string expectedTip)
+    {
+        var result = new PathOfExileTradeFiltersResponseParser().ParseFiltersResponse(
+            PathOfExileTradeItemPropertyTestFixtures.OfficialFiltersJson);
+
+        Assert.True(result.IsSuccess);
+        var definition = Assert.Single(result.Catalog!.NumericFilterDefinitions, definition =>
+            definition.GroupId == "armour_filters" && definition.FilterId == filterId);
+        Assert.Equal("Armour Filters", definition.GroupTitle);
+        Assert.True(definition.GroupHidden);
+        Assert.Equal(expectedText, definition.Text);
+        Assert.Equal(expectedTip, definition.Tip);
+        Assert.True(definition.SupportsMinMax);
     }
 
     [Fact]

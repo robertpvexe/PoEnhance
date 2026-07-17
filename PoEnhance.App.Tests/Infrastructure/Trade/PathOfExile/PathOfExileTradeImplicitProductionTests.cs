@@ -45,7 +45,7 @@ public sealed class PathOfExileTradeImplicitProductionTests
 
         await fixture.SearchAsync();
 
-        Assert.Equal(3, fixture.Window.CurrentSearchState!.Modifiers.Count);
+        Assert.Equal(2, fixture.Window.CurrentSearchState!.Modifiers.Count);
         var recovery = Assert.Single(fixture.Window.CurrentSearchState.Modifiers, modifier =>
             modifier.Text == "24% increased Stun and Block Recovery");
         Assert.Equal(2, recovery.Contributors.Count);
@@ -213,25 +213,25 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.Equal("31", row.MinimumText);
 
         fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "20", string.Empty);
-        Assert.Equal("20", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
-        Assert.Equal("9", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("9", CurrentRow().MinimumText);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
-        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("31", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: false);
-        Assert.Equal("22", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("22", CurrentRow().MinimumText);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: false);
-        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("31", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
-        Assert.Equal("31", fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex].MinimumText);
+        Assert.Equal("31", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "20", string.Empty);
-        var suspended = fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex];
+        var suspended = CurrentRow();
         Assert.Equal("20", suspended.MinimumText);
         Assert.All(suspended.Contributors, contributor =>
         {
@@ -254,7 +254,7 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.Equal(20, suspendedFilter.GetProperty("value").GetProperty("min").GetInt32());
 
         fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "31", string.Empty);
-        var reactivated = fixture.Window.CurrentSearchState!.Modifiers[row.SourceIndex];
+        var reactivated = CurrentRow();
         Assert.All(reactivated.Contributors, contributor =>
         {
             Assert.True(contributor.IsSelected);
@@ -271,6 +271,10 @@ public sealed class PathOfExileTradeImplicitProductionTests
             .EnumerateArray());
         Assert.Equal("explicit.stun-recovery", restoredFilter.GetProperty("id").GetString());
         Assert.Equal(31, restoredFilter.GetProperty("value").GetProperty("min").GetInt32());
+
+        PriceCheckerModifierViewModel CurrentRow() => Assert.Single(
+            fixture.Window.CurrentSearchState!.Modifiers,
+            modifier => modifier.SourceIndex == row.SourceIndex);
     }
 
     [Fact]

@@ -155,5 +155,7 @@ internal sealed record PathOfExileTradeNumericFilterDefinition
 
     public required string Text { get; init; }
 
+    public string? Tip { get; init; }
+
     public bool SupportsMinMax { get; init; }
 }

@@ -18,5 +18,7 @@ public sealed record ItemBaseRecord
 
     public ItemBaseWeaponProperties? WeaponProperties { get; init; }
 
+    public ItemBaseDefenceProperties? DefenceProperties { get; init; }
+
     public IReadOnlyList<GameDataSourceReference> Sources { get; init; } = [];
 }

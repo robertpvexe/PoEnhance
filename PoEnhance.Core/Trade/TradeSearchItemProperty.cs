@@ -26,5 +26,7 @@ public sealed record TradeSearchItemProperty
 
     public string? NotSearchableReason { get; init; }
 
+    public string? DerivationUnsupportedReason { get; init; }
+
     public ImmutableArray<ParsedItemProperty> SourceProperties { get; init; } = [];
 }

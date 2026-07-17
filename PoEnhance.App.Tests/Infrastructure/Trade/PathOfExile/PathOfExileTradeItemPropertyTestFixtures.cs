@@ -22,7 +22,10 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                     "options": [
                       { "id": "weapon.oneaxe", "text": "One-Handed Axe" },
                       { "id": "weapon.bow", "text": "Bow" },
-                      { "id": "armour.chest", "text": "Body Armour" }
+                      { "id": "weapon.staff", "text": "Staff" },
+                      { "id": "armour.chest", "text": "Body Armour" },
+                      { "id": "armour.shield", "text": "Shield" },
+                      { "id": "armour.boots", "text": "Boots" }
                     ]
                   }
                 }
@@ -39,6 +42,28 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                 { "id": "dps", "text": "Damage per Second", "minMax": true },
                 { "id": "pdps", "text": "Physical DPS", "minMax": true },
                 { "id": "edps", "text": "Elemental DPS", "minMax": true }
+              ]
+            },
+            {
+              "id": "armour_filters",
+              "title": "Armour Filters",
+              "hidden": true,
+              "filters": [
+                { "id": "ar", "text": "Armour", "minMax": true },
+                {
+                  "id": "ev",
+                  "text": "Evasion",
+                  "tip": "Includes base value, local modifiers, and maximum quality",
+                  "minMax": true
+                },
+                { "id": "es", "text": "Energy Shield", "minMax": true },
+                { "id": "ward", "text": "Ward", "minMax": true },
+                {
+                  "id": "block",
+                  "text": "Block",
+                  "tip": "Includes base value and local modifiers",
+                  "minMax": true
+                }
               ]
             }
           ]
@@ -141,6 +166,9 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
         };
     }
 
+    public static TradeSearchDraft ArmourDraft(params TradeSearchItemProperty[] properties) =>
+        NonWeaponDraft(properties[0]) with { ItemProperties = properties.ToImmutableArray() };
+
     public static IReadOnlyList<TradeSearchItemProperty> AllProperties()
     {
         return
@@ -208,6 +236,11 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                 [Source("Chaos Damage"), Source("Attacks per Second")],
             TradeSearchItemPropertyKind.AttacksPerSecond => [Source("Attacks per Second")],
             TradeSearchItemPropertyKind.CriticalStrikeChance => [Source("Critical Strike Chance")],
+            TradeSearchItemPropertyKind.EnergyShield => [Source("Energy Shield")],
+            TradeSearchItemPropertyKind.Armour => [Source("Armour")],
+            TradeSearchItemPropertyKind.EvasionRating => [Source("Evasion Rating")],
+            TradeSearchItemPropertyKind.Ward => [Source("Ward")],
+            TradeSearchItemPropertyKind.ChanceToBlock => [Source("Chance to Block")],
             _ => [],
         };
     }
@@ -233,6 +266,11 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
             TradeSearchItemPropertyKind.ChaosDps => "Chaos DPS",
             TradeSearchItemPropertyKind.AttacksPerSecond => "Attacks per Second",
             TradeSearchItemPropertyKind.CriticalStrikeChance => "Critical Strike Chance",
+            TradeSearchItemPropertyKind.EnergyShield => "Energy Shield",
+            TradeSearchItemPropertyKind.Armour => "Armour",
+            TradeSearchItemPropertyKind.EvasionRating => "Evasion Rating",
+            TradeSearchItemPropertyKind.Ward => "Ward",
+            TradeSearchItemPropertyKind.ChanceToBlock => "Chance to Block",
             _ => kind.ToString(),
         };
     }

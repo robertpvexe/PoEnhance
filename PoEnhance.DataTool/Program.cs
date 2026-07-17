@@ -11,6 +11,12 @@ internal static class Program
             return RunAugmentPackageSemantics(args);
         }
 
+        if (args.Length > 0 &&
+            string.Equals(args[0], AugmentPackageBasePropertiesCommandLineParser.CommandName, StringComparison.Ordinal))
+        {
+            return RunAugmentPackageBaseProperties(args);
+        }
+
         return RunBuildPackage(args);
     }
 
@@ -72,8 +78,34 @@ internal static class Program
         }
     }
 
+    private static int RunAugmentPackageBaseProperties(string[] args)
+    {
+        var parsed = AugmentPackageBasePropertiesCommandLineParser.Parse(args);
+        if (!parsed.IsValid)
+        {
+            foreach (var error in parsed.Errors)
+            {
+                Console.Error.WriteLine(error);
+            }
+            Console.Error.WriteLine(AugmentPackageBasePropertiesCommandLineParser.GetUsage());
+            return 2;
+        }
+
+        try
+        {
+            var result = new GameDataPackageWeaponPropertyAugmentationService().Augment(parsed.Request!);
+            AugmentPackageBasePropertiesReportPrinter.Print(result, Console.Out);
+            return result.IsSuccess ? 0 : 1;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Unexpected internal error: {exception.Message}");
+            return 3;
+        }
+    }
+
     private static string GetUsage()
     {
-        return $"{BuildPackageCommandLineParser.GetUsage()}\n\n{AugmentPackageSemanticsCommandLineParser.GetUsage()}";
+        return $"{BuildPackageCommandLineParser.GetUsage()}\n\n{AugmentPackageSemanticsCommandLineParser.GetUsage()}\n\n{AugmentPackageBasePropertiesCommandLineParser.GetUsage()}";
     }
 }

@@ -82,7 +82,17 @@ public sealed class TradeSearchDefenceSemanticProvenanceTests
             component => Assert.Equal(
                 ModifierStatMappingProofStatus.ProvenExact,
                 component.StatMappingProof));
-        Assert.Empty(draft.ItemPropertyContributionGroups);
+        Assert.Equal(
+            expectedSemanticIds
+                .SelectMany(id => draft.ModifierFilters
+                    .Where(component => component.ReviewedItemPropertySemantic?.Id == id)
+                    .SelectMany(component => component.ReviewedItemPropertySemantic!.Contributions)
+                    .SelectMany(contribution => contribution.Targets))
+                .Where(target => target is ItemPropertyTarget.Armour or ItemPropertyTarget.Evasion or
+                    ItemPropertyTarget.EnergyShield or ItemPropertyTarget.Ward or ItemPropertyTarget.Block)
+                .Select(TargetKind)
+                .Distinct(),
+            draft.ItemPropertyContributionGroups.Select(group => group.ParentKind));
     }
 
     [Fact]
@@ -128,6 +138,16 @@ public sealed class TradeSearchDefenceSemanticProvenanceTests
         Assert.True(result.IsSuccess);
         return Assert.IsType<TradeSearchDraft>(result.Draft);
     }
+
+    private static TradeSearchItemPropertyKind TargetKind(ItemPropertyTarget target) => target switch
+    {
+        ItemPropertyTarget.Armour => TradeSearchItemPropertyKind.Armour,
+        ItemPropertyTarget.Evasion => TradeSearchItemPropertyKind.EvasionRating,
+        ItemPropertyTarget.EnergyShield => TradeSearchItemPropertyKind.EnergyShield,
+        ItemPropertyTarget.Ward => TradeSearchItemPropertyKind.Ward,
+        ItemPropertyTarget.Block => TradeSearchItemPropertyKind.ChanceToBlock,
+        _ => throw new ArgumentOutOfRangeException(nameof(target)),
+    };
 
     private static GameDataCatalog CorpusCatalog()
     {

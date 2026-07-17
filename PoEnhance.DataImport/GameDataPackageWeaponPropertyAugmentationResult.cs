@@ -28,6 +28,19 @@ public sealed record GameDataPackageWeaponPropertyAugmentationResult
 
     public int ItemBasesWithCriticalStrikeChance { get; init; }
 
+    public int ItemBasesWithArmour { get; init; }
+
+    public int ItemBasesWithEvasionRating { get; init; }
+
+    public int ItemBasesWithEnergyShield { get; init; }
+
+    public int ItemBasesWithWard { get; init; }
+
+    public int ItemBasesWithChanceToBlock { get; init; }
+
+    public IReadOnlyDictionary<string, int> MissingDefencePropertiesByClass { get; init; } =
+        new Dictionary<string, int>();
+
     public IReadOnlyDictionary<string, int> MissingCompleteWeaponPropertiesByClass { get; init; } =
         new Dictionary<string, int>();
 

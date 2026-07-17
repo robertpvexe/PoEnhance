@@ -47,6 +47,9 @@ public static class GameDataValidationErrorCodes
     public const string ItemBaseWeaponAttackTimeInvalid = "itemBase.weaponProperties.attackTime.invalid";
     public const string ItemBaseWeaponCriticalStrikeChanceInvalid = "itemBase.weaponProperties.criticalStrikeChance.invalid";
     public const string ItemBaseWeaponSourcesRequired = "itemBase.weaponProperties.sources.required";
+    public const string ItemBaseDefenceRangeInvalid = "itemBase.defenceProperties.range.invalid";
+    public const string ItemBaseDefenceBlockInvalid = "itemBase.defenceProperties.block.invalid";
+    public const string ItemBaseDefenceSourcesRequired = "itemBase.defenceProperties.sources.required";
 
     public const string ModifierRequired = "modifier.required";
     public const string ModifierIdRequired = "modifier.id.required";

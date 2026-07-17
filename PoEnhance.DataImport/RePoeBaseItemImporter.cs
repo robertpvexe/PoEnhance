@@ -162,9 +162,106 @@ public sealed class RePoeBaseItemImporter
             Tags = ReadTags(record, sourceRecordId, diagnostics),
             ImplicitModifierIds = ReadImplicits(record, sourceRecordId, diagnostics),
             WeaponProperties = ReadWeaponProperties(record, sourceRecordId, diagnostics),
+            DefenceProperties = ReadDefenceProperties(record, sourceRecordId, diagnostics),
             Sources = [CreateSourceReference(sourceRecordId)],
         };
     }
+
+    private static ItemBaseDefenceProperties? ReadDefenceProperties(
+        JsonElement record,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!record.TryGetProperty("properties", out var properties) ||
+            properties.ValueKind == JsonValueKind.Null ||
+            properties.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var armour = ReadOptionalDefenceRange(properties, "armour", sourceRecordId, diagnostics);
+        var evasion = ReadOptionalDefenceRange(properties, "evasion", sourceRecordId, diagnostics);
+        var energyShield = ReadOptionalDefenceRange(properties, "energy_shield", sourceRecordId, diagnostics);
+        var ward = ReadOptionalDefenceRange(properties, "ward", sourceRecordId, diagnostics);
+        var block = ReadOptionalDefenceScalar(properties, "block", sourceRecordId, diagnostics);
+        if (armour is null && evasion is null && energyShield is null && ward is null && !block.HasValue)
+        {
+            return null;
+        }
+
+        return new ItemBaseDefenceProperties
+        {
+            ArmourMinimum = armour?.Minimum,
+            ArmourMaximum = armour?.Maximum,
+            EvasionRatingMinimum = evasion?.Minimum,
+            EvasionRatingMaximum = evasion?.Maximum,
+            EnergyShieldMinimum = energyShield?.Minimum,
+            EnergyShieldMaximum = energyShield?.Maximum,
+            WardMinimum = ward?.Minimum,
+            WardMaximum = ward?.Maximum,
+            ChanceToBlockPercent = block,
+            Sources = [CreateSourceReference(sourceRecordId)],
+        };
+    }
+
+    private static DefenceRange? ReadOptionalDefenceRange(
+        JsonElement parent,
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property) || property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Object &&
+            property.TryGetProperty("min", out var minimumElement) &&
+            property.TryGetProperty("max", out var maximumElement) &&
+            minimumElement.TryGetInt32(out var minimum) &&
+            maximumElement.TryGetInt32(out var maximum) &&
+            minimum >= 0 && maximum >= minimum)
+        {
+            return new DefenceRange(minimum, maximum);
+        }
+
+        AddInvalidDefencePropertyDiagnostic(propertyName, sourceRecordId, diagnostics);
+        return null;
+    }
+
+    private static int? ReadOptionalDefenceScalar(
+        JsonElement parent,
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property) || property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value) && value >= 0)
+        {
+            return value;
+        }
+
+        AddInvalidDefencePropertyDiagnostic(propertyName, sourceRecordId, diagnostics);
+        return null;
+    }
+
+    private static void AddInvalidDefencePropertyDiagnostic(
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        diagnostics.Add(Diagnostic(
+            RePoeImportDiagnosticCodes.RecordInvalidDefenceProperties,
+            ImportDiagnosticSeverity.Warning,
+            sourceRecordId,
+            $"RePoE base item defence property '{propertyName}' is malformed and was ignored."));
+    }
+
+    private readonly record struct DefenceRange(int Minimum, int Maximum);
 
     private static ItemBaseWeaponProperties? ReadWeaponProperties(
         JsonElement record,

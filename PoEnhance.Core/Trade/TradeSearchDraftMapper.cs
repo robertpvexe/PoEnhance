@@ -34,11 +34,16 @@ public sealed class TradeSearchDraftMapper
                     modifierResolutionByIndex,
                     gameDataCatalog)
                 .ToArray());
-        var derivedWeaponProperties = new DerivedWeaponPropertyCalculator().CalculateQ20(
+        var derivedPropertyCalculator = new DerivedWeaponPropertyCalculator();
+        var derivedWeaponProperties = derivedPropertyCalculator.CalculateQ20(
             parsedItem,
             itemBaseResolution?.MatchedItemBase,
             CreateDerivedWeaponModifierEffects(aggregation.Components));
-        var itemProperties = CreateItemProperties(derivedWeaponProperties);
+        var derivedDefensiveProperties = derivedPropertyCalculator.CalculateDefensiveQ20(
+            parsedItem,
+            itemBaseResolution?.MatchedItemBase,
+            CreateDerivedWeaponModifierEffects(aggregation.Components));
+        var itemProperties = CreateItemProperties(derivedWeaponProperties, derivedDefensiveProperties);
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
             itemProperties,
             aggregation.Components);
@@ -265,15 +270,11 @@ public sealed class TradeSearchDraftMapper
     }
 
     private static ImmutableArray<TradeSearchItemProperty> CreateItemProperties(
-        DerivedWeaponProperties derived)
+        DerivedWeaponProperties derived,
+        DerivedDefensiveProperties defensive)
     {
-        if (derived.Status != DerivedWeaponPropertyStatus.Success)
-        {
-            return [];
-        }
-
         var properties = ImmutableArray.CreateBuilder<TradeSearchItemProperty>();
-        if (derived.TotalDps.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.TotalDps.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.TotalDps,
@@ -286,7 +287,7 @@ public sealed class TradeSearchDraftMapper
                 derived.AttacksPerSecondSourceProperty));
         }
 
-        if (derived.PhysicalDps.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.PhysicalDps.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.PhysicalDps,
@@ -297,7 +298,7 @@ public sealed class TradeSearchDraftMapper
                 derived.AttacksPerSecondSourceProperty));
         }
 
-        if (derived.ElementalDps.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.ElementalDps.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.ElementalDps,
@@ -308,7 +309,7 @@ public sealed class TradeSearchDraftMapper
                 derived.AttacksPerSecondSourceProperty));
         }
 
-        if (derived.ChaosDps.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.ChaosDps.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.ChaosDps,
@@ -319,7 +320,7 @@ public sealed class TradeSearchDraftMapper
                 derived.AttacksPerSecondSourceProperty));
         }
 
-        if (derived.AttacksPerSecond.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.AttacksPerSecond.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.AttacksPerSecond,
@@ -329,7 +330,7 @@ public sealed class TradeSearchDraftMapper
                 derived.AttacksPerSecondSourceProperty));
         }
 
-        if (derived.CriticalStrikeChance.HasValue)
+        if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.CriticalStrikeChance.HasValue)
         {
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
@@ -339,8 +340,43 @@ public sealed class TradeSearchDraftMapper
                 derived.CriticalStrikeChanceSourceProperty));
         }
 
+        foreach (var property in defensive.Properties)
+        {
+            properties.Add(CreateItemProperty(
+                    DefensiveKind(property.Target),
+                    DefensiveLabel(property.Target),
+                    property.Value,
+                    property.IsQ20 ? "Q20" : null,
+                    property.SourceProperty) with
+            {
+                DerivationUnsupportedReason = property.UnsupportedReason,
+                NotSearchableReason = property.UnsupportedReason ??
+                    "Provider mapping for derived item properties is not available.",
+            });
+        }
+
         return properties.ToImmutable();
     }
+
+    private static TradeSearchItemPropertyKind DefensiveKind(ItemPropertyTarget target) => target switch
+    {
+        ItemPropertyTarget.EnergyShield => TradeSearchItemPropertyKind.EnergyShield,
+        ItemPropertyTarget.Armour => TradeSearchItemPropertyKind.Armour,
+        ItemPropertyTarget.Evasion => TradeSearchItemPropertyKind.EvasionRating,
+        ItemPropertyTarget.Ward => TradeSearchItemPropertyKind.Ward,
+        ItemPropertyTarget.Block => TradeSearchItemPropertyKind.ChanceToBlock,
+        _ => throw new ArgumentOutOfRangeException(nameof(target)),
+    };
+
+    private static string DefensiveLabel(ItemPropertyTarget target) => target switch
+    {
+        ItemPropertyTarget.EnergyShield => "Energy Shield",
+        ItemPropertyTarget.Armour => "Armour",
+        ItemPropertyTarget.Evasion => "Evasion Rating",
+        ItemPropertyTarget.Ward => "Ward",
+        ItemPropertyTarget.Block => "Chance to Block",
+        _ => throw new ArgumentOutOfRangeException(nameof(target)),
+    };
 
     private static TradeSearchItemProperty CreateItemProperty(
         TradeSearchItemPropertyKind kind,

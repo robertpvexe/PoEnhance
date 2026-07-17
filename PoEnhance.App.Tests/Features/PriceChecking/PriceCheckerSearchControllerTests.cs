@@ -54,12 +54,12 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(physical.IsExpanded);
         Assert.Equal([0, 1], physical.Children.Select(child => child.SourceIndex));
         Assert.False(fixture.Window.CurrentSearchState.ItemProperties[0].HasChildren);
-        Assert.Equal(7, fixture.Window.CurrentSearchState.Stats.Count);
+        Assert.Equal(12, fixture.Window.CurrentSearchState.Stats.Count);
         Assert.All(
-            fixture.Window.CurrentSearchState.Stats.Take(6),
+            fixture.Window.CurrentSearchState.Stats.Take(11),
             row => Assert.IsType<PriceCheckerItemPropertyViewModel>(row));
-        Assert.Same(standalone, fixture.Window.CurrentSearchState.Stats[6]);
-        Assert.Equal(10, fixture.Window.CurrentSearchState.StatsCount);
+        Assert.Same(standalone, fixture.Window.CurrentSearchState.Stats[11]);
+        Assert.Equal(15, fixture.Window.CurrentSearchState.StatsCount);
         Assert.Equal(0, fixture.Window.CurrentSearchState.SelectedStatsCount);
         Assert.Equal(
             [0, 1, 2, 3],
@@ -197,14 +197,14 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void ItemPropertyProviderStates_EnableFiveKindsAndKeepChaosVisibleDisabled()
+    public void ItemPropertyProviderStates_EnableTenKindsAndKeepChaosVisibleDisabled()
     {
         var fixture = SearchFixture.Create();
         var draft = Draft("Chaos Edge") with { ItemProperties = AllItemProperties() };
         fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
 
-        Assert.Equal(6, fixture.Window.CurrentSearchState!.ItemProperties.Count);
-        Assert.Equal(5, fixture.Window.CurrentSearchState.ItemProperties.Count(property => property.IsAvailable));
+        Assert.Equal(11, fixture.Window.CurrentSearchState!.ItemProperties.Count);
+        Assert.Equal(10, fixture.Window.CurrentSearchState.ItemProperties.Count(property => property.IsAvailable));
         var chaos = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.ChaosDps);
         Assert.False(chaos.IsAvailable);

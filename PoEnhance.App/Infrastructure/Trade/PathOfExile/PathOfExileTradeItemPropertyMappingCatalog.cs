@@ -42,6 +42,10 @@ internal sealed record PathOfExileTradeItemPropertyMapping
 
     public string? ExpectedOfficialText { get; init; }
 
+    public string? ExpectedOfficialTip { get; init; }
+
+    public bool RequiresExactOfficialTextMatch { get; init; } = true;
+
     public bool RequiresNumericMinMax { get; init; }
 
     public string? UnsupportedReason { get; init; }

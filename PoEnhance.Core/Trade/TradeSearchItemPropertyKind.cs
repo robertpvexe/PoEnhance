@@ -8,4 +8,9 @@ public enum TradeSearchItemPropertyKind
     ChaosDps,
     AttacksPerSecond,
     CriticalStrikeChance,
+    EnergyShield,
+    Armour,
+    EvasionRating,
+    Ward,
+    ChanceToBlock,
 }

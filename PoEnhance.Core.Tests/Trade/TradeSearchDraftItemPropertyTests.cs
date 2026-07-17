@@ -120,13 +120,16 @@ public sealed class TradeSearchDraftItemPropertyTests
     }
 
     [Fact]
-    public void CreateDraft_NecroticArmourHasNoWeaponPropertiesOrDiagnostics()
+    public void CreateDraft_NecroticArmourCreatesDefensiveParentsButNoWeaponDiagnostics()
     {
         var item = ParseFixture(0);
 
         var draft = CreateDraft(item);
 
-        Assert.Empty(draft.ItemProperties);
+        Assert.Equal(
+            [TradeSearchItemPropertyKind.EnergyShield, TradeSearchItemPropertyKind.EvasionRating],
+            draft.ItemProperties.Select(property => property.Kind));
+        Assert.All(draft.ItemProperties, property => Assert.NotNull(property.DerivationUnsupportedReason));
         Assert.Empty(draft.ItemPropertyDiagnostics);
         Assert.Equal(item.Modifiers.Count, draft.ModifierFilters.Count);
     }

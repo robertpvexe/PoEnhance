@@ -8,12 +8,46 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradeItemPropertyMappingResourceTests
 {
     [Fact]
-    public void DefaultResource_LoadsFiveSupportedMappingsAndExplicitUnsupportedChaos()
+    public void DefaultResource_LoadsWeaponAndDefensiveMappingsAndExplicitUnsupportedChaos()
     {
         var catalog = new PathOfExileTradeItemPropertyMappingResourceLoader().LoadDefaultOrThrow();
 
         Assert.Equal("item-property-trade-mapping-audit-2026-07-17", catalog.ReviewReference);
-        Assert.Equal(5, catalog.Mappings.Count(mapping => mapping.IsSupported));
+        Assert.Equal(10, catalog.Mappings.Count(mapping => mapping.IsSupported));
+        Assert.Equal(
+            ["es", "ar", "ev", "ward", "block"],
+            catalog.Mappings.Where(mapping => mapping.Kind is
+                    TradeSearchItemPropertyKind.EnergyShield or TradeSearchItemPropertyKind.Armour or
+                    TradeSearchItemPropertyKind.EvasionRating or TradeSearchItemPropertyKind.Ward or
+                    TradeSearchItemPropertyKind.ChanceToBlock)
+                .Select(mapping => mapping.ProviderFilterId));
+        var evasion = Assert.Single(catalog.Mappings, mapping =>
+            mapping.Kind == TradeSearchItemPropertyKind.EvasionRating);
+        Assert.Equal("armour_filters", evasion.ProviderGroupId);
+        Assert.Equal("ev", evasion.ProviderFilterId);
+        Assert.Equal("Evasion", evasion.ExpectedOfficialText);
+        Assert.Equal(
+            "Includes base value, local modifiers, and maximum quality",
+            evasion.ExpectedOfficialTip);
+        Assert.False(evasion.RequiresExactOfficialTextMatch);
+        Assert.True(evasion.RequiresNumericMinMax);
+        var block = Assert.Single(catalog.Mappings, mapping =>
+            mapping.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+        Assert.Equal("armour_filters", block.ProviderGroupId);
+        Assert.Equal("block", block.ProviderFilterId);
+        Assert.Equal("Block", block.ExpectedOfficialText);
+        Assert.Equal("Includes base value and local modifiers", block.ExpectedOfficialTip);
+        Assert.False(block.RequiresExactOfficialTextMatch);
+        Assert.True(block.RequiresNumericMinMax);
+        Assert.True(Assert.Single(catalog.Mappings, mapping =>
+            mapping.Kind == TradeSearchItemPropertyKind.Armour).RequiresExactOfficialTextMatch);
+        Assert.Equal(catalog.Mappings.Count, catalog.Mappings.Select(mapping => mapping.Kind).Distinct().Count());
+        Assert.Equal(
+            catalog.Mappings.Count(mapping => mapping.IsSupported),
+            catalog.Mappings.Where(mapping => mapping.IsSupported)
+                .Select(mapping => $"{mapping.ProviderGroupId}/{mapping.ProviderFilterId}")
+                .Distinct(StringComparer.Ordinal)
+                .Count());
         var chaos = Assert.Single(catalog.Mappings, mapping =>
             mapping.Kind == TradeSearchItemPropertyKind.ChaosDps);
         Assert.False(chaos.IsSupported);

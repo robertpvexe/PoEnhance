@@ -191,6 +191,68 @@ public sealed class RePoeBaseItemImporterTests
     }
 
     [Fact]
+    public void Import_DefensiveRangesAndBlock_PreserveExactValuesAndProvenance()
+    {
+        var json = """
+            {
+              "Metadata/Items/Test/Shield": {
+                "name": "Test Shield",
+                "item_class": "Shield",
+                "requirements": null,
+                "tags": ["armour"],
+                "properties": {
+                  "armour": { "min": 10, "max": 20 },
+                  "evasion": { "min": 30, "max": 40 },
+                  "energy_shield": { "min": 5, "max": 7 },
+                  "ward": { "min": 8, "max": 9 },
+                  "block": 24
+                }
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+
+        var properties = Assert.IsType<ItemBaseDefenceProperties>(Assert.Single(result.ImportedRecords).DefenceProperties);
+        Assert.Equal((10, 20), (properties.ArmourMinimum, properties.ArmourMaximum));
+        Assert.Equal((30, 40), (properties.EvasionRatingMinimum, properties.EvasionRatingMaximum));
+        Assert.Equal((5, 7), (properties.EnergyShieldMinimum, properties.EnergyShieldMaximum));
+        Assert.Equal((8, 9), (properties.WardMinimum, properties.WardMaximum));
+        Assert.Equal(24, properties.ChanceToBlockPercent);
+        var source = Assert.Single(properties.Sources);
+        Assert.Equal("repoe", source.SourceId);
+        Assert.Equal("Metadata/Items/Test/Shield", source.ExternalId);
+    }
+
+    [Fact]
+    public void Import_MalformedDefensiveValues_AreAbsentWithFocusedDiagnostics()
+    {
+        var json = """
+            {
+              "Metadata/Items/Test/BadArmour": {
+                "name": "Bad Armour",
+                "item_class": "Body Armour",
+                "requirements": null,
+                "tags": ["armour"],
+                "properties": {
+                  "armour": { "min": 20, "max": 10 },
+                  "evasion": "bad",
+                  "energy_shield": { "min": -1, "max": 7 },
+                  "ward": { "min": 8 },
+                  "block": -1
+                }
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+
+        Assert.Null(Assert.Single(result.ImportedRecords).DefenceProperties);
+        Assert.Equal(5, result.Diagnostics.Count(diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.RecordInvalidDefenceProperties));
+    }
+
+    [Fact]
     public void Import_UnsupportedRootShape_ReturnsSchemaUnsupported()
     {
         var result = ImportJson("[]");

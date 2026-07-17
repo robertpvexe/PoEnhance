@@ -150,7 +150,20 @@ internal sealed class PathOfExileTradeItemPropertyMappingResourceLoader
         var groupId = TrimToNull(ReadString(element, "providerGroupId"));
         var filterId = TrimToNull(ReadString(element, "providerFilterId"));
         var officialText = TrimToNull(ReadString(element, "expectedOfficialText"));
+        var officialTip = TrimToNull(ReadString(element, "expectedOfficialTip"));
         var unsupportedReason = TrimToNull(ReadString(element, "unsupportedReason"));
+        var requiresExactText = true;
+        if (element.TryGetProperty("requiresExactOfficialTextMatch", out var exactTextElement))
+        {
+            if (exactTextElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                reason = "requiresExactOfficialTextMatch must be boolean when present.";
+                return false;
+            }
+
+            requiresExactText = exactTextElement.GetBoolean();
+        }
+
         var hasMinMax = element.TryGetProperty("requiresNumericMinMax", out var minMaxElement) &&
             minMaxElement.ValueKind is JsonValueKind.True or JsonValueKind.False;
         var requiresMinMax = hasMinMax && minMaxElement.GetBoolean();
@@ -163,7 +176,8 @@ internal sealed class PathOfExileTradeItemPropertyMappingResourceLoader
         }
 
         if (!isSupported &&
-            (groupId is not null || filterId is not null || officialText is not null || unsupportedReason is null))
+            (groupId is not null || filterId is not null || officialText is not null || officialTip is not null ||
+             unsupportedReason is null))
         {
             reason = "unsupported mappings require a reason and may not contain provider identity fields.";
             return false;
@@ -176,6 +190,8 @@ internal sealed class PathOfExileTradeItemPropertyMappingResourceLoader
             ProviderGroupId = groupId,
             ProviderFilterId = filterId,
             ExpectedOfficialText = officialText,
+            ExpectedOfficialTip = officialTip,
+            RequiresExactOfficialTextMatch = requiresExactText,
             RequiresNumericMinMax = requiresMinMax,
             UnsupportedReason = unsupportedReason,
         };

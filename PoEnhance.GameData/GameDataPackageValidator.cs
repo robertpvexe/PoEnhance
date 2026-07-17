@@ -171,6 +171,12 @@ public static class GameDataPackageValidator
                 manifestSourceIds,
                 errors);
 
+            ValidateItemBaseDefenceProperties(
+                itemBase.DefenceProperties,
+                $"{path}.defenceProperties",
+                manifestSourceIds,
+                errors);
+
             ValidateSourceReferences(itemBase.Sources, $"{path}.sources", manifestSourceIds, errors);
         }
     }
@@ -223,6 +229,57 @@ public static class GameDataPackageValidator
         }
 
         ValidateSourceReferences(properties.Sources, $"{path}.sources", manifestSourceIds, errors);
+    }
+
+    private static void ValidateItemBaseDefenceProperties(
+        ItemBaseDefenceProperties? properties,
+        string path,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        if (properties is null)
+        {
+            return;
+        }
+
+        ValidateDefenceRange(properties.EnergyShieldMinimum, properties.EnergyShieldMaximum, "energyShield", path, errors);
+        ValidateDefenceRange(properties.ArmourMinimum, properties.ArmourMaximum, "armour", path, errors);
+        ValidateDefenceRange(properties.EvasionRatingMinimum, properties.EvasionRatingMaximum, "evasionRating", path, errors);
+        ValidateDefenceRange(properties.WardMinimum, properties.WardMaximum, "ward", path, errors);
+        if (properties.ChanceToBlockPercent is < 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseDefenceBlockInvalid,
+                $"{path}.chanceToBlockPercent",
+                "Base Chance to Block must be non-negative when provided."));
+        }
+
+        if (properties.Sources is null || properties.Sources.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseDefenceSourcesRequired,
+                $"{path}.sources",
+                "Imported numerical defence properties require source provenance."));
+            return;
+        }
+
+        ValidateSourceReferences(properties.Sources, $"{path}.sources", manifestSourceIds, errors);
+    }
+
+    private static void ValidateDefenceRange(
+        int? minimum,
+        int? maximum,
+        string propertyName,
+        string path,
+        List<GameDataValidationError> errors)
+    {
+        if (minimum is < 0 || maximum is < 0 || minimum.HasValue != maximum.HasValue || minimum > maximum)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseDefenceRangeInvalid,
+                $"{path}.{propertyName}Minimum",
+                $"Base {propertyName} requires a non-negative, ordered minimum and maximum pair."));
+        }
     }
 
     private static HashSet<string> ValidateModifiers(

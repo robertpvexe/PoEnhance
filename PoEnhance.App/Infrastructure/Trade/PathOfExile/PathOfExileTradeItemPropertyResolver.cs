@@ -6,6 +6,7 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 internal sealed class PathOfExileTradeItemPropertyResolver
 {
     private const string ProviderWeaponCategoryPrefix = "weapon.";
+    private const string ProviderArmourCategoryPrefix = "armour.";
     private readonly PathOfExileTradeItemPropertyMappingCatalog mappingCatalog;
 
     public PathOfExileTradeItemPropertyResolver()
@@ -31,10 +32,11 @@ internal sealed class PathOfExileTradeItemPropertyResolver
         }
 
         var isWeaponDraft = IsWeaponDraft(draft, catalog);
+        var isArmourDraft = IsArmourDraft(draft, catalog);
         return draft with
         {
             ItemProperties = draft.ItemProperties
-                .Select(property => ResolveProperty(property, catalog, isWeaponDraft))
+                .Select(property => ResolveProperty(property, catalog, isWeaponDraft, isArmourDraft))
                 .ToImmutableArray(),
         };
     }
@@ -111,7 +113,8 @@ internal sealed class PathOfExileTradeItemPropertyResolver
     private TradeSearchItemProperty ResolveProperty(
         TradeSearchItemProperty property,
         PathOfExileTradeFilterCatalog catalog,
-        bool isWeaponDraft)
+        bool isWeaponDraft,
+        bool isArmourDraft)
     {
         if (!mappingCatalog.TryGet(property.Kind, out var mapping))
         {
@@ -129,14 +132,27 @@ internal sealed class PathOfExileTradeItemPropertyResolver
             };
         }
 
-        if (!isWeaponDraft || !HasSuccessfulDerivationEvidence(property))
+        if (!string.IsNullOrWhiteSpace(property.DerivationUnsupportedReason))
+        {
+            return property with
+            {
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+                IsSearchable = false,
+                NotSearchableReason = property.DerivationUnsupportedReason,
+            };
+        }
+
+        var categoryMatches = property.Kind == TradeSearchItemPropertyKind.ChanceToBlock
+            ? isArmourDraft || isWeaponDraft
+            : IsDefensive(property.Kind) ? isArmourDraft : isWeaponDraft;
+        if (!categoryMatches || !HasSuccessfulDerivationEvidence(property))
         {
             return property with
             {
                 ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
                 IsSearchable = false,
                 NotSearchableReason =
-                    "This item property is not backed by successful weapon-property derivation on a weapon category.",
+                    "This item property is not backed by successful derivation on a compatible item category.",
             };
         }
 
@@ -162,8 +178,10 @@ internal sealed class PathOfExileTradeItemPropertyResolver
         }
 
         var definition = definitions[0];
+        var reviewedPresentationMetadataMatches = !mapping.RequiresExactOfficialTextMatch ||
+            string.Equals(definition.Text, mapping.ExpectedOfficialText, StringComparison.Ordinal);
         if (definition.SupportsMinMax != mapping.RequiresNumericMinMax ||
-            !string.Equals(definition.Text, mapping.ExpectedOfficialText, StringComparison.Ordinal))
+            !reviewedPresentationMetadataMatches)
         {
             return Unresolved(
                 property,
@@ -189,6 +207,24 @@ internal sealed class PathOfExileTradeItemPropertyResolver
             option.Id.StartsWith(ProviderWeaponCategoryPrefix, StringComparison.Ordinal);
     }
 
+    private static bool IsArmourDraft(
+        TradeSearchDraft draft,
+        PathOfExileTradeFilterCatalog catalog)
+    {
+        var category = draft.Base.AvailableCriteria.Category?.Category ??
+            draft.Base.ActiveCriterion?.Category ??
+            draft.Base.Category;
+        return catalog.TryFindCategoryOption(category, out var option) &&
+            option.Id.StartsWith(ProviderArmourCategoryPrefix, StringComparison.Ordinal);
+    }
+
+    private static bool IsDefensive(TradeSearchItemPropertyKind kind) => kind is
+        TradeSearchItemPropertyKind.EnergyShield or
+        TradeSearchItemPropertyKind.Armour or
+        TradeSearchItemPropertyKind.EvasionRating or
+        TradeSearchItemPropertyKind.Ward or
+        TradeSearchItemPropertyKind.ChanceToBlock;
+
     private static bool HasSuccessfulDerivationEvidence(TradeSearchItemProperty property)
     {
         var names = property.SourceProperties
@@ -205,6 +241,11 @@ internal sealed class PathOfExileTradeItemPropertyResolver
             TradeSearchItemPropertyKind.ChaosDps => hasAps && names.Contains("chaos damage"),
             TradeSearchItemPropertyKind.AttacksPerSecond => names.Contains("attacks per second"),
             TradeSearchItemPropertyKind.CriticalStrikeChance => names.Contains("critical strike chance"),
+            TradeSearchItemPropertyKind.EnergyShield => names.Contains("energy shield"),
+            TradeSearchItemPropertyKind.Armour => names.Contains("armour"),
+            TradeSearchItemPropertyKind.EvasionRating => names.Contains("evasion rating"),
+            TradeSearchItemPropertyKind.Ward => names.Contains("ward"),
+            TradeSearchItemPropertyKind.ChanceToBlock => names.Contains("chance to block"),
             _ => false,
         };
     }

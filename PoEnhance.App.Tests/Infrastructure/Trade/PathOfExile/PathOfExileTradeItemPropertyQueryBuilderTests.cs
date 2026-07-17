@@ -1,5 +1,7 @@
 using System.Text.Json;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
@@ -31,6 +33,168 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
         Assert.False(providerValue.TryGetProperty("max", out _));
         Assert.Equal(JsonValueKind.Number, providerValue.GetProperty("min").ValueKind);
         Assert.DoesNotContain("\"damage\"", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EnergyShield, "es")]
+    [InlineData(TradeSearchItemPropertyKind.Armour, "ar")]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.Ward, "ward")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Build_DefensivePropertyUsesExactNumericArmourFilter(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var (draft, filters) = ResolvedDefensiveSelection(
+            PathOfExileTradeItemPropertyTestFixtures.Property(kind, 123m, selected: true));
+
+        var value = ArmourFilter(Build(draft, filters), filterId);
+
+        Assert.Equal(123m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+    }
+
+    [Fact]
+    public void Build_TwoDefensiveParentsSerializeOnceInSameArmourGroup()
+    {
+        var armour = PathOfExileTradeItemPropertyTestFixtures.Property(
+            TradeSearchItemPropertyKind.Armour, 1000m, selected: true);
+        var evasion = PathOfExileTradeItemPropertyTestFixtures.Property(
+            TradeSearchItemPropertyKind.EvasionRating, 900m, selected: true);
+        var (draft, filters) = ResolvedDefensiveSelection(armour, evasion);
+
+        var result = Build(draft, filters);
+
+        Assert.Equal(1000m, ArmourFilter(result, "ar").GetProperty("min").GetDecimal());
+        Assert.Equal(900m, ArmourFilter(result, "ev").GetProperty("min").GetDecimal());
+        Assert.Equal(1, result.SerializedJson!.Split("\"ar\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, result.SerializedJson.Split("\"ev\"", StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Build_DefensiveParentSerializesRequestedMinimumAndMaximum(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var property = PathOfExileTradeItemPropertyTestFixtures.Property(
+            kind,
+            123m,
+            selected: true,
+            maximum: 456m);
+        var (draft, filters) = ResolvedDefensiveSelection(property);
+
+        var value = ArmourFilter(Build(draft, filters), filterId);
+
+        Assert.Equal(123m, value.GetProperty("min").GetDecimal());
+        Assert.Equal(456m, value.GetProperty("max").GetDecimal());
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Build_DefensiveParentAndIndependentChildStatCoexistWithoutDuplication(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var (resolved, filters) = ResolvedDefensiveSelection(
+            PathOfExileTradeItemPropertyTestFixtures.Property(kind, 123m, selected: true));
+        var draft = resolved with { ModifierFilters = [SelectedModifier(0)] };
+        var result = Build(
+            draft,
+            filters,
+            [SelectedModifierFilter(0, "explicit.test_defensive_child")]);
+
+        Assert.Equal(123m, ArmourFilter(result, filterId).GetProperty("min").GetDecimal());
+        Assert.Equal(
+            "explicit.test_defensive_child",
+            Assert.Single(StatFilters(result)).GetProperty("id").GetString());
+        Assert.Equal(1, result.SerializedJson!.Split($"\"{filterId}\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            result.SerializedJson.Split("\"explicit.test_defensive_child\"", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void Build_TwoDefensiveParentsAndOneSharedChildStatEachSerializeOnce()
+    {
+        var (resolved, filters) = ResolvedDefensiveSelection(
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.EvasionRating, 900m, selected: true),
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.ChanceToBlock, 25m, selected: true));
+        var draft = resolved with { ModifierFilters = [SelectedModifier(0), SelectedModifier(1)] };
+        var sharedChild = SelectedModifierFilter(0, "explicit.test_shared_defensive_child") with
+        {
+            SourceIndexes = [0, 1],
+        };
+
+        var result = Build(draft, filters, [sharedChild]);
+
+        Assert.Equal(900m, ArmourFilter(result, "ev").GetProperty("min").GetDecimal());
+        Assert.Equal(25m, ArmourFilter(result, "block").GetProperty("min").GetDecimal());
+        Assert.Equal(
+            "explicit.test_shared_defensive_child",
+            Assert.Single(StatFilters(result)).GetProperty("id").GetString());
+        Assert.Equal(1, result.SerializedJson!.Split("\"ev\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, result.SerializedJson.Split("\"block\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            result.SerializedJson.Split("\"explicit.test_shared_defensive_child\"", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void Build_InactiveDefensiveParentProducesNoItemPropertyFilter()
+    {
+        var draft = PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.EvasionRating,
+                900m));
+
+        var result = builder.Build(
+            draft,
+            Validate(draft),
+            League,
+            providerFilterCatalog: Catalog(),
+            selectedItemPropertyFilters: []);
+
+        Assert.True(result.IsSuccess);
+        Assert.DoesNotContain("armour_filters", result.SerializedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"ev\"", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_UnselectedIncompatibleBlockParentDoesNotBlockSelectedChildOnlyQuery()
+    {
+        var official = Catalog();
+        var incompatibleCatalog = new PathOfExileTradeFilterCatalog(
+            official.CategoryOptions,
+            numericFilterDefinitions: official.NumericFilterDefinitions.Select(definition =>
+                definition.FilterId == "block"
+                    ? definition with { SupportsMinMax = false }
+                    : definition));
+        var unresolved = PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.ChanceToBlock,
+                25m));
+        var resolved = new PathOfExileTradeItemPropertyResolver().Resolve(unresolved, incompatibleCatalog);
+        var draft = resolved with { ModifierFilters = [SelectedModifier(0)] };
+
+        var result = builder.Build(
+            draft,
+            Validate(draft),
+            League,
+            [SelectedModifierFilter(0, "explicit.test_defensive_child")],
+            providerFilterCatalog: incompatibleCatalog,
+            selectedItemPropertyFilters: []);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            "explicit.test_defensive_child",
+            Assert.Single(StatFilters(result)).GetProperty("id").GetString());
+        Assert.DoesNotContain("armour_filters", result.SerializedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"block\"", result.SerializedJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -289,12 +453,14 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
 
     private PathOfExileTradeQueryBuildResult Build(
         TradeSearchDraft draft,
-        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> filters)
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> filters,
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null)
     {
         var result = builder.Build(
             draft,
             Validate(draft),
             League,
+            selectedModifierFilters,
             providerFilterCatalog: Catalog(),
             selectedItemPropertyFilters: filters);
         Assert.True(result.IsSuccess);
@@ -317,6 +483,50 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
                 selected: true,
                 maximum: maximum)]);
         var draft = resolver.Resolve(unresolved, catalog);
+        var mapping = resolver.MapSelected(draft, catalog);
+        Assert.True(mapping.IsSuccess);
+        return (draft, mapping.Filters);
+    }
+
+    private static ResolvedSearchComponent SelectedModifier(int sourceComponentIndex)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = $"modifier:{sourceComponentIndex}:0",
+            SourceComponentIndex = sourceComponentIndex,
+            OriginalText = "20% increased Evasion Rating",
+            CanonicalSignature = "<number>% increased Evasion Rating",
+            ParsedKind = ParsedModifierKind.Prefix,
+            Locality = ModifierLocality.Local,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = $"test.mod.{sourceComponentIndex}",
+            ResolvedStatIds = ["local_evasion_rating_+%"],
+            IsSearchable = true,
+            IsSelected = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "explicit.test_defensive_child",
+        };
+    }
+
+    private static PathOfExileTradeSelectedModifierFilter SelectedModifierFilter(
+        int sourceIndex,
+        string statId)
+    {
+        return new PathOfExileTradeSelectedModifierFilter
+        {
+            SourceIndex = sourceIndex,
+            StatId = statId,
+            OriginalText = "20% increased Evasion Rating",
+            NormalizedItemTemplate = "#% increased Evasion Rating",
+        };
+    }
+
+    private static (TradeSearchDraft Draft, IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> Filters)
+        ResolvedDefensiveSelection(params TradeSearchItemProperty[] properties)
+    {
+        var catalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        var resolver = new PathOfExileTradeItemPropertyResolver();
+        var draft = resolver.Resolve(PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(properties), catalog);
         var mapping = resolver.MapSelected(draft, catalog);
         Assert.True(mapping.IsSuccess);
         return (draft, mapping.Filters);
@@ -358,6 +568,32 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
             .GetProperty("filters")
             .GetProperty(filterId)
             .Clone();
+    }
+
+    private static JsonElement ArmourFilter(
+        PathOfExileTradeQueryBuildResult result,
+        string filterId)
+    {
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        return document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("armour_filters")
+            .GetProperty("filters")
+            .GetProperty(filterId)
+            .Clone();
+    }
+
+    private static JsonElement[] StatFilters(PathOfExileTradeQueryBuildResult result)
+    {
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        return document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .Select(filter => filter.Clone())
+            .ToArray();
     }
 
     private static void AssertFailure(

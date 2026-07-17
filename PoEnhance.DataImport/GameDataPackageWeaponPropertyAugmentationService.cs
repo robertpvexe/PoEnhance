@@ -66,7 +66,11 @@ public sealed class GameDataPackageWeaponPropertyAugmentationService
         var input = loaded.Package;
         var itemBases = input.ItemBases.Select(itemBase =>
             itemBase.Id is not null && importedById.TryGetValue(itemBase.Id, out var importedBase)
-                ? itemBase with { WeaponProperties = importedBase.WeaponProperties }
+                ? itemBase with
+                {
+                    WeaponProperties = importedBase.WeaponProperties,
+                    DefenceProperties = importedBase.DefenceProperties,
+                }
                 : itemBase).ToArray();
         var candidate = input with
         {
@@ -132,6 +136,22 @@ public sealed class GameDataPackageWeaponPropertyAugmentationService
                 itemBase.WeaponProperties?.AttackTimeMilliseconds is not null),
             ItemBasesWithCriticalStrikeChance = package.ItemBases.Count(itemBase =>
                 itemBase.WeaponProperties?.CriticalStrikeChancePercent is not null),
+            ItemBasesWithArmour = package.ItemBases.Count(itemBase =>
+                itemBase.DefenceProperties?.ArmourMinimum is not null),
+            ItemBasesWithEvasionRating = package.ItemBases.Count(itemBase =>
+                itemBase.DefenceProperties?.EvasionRatingMinimum is not null),
+            ItemBasesWithEnergyShield = package.ItemBases.Count(itemBase =>
+                itemBase.DefenceProperties?.EnergyShieldMinimum is not null),
+            ItemBasesWithWard = package.ItemBases.Count(itemBase =>
+                itemBase.DefenceProperties?.WardMinimum is not null),
+            ItemBasesWithChanceToBlock = package.ItemBases.Count(itemBase =>
+                itemBase.DefenceProperties?.ChanceToBlockPercent is not null),
+            MissingDefencePropertiesByClass = package.ItemBases
+                .Where(IsLikelyDefenceBase)
+                .Where(itemBase => itemBase.DefenceProperties is null)
+                .GroupBy(itemBase => itemBase.ItemClass ?? "Unknown", StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal),
             MissingCompleteWeaponPropertiesByClass = likelyWeaponBases
                 .Where(itemBase =>
                     itemBase.WeaponProperties?.PhysicalDamageMinimum is null ||
@@ -148,6 +168,11 @@ public sealed class GameDataPackageWeaponPropertyAugmentationService
     private static bool IsLikelyWeaponBase(ItemBaseRecord itemBase) =>
         itemBase.Tags.Any(tag => string.Equals(tag, "weapon", StringComparison.OrdinalIgnoreCase)) ||
         itemBase.WeaponProperties is not null;
+
+    private static bool IsLikelyDefenceBase(ItemBaseRecord itemBase) =>
+        itemBase.Tags.Any(tag => string.Equals(tag, "armour", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tag, "ward_armour", StringComparison.OrdinalIgnoreCase)) ||
+        itemBase.DefenceProperties is not null;
 
     private static GameDataPackageWeaponPropertyAugmentationResult Failure(
         IReadOnlyList<ImportDiagnostic> diagnostics,

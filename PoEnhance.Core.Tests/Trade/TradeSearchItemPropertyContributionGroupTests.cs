@@ -249,11 +249,13 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
     }
 
     [Fact]
-    public void CreateDraft_SlinkBootsCreatesNoWeaponGroups()
+    public void CreateDraft_SlinkBootsCreatesEvasionParentButNoRecoveryContributionGroup()
     {
         var draft = CreateDraft(SlinkBoots);
 
-        Assert.Empty(draft.ItemProperties);
+        Assert.Equal(
+            TradeSearchItemPropertyKind.EvasionRating,
+            Assert.Single(draft.ItemProperties).Kind);
         Assert.Empty(draft.ItemPropertyContributionGroups);
     }
 
