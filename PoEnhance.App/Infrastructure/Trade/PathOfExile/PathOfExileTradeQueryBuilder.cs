@@ -20,6 +20,15 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string ProviderRarityRare = "rare";
     private const string MiscFiltersKey = "misc_filters";
     private const string ProviderFoulbornFilterKey = "mutated";
+    private const string WeaponFiltersKey = "weapon_filters";
+    private const string ProviderPerHitDamageFilterKey = "damage";
+    private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
+
+    public PathOfExileTradeQueryBuilder(
+        PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null)
+    {
+        this.itemPropertyResolver = itemPropertyResolver ?? new PathOfExileTradeItemPropertyResolver();
+    }
 
     public PathOfExileTradeQueryBuildResult Build(
         TradeSearchDraft? draft,
@@ -27,7 +36,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         string? leagueIdentifier,
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
         PathOfExileTradeItemIdentity? providerItemIdentity = null,
-        PathOfExileTradeFilterCatalog? providerFilterCatalog = null)
+        PathOfExileTradeFilterCatalog? providerFilterCatalog = null,
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? selectedItemPropertyFilters = null)
     {
         if (draft is null)
         {
@@ -91,6 +101,106 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedModifierMapping,
                 "Selected modifier provider mappings need non-empty Trade stat identifiers.");
+        }
+
+        var providerPropertyFilters = selectedItemPropertyFilters ?? [];
+        var selectedPropertyIndexes = draft.ItemProperties
+            .Select((property, index) => new { Property = property, Index = index })
+            .Where(indexed => indexed.Property.IsSelected)
+            .Select(indexed => indexed.Index)
+            .ToHashSet();
+        if (selectedPropertyIndexes.Count > 0 && providerPropertyFilters.Count == 0)
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.SelectedItemPropertiesMissingProviderMapping,
+                "Selected item properties require verified provider Trade filter mappings before query serialization.");
+        }
+
+        var mappedPropertyIndexes = providerPropertyFilters
+            .Select(filter => filter.SourceItemPropertyIndex)
+            .ToArray();
+        if (mappedPropertyIndexes.Distinct().Count() != mappedPropertyIndexes.Length)
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.DuplicateSelectedItemPropertySourceIndex,
+                "A selected item property may have only one provider mapping.");
+        }
+
+        if (!selectedPropertyIndexes.SetEquals(mappedPropertyIndexes))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.SelectedItemPropertyMappingMismatch,
+                "Item-property provider mappings must cover exactly the selected item properties.");
+        }
+
+        if (providerPropertyFilters.Any(filter =>
+                TrimToNull(filter.ProviderGroupId) is null ||
+                TrimToNull(filter.ProviderFilterId) is null ||
+                !string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) ||
+                string.Equals(filter.ProviderFilterId.Trim(), ProviderPerHitDamageFilterKey, StringComparison.Ordinal)))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
+                "Selected item-property mappings require non-empty reviewed weapon filter identities and may not use the per-hit damage filter.");
+        }
+
+        if (providerPropertyFilters
+            .GroupBy(
+                filter => $"{filter.ProviderGroupId.Trim()}\n{filter.ProviderFilterId.Trim()}",
+                StringComparer.Ordinal)
+            .Any(group => group.Count() > 1))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.DuplicateSelectedItemPropertyProviderIdentity,
+                "Selected item properties may not emit duplicate provider group/filter identities.");
+        }
+
+        IReadOnlyDictionary<int, PathOfExileTradeSelectedItemPropertyFilter> verifiedPropertyFilters =
+            new Dictionary<int, PathOfExileTradeSelectedItemPropertyFilter>();
+        if (providerPropertyFilters.Count > 0)
+        {
+            if (providerFilterCatalog is null)
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
+                    "Selected item properties require the session-verified Trade filter catalog.");
+            }
+
+            var verifiedMapping = itemPropertyResolver.MapSelected(draft, providerFilterCatalog);
+            if (!verifiedMapping.IsSuccess ||
+                verifiedMapping.Filters.Count != providerPropertyFilters.Count)
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
+                    "Selected item-property mappings no longer match the reviewed mapping, official catalog, or weapon derivation evidence.");
+            }
+
+            verifiedPropertyFilters = verifiedMapping.Filters.ToDictionary(
+                filter => filter.SourceItemPropertyIndex);
+        }
+
+        foreach (var filter in providerPropertyFilters)
+        {
+            var property = draft.ItemProperties[filter.SourceItemPropertyIndex];
+            if (property.Kind == TradeSearchItemPropertyKind.ChaosDps ||
+                property.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact ||
+                !property.IsSearchable ||
+                !verifiedPropertyFilters.TryGetValue(filter.SourceItemPropertyIndex, out var verifiedFilter) ||
+                !string.Equals(
+                    filter.ProviderGroupId.Trim(),
+                    verifiedFilter.ProviderGroupId,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    filter.ProviderFilterId.Trim(),
+                    verifiedFilter.ProviderFilterId,
+                    StringComparison.Ordinal) ||
+                filter.RequestedMinimum != property.RequestedMinimum ||
+                filter.RequestedMaximum != property.RequestedMaximum)
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
+                    "Selected item-property mappings must retain exact searchable source state and canonical bounds; Chaos DPS is unsupported.");
+            }
         }
 
         if (!IsSupportedBaseOnlyIndividualItemPath(draft))
@@ -173,7 +283,11 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                         Filters = statFilters,
                     },
                 ],
-                Filters = BuildProviderFilters(draft, providerItemIdentity, categoryOptionResult.Option),
+                Filters = BuildProviderFilters(
+                    draft,
+                    providerItemIdentity,
+                    categoryOptionResult.Option,
+                    providerPropertyFilters),
             },
             Sort = new PathOfExileTradeSearchSort(),
         };
@@ -312,7 +426,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private static IReadOnlyDictionary<string, object> BuildProviderFilters(
         TradeSearchDraft draft,
         PathOfExileTradeItemIdentity? providerItemIdentity,
-        PathOfExileTradeFilterOption? categoryOption)
+        PathOfExileTradeFilterOption? categoryOption,
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> itemPropertyFilters)
     {
         var groups = new Dictionary<string, object>(StringComparer.Ordinal);
         var typeFilters = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -338,6 +453,21 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             groups[TypeFiltersKey] = new PathOfExileTradeSearchFilterGroup
             {
                 Filters = typeFilters,
+            };
+        }
+
+        if (itemPropertyFilters.Count > 0)
+        {
+            groups[WeaponFiltersKey] = new PathOfExileTradeSearchFilterGroup
+            {
+                Filters = itemPropertyFilters.ToDictionary(
+                    filter => filter.ProviderFilterId.Trim(),
+                    filter => (object)new PathOfExileTradeSearchStatValue
+                    {
+                        Min = filter.RequestedMinimum,
+                        Max = filter.RequestedMaximum,
+                    },
+                    StringComparer.Ordinal),
             };
         }
 

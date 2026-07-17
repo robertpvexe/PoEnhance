@@ -856,7 +856,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
-    public async Task CheckAsync_PassesValidatedDraftValidationAndLeagueToQueryBuilder()
+    public async Task CheckAsync_RevalidatesEffectiveDraftAndPassesLeagueToQueryBuilder()
     {
         var fixture = ServiceFixture.Create();
         var draft = Draft();
@@ -867,7 +867,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
 
         var call = Assert.Single(fixture.QueryBuilder.Calls);
         Assert.Same(draft, call.Draft);
-        Assert.Same(validation, call.ValidationResult);
+        Assert.NotSame(validation, call.ValidationResult);
+        Assert.NotNull(call.ValidationResult);
+        Assert.True(call.ValidationResult!.IsValid);
         Assert.Equal(League, call.LeagueIdentifier);
     }
 
@@ -1406,7 +1408,8 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         string? LeagueIdentifier,
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? SelectedModifierFilters,
         PathOfExileTradeItemIdentity? ProviderItemIdentity,
-        PathOfExileTradeFilterCatalog? ProviderFilterCatalog);
+        PathOfExileTradeFilterCatalog? ProviderFilterCatalog,
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? SelectedItemPropertyFilters);
 
     private sealed record CatalogCall(CancellationToken CancellationToken);
 
@@ -1507,7 +1510,8 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             string? leagueIdentifier,
             IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters = null,
             PathOfExileTradeItemIdentity? providerItemIdentity = null,
-            PathOfExileTradeFilterCatalog? providerFilterCatalog = null)
+            PathOfExileTradeFilterCatalog? providerFilterCatalog = null,
+            IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? selectedItemPropertyFilters = null)
         {
             Calls.Add(new QueryBuildCall(
                 draft,
@@ -1515,7 +1519,8 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                 leagueIdentifier,
                 selectedModifierFilters,
                 providerItemIdentity,
-                providerFilterCatalog));
+                providerFilterCatalog,
+                selectedItemPropertyFilters));
             return Result;
         }
     }

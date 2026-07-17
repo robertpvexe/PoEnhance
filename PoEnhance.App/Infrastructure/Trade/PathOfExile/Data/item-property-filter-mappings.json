@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "reviewReference": "item-property-trade-mapping-audit-2026-07-17",
+  "mappings": [
+    {
+      "kind": "TotalDps",
+      "supported": true,
+      "providerGroupId": "weapon_filters",
+      "providerFilterId": "dps",
+      "expectedOfficialText": "Damage per Second",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "PhysicalDps",
+      "supported": true,
+      "providerGroupId": "weapon_filters",
+      "providerFilterId": "pdps",
+      "expectedOfficialText": "Physical DPS",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "ElementalDps",
+      "supported": true,
+      "providerGroupId": "weapon_filters",
+      "providerFilterId": "edps",
+      "expectedOfficialText": "Elemental DPS",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "ChaosDps",
+      "supported": false,
+      "unsupportedReason": "The Path of Exile Trade weapon filter catalog does not expose a Chaos DPS range filter."
+    },
+    {
+      "kind": "AttacksPerSecond",
+      "supported": true,
+      "providerGroupId": "weapon_filters",
+      "providerFilterId": "aps",
+      "expectedOfficialText": "Attacks per Second",
+      "requiresNumericMinMax": true
+    },
+    {
+      "kind": "CriticalStrikeChance",
+      "supported": true,
+      "providerGroupId": "weapon_filters",
+      "providerFilterId": "crit",
+      "expectedOfficialText": "Critical Chance",
+      "requiresNumericMinMax": true
+    }
+  ]
+}

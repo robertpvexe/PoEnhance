@@ -14,6 +14,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private readonly IPathOfExileTradeSearchClient searchClient;
     private readonly IPathOfExileTradeFetchClient fetchClient;
     private readonly IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider;
+    private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
 
     public PathOfExileTradePriceCheckService(
         IPathOfExileTradeQueryBuilder queryBuilder,
@@ -24,7 +25,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         IPathOfExileTradeItemIdentityMapper itemIdentityMapper,
         IPathOfExileTradeSearchClient searchClient,
         IPathOfExileTradeFetchClient fetchClient,
-        IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider = null)
+        IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider = null,
+        PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
         this.statMatcher = statMatcher ?? throw new ArgumentNullException(nameof(statMatcher));
@@ -35,6 +37,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         this.searchClient = searchClient ?? throw new ArgumentNullException(nameof(searchClient));
         this.fetchClient = fetchClient ?? throw new ArgumentNullException(nameof(fetchClient));
         this.filterCatalogProvider = filterCatalogProvider;
+        this.itemPropertyResolver = itemPropertyResolver ?? new PathOfExileTradeItemPropertyResolver();
     }
 
     public async Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
@@ -50,17 +53,48 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(draft);
-        if (draft.ModifierFilters.Count == 0)
+        var effectiveDraft = draft;
+        if (!draft.ItemProperties.IsDefaultOrEmpty)
         {
-            return draft;
+            if (filterCatalogProvider is null)
+            {
+                effectiveDraft = itemPropertyResolver.MarkCatalogUnavailable(
+                    effectiveDraft,
+                    "The official Trade filter catalog is unavailable for item-property resolution.");
+            }
+            else
+            {
+                PathOfExileTradeFilterCatalogProviderResult filterCatalogResult;
+                if (filterCatalogProvider.TryGetCachedCatalog(out var cachedFilterCatalog))
+                {
+                    filterCatalogResult = PathOfExileTradeFilterCatalogProviderResult.Success(cachedFilterCatalog);
+                }
+                else
+                {
+                    filterCatalogResult = await filterCatalogProvider
+                        .GetCatalogAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                effectiveDraft = filterCatalogResult.IsSuccess && filterCatalogResult.Catalog is not null
+                    ? itemPropertyResolver.Resolve(effectiveDraft, filterCatalogResult.Catalog)
+                    : itemPropertyResolver.MarkCatalogUnavailable(
+                        effectiveDraft,
+                        "The official Trade filter catalog could not be loaded for item-property resolution.");
+            }
+        }
+
+        if (effectiveDraft.ModifierFilters.Count == 0)
+        {
+            return effectiveDraft;
         }
 
         var catalogResult = await statCatalogProvider
             .GetCatalogAsync(cancellationToken)
             .ConfigureAwait(false);
         return catalogResult.IsSuccess && catalogResult.Catalog is not null
-            ? ResolveProviderComponents(draft, catalogResult.Catalog)
-            : draft;
+            ? ResolveProviderComponents(effectiveDraft, catalogResult.Catalog)
+            : effectiveDraft;
     }
 
     public async Task<PathOfExileTradePriceCheckResult> CheckAsync(
@@ -91,26 +125,68 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             PathOfExileTradeEndpointBuilder.MaximumFetchResultIds);
         var effectiveDraft = draft;
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> providerItemPropertyFilters = [];
         PathOfExileTradeItemIdentity? providerItemIdentity = null;
         PathOfExileTradeFilterCatalog? providerFilterCatalog = null;
+        PathOfExileTradeStatCatalog? providerStatCatalog = null;
         PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot = null;
         IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics = [];
 
-        if (CanMapCategoryCriteria(draft, validationResult, leagueIdentifier) &&
-            filterCatalogProvider is not null)
+        var hasItemProperties = draft?.ItemProperties.IsDefaultOrEmpty == false;
+        var hasSelectedItemProperties = draft?.ItemProperties.Any(property => property.IsSelected) == true;
+        var needsCategoryCatalog = draft?.Base.ActiveCriterion?.Mode == BaseSearchMode.Category;
+        if ((hasItemProperties || needsCategoryCatalog) && filterCatalogProvider is not null)
         {
-            var filterCatalogResult = await filterCatalogProvider
-                .GetCatalogAsync(cancellationToken)
-                .ConfigureAwait(false);
+            PathOfExileTradeFilterCatalogProviderResult filterCatalogResult;
+            if (filterCatalogProvider.TryGetCachedCatalog(out var cachedFilterCatalog))
+            {
+                filterCatalogResult = PathOfExileTradeFilterCatalogProviderResult.Success(cachedFilterCatalog);
+            }
+            else
+            {
+                filterCatalogResult = await filterCatalogProvider
+                    .GetCatalogAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             catalogRateLimitSnapshot = filterCatalogResult.RateLimitSnapshot;
             catalogDiagnostics = FilterCatalogSuccessDiagnostics(filterCatalogResult);
             if (!filterCatalogResult.IsSuccess || filterCatalogResult.Catalog is null)
             {
-                return FilterCatalogFailure(filterCatalogResult);
-            }
+                if (draft is not null && hasItemProperties)
+                {
+                    draft = itemPropertyResolver.MarkCatalogUnavailable(
+                        draft,
+                        "The official Trade filter catalog could not be loaded for item-property resolution.");
+                    effectiveDraft = draft;
+                }
 
-            providerFilterCatalog = filterCatalogResult.Catalog;
+                if (hasSelectedItemProperties || needsCategoryCatalog)
+                {
+                    return FilterCatalogFailure(filterCatalogResult, effectiveDraft);
+                }
+            }
+            else
+            {
+                providerFilterCatalog = filterCatalogResult.Catalog;
+                if (draft is not null && hasItemProperties)
+                {
+                    draft = itemPropertyResolver.Resolve(draft, providerFilterCatalog);
+                    effectiveDraft = draft;
+                }
+            }
         }
+        else if (draft is not null && hasItemProperties)
+        {
+            draft = itemPropertyResolver.MarkCatalogUnavailable(
+                draft,
+                "The official Trade filter catalog is unavailable for item-property resolution.");
+            effectiveDraft = draft;
+        }
+
+        validationResult = draft is null
+            ? validationResult
+            : ValidateEffectiveDraft(draft, validationResult);
 
         if (CanMapUniqueIdentity(draft, validationResult, leagueIdentifier))
         {
@@ -152,7 +228,42 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
             draft = ResolveProviderComponents(draft!, catalogResult.Catalog);
             effectiveDraft = draft;
-            var mappingResult = selectedModifierMapper.Map(draft, catalogResult.Catalog);
+            providerStatCatalog = catalogResult.Catalog;
+        }
+
+        validationResult = draft is null
+            ? validationResult
+            : ValidateEffectiveDraft(draft, validationResult);
+
+        var hasValidationErrors = validationResult?.Diagnostics.Any(diagnostic =>
+            diagnostic.Severity == TradeSearchValidationSeverity.Error) == true;
+        if (!hasValidationErrors && draft is not null && hasSelectedItemProperties)
+        {
+            if (providerFilterCatalog is null)
+            {
+                validationResult = ValidateEffectiveDraft(draft, validationResult);
+            }
+            else
+            {
+                var propertyMappingResult = itemPropertyResolver.MapSelected(draft, providerFilterCatalog);
+                if (!propertyMappingResult.IsSuccess)
+                {
+                    return ItemPropertyMappingFailure(
+                        propertyMappingResult,
+                        catalogRateLimitSnapshot,
+                        catalogDiagnostics,
+                        effectiveDraft);
+                }
+
+                providerItemPropertyFilters = propertyMappingResult.Filters;
+            }
+        }
+
+        if (!hasValidationErrors &&
+            draft?.ModifierFilters.Any(modifier => modifier.IsSelected) == true &&
+            providerStatCatalog is not null)
+        {
+            var mappingResult = selectedModifierMapper.Map(draft, providerStatCatalog);
             if (!mappingResult.IsSuccess)
             {
                 return MappingFailure(
@@ -171,7 +282,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             leagueIdentifier,
             providerModifierFilters,
             providerItemIdentity,
-            providerFilterCatalog);
+            providerFilterCatalog,
+            providerItemPropertyFilters);
         if (!buildResult.IsSuccess || buildResult.Request is null)
         {
             return new PathOfExileTradePriceCheckResult
@@ -353,23 +465,28 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         ArgumentNullException.ThrowIfNull(draft);
 
+        var effectiveDraft = filterCatalogProvider is not null &&
+            filterCatalogProvider.TryGetCachedCatalog(out var filterCatalog)
+            ? itemPropertyResolver.Resolve(draft, filterCatalog)
+            : draft;
+
         if (statCatalogProvider.TryGetCachedCatalog(out var catalog))
         {
-            return ResolveProviderComponents(draft, catalog);
+            return ResolveProviderComponents(effectiveDraft, catalog);
         }
 
-        var resolvedComponents = draft.ModifierFilters
+        var resolvedComponents = effectiveDraft.ModifierFilters
             .Select(component => component.IsSelected &&
                 component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact &&
                 component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed &&
-                CanUseAvailableExactBaseFallback(draft, component)
+                CanUseAvailableExactBaseFallback(effectiveDraft, component)
                     ? component with
                     {
                         ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
                     }
                     : component)
             .ToArray();
-        var resolvedDraft = draft with
+        var resolvedDraft = effectiveDraft with
         {
             ModifierFilters = resolvedComponents,
         };
@@ -377,7 +494,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return resolvedComponents.Any(component =>
                 component.IsSelected &&
                 component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed &&
-                CanUseAvailableExactBaseFallback(draft, component))
+                CanUseAvailableExactBaseFallback(effectiveDraft, component))
             ? ActivateAvailableExactBase(resolvedDraft)
             : resolvedDraft;
     }
@@ -508,6 +625,30 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             !validationResult.Diagnostics.Any(diagnostic =>
                 diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
             !string.IsNullOrWhiteSpace(leagueIdentifier);
+    }
+
+    private static TradeSearchValidationResult ValidateEffectiveDraft(
+        TradeSearchDraft draft,
+        TradeSearchValidationResult? priorValidation)
+    {
+        var effectiveValidation = new TradeSearchDraftValidator().Validate(draft);
+        if (priorValidation is null)
+        {
+            return effectiveValidation;
+        }
+
+        var retainedBlockingDiagnostics = priorValidation.Diagnostics
+            .Where(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error &&
+                diagnostic.Code is not
+                    TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnresolved and not
+                    TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnsupported and not
+                    TradeSearchValidationDiagnosticCodes.SelectedItemPropertyAmbiguous);
+        return TradeSearchValidationResult.FromDiagnostics(
+            effectiveValidation.Diagnostics
+                .Concat(retainedBlockingDiagnostics)
+                .Distinct()
+                .ToArray());
     }
 
     internal TradeSearchDraft ResolveProviderComponents(
@@ -925,7 +1066,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     }
 
     private static PathOfExileTradePriceCheckResult FilterCatalogFailure(
-        PathOfExileTradeFilterCatalogProviderResult result)
+        PathOfExileTradeFilterCatalogProviderResult result,
+        TradeSearchDraft? effectiveDraft = null)
     {
         var code = result.IsCancelled
             ? PathOfExileTradePriceCheckDiagnosticCodes.CatalogLoadCancelled
@@ -936,6 +1078,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return new PathOfExileTradePriceCheckResult
         {
             Stage = PathOfExileTradePriceCheckStage.CatalogLoad,
+            EffectiveDraft = effectiveDraft,
             CatalogRateLimitSnapshot = result.RateLimitSnapshot,
             Diagnostics = MapFailureDiagnostics(
                 result.Diagnostics,
@@ -949,6 +1092,28 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                         : "The Trade filters catalog could not be loaded."),
             IsCancelled = result.IsCancelled,
             IsTimeout = result.IsTimeout,
+        };
+    }
+
+    private static PathOfExileTradePriceCheckResult ItemPropertyMappingFailure(
+        PathOfExileTradeSelectedItemPropertyMappingResult result,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics,
+        TradeSearchDraft? effectiveDraft)
+    {
+        var mappingDiagnostics = result.Diagnostics
+            .Select(diagnostic => new PathOfExileTradePriceCheckDiagnostic(
+                PathOfExileTradePriceCheckDiagnosticCodes.SelectedItemPropertyMappingFailed,
+                diagnostic.Message,
+                PathOfExileTradePriceCheckStage.QueryBuild,
+                diagnostic.Code))
+            .ToArray();
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.QueryBuild,
+            EffectiveDraft = effectiveDraft,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+            Diagnostics = catalogDiagnostics.Concat(mappingDiagnostics).ToArray(),
         };
     }
 

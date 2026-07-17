@@ -22,6 +22,21 @@ internal static class PathOfExileTradeQueryDiagnosticCodes
 
     public const string InvalidSelectedModifierMapping = "POE_TRADE_QUERY_INVALID_SELECTED_MODIFIER_MAPPING";
 
+    public const string SelectedItemPropertiesMissingProviderMapping =
+        "POE_TRADE_QUERY_SELECTED_ITEM_PROPERTIES_MISSING_PROVIDER_MAPPING";
+
+    public const string SelectedItemPropertyMappingMismatch =
+        "POE_TRADE_QUERY_SELECTED_ITEM_PROPERTY_MAPPING_MISMATCH";
+
+    public const string DuplicateSelectedItemPropertySourceIndex =
+        "POE_TRADE_QUERY_DUPLICATE_SELECTED_ITEM_PROPERTY_SOURCE_INDEX";
+
+    public const string DuplicateSelectedItemPropertyProviderIdentity =
+        "POE_TRADE_QUERY_DUPLICATE_SELECTED_ITEM_PROPERTY_PROVIDER_IDENTITY";
+
+    public const string InvalidSelectedItemPropertyMapping =
+        "POE_TRADE_QUERY_INVALID_SELECTED_ITEM_PROPERTY_MAPPING";
+
     public const string UnsupportedRarityOrItemPath = "POE_TRADE_QUERY_UNSUPPORTED_RARITY_OR_ITEM_PATH";
 
     public const string MissingCanonicalUniqueName = "POE_TRADE_QUERY_MISSING_CANONICAL_UNIQUE_NAME";

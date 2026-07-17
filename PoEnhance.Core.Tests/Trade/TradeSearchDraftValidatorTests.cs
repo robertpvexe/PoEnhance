@@ -210,6 +210,112 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
+    public void Validate_SelectedExactSearchableItemPropertyPasses()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties = [ExactItemProperty() with { IsSelected = true }],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData(
+        TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+        TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnsupported)]
+    [InlineData(
+        TradeSearchItemPropertyProviderResolutionStatus.Ambiguous,
+        TradeSearchValidationDiagnosticCodes.SelectedItemPropertyAmbiguous)]
+    public void Validate_SelectedNonExactItemPropertyUsesPreciseDiagnostic(
+        TradeSearchItemPropertyProviderResolutionStatus status,
+        string expectedCode)
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties =
+            [
+                UnresolvedItemProperty() with
+                {
+                    IsSelected = true,
+                    ProviderResolutionStatus = status,
+                    NotSearchableReason = status == TradeSearchItemPropertyProviderResolutionStatus.Unsupported
+                        ? "The provider does not expose Chaos DPS."
+                        : "The provider catalog contains conflicting definitions.",
+                },
+            ],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            expectedCode,
+            TradeSearchValidationSeverity.Error,
+            itemPropertyIndex: 0);
+    }
+
+    [Fact]
+    public void Validate_SelectedItemPropertyMinimumGreaterThanMaximumIsInvalid()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties =
+            [
+                ExactItemProperty() with
+                {
+                    IsSelected = true,
+                    RequestedMinimum = 200m,
+                    RequestedMaximum = 199.999m,
+                },
+            ],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.InvalidItemPropertyRange,
+            TradeSearchValidationSeverity.Error,
+            itemPropertyIndex: 0);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Validate_SelectedItemPropertyEqualOrNullMaximumPasses(bool useEqualMaximum)
+    {
+        var property = ExactItemProperty() with
+        {
+            IsSelected = true,
+            RequestedMaximum = useEqualMaximum ? 141m : null,
+        };
+        var result = validator.Validate(ValidDraft() with { ItemProperties = [property] });
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Validate_UnselectedItemPropertyInvalidRangeDoesNotBlock()
+    {
+        var property = ExactItemProperty() with
+        {
+            RequestedMinimum = 200m,
+            RequestedMaximum = 100m,
+        };
+        var result = validator.Validate(ValidDraft() with { ItemProperties = [property] });
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
     public void Validate_SelectedContributorFloor_AllowsExactAdditiveMinimum()
     {
         var draft = ValidDraft(modifiers: [ContributorParent(146m, firstSelected: true, secondSelected: true)]);
@@ -677,6 +783,16 @@ Item Level: 82
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
             IsSearchable = false,
             NotSearchableReason = "Provider mapping for derived item properties is not available.",
+        };
+    }
+
+    private static TradeSearchItemProperty ExactItemProperty()
+    {
+        return UnresolvedItemProperty() with
+        {
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+            IsSearchable = true,
+            NotSearchableReason = null,
         };
     }
 

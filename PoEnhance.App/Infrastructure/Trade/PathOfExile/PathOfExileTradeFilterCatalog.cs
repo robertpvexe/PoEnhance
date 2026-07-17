@@ -7,12 +7,17 @@ internal sealed class PathOfExileTradeFilterCatalog
 
     public PathOfExileTradeFilterCatalog(
         IEnumerable<PathOfExileTradeFilterOption> categoryOptions,
-        IReadOnlyList<PathOfExileTradeQueryDiagnostic>? diagnostics = null)
+        IReadOnlyList<PathOfExileTradeQueryDiagnostic>? diagnostics = null,
+        IEnumerable<PathOfExileTradeNumericFilterDefinition>? numericFilterDefinitions = null)
     {
         ArgumentNullException.ThrowIfNull(categoryOptions);
 
         CategoryOptions = categoryOptions
             .OrderBy(option => option.ProviderOrder)
+            .ToArray();
+        NumericFilterDefinitions = (numericFilterDefinitions ?? [])
+            .OrderBy(definition => definition.GroupProviderOrder)
+            .ThenBy(definition => definition.ProviderOrder)
             .ToArray();
         Diagnostics = diagnostics ?? [];
 
@@ -35,6 +40,8 @@ internal sealed class PathOfExileTradeFilterCatalog
     }
 
     public IReadOnlyList<PathOfExileTradeFilterOption> CategoryOptions { get; }
+
+    public IReadOnlyList<PathOfExileTradeNumericFilterDefinition> NumericFilterDefinitions { get; }
 
     public IReadOnlyList<PathOfExileTradeQueryDiagnostic> Diagnostics { get; }
 
@@ -83,6 +90,25 @@ internal sealed class PathOfExileTradeFilterCatalog
         return false;
     }
 
+    public IReadOnlyList<PathOfExileTradeNumericFilterDefinition> FindNumericFilterDefinitions(
+        string? groupId,
+        string? filterId)
+    {
+        var trimmedGroupId = groupId?.Trim();
+        var trimmedFilterId = filterId?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedGroupId) ||
+            string.IsNullOrWhiteSpace(trimmedFilterId))
+        {
+            return [];
+        }
+
+        return NumericFilterDefinitions
+            .Where(definition =>
+                string.Equals(definition.GroupId, trimmedGroupId, StringComparison.Ordinal) &&
+                string.Equals(definition.FilterId, trimmedFilterId, StringComparison.Ordinal))
+            .ToArray();
+    }
+
     private static IEnumerable<string> ProviderCategoryTextCandidates(string category)
     {
         yield return category;
@@ -111,4 +137,23 @@ internal sealed record PathOfExileTradeFilterOption
     public required string Id { get; init; }
 
     public required string Text { get; init; }
+}
+
+internal sealed record PathOfExileTradeNumericFilterDefinition
+{
+    public required int GroupProviderOrder { get; init; }
+
+    public required int ProviderOrder { get; init; }
+
+    public required string GroupId { get; init; }
+
+    public required string GroupTitle { get; init; }
+
+    public bool GroupHidden { get; init; }
+
+    public required string FilterId { get; init; }
+
+    public required string Text { get; init; }
+
+    public bool SupportsMinMax { get; init; }
 }

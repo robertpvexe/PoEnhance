@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PoEnhance.App.Features.PriceChecking;
@@ -118,6 +119,70 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         }
     }
 
+    [Fact]
+    public async Task SearchAsync_GolemFletchElementalParentAndThreeChildrenCoexistAcrossProviderBranches()
+    {
+        var fixture = ProductionTradeFixture.Create();
+        var selectedParentDraft = fixture.RangerBowDraft with
+        {
+            ItemProperties = fixture.RangerBowDraft.ItemProperties
+                .Select(property => property.Kind == TradeSearchItemPropertyKind.ElementalDps
+                    ? property with { IsSelected = true }
+                    : property)
+                .ToImmutableArray(),
+        };
+        var prepared = await fixture.Controller.PrepareDraftAsync(selectedParentDraft);
+        var parent = Assert.Single(prepared.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        Assert.True(parent.IsSelected);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, parent.ProviderResolutionStatus);
+        Assert.DoesNotContain(prepared.ModifierFilters, modifier => modifier.IsSelected);
+        fixture.Controller.UpdateCurrentDraft(
+            prepared,
+            new TradeSearchDraftValidator().Validate(prepared));
+
+        foreach (var fragment in new[] { "Cold Damage", "Fire Damage", "Lightning Damage" })
+        {
+            var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+                modifier.Text.Contains(fragment, StringComparison.Ordinal));
+            fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+        }
+
+        await fixture.Controller.SearchAsync();
+
+        var request = Assert.Single(fixture.SearchClient.Calls).Request!;
+        var serialized = PathOfExileTradeJson.SerializeSearchRequest(request);
+        using var document = JsonDocument.Parse(serialized);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal(325m, query
+            .GetProperty("filters")
+            .GetProperty("weapon_filters")
+            .GetProperty("filters")
+            .GetProperty("edps")
+            .GetProperty("min")
+            .GetDecimal());
+        Assert.Equal("weapon.bow", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+        var stats = Assert.Single(query.GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", stats.GetProperty("type").GetString());
+        Assert.Equal(
+            [
+                "explicit.stat_1037193709",
+                "explicit.stat_709508406",
+                "explicit.stat_3336890334",
+            ],
+            stats.GetProperty("filters")
+                .EnumerateArray()
+                .Select(filter => filter.GetProperty("id").GetString()));
+        Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);
+    }
+
     private sealed class ProductionTradeFixture
     {
         private ProductionTradeFixture(
@@ -229,17 +294,7 @@ public sealed class PathOfExileTradeBowProductionJsonTests
 
     private static PathOfExileTradeFilterCatalog BowFilterCatalog()
     {
-        return new PathOfExileTradeFilterCatalog(
-        [
-            new PathOfExileTradeFilterOption
-            {
-                ProviderOrder = 0,
-                GroupId = "type_filters",
-                FilterId = "category",
-                Id = "weapon.bow",
-                Text = "Bow",
-            },
-        ]);
+        return PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
     }
 
     private static GameDataCatalog LoadGameDataCatalog()

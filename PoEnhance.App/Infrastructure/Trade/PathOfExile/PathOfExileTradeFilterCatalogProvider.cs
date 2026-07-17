@@ -12,6 +12,15 @@ internal sealed class PathOfExileTradeFilterCatalogProvider : IPathOfExileTradeF
         this.filtersClient = filtersClient ?? throw new ArgumentNullException(nameof(filtersClient));
     }
 
+    public bool TryGetCachedCatalog(out PathOfExileTradeFilterCatalog catalog)
+    {
+        lock (gate)
+        {
+            catalog = cachedCatalog!;
+            return catalog is not null;
+        }
+    }
+
     public async Task<PathOfExileTradeFilterCatalogProviderResult> GetCatalogAsync(
         CancellationToken cancellationToken = default)
     {

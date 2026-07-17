@@ -19,4 +19,9 @@
     <ProjectReference Include="..\PoEnhance.GameData\PoEnhance.GameData.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Infrastructure\Trade\PathOfExile\Data\item-property-filter-mappings.json"
+                      LogicalName="PoEnhance.App.Infrastructure.Trade.PathOfExile.Data.item-property-filter-mappings.json" />
+  </ItemGroup>
+
 </Project>

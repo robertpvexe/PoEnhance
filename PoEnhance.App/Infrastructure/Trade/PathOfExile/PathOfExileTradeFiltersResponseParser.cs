@@ -45,7 +45,11 @@ internal sealed class PathOfExileTradeFiltersResponseParser
                     "The Trade filters catalog contains no usable item category options."));
             }
 
-            var catalog = new PathOfExileTradeFilterCatalog(categoryOptions, diagnostics);
+            var numericFilterDefinitions = ParseNumericFilterDefinitions(resultElement, diagnostics).ToArray();
+            var catalog = new PathOfExileTradeFilterCatalog(
+                categoryOptions,
+                diagnostics,
+                numericFilterDefinitions);
             return PathOfExileTradeFiltersResponseParseResult.Success(catalog, diagnostics);
         }
         catch (JsonException)
@@ -53,6 +57,84 @@ internal sealed class PathOfExileTradeFiltersResponseParser
             return StructuralFailure(
                 PathOfExileTradeFiltersDiagnosticCodes.MalformedJson,
                 "The Trade filters response body is not valid JSON.");
+        }
+    }
+
+    private static IEnumerable<PathOfExileTradeNumericFilterDefinition> ParseNumericFilterDefinitions(
+        JsonElement resultElement,
+        List<PathOfExileTradeQueryDiagnostic> diagnostics)
+    {
+        var groupIndex = 0;
+        foreach (var groupElement in resultElement.EnumerateArray())
+        {
+            if (groupElement.ValueKind != JsonValueKind.Object)
+            {
+                groupIndex++;
+                continue;
+            }
+
+            var groupId = ReadOptionalString(groupElement, "id");
+            var groupTitle = ReadOptionalString(groupElement, "title");
+            var groupHidden = false;
+            if (groupElement.TryGetProperty("hidden", out var hiddenElement))
+            {
+                if (hiddenElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                {
+                    diagnostics.Add(Diagnostic(
+                        PathOfExileTradeFiltersDiagnosticCodes.MalformedNumericFilter,
+                        $"Trade filters group at index {groupIndex} has a non-boolean hidden value; its numeric filters were ignored."));
+                    groupIndex++;
+                    continue;
+                }
+
+                groupHidden = hiddenElement.GetBoolean();
+            }
+
+            if (!groupElement.TryGetProperty("filters", out var filtersElement) ||
+                filtersElement.ValueKind != JsonValueKind.Array)
+            {
+                groupIndex++;
+                continue;
+            }
+
+            var filterIndex = 0;
+            foreach (var filterElement in filtersElement.EnumerateArray())
+            {
+                if (filterElement.ValueKind != JsonValueKind.Object ||
+                    !filterElement.TryGetProperty("minMax", out var minMaxElement))
+                {
+                    filterIndex++;
+                    continue;
+                }
+
+                if (minMaxElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                    string.IsNullOrWhiteSpace(groupId) ||
+                    string.IsNullOrWhiteSpace(groupTitle) ||
+                    string.IsNullOrWhiteSpace(ReadOptionalString(filterElement, "id")) ||
+                    string.IsNullOrWhiteSpace(ReadOptionalString(filterElement, "text")))
+                {
+                    diagnostics.Add(Diagnostic(
+                        PathOfExileTradeFiltersDiagnosticCodes.MalformedNumericFilter,
+                        $"Numeric Trade filter at group index {groupIndex}, filter index {filterIndex} is malformed and was ignored."));
+                    filterIndex++;
+                    continue;
+                }
+
+                yield return new PathOfExileTradeNumericFilterDefinition
+                {
+                    GroupProviderOrder = groupIndex,
+                    ProviderOrder = filterIndex,
+                    GroupId = groupId,
+                    GroupTitle = groupTitle,
+                    GroupHidden = groupHidden,
+                    FilterId = ReadOptionalString(filterElement, "id")!,
+                    Text = ReadOptionalString(filterElement, "text")!,
+                    SupportsMinMax = minMaxElement.GetBoolean(),
+                };
+                filterIndex++;
+            }
+
+            groupIndex++;
         }
     }
 

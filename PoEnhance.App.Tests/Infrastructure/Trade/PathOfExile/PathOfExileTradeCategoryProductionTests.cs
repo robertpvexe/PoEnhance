@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.GameData;
@@ -415,6 +416,102 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
     }
 
     [Fact]
+    public async Task HorrorMangler_PhysicalDpsParentAndBothPhysicalChildrenCoexistWithExactBase()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog(
+            [
+                ProviderStat(0, "explicit.stat_1509134228", "#% increased Physical Damage", "Explicit"),
+                ProviderStat(1, "crafted.stat_1509134228", "#% increased Physical Damage", "Crafted"),
+                ProviderStat(2, "fractured.stat_1509134228", "#% increased Physical Damage", "Fractured"),
+                ProviderStat(
+                    3,
+                    "pseudo.pseudo_increased_physical_damage",
+                    "#% total increased Physical Damage",
+                    "Pseudo"),
+                ProviderStat(4, "explicit.stat_803737631", "+# to Accuracy Rating", "Explicit"),
+                ProviderStat(
+                    5,
+                    "explicit.stat_1940865751",
+                    "Adds # to # Physical Damage (Local)",
+                    "Explicit"),
+            ]),
+            HorrorManglerWithAddedPhysical,
+            expectedRarity: "Rare",
+            expectedModifierCount: 3);
+        var sourceDraft = fixture.MagicReaverAxeDraft;
+        var selectedParentDraft = sourceDraft with
+        {
+            Base = sourceDraft.Base with
+            {
+                ActiveCriterion = Assert.IsType<BaseSearchCriterion>(
+                    sourceDraft.Base.AvailableCriteria.ExactBase),
+            },
+            ItemProperties = sourceDraft.ItemProperties
+                .Select(property => property.Kind == TradeSearchItemPropertyKind.PhysicalDps
+                    ? property with { IsSelected = true }
+                    : property)
+                .ToImmutableArray(),
+        };
+        var prepared = await fixture.Controller.PrepareDraftAsync(selectedParentDraft);
+        var parent = Assert.Single(prepared.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        Assert.True(parent.IsSelected);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, parent.ProviderResolutionStatus);
+        Assert.DoesNotContain(prepared.ModifierFilters, modifier => modifier.IsSelected);
+        fixture.Controller.UpdateCurrentDraft(
+            prepared,
+            new TradeSearchDraftValidator().Validate(prepared));
+
+        var increasedPhysical = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+            modifier.Text.Contains("increased Physical Damage", StringComparison.Ordinal));
+        var addedPhysical = Assert.Single(fixture.Window.CurrentSearchState.Modifiers, modifier =>
+            modifier.Text.Contains("Adds ", StringComparison.Ordinal) &&
+            modifier.Text.Contains("Physical Damage", StringComparison.Ordinal));
+        fixture.Window.RaiseModifierSelectionChanged(increasedPhysical.SourceIndex, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(addedPhysical.SourceIndex, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        var request = Assert.Single(fixture.SearchClient.Calls).Request!;
+        var serialized = PathOfExileTradeJson.SerializeSearchRequest(request);
+        using var document = JsonDocument.Parse(serialized);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("Reaver Axe", query.GetProperty("type").GetString());
+        Assert.Equal("rare", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+        Assert.False(query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .TryGetProperty("category", out _));
+        Assert.Equal(parent.RequestedMinimum, query
+            .GetProperty("filters")
+            .GetProperty("weapon_filters")
+            .GetProperty("filters")
+            .GetProperty("pdps")
+            .GetProperty("min")
+            .GetDecimal());
+        var stats = Assert.Single(query.GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", stats.GetProperty("type").GetString());
+        Assert.Equal(
+            [
+                "pseudo.pseudo_increased_physical_damage",
+                "explicit.stat_1940865751",
+            ],
+            stats.GetProperty("filters")
+                .EnumerateArray()
+                .Select(filter => filter.GetProperty("id").GetString()));
+        Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task HorrorMangler_ManualParentMinimumBelowSelectedChildSuspendsContributorAndEmitsParentOnly()
     {
         var fixture = ProductionTradeCategoryFixture.CreateForItem(
@@ -768,12 +865,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
     private static PathOfExileTradeFilterCatalog OneHandAxeFilterCatalog()
     {
-        return new PathOfExileTradeFilterCatalog(
-        [
-            Category(0, "weapon.bow", "Bow"),
-            Category(1, "weapon.oneaxe", "One-Handed Axe"),
-            Category(2, "armour.shield", "Shield"),
-        ]);
+        return PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
     }
 
     private static PathOfExileTradeStatCatalog AttackSpeedStatCatalog()
@@ -913,6 +1005,28 @@ Item Level: 85
 27(26-27)% increased Attack Speed
 { Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
 20(16-20)% increased Attack Speed
+""";
+
+    private const string HorrorManglerWithAddedPhysical = """
+Item Class: One Hand Axes
+Rarity: Rare
+Horror Mangler
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 94-283 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Reaver's" (Tier: 3) - Damage, Physical, Attack }
+30(25-34)% increased Physical Damage
++60(47-72) to Accuracy Rating
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 4) - Damage, Physical, Attack }
+116(100-129)% increased Physical Damage
+{ Prefix Modifier "Flaring" (Tier: 1) - Damage, Physical, Attack }
+Adds 23(22-29) to 46(45-52) Physical Damage
 """;
 
     private const string MagicReaverAxeWithLocalColdDamageText = """

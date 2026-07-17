@@ -41,11 +41,29 @@ public sealed class TradeSearchDraftValidator
             if (property.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact ||
                 !property.IsSearchable)
             {
+                var code = property.ProviderResolutionStatus switch
+                {
+                    TradeSearchItemPropertyProviderResolutionStatus.Unsupported =>
+                        TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnsupported,
+                    TradeSearchItemPropertyProviderResolutionStatus.Ambiguous =>
+                        TradeSearchValidationDiagnosticCodes.SelectedItemPropertyAmbiguous,
+                    _ => TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnresolved,
+                };
                 diagnostics.Add(new TradeSearchValidationDiagnostic(
-                    TradeSearchValidationDiagnosticCodes.SelectedItemPropertyUnresolved,
+                    code,
                     TradeSearchValidationSeverity.Error,
                     $"Selected item property '{property.Label}' cannot be searched: " +
                         (property.NotSearchableReason ?? "no exact provider mapping is available."),
+                    ItemPropertyIndex: index));
+            }
+
+            if (property.RequestedMaximum.HasValue &&
+                property.RequestedMinimum > property.RequestedMaximum.Value)
+            {
+                diagnostics.Add(new TradeSearchValidationDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.InvalidItemPropertyRange,
+                    TradeSearchValidationSeverity.Error,
+                    $"Selected item property '{property.Label}' has a minimum greater than its maximum.",
                     ItemPropertyIndex: index));
             }
         }
