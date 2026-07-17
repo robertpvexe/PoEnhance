@@ -19,11 +19,38 @@ public sealed class TradeSearchDraftValidator
         var diagnostics = new List<TradeSearchValidationDiagnostic>();
         ValidateBaseIdentity(draft, diagnostics);
         ValidateItemLevel(draft, diagnostics);
+        ValidateRequestedItemFilters(draft, diagnostics);
         ValidateUnsupportedSpecialFacts(draft, diagnostics);
         ValidateItemProperties(draft, diagnostics);
         ValidateModifierFilters(draft, diagnostics);
 
         return TradeSearchValidationResult.FromDiagnostics(diagnostics);
+    }
+
+    private static void ValidateRequestedItemFilters(
+        TradeSearchDraft draft,
+        List<TradeSearchValidationDiagnostic> diagnostics)
+    {
+        foreach (var filter in draft.RequestedItemFilters.Where(filter => filter.IsActive))
+        {
+            if (filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
+                !filter.RequestedMinimum.HasValue)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.RequestedItemFilterInvalid,
+                    filter.DiagnosticReason ?? $"Active {filter.Label} requires a valid unsigned integer."));
+                continue;
+            }
+
+            if (filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact)
+            {
+                diagnostics.Add(Error(
+                    filter.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Unsupported
+                        ? TradeSearchValidationDiagnosticCodes.RequestedItemFilterUnsupported
+                        : TradeSearchValidationDiagnosticCodes.RequestedItemFilterUnresolved,
+                    filter.DiagnosticReason ?? $"Active {filter.Label} has no exact provider filter mapping."));
+            }
+        }
     }
 
     private static void ValidateItemProperties(

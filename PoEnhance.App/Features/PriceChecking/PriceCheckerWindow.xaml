@@ -234,6 +234,53 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="RequestedItemFilterBorderStyle"
+               TargetType="{x:Type Border}">
+            <Setter Property="Padding"
+                    Value="4,2" />
+            <Setter Property="BorderBrush"
+                    Value="Transparent" />
+            <Setter Property="BorderThickness"
+                    Value="1" />
+            <Setter Property="CornerRadius"
+                    Value="3" />
+            <Setter Property="SnapsToDevicePixels"
+                    Value="True" />
+            <Style.Triggers>
+                <Trigger Property="Tag"
+                         Value="Active">
+                    <Setter Property="BorderBrush"
+                            Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="RequestedItemFilterTextBoxStyle"
+               TargetType="{x:Type TextBox}">
+            <Setter Property="local:PriceCheckerIntegerInputBehavior.IsEnabled"
+                    Value="True" />
+            <Setter Property="MinWidth"
+                    Value="30" />
+            <Setter Property="Height"
+                    Value="20" />
+            <Setter Property="Margin"
+                    Value="4,0,0,0" />
+            <Setter Property="Padding"
+                    Value="2,0" />
+            <Setter Property="VerticalContentAlignment"
+                    Value="Center" />
+            <Setter Property="TextAlignment"
+                    Value="Center" />
+            <Setter Property="Background"
+                    Value="#191919" />
+            <Setter Property="BorderBrush"
+                    Value="#454545" />
+            <Setter Property="BorderThickness"
+                    Value="1" />
+            <Setter Property="Foreground"
+                    Value="#F0F0F0" />
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}" />
+        </Style>
         <Style x:Key="ModifierFilterScrollBarStyle"
                TargetType="{x:Type ScrollBar}">
             <Setter Property="Width"
@@ -748,16 +795,48 @@
 
                 <WrapPanel Grid.Row="1"
                            Margin="0,8,0,0">
-                    <TextBlock x:Name="ItemLevelText"
-                               Margin="0,0,12,0"
-                               Foreground="#CFCFCF" />
+                    <Border x:Name="ItemLevelFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Item Level:" />
+                            <TextBox x:Name="ItemLevelFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="QualityFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Quality:" />
+                            <TextBox x:Name="QualityFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="LinksFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Links:" />
+                            <TextBox x:Name="LinksFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
                     <TextBlock x:Name="SocketMetadataText"
-                               Margin="0,0,12,0"
-                               Foreground="#CFCFCF"
-                               Visibility="Collapsed" />
-                    <TextBlock x:Name="LinkMetadataText"
-                               Foreground="#CFCFCF"
-                               Visibility="Collapsed" />
+                               Margin="4,3,0,0"
+                               Foreground="#CFCFCF" />
                 </WrapPanel>
 
                 <Grid x:Name="StatsHeader"
@@ -851,10 +930,36 @@
                                               IsEnabled="{Binding IsAvailable}" />
                                     <StackPanel Grid.Column="2"
                                                 VerticalAlignment="Top">
-                                        <TextBlock Foreground="#EEEEEE"
-                                                   Text="{Binding Label}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   TextWrapping="NoWrap" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Foreground="#EEEEEE"
+                                                       Text="{Binding Label}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       TextWrapping="NoWrap" />
+                                            <Border Margin="6,0,0,0"
+                                                    Padding="3,0"
+                                                    VerticalAlignment="Center"
+                                                    Background="#292929"
+                                                    BorderBrush="#5C5C5C"
+                                                    BorderThickness="1"
+                                                    CornerRadius="2">
+                                                <Border.Style>
+                                                    <Style TargetType="{x:Type Border}">
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasCalculationBasisLabel}"
+                                                                         Value="False">
+                                                                <Setter Property="Visibility"
+                                                                        Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock FontSize="10"
+                                                           Foreground="#CFCFCF"
+                                                           Text="{Binding CalculationBasisLabel}" />
+                                            </Border>
+                                        </StackPanel>
                                         <TextBlock Margin="0,2,0,0"
                                                    FontSize="11"
                                                    Foreground="#AFAFAF"

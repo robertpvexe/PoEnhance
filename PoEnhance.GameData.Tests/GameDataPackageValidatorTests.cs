@@ -215,6 +215,83 @@ public sealed class GameDataPackageValidatorTests
     }
 
     [Fact]
+    public void Validate_ExactNumericalWeaponPropertiesWithProvenanceAreValid()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var source = new GameDataSourceReference
+        {
+            SourceId = "repoe",
+            ExternalId = "Metadata/Items/Weapons/OneHandWeapons/OneHandAxes/OneHandAxe18",
+        };
+        var weapon = package.ItemBases[0] with
+        {
+            WeaponProperties = new ItemBaseWeaponProperties
+            {
+                PhysicalDamageMinimum = 38,
+                PhysicalDamageMaximum = 114,
+                AttackTimeMilliseconds = 833,
+                CriticalStrikeChancePercent = 5m,
+                Sources = [source],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package with { ItemBases = [weapon] });
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Validate_InvalidNumericalWeaponPropertiesReturnFocusedErrors()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var weapon = package.ItemBases[0] with
+        {
+            WeaponProperties = new ItemBaseWeaponProperties
+            {
+                PhysicalDamageMinimum = 114,
+                PhysicalDamageMaximum = 38,
+                AttackTimeMilliseconds = 0,
+                CriticalStrikeChancePercent = -1m,
+                Sources = [],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package with { ItemBases = [weapon] });
+
+        Assert.False(result.IsValid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseWeaponPhysicalDamageInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseWeaponAttackTimeInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseWeaponCriticalStrikeChanceInvalid);
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseWeaponSourcesRequired);
+    }
+
+    [Fact]
+    public void Validate_OneSidedPhysicalRangeIsNotAcceptedAsExactBaseEvidence()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var weapon = package.ItemBases[0] with
+        {
+            WeaponProperties = new ItemBaseWeaponProperties
+            {
+                PhysicalDamageMinimum = 38,
+                Sources =
+                [
+                    new GameDataSourceReference
+                    {
+                        SourceId = "repoe",
+                        ExternalId = "partial-weapon",
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package with { ItemBases = [weapon] });
+
+        AssertHasError(result, GameDataValidationErrorCodes.ItemBaseWeaponPhysicalDamageInvalid);
+    }
+
+    [Fact]
     public void Validate_InvalidModifierFields_ReturnsExpectedErrors()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();

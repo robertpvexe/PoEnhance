@@ -80,6 +80,12 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
 
+    public event EventHandler<PriceCheckerRequestedItemFilterActivationChangedEventArgs>?
+        RequestedItemFilterActivationChanged;
+
+    public event EventHandler<PriceCheckerRequestedItemFilterValueChangedEventArgs>?
+        RequestedItemFilterValueChanged;
+
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
     public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
@@ -141,21 +147,17 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
         TitleDisplayNameText.Foreground = (Brush)FindResource(
             TitleForegroundResourceKey(draft.Rarity));
-        ItemLevelText.Text = $"Item Level: {draft.ItemLevel?.ToString() ?? NotDetectedText}";
+        foreach (var requestedFilter in draft.RequestedItemFilters)
+        {
+            UpdateRequestedItemFilter(requestedFilter);
+        }
         BaseCriterionButton.Content = FormatActiveCriterion(
             draft.Base.ActiveCriterion,
             state.Presentation.CategoryDisplayLabel);
         BaseCriterionButton.Tag = draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase
             ? "ExactBase"
             : "Category";
-        SocketMetadataText.Text = $"Sockets: {state.Presentation.SocketText}";
-        SocketMetadataText.Visibility = string.IsNullOrWhiteSpace(state.Presentation.SocketText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        LinkMetadataText.Text = $"Links: {state.Presentation.LinkText}";
-        LinkMetadataText.Visibility = string.IsNullOrWhiteSpace(state.Presentation.LinkText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        SocketMetadataText.Text = $"Sockets: {DisplayValue(draft.SocketText)}";
         StatsCountText.Text = FormatStatsCount(
             draft.ItemProperties.Count(property => property.IsSelected) +
                 draft.ModifierFilters.Count(modifier => modifier.IsSelected),
@@ -441,6 +443,132 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 property.SourceIndex,
                 property.MinimumText,
                 property.MaximumText));
+    }
+
+    private void OnRequestedItemFilterTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox { IsKeyboardFocusWithin: true } textBox ||
+            !TryGetRequestedItemFilterKind(textBox, out var kind))
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        RequestedItemFilterValueChanged?.Invoke(
+            this,
+            new PriceCheckerRequestedItemFilterValueChangedEventArgs(kind, textBox.Text));
+    }
+
+    private void OnRequestedItemFilterBorderPreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (sender is not Border border ||
+            IsInsideTextBox(border, e.OriginalSource as DependencyObject) ||
+            !TryGetRequestedItemFilterKind(border, out var kind))
+        {
+            return;
+        }
+
+        var filter = CurrentState?.Draft.RequestedItemFilters.FirstOrDefault(filter =>
+            filter.Kind == kind);
+        if (filter is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        RequestedItemFilterActivationChanged?.Invoke(
+            this,
+            new PriceCheckerRequestedItemFilterActivationChangedEventArgs(kind, !filter.IsActive));
+    }
+
+    private void UpdateRequestedItemFilter(TradeSearchRequestedItemFilter filter)
+    {
+        if (!TryGetRequestedItemFilterControls(filter.Kind, out var border, out var textBox))
+        {
+            return;
+        }
+
+        border.Tag = filter.IsActive ? "Active" : null;
+        border.ToolTip = filter.DiagnosticReason;
+        if (!string.Equals(textBox.Text, filter.CurrentText, StringComparison.Ordinal))
+        {
+            var caretIndex = textBox.CaretIndex;
+            textBox.Text = filter.CurrentText;
+            if (textBox.IsKeyboardFocusWithin)
+            {
+                textBox.CaretIndex = Math.Min(caretIndex, textBox.Text.Length);
+            }
+        }
+    }
+
+    private bool TryGetRequestedItemFilterControls(
+        TradeSearchRequestedItemFilterKind kind,
+        out Border border,
+        out TextBox textBox)
+    {
+        (border, textBox) = kind switch
+        {
+            TradeSearchRequestedItemFilterKind.ItemLevel =>
+                (ItemLevelFilterBorder, ItemLevelFilterTextBox),
+            TradeSearchRequestedItemFilterKind.Quality =>
+                (QualityFilterBorder, QualityFilterTextBox),
+            TradeSearchRequestedItemFilterKind.Links =>
+                (LinksFilterBorder, LinksFilterTextBox),
+            _ => (null!, null!),
+        };
+        return border is not null && textBox is not null;
+    }
+
+    private bool TryGetRequestedItemFilterKind(
+        FrameworkElement element,
+        out TradeSearchRequestedItemFilterKind kind)
+    {
+        if (ReferenceEquals(element, ItemLevelFilterBorder) ||
+            ReferenceEquals(element, ItemLevelFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.ItemLevel;
+            return true;
+        }
+
+        if (ReferenceEquals(element, QualityFilterBorder) ||
+            ReferenceEquals(element, QualityFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.Quality;
+            return true;
+        }
+
+        if (ReferenceEquals(element, LinksFilterBorder) ||
+            ReferenceEquals(element, LinksFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.Links;
+            return true;
+        }
+
+        kind = default;
+        return false;
+    }
+
+    private static bool IsInsideTextBox(FrameworkElement container, DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is TextBoxBase)
+            {
+                return true;
+            }
+
+            if (ReferenceEquals(source, container))
+            {
+                return false;
+            }
+
+            source = InteractiveParent(source);
+        }
+
+        return false;
     }
 
     private void OnItemPropertyExpansionClick(object sender, RoutedEventArgs e)

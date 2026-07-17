@@ -15,6 +15,10 @@ public sealed record PriceCheckerItemPropertyViewModel : INotifyPropertyChanged
 
     public required string Label { get; init; }
 
+    public string? CalculationBasisLabel { get; init; }
+
+    public bool HasCalculationBasisLabel => !string.IsNullOrWhiteSpace(CalculationBasisLabel);
+
     public bool IsSelected { get; init; }
 
     public bool IsAvailable { get; init; }

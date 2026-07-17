@@ -89,6 +89,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ItemPropertySelectionChanged += OnItemPropertySelectionChanged;
         priceCheckerWindow.ItemPropertyBoundsChanged += OnItemPropertyBoundsChanged;
         priceCheckerWindow.ItemPropertyExpansionChanged += OnItemPropertyExpansionChanged;
+        priceCheckerWindow.RequestedItemFilterActivationChanged +=
+            OnRequestedItemFilterActivationChanged;
+        priceCheckerWindow.RequestedItemFilterValueChanged += OnRequestedItemFilterValueChanged;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged += OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged += OnModifierFilterVariantChanged;
@@ -112,6 +115,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ItemPropertySelectionChanged -= OnItemPropertySelectionChanged;
         priceCheckerWindow.ItemPropertyBoundsChanged -= OnItemPropertyBoundsChanged;
         priceCheckerWindow.ItemPropertyExpansionChanged -= OnItemPropertyExpansionChanged;
+        priceCheckerWindow.RequestedItemFilterActivationChanged -=
+            OnRequestedItemFilterActivationChanged;
+        priceCheckerWindow.RequestedItemFilterValueChanged -= OnRequestedItemFilterValueChanged;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged -= OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged -= OnModifierFilterVariantChanged;
@@ -481,6 +487,68 @@ internal sealed class PriceCheckerSearchController
             ItemProperties = CreateItemPropertyRows(),
             Modifiers = CreateModifierRows(),
         });
+    }
+
+    public void UpdateRequestedItemFilterActivation(
+        TradeSearchRequestedItemFilterKind kind,
+        bool isActive)
+    {
+        if (currentDraft is null)
+        {
+            return;
+        }
+
+        var filter = currentDraft.RequestedItemFilters.FirstOrDefault(filter => filter.Kind == kind);
+        if (filter is null || filter.IsActive == isActive)
+        {
+            return;
+        }
+
+        UpdateRequestedItemFilter(
+            TradeSearchDraftMapper.ParseRequestedItemFilterText(
+                filter,
+                filter.CurrentText,
+                isActive));
+    }
+
+    public void UpdateRequestedItemFilterValue(
+        TradeSearchRequestedItemFilterKind kind,
+        string? text)
+    {
+        if (currentDraft is null)
+        {
+            return;
+        }
+
+        var filter = currentDraft.RequestedItemFilters.FirstOrDefault(filter => filter.Kind == kind);
+        if (filter is null ||
+            filter.IsActive && string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        UpdateRequestedItemFilter(
+            TradeSearchDraftMapper.ParseRequestedItemFilterText(
+                filter,
+                text,
+                isActive: true));
+    }
+
+    private void UpdateRequestedItemFilter(TradeSearchRequestedItemFilter updatedFilter)
+    {
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        var updatedDraft = currentDraft! with
+        {
+            RequestedItemFilters = currentDraft.RequestedItemFilters
+                .Select(filter => filter.Kind == updatedFilter.Kind ? updatedFilter : filter)
+                .ToImmutableArray(),
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(updatedDraft);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
     }
 
     public void UpdateModifierSelection(
@@ -897,6 +965,20 @@ internal sealed class PriceCheckerSearchController
         PriceCheckerItemPropertyExpansionChangedEventArgs e)
     {
         UpdateItemPropertyExpansion(e.ItemPropertyIndex, e.IsExpanded);
+    }
+
+    private void OnRequestedItemFilterActivationChanged(
+        object? sender,
+        PriceCheckerRequestedItemFilterActivationChangedEventArgs e)
+    {
+        UpdateRequestedItemFilterActivation(e.Kind, e.IsActive);
+    }
+
+    private void OnRequestedItemFilterValueChanged(
+        object? sender,
+        PriceCheckerRequestedItemFilterValueChangedEventArgs e)
+    {
+        UpdateRequestedItemFilterValue(e.Kind, e.Text);
     }
 
     private void OnModifierSelectionChanged(
@@ -1411,6 +1493,7 @@ internal sealed class PriceCheckerSearchController
                     SourceIndex = index,
                     Kind = property.Kind,
                     Label = property.Label,
+                    CalculationBasisLabel = property.CalculationBasisLabel,
                     IsSelected = property.IsSelected,
                     IsAvailable = IsItemPropertyAvailable(property),
                     AvailabilityReason = ItemPropertyAvailabilityReason(property),

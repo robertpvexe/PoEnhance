@@ -20,6 +20,10 @@ public sealed record TradeSearchDraft
 
     public int? ItemLevel { get; init; }
 
+    public string? SocketText { get; init; }
+
+    public ImmutableArray<TradeSearchRequestedItemFilter> RequestedItemFilters { get; init; } = [];
+
     public IReadOnlyList<string> TraditionalInfluences { get; init; } = [];
 
     public IReadOnlyList<string> EldritchInfluences { get; init; } = [];

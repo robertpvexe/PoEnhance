@@ -12,6 +12,8 @@ public sealed class TradeSearchDraftItemPropertyTests
 {
     private readonly ItemTextParser parser = new();
     private readonly TradeSearchDraftMapper mapper = new();
+    private readonly ParsedItemBaseResolver baseResolver = new();
+    private readonly ParsedItemModifierCandidateResolver modifierResolver = new();
 
     public static TheoryData<int, TradeSearchItemPropertyKind[], decimal[]> WeaponFixtures => new()
     {
@@ -24,7 +26,7 @@ public sealed class TradeSearchDraftItemPropertyTests
                 TradeSearchItemPropertyKind.AttacksPerSecond,
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
             ],
-            [141.0m, 91.2m, 49.8m, 1.20m, 5.00m]
+            [159.6m, 109.8m, 49.8m, 1.20m, 5.00m]
         },
         {
             2,
@@ -35,7 +37,7 @@ public sealed class TradeSearchDraftItemPropertyTests
                 TradeSearchItemPropertyKind.AttacksPerSecond,
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
             ],
-            [437.45m, 112.45m, 325m, 1.30m, 6.00m]
+            [459.55m, 134.55m, 325m, 1.30m, 6.00m]
         },
         {
             3,
@@ -45,7 +47,7 @@ public sealed class TradeSearchDraftItemPropertyTests
                 TradeSearchItemPropertyKind.AttacksPerSecond,
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
             ],
-            [169.065m, 169.065m, 1.53m, 5.00m]
+            [202.725m, 202.725m, 1.53m, 5.00m]
         },
         {
             4,
@@ -56,7 +58,7 @@ public sealed class TradeSearchDraftItemPropertyTests
                 TradeSearchItemPropertyKind.AttacksPerSecond,
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
             ],
-            [160.8m, 48m, 112.8m, 1.60m, 8.50m]
+            [170.4m, 57.6m, 112.8m, 1.60m, 8.50m]
         },
     };
 
@@ -87,6 +89,14 @@ public sealed class TradeSearchDraftItemPropertyTests
             Assert.All(property.SourceProperties, source =>
                 Assert.Contains(item.Properties, candidate => ReferenceEquals(candidate, source)));
         });
+        Assert.All(
+            draft.ItemProperties.Where(property => property.Kind is
+                TradeSearchItemPropertyKind.TotalDps or TradeSearchItemPropertyKind.PhysicalDps),
+            property => Assert.Equal("Q20", property.CalculationBasisLabel));
+        Assert.All(
+            draft.ItemProperties.Where(property => property.Kind is not
+                (TradeSearchItemPropertyKind.TotalDps or TradeSearchItemPropertyKind.PhysicalDps)),
+            property => Assert.Null(property.CalculationBasisLabel));
         Assert.Empty(draft.ItemPropertyDiagnostics);
         Assert.DoesNotContain(draft.ItemProperties, property => property.Kind == TradeSearchItemPropertyKind.ChaosDps);
         Assert.False(typeof(ResolvedSearchComponent).IsAssignableFrom(typeof(TradeSearchItemProperty)));
@@ -101,7 +111,7 @@ public sealed class TradeSearchDraftItemPropertyTests
 
         var draft = CreateDraft(item);
 
-        Assert.Equal(160.8m, Property(draft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
+        Assert.Equal(170.4m, Property(draft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
         Assert.Contains(draft.ModifierFilters, modifier =>
             modifier.OriginalText.Contains("Lightning Damage to Spells", StringComparison.Ordinal));
         Assert.DoesNotContain(
@@ -242,8 +252,8 @@ Item Level: 85
 
             var draft = CreateDraft(ParseFixture(2));
 
-            Assert.Equal(437.45m, Property(draft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
-            Assert.Equal(112.45m, Property(draft, TradeSearchItemPropertyKind.PhysicalDps).ObservedValue);
+            Assert.Equal(459.55m, Property(draft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
+            Assert.Equal(134.55m, Property(draft, TradeSearchItemPropertyKind.PhysicalDps).ObservedValue);
             Assert.Equal(325m, Property(draft, TradeSearchItemPropertyKind.ElementalDps).ObservedValue);
         }
         finally
@@ -263,10 +273,13 @@ Item Level: 85
         IReadOnlyList<ModifierCandidateResolutionResult>? modifierResolutions = null,
         GameDataCatalog? catalog = null)
     {
+        var effectiveCatalog = catalog ?? TradeSearchModifierSemanticProvenanceTests.ReviewedWeaponCatalog();
+        var effectiveModifierResolutions = modifierResolutions ?? modifierResolver.Resolve(item, effectiveCatalog);
         var result = mapper.CreateDraft(
             item,
-            modifierResolutions: modifierResolutions,
-            gameDataCatalog: catalog);
+            itemBaseResolution: baseResolver.Resolve(item, effectiveCatalog),
+            modifierResolutions: effectiveModifierResolutions,
+            gameDataCatalog: effectiveCatalog);
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Diagnostics);
         return Assert.IsType<TradeSearchDraft>(result.Draft);

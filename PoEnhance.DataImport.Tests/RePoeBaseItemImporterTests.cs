@@ -64,6 +64,14 @@ public sealed class RePoeBaseItemImporterTests
         Assert.Equal("Vaal Axe", weapon.Name);
         Assert.Equal("Two Hand Axe", weapon.ItemClass);
         Assert.Equal(64, weapon.RequiredLevel);
+        var weaponProperties = Assert.IsType<ItemBaseWeaponProperties>(weapon.WeaponProperties);
+        Assert.Equal(104, weaponProperties.PhysicalDamageMinimum);
+        Assert.Equal(174, weaponProperties.PhysicalDamageMaximum);
+        Assert.Equal(870, weaponProperties.AttackTimeMilliseconds);
+        Assert.Equal(5m, weaponProperties.CriticalStrikeChancePercent);
+        var weaponPropertySource = Assert.Single(weaponProperties.Sources);
+        Assert.Equal("repoe", weaponPropertySource.SourceId);
+        Assert.Equal(weapon.Id, weaponPropertySource.ExternalId);
 
         var jewel = FindById(result, "Metadata/Items/Jewels/JewelInt");
         Assert.Equal("Cobalt Jewel", jewel.Name);
@@ -151,6 +159,35 @@ public sealed class RePoeBaseItemImporterTests
         Assert.Equal(0, result.SourceRecordsRead);
         Assert.Equal(0, result.RecordsImported);
         AssertHasDiagnostic(result, RePoeImportDiagnosticCodes.JsonMalformed, ImportDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Import_InvalidNumericalWeaponFacts_RemainsImportedWithExplicitlyAbsentFacts()
+    {
+        var json = """
+            {
+              "Metadata/Items/Test/BadWeapon": {
+                "name": "Bad Weapon",
+                "item_class": "One Hand Axe",
+                "requirements": null,
+                "tags": ["weapon"],
+                "properties": {
+                  "physical_damage_min": -1,
+                  "physical_damage_max": "20",
+                  "attack_time": 0,
+                  "critical_strike_chance": -5
+                }
+              }
+            }
+            """;
+
+        var result = ImportJson(json);
+
+        Assert.False(result.HasErrors);
+        var weapon = Assert.Single(result.ImportedRecords);
+        Assert.Null(weapon.WeaponProperties);
+        Assert.Equal(4, result.Diagnostics.Count(diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.RecordInvalidWeaponProperties));
     }
 
     [Fact]

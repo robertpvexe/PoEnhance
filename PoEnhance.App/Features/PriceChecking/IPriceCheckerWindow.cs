@@ -24,6 +24,20 @@ internal interface IPriceCheckerWindow
 
     event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
 
+    event EventHandler<PriceCheckerRequestedItemFilterActivationChangedEventArgs>?
+        RequestedItemFilterActivationChanged
+        {
+            add { }
+            remove { }
+        }
+
+    event EventHandler<PriceCheckerRequestedItemFilterValueChangedEventArgs>?
+        RequestedItemFilterValueChanged
+        {
+            add { }
+            remove { }
+        }
+
     event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
     event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;

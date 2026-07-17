@@ -29,4 +29,8 @@ public sealed record DerivedWeaponProperties
     public ParsedItemProperty? CriticalStrikeChanceSourceProperty { get; init; }
 
     public IReadOnlyList<DerivedWeaponPropertyDiagnostic> Diagnostics { get; init; } = [];
+
+    public DerivedWeaponQ20Status Q20Status { get; init; }
+
+    public DerivedWeaponQ20Provenance? Q20Provenance { get; init; }
 }

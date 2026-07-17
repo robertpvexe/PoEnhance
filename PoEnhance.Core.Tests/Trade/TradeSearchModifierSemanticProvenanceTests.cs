@@ -387,6 +387,8 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
         var modifiers = new[]
         {
             Modifier("reavers", "Reaver's", ModifierGenerationType.Prefix, PhysicalPercent, "local_accuracy_rating"),
+            Modifier("physical-aps-hybrid", "Cruel Celebration", ModifierGenerationType.Prefix,
+                PhysicalPercent, LocalAttackSpeed),
             ModifierWithDomain("upgraded", "Upgraded", ModifierGenerationType.Prefix, "crafted", PhysicalPercent),
             Modifier("flaming", "Flaming", ModifierGenerationType.Prefix, FireMinimum, FireMaximum),
             Modifier("flaring", "Flaring", ModifierGenerationType.Prefix, PhysicalMinimum, PhysicalMaximum),
@@ -537,6 +539,33 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
                     },
                 ],
             },
+            ItemBases =
+            [
+                WeaponBase(
+                    "Metadata/Items/Weapons/OneHandWeapons/OneHandAxes/OneHandAxe18",
+                    "Reaver Axe",
+                    "One Hand Axe",
+                    38,
+                    114,
+                    833,
+                    5.00m),
+                WeaponBase(
+                    "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow18",
+                    "Ranger Bow",
+                    "Bow",
+                    56,
+                    117,
+                    769,
+                    6.00m),
+                WeaponBase(
+                    "Metadata/Items/Weapons/OneHandWeapons/Wands/WandK2",
+                    "Blasting Wand",
+                    "Wand",
+                    21,
+                    39,
+                    625,
+                    8.50m),
+            ],
             Modifiers = modifiers,
             Stats = statIds.Select(statId => new StatDefinition
             {
@@ -546,6 +575,38 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
             StatTranslations = translations,
             ItemPropertySemantics = semantics,
         });
+    }
+
+    private static ItemBaseRecord WeaponBase(
+        string id,
+        string name,
+        string itemClass,
+        int physicalMinimum,
+        int physicalMaximum,
+        int attackTimeMilliseconds,
+        decimal criticalStrikeChancePercent)
+    {
+        var source = new GameDataSourceReference
+        {
+            SourceId = "test",
+            ExternalId = id,
+            ExternalUri = $"https://repoe-fork.github.io/base_items.json#{id}",
+        };
+        return new ItemBaseRecord
+        {
+            Id = id,
+            Name = name,
+            ItemClass = itemClass,
+            Sources = [source],
+            WeaponProperties = new ItemBaseWeaponProperties
+            {
+                PhysicalDamageMinimum = physicalMinimum,
+                PhysicalDamageMaximum = physicalMaximum,
+                AttackTimeMilliseconds = attackTimeMilliseconds,
+                CriticalStrikeChancePercent = criticalStrikeChancePercent,
+                Sources = [source],
+            },
+        };
     }
 
     private static ModifierDefinition Modifier(

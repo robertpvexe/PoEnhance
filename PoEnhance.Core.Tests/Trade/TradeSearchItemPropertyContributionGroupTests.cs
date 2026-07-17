@@ -94,6 +94,9 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
     public void CreateDraft_MorbidBiteLinksLocalAttackSpeedOnlyToAttacksPerSecond()
     {
         var draft = CreateDraft(CopiedItemCorpus.LoadItems()[3]);
+        Assert.True(
+            draft.ItemProperties.Any(property => property.Kind == TradeSearchItemPropertyKind.PhysicalDps),
+            string.Join(" | ", draft.ItemPropertyDiagnostics.Select(diagnostic => diagnostic.Message)));
 
         Assert.Equal(
             [TradeSearchItemPropertyKind.PhysicalDps, TradeSearchItemPropertyKind.AttacksPerSecond],
@@ -137,6 +140,13 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
     public void CreateDraft_HorrorManglerReusesAggregateAndKeepsAddedPhysicalBesideIt()
     {
         var draft = CreateDraft(HorrorManglerWithAddedPhysical);
+        Assert.True(
+            draft.ItemProperties.Any(property => property.Kind == TradeSearchItemPropertyKind.PhysicalDps),
+            string.Join(" | ", draft.ItemPropertyDiagnostics.Select(diagnostic => diagnostic.Message)));
+        var physicalDps = Assert.Single(draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        Assert.Equal(382.2m, physicalDps.ObservedValue);
+        Assert.Equal("Q20", physicalDps.CalculationBasisLabel);
 
         var group = Assert.Single(draft.ItemPropertyContributionGroups);
         Assert.Equal(TradeSearchItemPropertyKind.PhysicalDps, group.ParentKind);
@@ -163,6 +173,23 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
         Assert.DoesNotContain(draft.ModifierFilters, component =>
             component.OriginalText.StartsWith("30", StringComparison.Ordinal) ||
             component.OriginalText.StartsWith("116", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CreateDraft_PhysicalAndAttackSpeedHybridUsesPhysicalForQ20AndDisplayedAps()
+    {
+        var draft = CreateDraft(PhysicalAndAttackSpeedHybrid);
+
+        var physicalDps = Assert.Single(draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        Assert.Equal(164.16m, physicalDps.ObservedValue);
+        Assert.Equal("Q20", physicalDps.CalculationBasisLabel);
+        var hybrid = draft.ModifierFilters.Where(component => component.SourceModifierIndex == 0).ToArray();
+        Assert.Equal(2, hybrid.Length);
+        Assert.Contains(hybrid, component => component.ReviewedItemPropertySemantic?.Contributions.Any(
+            contribution => contribution.Targets.Contains(ItemPropertyTarget.PhysicalDamage)) == true);
+        Assert.Contains(hybrid, component => component.ReviewedItemPropertySemantic?.Contributions.Any(
+            contribution => contribution.Targets.Contains(ItemPropertyTarget.AttacksPerSecond)) == true);
     }
 
     [Fact]
@@ -445,6 +472,7 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
         var catalog = TradeSearchModifierSemanticProvenanceTests.ReviewedWeaponCatalog();
         var result = mapper.CreateDraft(
             item,
+            itemBaseResolution: new ParsedItemBaseResolver().Resolve(item, catalog),
             modifierResolutions: resolver.Resolve(item, catalog),
             gameDataCatalog: catalog);
 
@@ -539,6 +567,24 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
         --------
         { Prefix Modifier "Chaotic" (Tier: 2) - Damage, Chaos, Attack }
         Adds 10(8-12) to 20(18-22) Chaos Damage
+        """;
+
+    private const string PhysicalAndAttackSpeedHybrid = """
+        Item Class: One Hand Axes
+        Rarity: Rare
+        Hybrid Edge
+        Reaver Axe
+        --------
+        One Handed Axe
+        Physical Damage: 49-148 (augmented)
+        Critical Strike Chance: 5.00%
+        Attacks per Second: 1.44 (augmented)
+        --------
+        Item Level: 85
+        --------
+        { Prefix Modifier "Cruel Celebration" (Tier: 3) - Damage, Physical, Attack, Speed }
+        30(25-34)% increased Physical Damage
+        20(16-20)% increased Attack Speed
         """;
 
     private const string PhysicalModifierWithoutPhysicalProperty = """

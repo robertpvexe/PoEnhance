@@ -161,8 +161,150 @@ public sealed class RePoeBaseItemImporter
             Domain = ReadOptionalString(record, "domain"),
             Tags = ReadTags(record, sourceRecordId, diagnostics),
             ImplicitModifierIds = ReadImplicits(record, sourceRecordId, diagnostics),
+            WeaponProperties = ReadWeaponProperties(record, sourceRecordId, diagnostics),
             Sources = [CreateSourceReference(sourceRecordId)],
         };
+    }
+
+    private static ItemBaseWeaponProperties? ReadWeaponProperties(
+        JsonElement record,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!record.TryGetProperty("properties", out var properties) ||
+            properties.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (properties.ValueKind != JsonValueKind.Object)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.RecordInvalidWeaponProperties,
+                ImportDiagnosticSeverity.Warning,
+                sourceRecordId,
+                "RePoE base item properties must be an object; numerical weapon properties were ignored."));
+            return null;
+        }
+
+        var physicalMinimum = ReadOptionalNonNegativeInt32(
+            properties,
+            "physical_damage_min",
+            sourceRecordId,
+            diagnostics);
+        var physicalMaximum = ReadOptionalNonNegativeInt32(
+            properties,
+            "physical_damage_max",
+            sourceRecordId,
+            diagnostics);
+        var attackTime = ReadOptionalPositiveInt32(
+            properties,
+            "attack_time",
+            sourceRecordId,
+            diagnostics);
+        var criticalStrikeChanceHundredths = ReadOptionalNonNegativeDecimal(
+            properties,
+            "critical_strike_chance",
+            sourceRecordId,
+            diagnostics);
+
+        if (!physicalMinimum.HasValue &&
+            !physicalMaximum.HasValue &&
+            !attackTime.HasValue &&
+            !criticalStrikeChanceHundredths.HasValue)
+        {
+            return null;
+        }
+
+        return new ItemBaseWeaponProperties
+        {
+            PhysicalDamageMinimum = physicalMinimum,
+            PhysicalDamageMaximum = physicalMaximum,
+            AttackTimeMilliseconds = attackTime,
+            CriticalStrikeChancePercent = criticalStrikeChanceHundredths / 100m,
+            Sources = [CreateSourceReference(sourceRecordId)],
+        };
+    }
+
+    private static int? ReadOptionalNonNegativeInt32(
+        JsonElement parent,
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number &&
+            property.TryGetInt32(out var value) &&
+            value >= 0)
+        {
+            return value;
+        }
+
+        AddInvalidWeaponPropertyDiagnostic(propertyName, sourceRecordId, diagnostics);
+        return null;
+    }
+
+    private static int? ReadOptionalPositiveInt32(
+        JsonElement parent,
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number &&
+            property.TryGetInt32(out var value) &&
+            value > 0)
+        {
+            return value;
+        }
+
+        AddInvalidWeaponPropertyDiagnostic(propertyName, sourceRecordId, diagnostics);
+        return null;
+    }
+
+    private static decimal? ReadOptionalNonNegativeDecimal(
+        JsonElement parent,
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDecimal(out var value) &&
+            value >= 0m)
+        {
+            return value;
+        }
+
+        AddInvalidWeaponPropertyDiagnostic(propertyName, sourceRecordId, diagnostics);
+        return null;
+    }
+
+    private static void AddInvalidWeaponPropertyDiagnostic(
+        string propertyName,
+        string sourceRecordId,
+        List<ImportDiagnostic> diagnostics)
+    {
+        diagnostics.Add(Diagnostic(
+            RePoeImportDiagnosticCodes.RecordInvalidWeaponProperties,
+            ImportDiagnosticSeverity.Warning,
+            sourceRecordId,
+            $"RePoE base item property '{propertyName}' has an invalid numerical value and was ignored."));
     }
 
     private static string? ReadRequiredString(JsonElement record, string propertyName)

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using PoEnhance.Core.Items.Derived;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -25,8 +26,6 @@ public sealed class TradeSearchDraftMapper
             return Unsupported("The parsed item does not contain enough identity fields for an individual-item Trade search draft.");
         }
 
-        var derivedWeaponProperties = new DerivedWeaponPropertyCalculator().Calculate(parsedItem);
-        var itemProperties = CreateItemProperties(derivedWeaponProperties);
         var modifierResolutionByIndex = BuildModifierResolutionIndex(parsedItem, modifierResolutions ?? []);
         var aggregation = CanonicalModifierEffectAggregator.Aggregate(
             CreateSearchComponents(
@@ -35,6 +34,11 @@ public sealed class TradeSearchDraftMapper
                     modifierResolutionByIndex,
                     gameDataCatalog)
                 .ToArray());
+        var derivedWeaponProperties = new DerivedWeaponPropertyCalculator().CalculateQ20(
+            parsedItem,
+            itemBaseResolution?.MatchedItemBase,
+            CreateDerivedWeaponModifierEffects(aggregation.Components));
+        var itemProperties = CreateItemProperties(derivedWeaponProperties);
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
             itemProperties,
             aggregation.Components);
@@ -48,6 +52,8 @@ public sealed class TradeSearchDraftMapper
             IsCorrupted = parsedItem.IsCorrupted,
             Base = CreateBaseDraft(parsedItem, itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
+            SocketText = ReadSocketText(parsedItem),
+            RequestedItemFilters = CreateRequestedItemFilters(parsedItem),
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
             ItemProperties = itemProperties,
@@ -66,6 +72,198 @@ public sealed class TradeSearchDraftMapper
         return TradeSearchDraftResult.Success(draft);
     }
 
+    private static ImmutableArray<TradeSearchRequestedItemFilter> CreateRequestedItemFilters(
+        ParsedItem parsedItem)
+    {
+        var quality = ReadObservedQualityFilter(parsedItem);
+        var links = ReadObservedLinksFilter(parsedItem);
+        return
+        [
+            CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.ItemLevel,
+                "Item Level",
+                parsedItem.ItemLevel,
+                parsedItem.ItemLevel?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                parsedItem.ItemLevel.HasValue ? null : "The copied item has no valid Item Level."),
+            quality,
+            links,
+        ];
+    }
+
+    public static TradeSearchRequestedItemFilter ParseRequestedItemFilterText(
+        TradeSearchRequestedItemFilter source,
+        string? currentText,
+        bool? isActive = null)
+    {
+        currentText ??= string.Empty;
+        var status = currentText.Length == 0
+            ? TradeSearchRequestedItemFilterValidationStatus.Empty
+            : currentText.All(char.IsAsciiDigit) &&
+                int.TryParse(currentText, NumberStyles.None, CultureInfo.InvariantCulture, out _)
+                ? TradeSearchRequestedItemFilterValidationStatus.Valid
+                : TradeSearchRequestedItemFilterValidationStatus.Invalid;
+        var requestedValue = status == TradeSearchRequestedItemFilterValidationStatus.Valid
+            ? int.Parse(currentText, NumberStyles.None, CultureInfo.InvariantCulture)
+            : (int?)null;
+        return source with
+        {
+            CurrentText = currentText,
+            RequestedMinimum = requestedValue,
+            IsActive = isActive ?? source.IsActive,
+            LocalValidationStatus = status,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            DiagnosticReason = status switch
+            {
+                TradeSearchRequestedItemFilterValidationStatus.Empty =>
+                    $"{source.Label} requires an unsigned integer when active.",
+                TradeSearchRequestedItemFilterValidationStatus.Invalid =>
+                    $"{source.Label} must be an unsigned integer.",
+                _ => null,
+            },
+        };
+    }
+
+    private static TradeSearchRequestedItemFilter ReadObservedQualityFilter(ParsedItem parsedItem)
+    {
+        var properties = parsedItem.Properties
+            .Where(property => string.Equals(property.NormalizedName, "quality", StringComparison.Ordinal))
+            .ToArray();
+        if (properties.Length == 0)
+        {
+            return CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Quality,
+                "Quality",
+                0,
+                "0");
+        }
+
+        if (properties.Length != 1)
+        {
+            return CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Quality,
+                "Quality",
+                null,
+                properties[0].RawValueText,
+                "More than one Quality property was parsed; observed Quality is ambiguous.");
+        }
+
+        var property = properties[0];
+        if (property.NumericGroups.Count != 1 ||
+            !property.NumericGroups[0].IsScalar ||
+            !property.NumericGroups[0].IsPercentage ||
+            property.NumericGroups[0].ScalarValue is not { } value ||
+            value < 0m ||
+            value != decimal.Truncate(value) ||
+            value > int.MaxValue)
+        {
+            return CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Quality,
+                "Quality",
+                null,
+                property.RawValueText,
+                "Observed Quality is malformed or unsupported and was not replaced with zero.");
+        }
+
+        var observed = (int)value;
+        return CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.Quality,
+            "Quality",
+            observed,
+            observed.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static TradeSearchRequestedItemFilter ReadObservedLinksFilter(ParsedItem parsedItem)
+    {
+        var properties = parsedItem.Properties
+            .Where(property => string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal))
+            .ToArray();
+        if (properties.Length == 0)
+        {
+            return CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Links,
+                "Links",
+                0,
+                "0");
+        }
+
+        if (properties.Length != 1 || !TryReadMaximumLinkedGroup(properties[0].RawValueText, out var links))
+        {
+            return CreateRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Links,
+                "Links",
+                null,
+                string.Empty,
+                "The copied socket/link representation is malformed or ambiguous.");
+        }
+
+        return CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.Links,
+            "Links",
+            links,
+            links.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static TradeSearchRequestedItemFilter CreateRequestedFilter(
+        TradeSearchRequestedItemFilterKind kind,
+        string label,
+        int? observedValue,
+        string currentText,
+        string? diagnosticReason = null)
+    {
+        var source = new TradeSearchRequestedItemFilter
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = observedValue,
+            CurrentText = currentText,
+            RequestedMinimum = observedValue,
+            IsActive = false,
+            LocalValidationStatus = observedValue.HasValue
+                ? TradeSearchRequestedItemFilterValidationStatus.Valid
+                : TradeSearchRequestedItemFilterValidationStatus.Invalid,
+            DiagnosticReason = diagnosticReason,
+        };
+        return observedValue.HasValue
+            ? source
+            : ParseRequestedItemFilterText(source, currentText, isActive: false) with
+            {
+                DiagnosticReason = diagnosticReason,
+            };
+    }
+
+    private static string? ReadSocketText(ParsedItem parsedItem)
+    {
+        var properties = parsedItem.Properties
+            .Where(property => string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal))
+            .ToArray();
+        return properties.Length == 1 && !string.IsNullOrWhiteSpace(properties[0].RawValueText)
+            ? properties[0].RawValueText
+            : null;
+    }
+
+    private static bool TryReadMaximumLinkedGroup(string? socketText, out int maximumLinks)
+    {
+        maximumLinks = 0;
+        if (string.IsNullOrWhiteSpace(socketText))
+        {
+            return false;
+        }
+
+        foreach (var group in socketText.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var sockets = group.Split('-', StringSplitOptions.None);
+            if (sockets.Length == 0 || sockets.Any(socket =>
+                    socket.Length != 1 || !char.IsAsciiLetterOrDigit(socket[0])))
+            {
+                return false;
+            }
+
+            maximumLinks = Math.Max(maximumLinks, sockets.Length);
+        }
+
+        return maximumLinks > 0;
+    }
+
     private static ImmutableArray<TradeSearchItemProperty> CreateItemProperties(
         DerivedWeaponProperties derived)
     {
@@ -81,6 +279,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.TotalDps,
                 "Total DPS",
                 derived.TotalDps.Value,
+                derived.Q20Status == DerivedWeaponQ20Status.Success ? "Q20" : null,
                 derived.PhysicalDamage?.SourceProperty,
                 derived.ElementalDamage?.SourceProperty,
                 derived.ChaosDamage?.SourceProperty,
@@ -93,6 +292,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.PhysicalDps,
                 "Physical DPS",
                 derived.PhysicalDps.Value,
+                derived.Q20Status == DerivedWeaponQ20Status.Success ? "Q20" : null,
                 derived.PhysicalDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -103,6 +303,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.ElementalDps,
                 "Elemental DPS",
                 derived.ElementalDps.Value,
+                calculationBasisLabel: null,
                 derived.ElementalDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -113,6 +314,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.ChaosDps,
                 "Chaos DPS",
                 derived.ChaosDps.Value,
+                calculationBasisLabel: null,
                 derived.ChaosDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -123,6 +325,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.AttacksPerSecond,
                 "Attacks per Second",
                 derived.AttacksPerSecond.Value,
+                calculationBasisLabel: null,
                 derived.AttacksPerSecondSourceProperty));
         }
 
@@ -132,6 +335,7 @@ public sealed class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.CriticalStrikeChance,
                 "Critical Strike Chance",
                 derived.CriticalStrikeChance.Value,
+                calculationBasisLabel: null,
                 derived.CriticalStrikeChanceSourceProperty));
         }
 
@@ -142,12 +346,14 @@ public sealed class TradeSearchDraftMapper
         TradeSearchItemPropertyKind kind,
         string label,
         decimal value,
+        string? calculationBasisLabel,
         params ParsedItemProperty?[] sourceProperties)
     {
         return new TradeSearchItemProperty
         {
             Kind = kind,
             Label = label,
+            CalculationBasisLabel = calculationBasisLabel,
             ObservedValue = value,
             RequestedMinimum = value,
             RequestedMaximum = null,
@@ -160,6 +366,54 @@ public sealed class TradeSearchDraftMapper
                 .Cast<ParsedItemProperty>()
                 .ToImmutableArray(),
         };
+    }
+
+    private static IReadOnlyList<DerivedWeaponModifierEffect> CreateDerivedWeaponModifierEffects(
+        IReadOnlyList<ResolvedSearchComponent> components)
+    {
+        return components
+            .SelectMany(component => component.Sources.Count > 0
+                ? component.Sources.Select(source => new DerivedWeaponModifierEffect
+                {
+                    ComponentId = source.ComponentId,
+                    SourceModifierIndex = source.SourceModifierIndex,
+                    ResolvedModifierId = source.ResolvedModifierId,
+                    IsExactlyResolved = !string.IsNullOrWhiteSpace(source.ResolvedModifierId),
+                    IsLocal = source.Locality == ModifierLocality.Local,
+                    HasProvenStatAssociation = source.StatMappingProof is
+                        ModifierStatMappingProofStatus.ProvenExact or
+                        ModifierStatMappingProofStatus.WholeVector,
+                    UsesPositionalFallback = source.StatMappingProof ==
+                        ModifierStatMappingProofStatus.PositionalFallback,
+                    ResolvedStatIds = source.ResolvedStatIds,
+                    CanonicalNumericValues = source.CanonicalNumericValues.Count > 0
+                        ? source.CanonicalNumericValues
+                        : source.ObservedNumericValues,
+                    ReviewedItemPropertySemantic = source.ReviewedItemPropertySemantic,
+                })
+                :
+                [
+                    new DerivedWeaponModifierEffect
+                    {
+                        ComponentId = component.ComponentId,
+                        SourceModifierIndex = component.SourceModifierIndex,
+                        ResolvedModifierId = component.ResolvedModifierId,
+                        IsExactlyResolved = component.ResolutionStatus ==
+                            ModifierCandidateResolutionStatus.Exact,
+                        IsLocal = component.Locality == ModifierLocality.Local,
+                        HasProvenStatAssociation = component.StatMappingProof is
+                            ModifierStatMappingProofStatus.ProvenExact or
+                            ModifierStatMappingProofStatus.WholeVector,
+                        UsesPositionalFallback = component.StatMappingProof ==
+                            ModifierStatMappingProofStatus.PositionalFallback,
+                        ResolvedStatIds = component.ResolvedStatIds,
+                        CanonicalNumericValues = component.CanonicalNumericValues.Count > 0
+                            ? component.CanonicalNumericValues
+                            : component.ObservedNumericValues,
+                        ReviewedItemPropertySemantic = component.ReviewedItemPropertySemantic,
+                    },
+                ])
+            .ToArray();
     }
 
     private static TradeSearchDraftResult Unsupported(string message)

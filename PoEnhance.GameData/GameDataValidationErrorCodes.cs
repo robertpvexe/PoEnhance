@@ -43,6 +43,10 @@ public static class GameDataValidationErrorCodes
     public const string ItemBaseImplicitModifierIdRequired = "itemBase.implicitModifierId.required";
     public const string ItemBaseImplicitModifierIdDuplicate = "itemBase.implicitModifierId.duplicate";
     public const string ItemBaseImplicitModifierIdUnknown = "itemBase.implicitModifierId.unknown";
+    public const string ItemBaseWeaponPhysicalDamageInvalid = "itemBase.weaponProperties.physicalDamage.invalid";
+    public const string ItemBaseWeaponAttackTimeInvalid = "itemBase.weaponProperties.attackTime.invalid";
+    public const string ItemBaseWeaponCriticalStrikeChanceInvalid = "itemBase.weaponProperties.criticalStrikeChance.invalid";
+    public const string ItemBaseWeaponSourcesRequired = "itemBase.weaponProperties.sources.required";
 
     public const string ModifierRequired = "modifier.required";
     public const string ModifierIdRequired = "modifier.id.required";

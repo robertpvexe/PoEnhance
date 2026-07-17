@@ -2584,6 +2584,152 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
+    [Theory]
+    [InlineData(TradeSearchRequestedItemFilterKind.ItemLevel, "85")]
+    [InlineData(TradeSearchRequestedItemFilterKind.Quality, "20")]
+    [InlineData(TradeSearchRequestedItemFilterKind.Links, "6")]
+    public async Task RequestedHeaderEdit_ActivatesInvalidatesOffersAndTradeWithoutAutomaticSearch(
+        TradeSearchRequestedItemFilterKind kind,
+        string editedText)
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        fixture.PriceCheckService.Result = SuccessResult([Offer("header-offer")], total: 1);
+        var draft = DraftWithRequestedHeader();
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        await fixture.Controller.SearchAsync();
+        Assert.Single(fixture.Window.CurrentSearchState!.Offers);
+        Assert.True(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Controller.UpdateRequestedItemFilterValue(kind, editedText);
+
+        var edited = Assert.Single(fixture.Window.CurrentState!.Draft.RequestedItemFilters, filter =>
+            filter.Kind == kind);
+        Assert.True(edited.IsActive);
+        Assert.Equal(editedText, edited.CurrentText);
+        Assert.Equal(int.Parse(editedText, CultureInfo.InvariantCulture), edited.RequestedMinimum);
+        Assert.Empty(fixture.Window.CurrentSearchState!.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void RequestedHeader_EqualObservedActivationAndDeactivationPreserveCurrentValue()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        var draft = DraftWithRequestedHeader();
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        fixture.Controller.UpdateRequestedItemFilterValue(
+            TradeSearchRequestedItemFilterKind.ItemLevel,
+            "85");
+        var active = RequestedHeader(fixture.Window.CurrentState!.Draft,
+            TradeSearchRequestedItemFilterKind.ItemLevel);
+        Assert.True(active.IsActive);
+        Assert.Equal(85, active.ObservedValue);
+        Assert.Equal(85, active.RequestedMinimum);
+
+        fixture.Controller.UpdateRequestedItemFilterActivation(
+            TradeSearchRequestedItemFilterKind.ItemLevel,
+            isActive: false);
+        var inactive = RequestedHeader(fixture.Window.CurrentState.Draft,
+            TradeSearchRequestedItemFilterKind.ItemLevel);
+        Assert.False(inactive.IsActive);
+        Assert.Equal("85", inactive.CurrentText);
+        Assert.Equal(85, inactive.RequestedMinimum);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public async Task RequestedHeader_InvalidInputBlocksSearchLocallyWithoutServiceCall()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        var draft = DraftWithRequestedHeader();
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        fixture.Controller.UpdateRequestedItemFilterValue(
+            TradeSearchRequestedItemFilterKind.Links,
+            string.Empty);
+        await fixture.Controller.SearchAsync();
+
+        var links = RequestedHeader(fixture.Window.CurrentState!.Draft,
+            TradeSearchRequestedItemFilterKind.Links);
+        Assert.True(links.IsActive);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Empty, links.LocalValidationStatus);
+        Assert.False(fixture.Window.CurrentSearchState!.CanSearch);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState.Status);
+        Assert.Contains(fixture.Window.CurrentState.ValidationResult.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.RequestedItemFilterInvalid);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public void RequestedQualityEdit_DoesNotChangeQ20PropertiesModifierStateOrExpansion()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        var q20Physical = ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 202.725m) with
+        {
+            CalculationBasisLabel = "Q20",
+        };
+        var draft = DraftWithRequestedHeader() with
+        {
+            ItemProperties = [q20Physical],
+            ModifierFilters = [Modifier("Adds 23 to 46 Physical Damage", isSelected: true)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        fixture.Controller.UpdateRequestedItemFilterValue(
+            TradeSearchRequestedItemFilterKind.Quality,
+            "28");
+
+        var current = fixture.Window.CurrentState!.Draft;
+        var property = Assert.Single(current.ItemProperties);
+        Assert.Equal(202.725m, property.ObservedValue);
+        Assert.Equal("Q20", property.CalculationBasisLabel);
+        var propertyRow = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.Equal("Q20", propertyRow.CalculationBasisLabel);
+        Assert.True(propertyRow.HasCalculationBasisLabel);
+        Assert.True(current.ModifierFilters[0].IsSelected);
+        Assert.True(propertyRow.IsExpanded);
+        Assert.Equal(28, RequestedHeader(current, TradeSearchRequestedItemFilterKind.Quality).RequestedMinimum);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task RequestedHeaderReset_RestoresObservedInactiveSnapshotAndDoesNotRequest()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        fixture.PriceCheckService.Result = SuccessResult([Offer("header-offer")], total: 1);
+        var draft = DraftWithRequestedHeader();
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        await fixture.Controller.SearchAsync();
+
+        fixture.Controller.UpdateRequestedItemFilterValue(TradeSearchRequestedItemFilterKind.ItemLevel, "90");
+        fixture.Controller.UpdateRequestedItemFilterValue(TradeSearchRequestedItemFilterKind.Quality, "28");
+        fixture.Controller.UpdateRequestedItemFilterValue(TradeSearchRequestedItemFilterKind.Links, "6");
+        fixture.Window.RaiseResetItemRequested();
+
+        var reset = fixture.Window.CurrentState!.Draft.RequestedItemFilters;
+        Assert.Equal([85, 0, 3], reset.Select(filter => filter.ObservedValue));
+        Assert.Equal(["85", "0", "3"], reset.Select(filter => filter.CurrentText));
+        Assert.All(reset, filter => Assert.False(filter.IsActive));
+        Assert.Empty(fixture.Window.CurrentSearchState!.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
     private static ImmutableArray<TradeSearchItemProperty> AllItemProperties()
     {
         return Enum.GetValues<TradeSearchItemPropertyKind>()
@@ -2679,6 +2825,62 @@ public sealed class PriceCheckerSearchControllerTests
                 ? [Modifier("+10 to maximum Life", isSelected: true)]
                 : []),
         };
+    }
+
+    private static TradeSearchDraft DraftWithRequestedHeader()
+    {
+        return Draft("Header Test") with
+        {
+            ItemLevel = 85,
+            SocketText = "G-R-R",
+            RequestedItemFilters =
+            [
+                RequestedHeaderFilter(TradeSearchRequestedItemFilterKind.ItemLevel, "Item Level", 85),
+                RequestedHeaderFilter(TradeSearchRequestedItemFilterKind.Quality, "Quality", 0),
+                RequestedHeaderFilter(TradeSearchRequestedItemFilterKind.Links, "Links", 3),
+            ],
+        };
+    }
+
+    private static TradeSearchRequestedItemFilter RequestedHeaderFilter(
+        TradeSearchRequestedItemFilterKind kind,
+        string label,
+        int observedValue)
+    {
+        return new TradeSearchRequestedItemFilter
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = observedValue,
+            CurrentText = observedValue.ToString(CultureInfo.InvariantCulture),
+            RequestedMinimum = observedValue,
+            IsActive = false,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+        };
+    }
+
+    private static TradeSearchDraft ResolveRequestedHeaderForController(TradeSearchDraft draft)
+    {
+        return draft with
+        {
+            RequestedItemFilters = draft.RequestedItemFilters
+                .Select(filter => filter with
+                {
+                    ProviderResolutionStatus = filter.LocalValidationStatus ==
+                        TradeSearchRequestedItemFilterValidationStatus.Valid
+                            ? TradeSearchItemPropertyProviderResolutionStatus.Exact
+                            : TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+                })
+                .ToImmutableArray(),
+        };
+    }
+
+    private static TradeSearchRequestedItemFilter RequestedHeader(
+        TradeSearchDraft draft,
+        TradeSearchRequestedItemFilterKind kind)
+    {
+        return Assert.Single(draft.RequestedItemFilters, filter => filter.Kind == kind);
     }
 
     private static TradeSearchDraft DraftWithBothBaseCriteria(

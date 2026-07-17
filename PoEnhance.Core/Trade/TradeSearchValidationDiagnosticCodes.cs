@@ -10,6 +10,12 @@ public static class TradeSearchValidationDiagnosticCodes
 
     public const string NegativeItemLevel = "TRADE_VALIDATION_NEGATIVE_ITEM_LEVEL";
 
+    public const string RequestedItemFilterInvalid = "TRADE_VALIDATION_REQUESTED_ITEM_FILTER_INVALID";
+
+    public const string RequestedItemFilterUnresolved = "TRADE_VALIDATION_REQUESTED_ITEM_FILTER_UNRESOLVED";
+
+    public const string RequestedItemFilterUnsupported = "TRADE_VALIDATION_REQUESTED_ITEM_FILTER_UNSUPPORTED";
+
     public const string SelectedItemPropertyUnresolved =
         "TRADE_VALIDATION_SELECTED_ITEM_PROPERTY_UNRESOLVED";
 

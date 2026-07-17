@@ -9,6 +9,8 @@ public sealed record TradeSearchItemProperty
 
     public required string Label { get; init; }
 
+    public string? CalculationBasisLabel { get; init; }
+
     public required decimal ObservedValue { get; init; }
 
     public required decimal RequestedMinimum { get; init; }

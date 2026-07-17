@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-07-17",
+  "mappings": [
+    {
+      "kind": "ItemLevel",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "ilvl",
+      "expectedOfficialText": "Item Level",
+      "requiresNumericMinMax": true,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 100
+    },
+    {
+      "kind": "Quality",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "quality",
+      "expectedOfficialText": "Quality",
+      "requiresNumericMinMax": true,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 30
+    },
+    {
+      "kind": "Links",
+      "providerGroupId": "socket_filters",
+      "providerFilterId": "links",
+      "expectedOfficialText": "Link Groups",
+      "requiresNumericMinMax": true,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 6
+    }
+  ]
+}

@@ -16,5 +16,7 @@ public sealed record ItemBaseRecord
 
     public IReadOnlyList<string> ImplicitModifierIds { get; init; } = [];
 
+    public ItemBaseWeaponProperties? WeaponProperties { get; init; }
+
     public IReadOnlyList<GameDataSourceReference> Sources { get; init; } = [];
 }

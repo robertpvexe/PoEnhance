@@ -165,8 +165,64 @@ public static class GameDataPackageValidator
 
             ValidateImplicitModifierIds(itemBase.ImplicitModifierIds, $"{path}.implicitModifierIds", knownModifierIds, errors);
 
+            ValidateItemBaseWeaponProperties(
+                itemBase.WeaponProperties,
+                $"{path}.weaponProperties",
+                manifestSourceIds,
+                errors);
+
             ValidateSourceReferences(itemBase.Sources, $"{path}.sources", manifestSourceIds, errors);
         }
+    }
+
+    private static void ValidateItemBaseWeaponProperties(
+        ItemBaseWeaponProperties? properties,
+        string path,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        if (properties is null)
+        {
+            return;
+        }
+
+        if (properties.PhysicalDamageMinimum is < 0 ||
+            properties.PhysicalDamageMaximum is < 0 ||
+            properties.PhysicalDamageMinimum.HasValue != properties.PhysicalDamageMaximum.HasValue ||
+            properties.PhysicalDamageMinimum > properties.PhysicalDamageMaximum)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseWeaponPhysicalDamageInvalid,
+                $"{path}.physicalDamageMinimum",
+                "Weapon base Physical Damage requires a non-negative, ordered minimum and maximum pair."));
+        }
+
+        if (properties.AttackTimeMilliseconds is <= 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseWeaponAttackTimeInvalid,
+                $"{path}.attackTimeMilliseconds",
+                "Weapon base attack time must be greater than zero when provided."));
+        }
+
+        if (properties.CriticalStrikeChancePercent is < 0m)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseWeaponCriticalStrikeChanceInvalid,
+                $"{path}.criticalStrikeChancePercent",
+                "Weapon base Critical Strike Chance must be non-negative when provided."));
+        }
+
+        if (properties.Sources is null || properties.Sources.Count == 0)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ItemBaseWeaponSourcesRequired,
+                $"{path}.sources",
+                "Imported numerical weapon properties require source provenance."));
+            return;
+        }
+
+        ValidateSourceReferences(properties.Sources, $"{path}.sources", manifestSourceIds, errors);
     }
 
     private static HashSet<string> ValidateModifiers(

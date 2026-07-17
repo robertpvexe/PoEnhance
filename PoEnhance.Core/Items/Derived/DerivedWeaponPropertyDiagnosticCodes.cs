@@ -18,4 +18,7 @@ public static class DerivedWeaponPropertyDiagnosticCodes
 
     public const string UnsupportedCriticalStrikeChance =
         "DERIVED_WEAPON_UNSUPPORTED_CRITICAL_STRIKE_CHANCE";
+
+    public const string Q20NormalizationUnsupported =
+        "DERIVED_WEAPON_Q20_NORMALIZATION_UNSUPPORTED";
 }
