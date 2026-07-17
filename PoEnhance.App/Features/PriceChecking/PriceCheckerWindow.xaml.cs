@@ -17,6 +17,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private const uint SetWindowPosNoActivate = 0x0010;
     private const string NotDetectedText = "Not detected";
     private const string ModifierContributorRowTag = "ModifierContributorRow";
+    private const string GroupedModifierRowTag = "GroupedModifierRow";
     private bool isClosed;
     private bool isHorizontalResizeActive;
     private bool isOfferCapacityReportScheduled;
@@ -72,6 +73,12 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     public event EventHandler? TradeRequested;
 
     public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+
+    public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
+
+    public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged;
+
+    public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
 
     public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
@@ -149,14 +156,18 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         LinkMetadataText.Visibility = string.IsNullOrWhiteSpace(state.Presentation.LinkText)
             ? Visibility.Collapsed
             : Visibility.Visible;
-        ModifierCountText.Text = FormatModifierCount(
-            draft.ModifierFilters.Count(modifier => modifier.IsSelected),
-            draft.ModifierFilters.Count);
+        StatsCountText.Text = FormatStatsCount(
+            draft.ItemProperties.Count(property => property.IsSelected) +
+                draft.ModifierFilters.Count(modifier => modifier.IsSelected),
+            draft.ItemProperties.Length + draft.ModifierFilters.Count);
         ScheduleOfferCapacityReport();
     }
 
     public void UpdateSearch(PriceCheckerSearchViewState state)
     {
+        var statsRowsAreUnchanged = CurrentSearchState is not null &&
+            ReferenceEquals(CurrentSearchState.ItemProperties, state.ItemProperties) &&
+            ReferenceEquals(CurrentSearchState.Modifiers, state.Modifiers);
         CurrentSearchState = state;
 
         SearchButton.IsEnabled = state.CanSearch;
@@ -167,12 +178,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         TradeButton.IsEnabled = state.CanOpenTrade;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
-        ModifierCountText.Text = FormatModifierCount(
-            state.SelectedModifierCount,
-            state.ModifierCount);
-        if (!ReferenceEquals(ModifierListBox.ItemsSource, state.Modifiers))
+        StatsCountText.Text = FormatStatsCount(state.SelectedStatsCount, state.StatsCount);
+        if (!statsRowsAreUnchanged || StatsListBox.ItemsSource is null)
         {
-            ModifierListBox.ItemsSource = state.Modifiers;
+            StatsListBox.ItemsSource = state.Stats;
         }
         OfferListBox.ItemsSource = state.Offers;
         OfferColumnHeader.Visibility = Visibility.Visible;
@@ -398,6 +407,58 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         }
     }
 
+    private void OnItemPropertySelectionClick(object sender, RoutedEventArgs e)
+    {
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        if (sender is CheckBox
+            {
+                DataContext: PriceCheckerItemPropertyViewModel property,
+            } checkBox)
+        {
+            ItemPropertySelectionChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertySelectionChangedEventArgs(
+                    property.SourceIndex,
+                    checkBox.IsChecked == true));
+        }
+    }
+
+    private void OnItemPropertyBoundTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox
+            {
+                IsKeyboardFocusWithin: true,
+                DataContext: PriceCheckerItemPropertyViewModel property,
+            })
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ItemPropertyBoundsChanged?.Invoke(
+            this,
+            new PriceCheckerItemPropertyBoundsChangedEventArgs(
+                property.SourceIndex,
+                property.MinimumText,
+                property.MaximumText));
+    }
+
+    private void OnItemPropertyExpansionClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: PriceCheckerItemPropertyViewModel property })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ItemPropertyExpansionChanged?.Invoke(
+            this,
+            new PriceCheckerItemPropertyExpansionChangedEventArgs(
+                property.SourceIndex,
+                !property.IsExpanded));
+    }
+
     private void OnModifierBoundTextChanged(object sender, TextChangedEventArgs e)
     {
         if (sender is not TextBox textBox || !textBox.IsKeyboardFocusWithin)
@@ -470,42 +531,44 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 !modifier.IsExpanded));
     }
 
-    private void OnModifierContributorRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void OnStatsRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!ShouldToggleModifierContributorRowFrom(e.OriginalSource as DependencyObject) ||
-            sender is not FrameworkElement
-            {
-                DataContext: PriceCheckerModifierContributorViewModel contributor,
-            } ||
-            !contributor.IsInteractionEnabled)
+        if (sender is not FrameworkElement row ||
+            !ShouldToggleStatsRowFrom(row, e.OriginalSource as DependencyObject))
         {
             return;
+        }
+
+        switch (row.DataContext)
+        {
+            case PriceCheckerItemPropertyViewModel property when property.IsAvailable:
+                ItemPropertySelectionChanged?.Invoke(
+                    this,
+                    new PriceCheckerItemPropertySelectionChangedEventArgs(
+                        property.SourceIndex,
+                        !property.IsSelected));
+                break;
+            case PriceCheckerModifierViewModel modifier:
+                ModifierSelectionChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierSelectionChangedEventArgs(
+                        modifier.SourceIndex,
+                        !modifier.IsSelected));
+                break;
+            case PriceCheckerModifierContributorViewModel contributor when contributor.IsInteractionEnabled:
+                ModifierSelectionChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierSelectionChangedEventArgs(
+                        contributor.ParentSourceIndex,
+                        !contributor.IsSelected,
+                        contributor.ContributorIndex));
+                break;
+            default:
+                return;
         }
 
         e.Handled = true;
         PanelInteraction?.Invoke(this, EventArgs.Empty);
-        ModifierSelectionChanged?.Invoke(
-            this,
-            new PriceCheckerModifierSelectionChangedEventArgs(
-                contributor.ParentSourceIndex,
-                !contributor.IsSelected,
-                contributor.ContributorIndex));
-    }
-
-    private void OnModifierRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!ShouldToggleModifierRowFrom(e.OriginalSource as DependencyObject) ||
-            sender is not ListBoxItem { DataContext: PriceCheckerModifierViewModel modifier })
-        {
-            return;
-        }
-
-        PanelInteraction?.Invoke(this, EventArgs.Empty);
-        ModifierSelectionChanged?.Invoke(
-            this,
-            new PriceCheckerModifierSelectionChangedEventArgs(
-                modifier.SourceIndex,
-                !modifier.IsSelected));
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -524,37 +587,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         return string.IsNullOrWhiteSpace(value) ? NotDetectedText : value;
     }
 
-    internal static bool ShouldToggleModifierRowFrom(DependencyObject? source)
-    {
-        while (source is not null)
-        {
-            if (source is ComboBoxItem)
-            {
-                return false;
-            }
-
-            if (source is FrameworkElement { Tag: ModifierContributorRowTag })
-            {
-                return false;
-            }
-
-            if (source is ListBoxItem)
-            {
-                return true;
-            }
-
-            if (source is ButtonBase or TextBoxBase or Selector)
-            {
-                return false;
-            }
-
-            source = InteractiveParent(source);
-        }
-
-        return true;
-    }
-
-    internal static bool ShouldToggleModifierContributorRowFrom(DependencyObject? source)
+    internal static bool ShouldToggleStatsRowFrom(FrameworkElement row, DependencyObject? source)
     {
         while (source is not null)
         {
@@ -563,9 +596,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 return false;
             }
 
-            if (source is FrameworkElement { Tag: ModifierContributorRowTag })
+            if (ReferenceEquals(source, row))
             {
                 return true;
+            }
+
+            if (source is FrameworkElement { Tag: ModifierContributorRowTag or GroupedModifierRowTag })
+            {
+                return false;
             }
 
             source = InteractiveParent(source);
@@ -643,11 +681,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             : null;
     }
 
-    internal static string FormatModifierCount(
-        int selectedCount,
-        int totalCount)
+    internal static string FormatStatsCount(int selectedCount, int totalCount)
     {
-        return $"{selectedCount} of {totalCount} stats selected";
+        return $"Stats {selectedCount} of {totalCount} selected";
     }
 
     [DllImport("user32.dll", SetLastError = true)]

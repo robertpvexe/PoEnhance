@@ -151,7 +151,9 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
             "Features",
             "PriceChecking",
             "PriceCheckerWindow.xaml"));
-        Assert.Contains("ModifierListBox", xaml, StringComparison.Ordinal);
+        Assert.Contains("StatsListBox", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("ModifierListBox", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("ItemPropertyListBox", xaml, StringComparison.Ordinal);
         Assert.Contains("CheckBox", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("StatId", xaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("TradeStat", xaml, StringComparison.OrdinalIgnoreCase);

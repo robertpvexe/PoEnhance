@@ -1334,6 +1334,24 @@ Item Level: 80
             remove { }
         }
 
+        public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged

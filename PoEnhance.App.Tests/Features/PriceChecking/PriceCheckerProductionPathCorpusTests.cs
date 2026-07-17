@@ -87,7 +87,12 @@ Item Level: 85
         Assert.Equal(ModifierLocality.Local, accuracy.Locality);
         Assert.Equal(93m, accuracy.RequestedMinimum);
 
-        var physicalRow = Assert.Single(snapshot.SearchState.Modifiers, row =>
+        var expandedState = harness.ExpandProperty(TradeSearchItemPropertyKind.PhysicalDps);
+        var physicalProperty = Assert.Single(expandedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        Assert.False(Assert.Single(expandedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.TotalDps).HasChildren);
+        var physicalRow = Assert.Single(physicalProperty.Children, row =>
             row.Text.Contains("increased Physical Damage", StringComparison.Ordinal));
         Assert.Equal("91% increased Physical Damage", physicalRow.Text);
         Assert.Equal("91", physicalRow.MinimumText);
@@ -99,6 +104,7 @@ Item Level: 85
         Assert.Equal(
             ["Explicit Prefix", "Hybrid Prefix"],
             physicalRow.Contributors.Select(contributor => contributor.ProvenanceLabel));
+        Assert.DoesNotContain(expandedState.Modifiers, row => row.SourceIndex == physicalRow.SourceIndex);
 
         var craftedAttackSpeed = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("increased Attack Speed", StringComparison.Ordinal));
@@ -157,21 +163,27 @@ Item Level: 85
         Assert.Equal(60m, accuracy.RequestedMinimum);
         Assert.Single(accuracy.Sources);
 
-        var physicalRow = Assert.Single(snapshot.SearchState.Modifiers, row =>
+        var expandedState = harness.ExpandProperty(TradeSearchItemPropertyKind.PhysicalDps);
+        var physicalProperty = Assert.Single(expandedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var physicalRow = Assert.Single(physicalProperty.Children, row =>
             row.Text.Contains("increased Physical Damage", StringComparison.Ordinal));
         Assert.Equal("146% increased Physical Damage", physicalRow.Text);
         Assert.Equal("146", physicalRow.MinimumText);
         Assert.Equal(2, physicalRow.SourceCount);
         Assert.Contains("2 sources", physicalRow.SectionLabel, StringComparison.Ordinal);
         Assert.False(physicalRow.IsExpanded);
+        Assert.False(physicalRow.ShowsExpansionControl);
+        Assert.True(physicalRow.ContributorsVisible);
         Assert.Equal(2, physicalRow.Contributors.Count);
         Assert.Equal(["30", "116"], physicalRow.Contributors.Select(contributor => contributor.MinimumText));
         Assert.Equal(
             ["Hybrid Prefix", "Crafted Prefix"],
             physicalRow.Contributors.Select(contributor => contributor.ProvenanceLabel));
-        Assert.DoesNotContain(snapshot.SearchState.Modifiers, row =>
+        Assert.DoesNotContain(expandedState.Modifiers, row =>
             row.Text.StartsWith("30% increased Physical Damage", StringComparison.Ordinal) ||
             row.Text.StartsWith("116% increased Physical Damage", StringComparison.Ordinal));
+        Assert.DoesNotContain(expandedState.Modifiers, row => row.SourceIndex == physicalRow.SourceIndex);
     }
 
     [Fact]
@@ -225,11 +237,18 @@ Regenerate 46.8(32.1-48) Life per second
 
         var row = Assert.Single(snapshot.SearchState.Modifiers, modifier =>
             modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Empty(snapshot.SearchState.ItemProperties);
+        Assert.Equal(4, snapshot.SearchState.Stats.Count);
+        Assert.True(row.ShowsExpansionControl);
+        Assert.True(row.HasContributors);
         Assert.Equal("31", row.MinimumText);
         Assert.Equal(["9", "22"], row.Contributors.Select(contributor => contributor.MinimumText));
         Assert.Equal(
             ["Hybrid Prefix", "Explicit Suffix"],
             row.Contributors.Select(contributor => contributor.ProvenanceLabel));
+        Assert.All(
+            snapshot.SearchState.Modifiers.Where(modifier => modifier.SourceIndex != row.SourceIndex),
+            modifier => Assert.False(modifier.ShowsExpansionControl));
     }
 
     [Fact]
@@ -267,13 +286,7 @@ Regenerate 46.8(32.1-48) Life per second
         Assert.Equal("Rare", snapshot.WindowState.Draft.Rarity);
         Assert.Equal("Morbid Bite", snapshot.WindowState.Draft.DisplayName);
         Assert.Equal("Reaver Axe", snapshot.WindowState.Draft.ParsedBaseType);
-        Assert.Equal(2, snapshot.SearchState.Modifiers.Count);
-        Assert.Contains(
-            snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("Physical Damage", StringComparison.Ordinal));
-        Assert.Contains(
-            snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Empty(snapshot.SearchState.Modifiers);
         Assert.DoesNotContain(
             snapshot.SearchState.Modifiers,
             row => string.Equals(row.Text, "Reaver Axe of Celebration", StringComparison.Ordinal));
@@ -283,13 +296,38 @@ Regenerate 46.8(32.1-48) Life per second
         Assert.Contains(
             snapshot.Draft.ModifierFilters,
             modifier => modifier.OriginalText.Contains("Physical Damage", StringComparison.Ordinal));
-        var physicalGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups);
+        Assert.Equal(2, snapshot.Draft.ItemPropertyContributionGroups.Count());
+        var physicalGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups, group =>
+            group.ParentKind == TradeSearchItemPropertyKind.PhysicalDps);
         Assert.Equal(TradeSearchItemPropertyKind.PhysicalDps, physicalGroup.ParentKind);
         var physicalContribution = Assert.Single(physicalGroup.Contributions);
         Assert.Contains(
             "Physical Damage",
             snapshot.Draft.ModifierFilters[physicalContribution.ModifierFilterIndex].OriginalText,
             StringComparison.Ordinal);
+        var expandedState = harness.ExpandProperty(TradeSearchItemPropertyKind.PhysicalDps);
+        var physicalProperty = Assert.Single(expandedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var physicalRow = Assert.Single(physicalProperty.Children);
+        Assert.Contains("Physical Damage", physicalRow.Text, StringComparison.Ordinal);
+        Assert.Equal(physicalContribution.ModifierFilterIndex, physicalRow.SourceIndex);
+        Assert.DoesNotContain(expandedState.Modifiers, row => row.SourceIndex == physicalRow.SourceIndex);
+
+        var attackSpeedGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups, group =>
+            group.ParentKind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedContribution = Assert.Single(attackSpeedGroup.Contributions);
+        var attackSpeedState = harness.ExpandProperty(TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedProperty = Assert.Single(attackSpeedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedRow = Assert.Single(attackSpeedProperty.Children);
+        Assert.Equal(attackSpeedContribution.ModifierFilterIndex, attackSpeedRow.SourceIndex);
+        Assert.Contains("increased Attack Speed", attackSpeedRow.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(attackSpeedState.Modifiers, row => row.SourceIndex == attackSpeedRow.SourceIndex);
+        Assert.Equal(
+            1,
+            attackSpeedState.Modifiers
+                .Concat(attackSpeedState.ItemProperties.SelectMany(property => property.Children))
+                .Count(row => row.SourceIndex == attackSpeedRow.SourceIndex));
     }
 
     [Fact]
@@ -321,6 +359,39 @@ Regenerate 46.8(32.1-48) Life per second
 
         var eagle = harness.OpenFixture(7).Draft;
         Assert.Empty(eagle.ItemPropertyContributionGroups);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_RealCopiedGroupedRowsAppearOnlyUnderTheirCanonicalParents()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var golemSnapshot = harness.OpenFixture(2);
+        var golemState = harness.ExpandProperty(TradeSearchItemPropertyKind.ElementalDps);
+        var elemental = Assert.Single(golemState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        Assert.Equal(
+            ["Cold Damage", "Fire Damage", "Lightning Damage"],
+            elemental.Children.Select(child => DamageSuffix(child.Text)));
+        Assert.Single(golemState.Modifiers);
+        Assert.Contains("Dexterity", golemState.Modifiers[0].Text, StringComparison.Ordinal);
+        Assert.All(elemental.Children, child =>
+            Assert.DoesNotContain(golemState.Modifiers, row => row.SourceIndex == child.SourceIndex));
+
+        var wrathSnapshot = harness.OpenFixture(4);
+        var wrathState = harness.ExpandProperty(TradeSearchItemPropertyKind.ElementalDps);
+        var wrathElemental = Assert.Single(wrathState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        var cold = Assert.Single(wrathElemental.Children);
+        Assert.Contains("Cold Damage", cold.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(wrathState.Modifiers, row => row.SourceIndex == cold.SourceIndex);
+        Assert.Contains(wrathState.Modifiers, row =>
+            row.Text.Contains("Lightning Damage to Spells", StringComparison.Ordinal));
+        Assert.Contains(wrathState.Modifiers, row =>
+            row.Text.Contains("increased Lightning Damage", StringComparison.Ordinal));
+
+        Assert.NotEmpty(golemSnapshot.Draft.ItemPropertyContributionGroups);
+        Assert.NotEmpty(wrathSnapshot.Draft.ItemPropertyContributionGroups);
     }
 
     [Fact]
@@ -370,10 +441,22 @@ Item Level: 85
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
         Assert.Equal("Reaver Axe of Celebration", snapshot.WindowState.Draft.DisplayName);
-        Assert.Single(snapshot.SearchState.Modifiers);
-        Assert.Contains(
-            snapshot.SearchState.Modifiers,
-            row => row.Text.Contains("increased Attack Speed", StringComparison.Ordinal));
+        Assert.Empty(snapshot.SearchState.Modifiers);
+        var attackSpeedGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups, group =>
+            group.ParentKind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedContribution = Assert.Single(attackSpeedGroup.Contributions);
+        var expandedState = harness.ExpandProperty(TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedProperty = Assert.Single(expandedState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var attackSpeedRow = Assert.Single(attackSpeedProperty.Children);
+        Assert.Equal(attackSpeedContribution.ModifierFilterIndex, attackSpeedRow.SourceIndex);
+        Assert.Contains("increased Attack Speed", attackSpeedRow.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(expandedState.Modifiers, row => row.SourceIndex == attackSpeedRow.SourceIndex);
+        Assert.Equal(
+            1,
+            expandedState.Modifiers
+                .Concat(expandedState.ItemProperties.SelectMany(property => property.Children))
+                .Count(row => row.SourceIndex == attackSpeedRow.SourceIndex));
     }
 
     [Fact]
@@ -529,18 +612,24 @@ Item Level: 84
         Assert.Equal(expectedBase, snapshot.Draft.Base.Observed?.ExactBaseName);
         Assert.Equal(expectedCategory, snapshot.Draft.Base.ActiveCriterion?.Category);
         Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
-        Assert.Equal(expectedRowFragments.Count, snapshot.SearchState.Modifiers.Count);
+        var searchState = !snapshot.Draft.ItemPropertyContributionGroups.Any()
+            ? snapshot.SearchState
+            : harness.ExpandProperty(Assert.Single(snapshot.Draft.ItemPropertyContributionGroups).ParentKind);
+        var projectedRows = searchState.Modifiers
+            .Concat(searchState.ItemProperties.SelectMany(property => property.Children))
+            .ToArray();
+        Assert.Equal(expectedRowFragments.Count, projectedRows.Length);
         foreach (var expectedRowFragment in expectedRowFragments)
         {
             Assert.Contains(
-                snapshot.SearchState.Modifiers,
+                projectedRows,
                 row => row.Text.Contains(expectedRowFragment, StringComparison.Ordinal));
         }
 
-        Assert.All(snapshot.SearchState.Modifiers, row =>
+        Assert.All(projectedRows, row =>
             Assert.DoesNotContain("Unscalable Value", row.Text, StringComparison.Ordinal));
         Assert.DoesNotContain(
-            snapshot.SearchState.Modifiers,
+            projectedRows,
             row => row.Text.StartsWith("(", StringComparison.Ordinal) ||
                 string.Equals(row.Text, "Our flesh longs to move as one.", StringComparison.Ordinal));
         Assert.Equal(label, label);
@@ -597,17 +686,20 @@ Item Level: 85
         private readonly ParsedItemGameDataDisplayService gameDataDisplayService = new();
         private readonly ItemTextParser parser = new();
         private readonly FakeWindowFactory windowFactory;
+        private readonly PriceCheckerSearchController searchController;
 
         private ProductionPathHarness(
             TempDirectory tempDirectory,
             GameDataCatalog catalog,
             PriceCheckerWindowController controller,
-            FakeWindowFactory windowFactory)
+            FakeWindowFactory windowFactory,
+            PriceCheckerSearchController searchController)
         {
             this.tempDirectory = tempDirectory;
             Catalog = catalog;
             Controller = controller;
             this.windowFactory = windowFactory;
+            this.searchController = searchController;
         }
 
         private GameDataCatalog Catalog { get; }
@@ -618,6 +710,7 @@ Item Level: 85
         {
             var tempDirectory = TempDirectory.Create();
             var windowFactory = new FakeWindowFactory();
+            var searchController = new PriceCheckerSearchController(new FakePriceCheckService());
             var controller = new PriceCheckerWindowController(
                 new FakeBoundsProvider(),
                 new PriceCheckerPlacementCalculator(),
@@ -627,13 +720,14 @@ Item Level: 85
                 new CoreTradeSearchDraftValidatorAdapter(),
                 new FakeForegroundWindowDetector(),
                 new FakeDeferredActionScheduler(),
-                new PriceCheckerSearchController(new FakePriceCheckService()));
+                searchController);
 
             return new ProductionPathHarness(
                 tempDirectory,
                 LoadGameDataCatalog(),
                 controller,
-                windowFactory);
+                windowFactory,
+                searchController);
         }
 
         public ProductionPathSnapshot OpenFixture(int fixtureIndex)
@@ -671,6 +765,15 @@ Item Level: 85
                 window.CurrentState!.Draft,
                 window.CurrentState,
                 window.CurrentSearchState!);
+        }
+
+        public PriceCheckerSearchViewState ExpandProperty(TradeSearchItemPropertyKind kind)
+        {
+            var window = Assert.Single(windowFactory.CreatedWindows);
+            var property = Assert.Single(window.CurrentSearchState!.ItemProperties, candidate =>
+                candidate.Kind == kind);
+            searchController.UpdateItemPropertyExpansion(property.SourceIndex, isExpanded: true);
+            return window.CurrentSearchState!;
         }
 
         public void Dispose()
@@ -743,6 +846,9 @@ Item Level: 85
         public event EventHandler? TradeRequested;
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+        public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
+        public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged;
+        public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;

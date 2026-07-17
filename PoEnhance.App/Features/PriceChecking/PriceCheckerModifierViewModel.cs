@@ -40,7 +40,11 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool HasContributors => Contributors.Count > 0;
 
+    public bool ShowsExpansionControl { get; init; }
+
     public bool IsExpanded { get; init; }
+
+    public bool ContributorsVisible => HasContributors && (!ShowsExpansionControl || IsExpanded);
 
     public int ActiveContributorCount { get; init; }
 

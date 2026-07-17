@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -20,6 +21,382 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Controller.CurrentViewState.Status);
         Assert.True(fixture.Controller.CurrentViewState.CanSearch);
         Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public void ItemPropertyProjection_UsesCanonicalOrderFlattensAggregatesAndHidesGroupedModifiers()
+    {
+        var fixture = SearchFixture.Create();
+        var aggregate = ContributorModifier();
+        var flatPhysical = Modifier("Adds 23 to 46 Physical Damage", supportsValueBounds: true, minimum: 34.5m);
+        var fire = Modifier("Adds 80 to 129 Fire Damage", supportsValueBounds: true, minimum: 104.5m);
+        var dexterity = Modifier("+53 to Dexterity", supportsValueBounds: true, minimum: 53m);
+        var draft = Draft("Horror Mangler", modifiers: [aggregate, flatPhysical, fire, dexterity]) with
+        {
+            ItemProperties = AllItemProperties(),
+            ItemPropertyContributionGroups =
+            [
+                ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0, 1),
+                ContributionGroup(TradeSearchItemPropertyKind.ElementalDps, 2),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        Assert.Equal(
+            Enum.GetValues<TradeSearchItemPropertyKind>(),
+            fixture.Window.CurrentSearchState!.ItemProperties.Select(property => property.Kind));
+        var standalone = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.Equal(3, standalone.SourceIndex);
+        Assert.Contains("Dexterity", standalone.Text, StringComparison.Ordinal);
+        Assert.False(standalone.ShowsExpansionControl);
+        var physical = fixture.Window.CurrentSearchState.ItemProperties[1];
+        Assert.True(physical.HasChildren);
+        Assert.False(physical.IsExpanded);
+        Assert.Equal([0, 1], physical.Children.Select(child => child.SourceIndex));
+        Assert.False(fixture.Window.CurrentSearchState.ItemProperties[0].HasChildren);
+        Assert.Equal(7, fixture.Window.CurrentSearchState.Stats.Count);
+        Assert.All(
+            fixture.Window.CurrentSearchState.Stats.Take(6),
+            row => Assert.IsType<PriceCheckerItemPropertyViewModel>(row));
+        Assert.Same(standalone, fixture.Window.CurrentSearchState.Stats[6]);
+        Assert.Equal(10, fixture.Window.CurrentSearchState.StatsCount);
+        Assert.Equal(0, fixture.Window.CurrentSearchState.SelectedStatsCount);
+        Assert.Equal(
+            [0, 1, 2, 3],
+            fixture.Window.CurrentSearchState.ItemProperties
+                .SelectMany(property => property.Children)
+                .Concat(fixture.Window.CurrentSearchState.Modifiers)
+                .Select(modifier => modifier.SourceIndex)
+                .Order());
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(physical.SourceIndex, isExpanded: true);
+
+        physical = fixture.Window.CurrentSearchState.ItemProperties[1];
+        Assert.True(physical.IsExpanded);
+        Assert.Equal([0, 1], physical.Children.Select(child => child.SourceIndex));
+        var flattenedAggregate = physical.Children[0];
+        Assert.False(flattenedAggregate.ShowsExpansionControl);
+        Assert.True(flattenedAggregate.ContributorsVisible);
+        Assert.Equal(2, flattenedAggregate.Contributors.Count);
+        Assert.Equal(4, draft.ModifierFilters.Count);
+        Assert.Equal(4, fixture.Window.CurrentState!.Draft.ModifierFilters.Count);
+
+        fixture.Window.RaiseModifierSelectionChanged(flattenedAggregate.SourceIndex, isSelected: true);
+        Assert.False(fixture.Window.CurrentState.Draft.ItemProperties[1].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.Equal("1 child selected", fixture.Window.CurrentSearchState.ItemProperties[1].SelectedChildSummary);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[1].HasSelectedChildren);
+        Assert.Equal(1, fixture.Window.CurrentSearchState.SelectedStatsCount);
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(2, isExpanded: true);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[1].IsExpanded);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[2].IsExpanded);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.False(fixture.Window.CurrentState.Draft.ItemProperties[2].IsSelected);
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(1, isExpanded: false);
+        Assert.False(fixture.Window.CurrentSearchState.ItemProperties[1].IsExpanded);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[2].IsExpanded);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+    }
+
+    [Fact]
+    public void ArmageddonThirst_PropertyGroupsExpandAndCollapseIndependentlyAndNewItemStartsCollapsed()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft(
+            "Armageddon Thirst",
+            modifiers:
+            [
+                Modifier("146% increased Physical Damage"),
+                Modifier("Adds 80 to 129 Fire Damage"),
+                Modifier("20% increased Attack Speed"),
+            ]) with
+        {
+            ItemProperties =
+            [
+                ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m),
+                ItemProperty(TradeSearchItemPropertyKind.ElementalDps, 104.5m),
+                ItemProperty(TradeSearchItemPropertyKind.AttacksPerSecond, 1.2m),
+            ],
+            ItemPropertyContributionGroups =
+            [
+                ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0),
+                ContributionGroup(TradeSearchItemPropertyKind.ElementalDps, 1),
+                ContributionGroup(TradeSearchItemPropertyKind.AttacksPerSecond, 2),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        foreach (var property in fixture.Window.CurrentSearchState!.ItemProperties)
+        {
+            fixture.Window.RaiseItemPropertyExpansionChanged(property.SourceIndex, isExpanded: true);
+        }
+
+        Assert.All(fixture.Window.CurrentSearchState.ItemProperties, property => Assert.True(property.IsExpanded));
+        Assert.All(fixture.Window.CurrentSearchState.ItemProperties, property => Assert.Single(property.Children));
+        Assert.DoesNotContain(fixture.Window.CurrentSearchState.Modifiers, modifier =>
+            draft.ModifierFilters.Any(canonical => canonical.OriginalText == modifier.Text));
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(1, isExpanded: false);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[0].IsExpanded);
+        Assert.False(fixture.Window.CurrentSearchState.ItemProperties[1].IsExpanded);
+        Assert.True(fixture.Window.CurrentSearchState.ItemProperties[2].IsExpanded);
+        Assert.DoesNotContain(fixture.Window.CurrentState!.Draft.ItemProperties, property => property.IsSelected);
+        Assert.DoesNotContain(fixture.Window.CurrentState.Draft.ModifierFilters, modifier => modifier.IsSelected);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        Assert.All(fixture.Window.CurrentSearchState.ItemProperties, property => Assert.False(property.IsExpanded));
+    }
+
+    [Fact]
+    public async Task ItemPropertyEditing_UpdatesCanonicalDraftInvalidatesResultsAndBlocksInvalidRange()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("id-1")], total: 1);
+        var draft = Draft("Horror Mangler") with
+        {
+            ItemProperties =
+            [
+                ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m),
+                ItemProperty(TradeSearchItemPropertyKind.AttacksPerSecond, 1.2m),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.Window.RaiseItemPropertySelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState!.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseItemPropertyBoundsChanged(0, "169.065", "250.125");
+
+        var property = fixture.Window.CurrentState!.Draft.ItemProperties[0];
+        Assert.Equal(169.065m, property.RequestedMinimum);
+        Assert.Equal(250.125m, property.RequestedMaximum);
+        Assert.True(property.IsSelected);
+        Assert.Empty(fixture.Window.CurrentSearchState!.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseItemPropertySelectionChanged(1, isSelected: true);
+        fixture.Window.RaiseItemPropertyBoundsChanged(1, "1.20", string.Empty);
+        var aps = fixture.Window.CurrentState.Draft.ItemProperties[1].RequestedMinimum;
+        Assert.Equal(1.20m, aps);
+        Assert.Equal(2, (decimal.GetBits(aps)[3] >> 16) & 0x7F);
+
+        fixture.Window.RaiseItemPropertyBoundsChanged(0, "300", "200");
+        await fixture.Controller.SearchAsync();
+
+        Assert.False(fixture.Window.CurrentSearchState.CanSearch);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState.Status);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Contains(
+            fixture.Window.CurrentState.ValidationResult.Diagnostics,
+            diagnostic => diagnostic.Code == TradeSearchValidationDiagnosticCodes.InvalidItemPropertyRange);
+    }
+
+    [Fact]
+    public void ItemPropertyProviderStates_EnableFiveKindsAndKeepChaosVisibleDisabled()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Chaos Edge") with { ItemProperties = AllItemProperties() };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        Assert.Equal(6, fixture.Window.CurrentSearchState!.ItemProperties.Count);
+        Assert.Equal(5, fixture.Window.CurrentSearchState.ItemProperties.Count(property => property.IsAvailable));
+        var chaos = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChaosDps);
+        Assert.False(chaos.IsAvailable);
+        Assert.False(chaos.CanEditBounds);
+        Assert.Equal(
+            "Path of Exile Trade does not expose a Chaos DPS filter.",
+            chaos.AvailabilityReason);
+
+        fixture.Window.RaiseItemPropertySelectionChanged(chaos.SourceIndex, isSelected: true);
+        Assert.False(fixture.Window.CurrentState!.Draft.ItemProperties[chaos.SourceIndex].IsSelected);
+    }
+
+    [Fact]
+    public async Task UnresolvedProperty_RemainsVisibleBlocksOnlyWhileSelectedAndDoesNotBlockModifierSearch()
+    {
+        var fixture = SearchFixture.Create();
+        var reason = "The Trade filter catalog could not be loaded.";
+        var unresolved = ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m) with
+        {
+            IsSelected = true,
+            IsSearchable = false,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            NotSearchableReason = reason,
+        };
+        var draft = Draft(
+            "Catalog Failure Axe",
+            modifiers: [Modifier("20% increased Attack Speed", isSelected: true)]) with
+        {
+            ItemProperties = [unresolved],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.True(row.IsSelected);
+        Assert.False(row.IsAvailable);
+        Assert.Equal(reason, row.AvailabilityReason);
+        Assert.False(fixture.Window.CurrentSearchState.CanSearch);
+
+        fixture.Window.RaiseItemPropertySelectionChanged(row.SourceIndex, isSelected: false);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.False(call.Draft!.ItemProperties[0].IsSelected);
+        Assert.True(call.Draft.ModifierFilters[0].IsSelected);
+    }
+
+    [Fact]
+    public void ResetItem_RestoresPropertyAndGroupedModifierStateWithoutRequests()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Horror Mangler", modifiers: [ContributorModifier()]) with
+        {
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseItemPropertySelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseItemPropertyBoundsChanged(0, "180.125", "250.5");
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+
+        fixture.Window.RaiseResetItemRequested();
+
+        var property = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.False(property.IsSelected);
+        Assert.Equal("169.065", property.MinimumText);
+        Assert.Empty(property.MaximumText);
+        Assert.True(property.IsExpanded);
+        var child = Assert.Single(property.Children);
+        Assert.False(child.IsSelected);
+        Assert.All(child.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.Single(fixture.Window.CurrentState!.Draft.ItemPropertyContributionGroups);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public async Task ItemPropertyAndChildSelections_ReachSearchIndependentlyThroughController()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Horror Mangler", modifiers: [ContributorModifier()]) with
+        {
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        fixture.Window.RaiseItemPropertySelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        var propertyOnly = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.True(propertyOnly.Draft!.ItemProperties[0].IsSelected);
+        Assert.False(propertyOnly.Draft.ModifierFilters[0].IsSelected);
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        var combined = fixture.PriceCheckService.Calls[1].Draft!;
+        Assert.True(combined.ItemProperties[0].IsSelected);
+        Assert.True(combined.ModifierFilters[0].IsSelected);
+    }
+
+    [Fact]
+    public async Task ItemPropertyAndChild_KeepIndependentSelectionBoundsSearchAndCollapsedIndication()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft(
+            "Armageddon Thirst",
+            modifiers: [Modifier("20% increased Attack Speed", supportsValueBounds: true, minimum: 20m)]) with
+        {
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.AttacksPerSecond, 1.2m)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.AttacksPerSecond, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        var aps = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.False(aps.IsExpanded);
+        Assert.False(aps.HasSelectedChildren);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        aps = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties);
+        Assert.False(aps.IsSelected);
+        Assert.False(aps.IsExpanded);
+        Assert.Equal("1 child selected", aps.SelectedChildSummary);
+        Assert.True(aps.HasSelectedChildren);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        await fixture.Controller.SearchAsync();
+        var childOnly = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        Assert.False(childOnly.ItemProperties[0].IsSelected);
+        Assert.True(childOnly.ModifierFilters[0].IsSelected);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+        fixture.Window.RaiseItemPropertySelectionChanged(0, isSelected: true);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        await fixture.Controller.SearchAsync();
+        var parentOnly = fixture.PriceCheckService.Calls[1].Draft!;
+        Assert.True(parentOnly.ItemProperties[0].IsSelected);
+        Assert.False(parentOnly.ModifierFilters[0].IsSelected);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(0, "21,5", "25,25");
+        fixture.Window.RaiseItemPropertyBoundsChanged(0, "1,35", "2,5");
+
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        Assert.Equal(1.35m, fixture.Window.CurrentState!.Draft.ItemProperties[0].RequestedMinimum);
+        Assert.Equal(2.5m, fixture.Window.CurrentState.Draft.ItemProperties[0].RequestedMaximum);
+        Assert.Equal(21.5m, fixture.Window.CurrentState.Draft.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(25.25m, fixture.Window.CurrentState.Draft.ModifierFilters[0].RequestedMaximum);
+        Assert.True(fixture.Window.CurrentState.Draft.ItemProperties[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState.ItemProperties).IsExpanded);
+        Assert.Empty(fixture.Window.CurrentSearchState.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+
+        await fixture.Controller.SearchAsync();
+        var combined = fixture.PriceCheckService.Calls[2].Draft!;
+        Assert.True(combined.ItemProperties[0].IsSelected);
+        Assert.True(combined.ModifierFilters[0].IsSelected);
+    }
+
+    [Fact]
+    public async Task UnsupportedChaosParent_DoesNotBlockItsIndependentlySelectedChild()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft(
+            "Chaos Edge",
+            modifiers: [Modifier("Adds 10 to 20 Chaos Damage", supportsValueBounds: true, minimum: 15m)]) with
+        {
+            ItemProperties = [ItemProperty(
+                TradeSearchItemPropertyKind.ChaosDps,
+                19.5m,
+                supported: false)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.ChaosDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseItemPropertySelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.False(call.Draft!.ItemProperties[0].IsSelected);
+        Assert.True(call.Draft.ModifierFilters[0].IsSelected);
     }
 
     [Fact]
@@ -501,6 +878,7 @@ public sealed class PriceCheckerSearchControllerTests
 
         var collapsed = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
         Assert.False(collapsed.IsExpanded);
+        Assert.True(collapsed.ShowsExpansionControl);
         Assert.Equal(2, collapsed.Contributors.Count);
         Assert.All(collapsed.Contributors, contributor => Assert.False(contributor.IsSelected));
 
@@ -760,6 +1138,7 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(0, inactiveParent.ActiveContributorCount);
         Assert.True(inactiveParent.Contributors[0].IsSelected);
         Assert.True(inactiveParent.Contributors[0].IsInactive);
+        Assert.False(inactiveParent.Contributors[0].IsInteractionEnabled);
         Assert.False(inactiveParent.Contributors[0].CanEditBounds);
         Assert.DoesNotContain("selected", inactiveParent.SectionLabel, StringComparison.Ordinal);
 
@@ -2205,6 +2584,80 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
+    private static ImmutableArray<TradeSearchItemProperty> AllItemProperties()
+    {
+        return Enum.GetValues<TradeSearchItemPropertyKind>()
+            .Select((kind, index) => ItemProperty(
+                kind,
+                kind switch
+                {
+                    TradeSearchItemPropertyKind.TotalDps => 437.45m,
+                    TradeSearchItemPropertyKind.PhysicalDps => 169.065m,
+                    TradeSearchItemPropertyKind.ElementalDps => 325m,
+                    TradeSearchItemPropertyKind.ChaosDps => 42m,
+                    TradeSearchItemPropertyKind.AttacksPerSecond => 1.20m,
+                    TradeSearchItemPropertyKind.CriticalStrikeChance => 5.00m,
+                    _ => index,
+                },
+                supported: kind != TradeSearchItemPropertyKind.ChaosDps))
+            .ToImmutableArray();
+    }
+
+    private static TradeSearchItemProperty ItemProperty(
+        TradeSearchItemPropertyKind kind,
+        decimal minimum,
+        bool supported = true)
+    {
+        return new TradeSearchItemProperty
+        {
+            Kind = kind,
+            Label = kind switch
+            {
+                TradeSearchItemPropertyKind.TotalDps => "Total DPS",
+                TradeSearchItemPropertyKind.PhysicalDps => "Physical DPS",
+                TradeSearchItemPropertyKind.ElementalDps => "Elemental DPS",
+                TradeSearchItemPropertyKind.ChaosDps => "Chaos DPS",
+                TradeSearchItemPropertyKind.AttacksPerSecond => "Attacks per Second",
+                TradeSearchItemPropertyKind.CriticalStrikeChance => "Critical Strike Chance",
+                _ => kind.ToString(),
+            },
+            ObservedValue = minimum,
+            RequestedMinimum = minimum,
+            ProviderResolutionStatus = supported
+                ? TradeSearchItemPropertyProviderResolutionStatus.Exact
+                : TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+            IsSearchable = supported,
+            NotSearchableReason = supported
+                ? null
+                : "The Path of Exile Trade weapon filter catalog does not expose a Chaos DPS range filter.",
+        };
+    }
+
+    private static TradeSearchItemPropertyContributionGroup ContributionGroup(
+        TradeSearchItemPropertyKind kind,
+        params int[] modifierIndexes)
+    {
+        var target = kind switch
+        {
+            TradeSearchItemPropertyKind.PhysicalDps => ItemPropertyTarget.PhysicalDamage,
+            TradeSearchItemPropertyKind.ElementalDps => ItemPropertyTarget.FireDamage,
+            TradeSearchItemPropertyKind.ChaosDps => ItemPropertyTarget.ChaosDamage,
+            _ => ItemPropertyTarget.PhysicalDamage,
+        };
+        return new TradeSearchItemPropertyContributionGroup
+        {
+            ParentKind = kind,
+            Contributions = modifierIndexes
+                .Select(index => new TradeSearchItemPropertyContribution
+                {
+                    ModifierFilterIndex = index,
+                    Target = target,
+                    Operation = ItemPropertyOperation.Added,
+                })
+                .ToImmutableArray(),
+        };
+    }
+
     private static TradeSearchDraft Draft(
         string name,
         bool selectedModifier = false,
@@ -2768,6 +3221,12 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
 
+        public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
+
+        public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged;
+
+        public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
+
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
@@ -2873,6 +3332,42 @@ public sealed class PriceCheckerSearchControllerTests
             OfferCapacityChanged?.Invoke(this, new PriceCheckerOfferCapacityChangedEventArgs(capacity));
         }
 
+        public void RaiseItemPropertySelectionChanged(int itemPropertyIndex, bool isSelected)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ItemPropertySelectionChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertySelectionChangedEventArgs(itemPropertyIndex, isSelected));
+        }
+
+        public void RaiseItemPropertyBoundsChanged(
+            int itemPropertyIndex,
+            string minimumText,
+            string maximumText)
+        {
+            var property = CurrentSearchState?.ItemProperties.FirstOrDefault(candidate =>
+                candidate.SourceIndex == itemPropertyIndex);
+            if (property is not null)
+            {
+                property.MinimumText = minimumText;
+                property.MaximumText = maximumText;
+            }
+
+            ItemPropertyBoundsChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertyBoundsChangedEventArgs(
+                    itemPropertyIndex,
+                    minimumText,
+                    maximumText));
+        }
+
+        public void RaiseItemPropertyExpansionChanged(int itemPropertyIndex, bool isExpanded)
+        {
+            ItemPropertyExpansionChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertyExpansionChangedEventArgs(itemPropertyIndex, isExpanded));
+        }
+
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
@@ -2883,7 +3378,7 @@ public sealed class PriceCheckerSearchControllerTests
 
         public void RaiseModifierBoundsChanged(int modifierIndex, string minimumText, string maximumText)
         {
-            var modifier = CurrentSearchState?.Modifiers.ElementAtOrDefault(modifierIndex);
+            var modifier = FindModifier(modifierIndex);
             if (modifier is not null)
             {
                 modifier.MinimumText = minimumText;
@@ -2921,9 +3416,7 @@ public sealed class PriceCheckerSearchControllerTests
             string minimumText,
             string maximumText)
         {
-            var contributor = CurrentSearchState?.Modifiers
-                .ElementAtOrDefault(modifierIndex)?
-                .Contributors.ElementAtOrDefault(contributorIndex);
+            var contributor = FindModifier(modifierIndex)?.Contributors.ElementAtOrDefault(contributorIndex);
             if (contributor is not null)
             {
                 contributor.MinimumText = minimumText;
@@ -2967,6 +3460,15 @@ public sealed class PriceCheckerSearchControllerTests
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             ResetItemRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        private PriceCheckerModifierViewModel? FindModifier(int modifierIndex)
+        {
+            return CurrentSearchState?.Modifiers.FirstOrDefault(modifier =>
+                    modifier.SourceIndex == modifierIndex) ??
+                CurrentSearchState?.ItemProperties
+                    .SelectMany(property => property.Children)
+                    .FirstOrDefault(modifier => modifier.SourceIndex == modifierIndex);
         }
     }
 #pragma warning restore CS0067

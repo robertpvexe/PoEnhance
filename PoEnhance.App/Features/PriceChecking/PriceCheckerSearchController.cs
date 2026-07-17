@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.Parsing;
@@ -25,12 +26,14 @@ internal sealed class PriceCheckerSearchController
     private readonly HashSet<string> fetchedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> displayedOfferIds = new(StringComparer.Ordinal);
     private readonly List<PriceCheckerOfferViewModel> displayedOffers = [];
+    private readonly Dictionary<int, ModifierBoundInput> itemPropertyBoundInputs = [];
     private readonly Dictionary<int, ModifierBoundInput> modifierBoundInputs = [];
     private readonly Dictionary<ModifierContributorKey, ModifierBoundInput> contributorBoundInputs = [];
     private readonly Dictionary<int, decimal?> canonicalContributorParentMinimums = [];
     private readonly Dictionary<int, decimal?> manualContributorParentMinimums = [];
     private readonly Dictionary<int, PriceCheckerParentMinimumState> parentMinimumStates = [];
     private readonly HashSet<int> expandedModifierIndexes = [];
+    private readonly HashSet<int> expandedItemPropertyIndexes = [];
     private PriceCheckerItemResetSnapshot? initialItemSnapshot;
     private PriceCheckerSuccessfulSearchIdentity? successfulSearch;
     private int? paginationProviderTotal;
@@ -83,6 +86,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.LoadMoreRequested += OnLoadMoreRequested;
         priceCheckerWindow.TradeRequested += OnTradeRequested;
         priceCheckerWindow.OfferCapacityChanged += OnOfferCapacityChanged;
+        priceCheckerWindow.ItemPropertySelectionChanged += OnItemPropertySelectionChanged;
+        priceCheckerWindow.ItemPropertyBoundsChanged += OnItemPropertyBoundsChanged;
+        priceCheckerWindow.ItemPropertyExpansionChanged += OnItemPropertyExpansionChanged;
         priceCheckerWindow.ModifierSelectionChanged += OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged += OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged += OnModifierFilterVariantChanged;
@@ -103,6 +109,9 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.LoadMoreRequested -= OnLoadMoreRequested;
         priceCheckerWindow.TradeRequested -= OnTradeRequested;
         priceCheckerWindow.OfferCapacityChanged -= OnOfferCapacityChanged;
+        priceCheckerWindow.ItemPropertySelectionChanged -= OnItemPropertySelectionChanged;
+        priceCheckerWindow.ItemPropertyBoundsChanged -= OnItemPropertyBoundsChanged;
+        priceCheckerWindow.ItemPropertyExpansionChanged -= OnItemPropertyExpansionChanged;
         priceCheckerWindow.ModifierSelectionChanged -= OnModifierSelectionChanged;
         priceCheckerWindow.ModifierBoundsChanged -= OnModifierBoundsChanged;
         priceCheckerWindow.ModifierFilterVariantChanged -= OnModifierFilterVariantChanged;
@@ -182,6 +191,8 @@ internal sealed class PriceCheckerSearchController
         ClearPaginationState();
         currentDraft = ResetModifierSelections(draft);
         expandedModifierIndexes.Clear();
+        expandedItemPropertyIndexes.Clear();
+        InitializeItemPropertyBoundInputs(currentDraft);
         InitializeModifierBoundInputs(currentDraft);
         var synchronizedModifiers = currentDraft.ModifierFilters
             .Select((modifier, index) => SynchronizeContributorParentMinimum(index, modifier))
@@ -244,6 +255,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = trimmedLeague,
             CanSearch = false,
             Message = "Searching...",
+            ItemProperties = CreateItemPropertyRows(),
             Modifiers = CreateModifierRows(),
         });
 
@@ -367,6 +379,108 @@ internal sealed class PriceCheckerSearchController
             result.IsCancelled
                 ? "Loading more offers was cancelled."
                 : "Could not load more offers. Try again."));
+    }
+
+    public void UpdateItemPropertySelection(int itemPropertyIndex, bool isSelected)
+    {
+        if (currentDraft is null ||
+            itemPropertyIndex < 0 ||
+            itemPropertyIndex >= currentDraft.ItemProperties.Length)
+        {
+            return;
+        }
+
+        var property = currentDraft.ItemProperties[itemPropertyIndex];
+        if ((!IsItemPropertyAvailable(property) && isSelected) || property.IsSelected == isSelected)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            ItemProperties = currentDraft.ItemProperties
+                .Select((candidate, index) => index == itemPropertyIndex
+                    ? candidate with { IsSelected = isSelected }
+                    : candidate)
+                .ToImmutableArray(),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    public void UpdateItemPropertyBounds(
+        int itemPropertyIndex,
+        string? minimumText,
+        string? maximumText)
+    {
+        if (currentDraft is null ||
+            itemPropertyIndex < 0 ||
+            itemPropertyIndex >= currentDraft.ItemProperties.Length ||
+            !IsItemPropertyAvailable(currentDraft.ItemProperties[itemPropertyIndex]))
+        {
+            return;
+        }
+
+        var previousInput = itemPropertyBoundInputs.GetValueOrDefault(itemPropertyIndex);
+        var input = new ModifierBoundInput(minimumText ?? string.Empty, maximumText ?? string.Empty);
+        itemPropertyBoundInputs[itemPropertyIndex] = input;
+        var minimum = ParseBound(input.MinimumText);
+        var maximum = ParseBound(input.MaximumText);
+        var property = currentDraft.ItemProperties[itemPropertyIndex];
+        var next = property with
+        {
+            RequestedMinimum = minimum.IsValid && minimum.Value.HasValue
+                ? minimum.Value.Value
+                : property.RequestedMinimum,
+            RequestedMaximum = maximum.IsValid
+                ? maximum.Value
+                : property.RequestedMaximum,
+        };
+        var inputChanged = previousInput is null || previousInput != input;
+        if (next == property && !HasInvalidItemPropertyBoundInput(input) && !inputChanged)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            ItemProperties = currentDraft.ItemProperties
+                .Select((candidate, index) => index == itemPropertyIndex ? next : candidate)
+                .ToImmutableArray(),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
+    public void UpdateItemPropertyExpansion(int itemPropertyIndex, bool isExpanded)
+    {
+        if (currentDraft is null ||
+            ItemPropertyModifierIndexes(currentDraft, itemPropertyIndex).Count == 0)
+        {
+            return;
+        }
+
+        if (isExpanded)
+        {
+            expandedItemPropertyIndexes.Add(itemPropertyIndex);
+        }
+        else
+        {
+            expandedItemPropertyIndexes.Remove(itemPropertyIndex);
+        }
+        ApplyState(CurrentViewState with
+        {
+            ItemProperties = CreateItemPropertyRows(),
+            Modifiers = CreateModifierRows(),
+        });
     }
 
     public void UpdateModifierSelection(
@@ -663,6 +777,7 @@ internal sealed class PriceCheckerSearchController
         currentValidationResult = snapshot.ValidationResult;
         currentPresentation = snapshot.Presentation;
         userSelectedBaseCriterion = snapshot.UserSelectedBaseCriterion;
+        RestoreDictionary(itemPropertyBoundInputs, snapshot.ItemPropertyBoundInputs);
         RestoreDictionary(modifierBoundInputs, snapshot.ModifierBoundInputs);
         RestoreDictionary(contributorBoundInputs, snapshot.ContributorBoundInputs);
         RestoreDictionary(canonicalContributorParentMinimums, snapshot.CanonicalParentMinimums);
@@ -758,6 +873,30 @@ internal sealed class PriceCheckerSearchController
                 ? CreateSuccessSummary(displayedOffers.Count, paginationProviderTotal, paginationInexact)
                 : CurrentViewState.Summary,
         });
+    }
+
+    private void OnItemPropertySelectionChanged(
+        object? sender,
+        PriceCheckerItemPropertySelectionChangedEventArgs e)
+    {
+        UpdateItemPropertySelection(e.ItemPropertyIndex, e.IsSelected);
+    }
+
+    private void OnItemPropertyBoundsChanged(
+        object? sender,
+        PriceCheckerItemPropertyBoundsChangedEventArgs e)
+    {
+        UpdateItemPropertyBounds(
+            e.ItemPropertyIndex,
+            e.MinimumText,
+            e.MaximumText);
+    }
+
+    private void OnItemPropertyExpansionChanged(
+        object? sender,
+        PriceCheckerItemPropertyExpansionChangedEventArgs e)
+    {
+        UpdateItemPropertyExpansion(e.ItemPropertyIndex, e.IsExpanded);
     }
 
     private void OnModifierSelectionChanged(
@@ -866,6 +1005,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = leagueIdentifier,
             CanSearch = true,
             Message = "Ready to search.",
+            ItemProperties = CreateItemPropertyRows(),
             Modifiers = CreateModifierRows(),
         };
     }
@@ -875,7 +1015,7 @@ internal sealed class PriceCheckerSearchController
         return CurrentViewState with
         {
             Status = PriceCheckerSearchViewStatus.Idle,
-            CanSearch = !isLoading,
+            CanSearch = !isLoading && CreateLocalValidationState() is null,
             CanLoadMore = false,
             CanOpenTrade = false,
             Message = "Ready to search.",
@@ -894,6 +1034,13 @@ internal sealed class PriceCheckerSearchController
         if (currentDraft is null || currentValidationResult is null)
         {
             return ValidationState("Select a supported Trade search.");
+        }
+
+        if (itemPropertyBoundInputs
+            .Where(pair => currentDraft.ItemProperties.ElementAtOrDefault(pair.Key)?.IsSelected == true)
+            .Any(pair => HasInvalidItemPropertyBoundInput(pair.Value)))
+        {
+            return ValidationState("Item property Min and Max must be finite decimal numbers.");
         }
 
         if (modifierBoundInputs
@@ -928,6 +1075,7 @@ internal sealed class PriceCheckerSearchController
             LeagueIdentifier = leagueIdentifier,
             CanSearch = false,
             Message = message,
+            ItemProperties = CreateItemPropertyRows(),
             Modifiers = CreateModifierRows(),
         };
     }
@@ -945,6 +1093,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = "Search cancelled.",
+                ItemProperties = CreateItemPropertyRows(effectiveDraft),
                 Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
@@ -962,6 +1111,7 @@ internal sealed class PriceCheckerSearchController
                 LeagueIdentifier = leagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = FailureMessage(result),
+                ItemProperties = CreateItemPropertyRows(effectiveDraft),
                 Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
@@ -977,6 +1127,7 @@ internal sealed class PriceCheckerSearchController
                 CanOpenTrade = successfulSearch is not null,
                 Message = "No offers found.",
                 Summary = string.Empty,
+                ItemProperties = CreateItemPropertyRows(effectiveDraft),
                 Modifiers = CreateModifierRows(effectiveDraft),
             };
         }
@@ -993,6 +1144,7 @@ internal sealed class PriceCheckerSearchController
                 displayedOffers.Count,
                 result.ProviderTotal,
                 result.Inexact),
+            ItemProperties = CreateItemPropertyRows(effectiveDraft),
             Modifiers = CreateModifierRows(effectiveDraft),
             Offers = displayedOffers.ToArray(),
         };
@@ -1014,6 +1166,7 @@ internal sealed class PriceCheckerSearchController
                 displayedOffers.Count,
                 paginationProviderTotal,
                 paginationInexact),
+            ItemProperties = CreateItemPropertyRows(),
             Modifiers = CreateModifierRows(),
             Offers = displayedOffers.ToArray(),
         };
@@ -1235,6 +1388,41 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
+    private IReadOnlyList<PriceCheckerItemPropertyViewModel> CreateItemPropertyRows(
+        TradeSearchDraft? draft = null)
+    {
+        draft ??= currentDraft;
+        if (draft is null)
+        {
+            return [];
+        }
+
+        return draft.ItemProperties
+            .Select((property, index) =>
+            {
+                var childIndexes = ItemPropertyModifierIndexes(draft, index);
+                var isExpanded = expandedItemPropertyIndexes.Contains(index) && childIndexes.Count > 0;
+                var children = childIndexes.Select(childIndex => CreateModifierRow(
+                    draft,
+                    childIndex,
+                    showsExpansionControl: false)).ToArray();
+                return new PriceCheckerItemPropertyViewModel
+                {
+                    SourceIndex = index,
+                    Kind = property.Kind,
+                    Label = property.Label,
+                    IsSelected = property.IsSelected,
+                    IsAvailable = IsItemPropertyAvailable(property),
+                    AvailabilityReason = ItemPropertyAvailabilityReason(property),
+                    MinimumText = ItemPropertyBoundText(index, property.RequestedMinimum, minimum: true),
+                    MaximumText = ItemPropertyBoundText(index, property.RequestedMaximum, minimum: false),
+                    IsExpanded = isExpanded,
+                    Children = children,
+                };
+            })
+            .ToArray();
+    }
+
     private IReadOnlyList<PriceCheckerModifierViewModel> CreateModifierRows(TradeSearchDraft? draft = null)
     {
         draft ??= currentDraft;
@@ -1243,65 +1431,148 @@ internal sealed class PriceCheckerSearchController
             return [];
         }
 
+        var groupedIndexes = GroupedModifierIndexes(draft);
         return draft.ModifierFilters
-            .Select((modifier, index) =>
+            .Select((_, index) => index)
+            .Where(index => !groupedIndexes.Contains(index))
+            .Select(index => CreateModifierRow(draft, index, showsExpansionControl: true))
+            .ToArray();
+    }
+
+    private PriceCheckerModifierViewModel CreateModifierRow(
+        TradeSearchDraft draft,
+        int index,
+        bool showsExpansionControl)
+    {
+        var modifier = draft.ModifierFilters[index];
+        var variants = CreateVariantViewModels(modifier.FilterVariants);
+        var contributorsEnabled = SearchComponentContributorActivation.SupportsComposition(modifier);
+        var contributors = modifier.Contributors
+            .Select((contributor, contributorIndex) =>
             {
-                var variants = CreateVariantViewModels(modifier.FilterVariants);
-                var contributorsEnabled = SearchComponentContributorActivation.SupportsComposition(modifier);
-                var contributors = modifier.Contributors
-                    .Select((contributor, contributorIndex) =>
-                    {
-                        var inactiveReason = SearchComponentContributorActivation.GetInactiveReason(
-                            modifier,
-                            contributor);
-                        return new PriceCheckerModifierContributorViewModel
-                        {
-                            ParentSourceIndex = index,
-                            ContributorIndex = contributorIndex,
-                            Text = SafeModifierText(contributor.DisplayText),
-                            ProvenanceLabel = ContributorProvenanceLabel(contributor.Source),
-                            SourceBreakdown = SourceDetail(contributor.Source, contributorIndex),
-                            IsSelected = contributor.IsSelected,
-                            SupportsValueBounds = contributor.SupportsValueBounds,
-                            ValueBoundsUnsupportedReason = contributor.ValueBoundsUnsupportedReason,
-                            IsInteractionEnabled = contributorsEnabled,
-                            InactiveReason = inactiveReason,
-                            MinimumText = ContributorBoundText(
-                                index,
-                                contributorIndex,
-                                contributor.RequestedMinimum,
-                                minimum: true),
-                            MaximumText = ContributorBoundText(
-                                index,
-                                contributorIndex,
-                                contributor.RequestedMaximum,
-                                minimum: false),
-                        };
-                    })
-                    .ToArray();
-                return new PriceCheckerModifierViewModel
+                var inactiveReason = SearchComponentContributorActivation.GetInactiveReason(
+                    modifier,
+                    contributor);
+                return new PriceCheckerModifierContributorViewModel
                 {
-                    SourceIndex = index,
-                    Text = SafeModifierText(modifier.OriginalText),
-                    SectionLabel = SectionLabelWithSources(modifier),
-                    SourceCount = modifier.SourceCount,
-                    SourceBreakdown = SourceBreakdown(modifier),
-                    IsSelected = modifier.IsSelected,
-                    SupportsValueBounds = modifier.SupportsValueBounds,
-                    ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
-                    FilterVariants = variants,
-                    SelectedFilterVariant = variants.FirstOrDefault(option => string.Equals(
-                        option.Identity,
-                        modifier.SelectedFilterVariantIdentity,
-                        StringComparison.Ordinal)),
-                    MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
-                    MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
-                    Contributors = contributors,
-                    IsExpanded = expandedModifierIndexes.Contains(index),
-                    ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier),
+                    ParentSourceIndex = index,
+                    ContributorIndex = contributorIndex,
+                    Text = SafeModifierText(contributor.DisplayText),
+                    ProvenanceLabel = ContributorProvenanceLabel(contributor.Source),
+                    SourceBreakdown = SourceDetail(contributor.Source, contributorIndex),
+                    IsSelected = contributor.IsSelected,
+                    SupportsValueBounds = contributor.SupportsValueBounds,
+                    ValueBoundsUnsupportedReason = contributor.ValueBoundsUnsupportedReason,
+                    IsInteractionEnabled = contributorsEnabled,
+                    InactiveReason = inactiveReason,
+                    MinimumText = ContributorBoundText(
+                        index,
+                        contributorIndex,
+                        contributor.RequestedMinimum,
+                        minimum: true),
+                    MaximumText = ContributorBoundText(
+                        index,
+                        contributorIndex,
+                        contributor.RequestedMaximum,
+                        minimum: false),
                 };
             })
             .ToArray();
+        return new PriceCheckerModifierViewModel
+        {
+            SourceIndex = index,
+            Text = SafeModifierText(modifier.OriginalText),
+            SectionLabel = SectionLabelWithSources(modifier),
+            SourceCount = modifier.SourceCount,
+            SourceBreakdown = SourceBreakdown(modifier),
+            IsSelected = modifier.IsSelected,
+            SupportsValueBounds = modifier.SupportsValueBounds,
+            ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
+            FilterVariants = variants,
+            SelectedFilterVariant = variants.FirstOrDefault(option => string.Equals(
+                option.Identity,
+                modifier.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal)),
+            MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
+            MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
+            Contributors = contributors,
+            ShowsExpansionControl = showsExpansionControl && contributors.Length > 0,
+            IsExpanded = showsExpansionControl &&
+                contributors.Length > 0 &&
+                expandedModifierIndexes.Contains(index),
+            ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier),
+        };
+    }
+
+    private static IReadOnlySet<int> GroupedModifierIndexes(TradeSearchDraft draft)
+    {
+        var visibleKinds = draft.ItemProperties.Select(property => property.Kind).ToHashSet();
+        return draft.ItemPropertyContributionGroups
+            .Where(group => visibleKinds.Contains(group.ParentKind))
+            .SelectMany(group => group.Contributions)
+            .Select(contribution => contribution.ModifierFilterIndex)
+            .Where(index => index >= 0 && index < draft.ModifierFilters.Count)
+            .ToHashSet();
+    }
+
+    private static IReadOnlyList<int> ItemPropertyModifierIndexes(
+        TradeSearchDraft draft,
+        int itemPropertyIndex)
+    {
+        if (itemPropertyIndex < 0 || itemPropertyIndex >= draft.ItemProperties.Length)
+        {
+            return [];
+        }
+
+        var assigned = new HashSet<int>();
+        for (var propertyIndex = 0; propertyIndex <= itemPropertyIndex; propertyIndex++)
+        {
+            var property = draft.ItemProperties[propertyIndex];
+            var group = draft.ItemPropertyContributionGroups.FirstOrDefault(candidate =>
+                candidate.ParentKind == property.Kind);
+            if (group is null)
+            {
+                continue;
+            }
+
+            var current = new List<int>();
+            foreach (var contribution in group.Contributions)
+            {
+                var modifierIndex = contribution.ModifierFilterIndex;
+                if (modifierIndex >= 0 &&
+                    modifierIndex < draft.ModifierFilters.Count &&
+                    assigned.Add(modifierIndex))
+                {
+                    current.Add(modifierIndex);
+                }
+            }
+
+            if (propertyIndex == itemPropertyIndex)
+            {
+                return current;
+            }
+        }
+
+        return [];
+    }
+
+    private static bool IsItemPropertyAvailable(TradeSearchItemProperty property)
+    {
+        return property.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Exact &&
+            property.IsSearchable;
+    }
+
+    private static string? ItemPropertyAvailabilityReason(TradeSearchItemProperty property)
+    {
+        if (IsItemPropertyAvailable(property))
+        {
+            return null;
+        }
+
+        return property.Kind == TradeSearchItemPropertyKind.ChaosDps &&
+            property.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Unsupported
+                ? "Path of Exile Trade does not expose a Chaos DPS filter."
+                : property.NotSearchableReason ?? "No exact Trade filter is currently available.";
     }
 
     private static IReadOnlyList<PriceCheckerModifierFilterVariantViewModel> CreateVariantViewModels(
@@ -1316,6 +1587,18 @@ internal sealed class PriceCheckerSearchController
                 SupportsValueBounds = option.SupportsValueBounds,
             })
             .ToArray();
+    }
+
+    private void InitializeItemPropertyBoundInputs(TradeSearchDraft draft)
+    {
+        itemPropertyBoundInputs.Clear();
+        for (var index = 0; index < draft.ItemProperties.Length; index++)
+        {
+            var property = draft.ItemProperties[index];
+            itemPropertyBoundInputs[index] = new ModifierBoundInput(
+                FormatBound(property.RequestedMinimum),
+                FormatBound(property.RequestedMaximum));
+        }
     }
 
     private void InitializeModifierBoundInputs(TradeSearchDraft draft)
@@ -1348,6 +1631,13 @@ internal sealed class PriceCheckerSearchController
                         FormatBound(contributor.RequestedMaximum));
             }
         }
+    }
+
+    private string ItemPropertyBoundText(int index, decimal? value, bool minimum)
+    {
+        return itemPropertyBoundInputs.TryGetValue(index, out var input)
+            ? (minimum ? input.MinimumText : input.MaximumText)
+            : FormatBound(value);
     }
 
     private string ModifierBoundText(int index, decimal? value, bool minimum)
@@ -1436,7 +1726,7 @@ internal sealed class PriceCheckerSearchController
                 FormatBound(parent.RequestedMaximum));
         var minimumText = FormatBound(requiredMinimum);
         modifierBoundInputs[modifierIndex] = input with { MinimumText = minimumText };
-        var displayed = CurrentViewState.Modifiers.ElementAtOrDefault(modifierIndex);
+        var displayed = FindDisplayedModifierRow(modifierIndex);
         if (displayed is not null)
         {
             displayed.MinimumText = minimumText;
@@ -1462,7 +1752,7 @@ internal sealed class PriceCheckerSearchController
         int modifierIndex,
         ResolvedSearchComponent parent)
     {
-        var row = CurrentViewState.Modifiers.ElementAtOrDefault(modifierIndex);
+        var row = FindDisplayedModifierRow(modifierIndex);
         if (row is null)
         {
             return;
@@ -1479,6 +1769,14 @@ internal sealed class PriceCheckerSearchController
                     contributor);
             }
         }
+    }
+
+    private PriceCheckerModifierViewModel? FindDisplayedModifierRow(int modifierIndex)
+    {
+        return CurrentViewState.Modifiers.FirstOrDefault(row => row.SourceIndex == modifierIndex) ??
+            CurrentViewState.ItemProperties
+                .SelectMany(property => property.Children)
+                .FirstOrDefault(row => row.SourceIndex == modifierIndex);
     }
 
     private static BoundParseResult ParseBound(string? text)
@@ -1502,6 +1800,12 @@ internal sealed class PriceCheckerSearchController
     private static bool HasInvalidBoundInput(ModifierBoundInput input) =>
         !ParseBound(input.MinimumText).IsValid || !ParseBound(input.MaximumText).IsValid;
 
+    private static bool HasInvalidItemPropertyBoundInput(ModifierBoundInput input)
+    {
+        var minimum = ParseBound(input.MinimumText);
+        return !minimum.IsValid || !minimum.Value.HasValue || !ParseBound(input.MaximumText).IsValid;
+    }
+
     private static string FormatBound(decimal? value) => value?.ToString("G29", CultureInfo.InvariantCulture) ?? string.Empty;
 
     private sealed record ModifierBoundInput(string MinimumText, string MaximumText);
@@ -1515,6 +1819,7 @@ internal sealed class PriceCheckerSearchController
             currentValidationResult!,
             currentPresentation,
             userSelectedBaseCriterion,
+            new Dictionary<int, ModifierBoundInput>(itemPropertyBoundInputs),
             new Dictionary<int, ModifierBoundInput>(modifierBoundInputs),
             new Dictionary<ModifierContributorKey, ModifierBoundInput>(contributorBoundInputs),
             new Dictionary<int, decimal?>(canonicalContributorParentMinimums),
@@ -1539,6 +1844,7 @@ internal sealed class PriceCheckerSearchController
         TradeSearchValidationResult ValidationResult,
         PriceCheckerItemPresentation Presentation,
         BaseSearchCriterion? UserSelectedBaseCriterion,
+        IReadOnlyDictionary<int, ModifierBoundInput> ItemPropertyBoundInputs,
         IReadOnlyDictionary<int, ModifierBoundInput> ModifierBoundInputs,
         IReadOnlyDictionary<ModifierContributorKey, ModifierBoundInput> ContributorBoundInputs,
         IReadOnlyDictionary<int, decimal?> CanonicalParentMinimums,

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PoEnhance.App.Features.PriceChecking;
@@ -54,11 +53,15 @@ public sealed class PathOfExileTradeBowProductionJsonTests
     {
         var fixture = ProductionTradeFixture.Create();
         fixture.Controller.UpdateCurrentDraft(fixture.RangerBowDraft, fixture.RangerBowValidation);
+        var elemental = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        fixture.Window.RaiseItemPropertyExpansionChanged(elemental.SourceIndex, isExpanded: true);
 
         foreach (var selectedRowFragment in selectedRowFragments)
         {
             var row = Assert.Single(
-                fixture.Window.CurrentSearchState!.Modifiers,
+                fixture.Window.CurrentSearchState!.Modifiers.Concat(
+                    fixture.Window.CurrentSearchState.ItemProperties.SelectMany(property => property.Children)),
                 modifier => modifier.Text.Contains(selectedRowFragment, StringComparison.Ordinal));
             fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
         }
@@ -96,7 +99,7 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         Assert.Equal("and", statsGroup.GetProperty("type").GetString());
         var filters = statsGroup.GetProperty("filters").EnumerateArray().ToArray();
         Assert.Equal(selectedRowFragments.Count, selectedCount);
-        Assert.Equal(selectedCount, filters.Length);
+        Assert.Equal(selectedRowFragments.Count, filters.Length);
         var providerStatIds = filters
             .Select(filter => filter.GetProperty("id").GetString())
             .OfType<string>()
@@ -123,27 +126,25 @@ public sealed class PathOfExileTradeBowProductionJsonTests
     public async Task SearchAsync_GolemFletchElementalParentAndThreeChildrenCoexistAcrossProviderBranches()
     {
         var fixture = ProductionTradeFixture.Create();
-        var selectedParentDraft = fixture.RangerBowDraft with
-        {
-            ItemProperties = fixture.RangerBowDraft.ItemProperties
-                .Select(property => property.Kind == TradeSearchItemPropertyKind.ElementalDps
-                    ? property with { IsSelected = true }
-                    : property)
-                .ToImmutableArray(),
-        };
-        var prepared = await fixture.Controller.PrepareDraftAsync(selectedParentDraft);
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.RangerBowDraft);
         var parent = Assert.Single(prepared.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.ElementalDps);
-        Assert.True(parent.IsSelected);
+        Assert.False(parent.IsSelected);
         Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, parent.ProviderResolutionStatus);
         Assert.DoesNotContain(prepared.ModifierFilters, modifier => modifier.IsSelected);
         fixture.Controller.UpdateCurrentDraft(
             prepared,
             new TradeSearchDraftValidator().Validate(prepared));
+        var propertyRow = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        fixture.Window.RaiseItemPropertySelectionChanged(propertyRow.SourceIndex, isSelected: true);
+        fixture.Window.RaiseItemPropertyExpansionChanged(propertyRow.SourceIndex, isExpanded: true);
+        propertyRow = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ElementalDps);
 
         foreach (var fragment in new[] { "Cold Damage", "Fire Damage", "Lightning Damage" })
         {
-            var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
+            var row = Assert.Single(propertyRow.Children, modifier =>
                 modifier.Text.Contains(fragment, StringComparison.Ordinal));
             fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
         }
@@ -450,6 +451,9 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         public event EventHandler? TradeRequested;
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+        public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
+        public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged;
+        public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
@@ -509,6 +513,20 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             ModifierSelectionChanged?.Invoke(
                 this,
                 new PriceCheckerModifierSelectionChangedEventArgs(modifierIndex, isSelected));
+        }
+
+        public void RaiseItemPropertySelectionChanged(int propertyIndex, bool isSelected)
+        {
+            ItemPropertySelectionChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertySelectionChangedEventArgs(propertyIndex, isSelected));
+        }
+
+        public void RaiseItemPropertyExpansionChanged(int propertyIndex, bool isExpanded)
+        {
+            ItemPropertyExpansionChanged?.Invoke(
+                this,
+                new PriceCheckerItemPropertyExpansionChangedEventArgs(propertyIndex, isExpanded));
         }
     }
 #pragma warning restore CS0067

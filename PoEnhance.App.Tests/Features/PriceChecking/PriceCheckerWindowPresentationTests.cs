@@ -1,6 +1,11 @@
 using PoEnhance.App.Features.PriceChecking;
 using System.Runtime.ExceptionServices;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
@@ -115,9 +120,9 @@ Item Level: 82
     }
 
     [Fact]
-    public void ModifierSelectedCount_UsesVisibleComponentCounts()
+    public void StatsSelectedCount_UsesUnifiedCanonicalEntryCounts()
     {
-        Assert.Equal("2 of 3 stats selected", PriceCheckerWindow.FormatModifierCount(2, 3));
+        Assert.Equal("Stats 2 of 8 selected", PriceCheckerWindow.FormatStatsCount(2, 8));
     }
 
     [Fact]
@@ -176,11 +181,11 @@ Item Level: 82
     public void WindowXaml_PreservesModifierSelectionActionsAndInactivePlaceholders()
     {
         var xaml = LoadWindowXaml();
-        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
         var advanced = ExtractElement(xaml, "<ToggleButton Grid.Column=\"2\"", "/>");
 
         Assert.Contains("Click=\"OnModifierSelectionClick\"", modifiers);
-        Assert.Contains("OnModifierRowPreviewMouseLeftButtonDown", xaml);
+        Assert.Contains("OnStatsRowPreviewMouseLeftButtonDown", xaml);
         Assert.DoesNotContain("ModifierTextButtonStyle", xaml);
         Assert.Contains("Text=\"Min\"", xaml);
         Assert.Contains("Text=\"Max\"", xaml);
@@ -191,7 +196,9 @@ Item Level: 82
         Assert.Contains("TextChanged=\"OnModifierBoundTextChanged\"", modifiers);
         Assert.Contains("!textBox.IsKeyboardFocusWithin", LoadWindowCodeBehind());
         Assert.Contains("ToolTip=\"{Binding SourceBreakdown}\"", modifiers);
-        Assert.Contains("ReferenceEquals(ModifierListBox.ItemsSource, state.Modifiers)", LoadWindowCodeBehind());
+        Assert.Contains("statsRowsAreUnchanged", LoadWindowCodeBehind());
+        Assert.Contains("ReferenceEquals(CurrentSearchState.ItemProperties, state.ItemProperties)", LoadWindowCodeBehind());
+        Assert.Contains("ReferenceEquals(CurrentSearchState.Modifiers, state.Modifiers)", LoadWindowCodeBehind());
         Assert.Contains("IsEnabled=\"False\"", advanced);
         Assert.Contains("x:Name=\"SearchButton\"", xaml);
         Assert.Contains("x:Name=\"LoadMoreButton\"", xaml);
@@ -199,52 +206,69 @@ Item Level: 82
     }
 
     [Fact]
-    public void WindowXaml_IndentsContributorIdentityAreaWhileKeepingParentColumns()
+    public void WindowXaml_UsesExplicitSharedColumnsForEachStatsHierarchyLevel()
     {
         var xaml = LoadWindowXaml();
-        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
-        var contributors = ExtractElement(
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        var property = ExtractElement(modifiers, "<Grid x:Name=\"StatsTopLevelPropertyRow\"", "</Grid>");
+        var modifier = ExtractElement(modifiers, "<Grid x:Name=\"StatsTopLevelModifierRow\"", "</Grid>");
+        var propertyChild = ExtractElement(modifiers, "<Grid x:Name=\"StatsPropertyChildRow\"", "</Grid>");
+        var propertyContributor = ExtractElement(
             modifiers,
-            "<ItemsControl ItemsSource=\"{Binding Contributors}\"",
-            "</ItemsControl>");
-        var parentRow = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
-        var contributorRow = ExtractElement(
-            contributors,
-            "<Grid Margin=\"48,1,6,3\"",
+            "<Grid x:Name=\"StatsPropertyContributorRow\"",
+            "</Grid>");
+        var standaloneContributor = ExtractElement(
+            modifiers,
+            "<Grid x:Name=\"StatsStandaloneContributorRow\"",
             "</Grid>");
 
-        Assert.Contains("Click=\"OnModifierExpansionClick\"", modifiers);
-        Assert.True(
-            parentRow.IndexOf("<Button Grid.Column=\"0\"", StringComparison.Ordinal) <
-            parentRow.IndexOf("<CheckBox Grid.Column=\"1\"", StringComparison.Ordinal));
-        Assert.Contains("<ColumnDefinition Width=\"24\"", parentRow);
-        Assert.Contains("Margin=\"48,1,6,3\"", contributorRow);
-        Assert.Contains("Binding=\"{Binding HasContributors}\"", parentRow);
-        Assert.Contains("Binding=\"{Binding IsExpanded}\"", contributors);
-        Assert.Contains("Value=\"Collapsed\"", contributors);
-        Assert.Contains("Value=\"Visible\"", contributors);
-        Assert.Contains("Tag=\"ModifierContributorRow\"", contributorRow);
-        Assert.Contains("OnModifierContributorRowPreviewMouseLeftButtonDown", contributorRow);
-        Assert.Contains("<ColumnDefinition Width=\"*\"", contributorRow);
-        Assert.Equal(2, contributorRow.Split(
-            "<ColumnDefinition Width=\"78\"",
-            StringSplitOptions.None).Length - 1);
-        Assert.DoesNotContain("<ColumnDefinition Width=\"92\"", contributorRow);
-        Assert.DoesNotContain("<ComboBox", contributorRow);
-        Assert.Contains("IsHitTestVisible=\"{Binding IsInteractionEnabled}\"", contributorRow);
-        Assert.Contains("Binding=\"{Binding IsInactive}\"", contributorRow);
-        Assert.Contains("Grid.ColumnSpan=\"3\"", contributorRow);
-        Assert.Contains("Text=\"{Binding ProvenanceLabel}\"", contributorRow);
-        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", contributorRow);
-        Assert.DoesNotContain("OnModifierExpansionClick", contributorRow);
-        Assert.DoesNotContain("ItemsSource=\"{Binding Contributors}\"", contributorRow);
+        Assert.Contains("Grid.IsSharedSizeScope=\"True\"", xaml);
+        AssertTopLevelHierarchyColumns(property, "HasChildren");
+        AssertTopLevelHierarchyColumns(modifier, "ShowsExpansionControl");
+
+        AssertColumnGroups(
+            propertyChild,
+            "StatsExpansionSlotColumn",
+            "StatsChildIndentColumn",
+            "StatsCheckboxColumn",
+            "StatsModTypeColumn",
+            "StatsMinimumColumn",
+            "StatsMaximumColumn");
+        Assert.Contains("<CheckBox Grid.Column=\"2\"", propertyChild);
+        Assert.DoesNotContain("<Button", propertyChild);
+        Assert.DoesNotContain("OnModifierExpansionClick", propertyChild);
+
+        AssertColumnGroups(
+            propertyContributor,
+            "StatsExpansionSlotColumn",
+            "StatsChildIndentColumn",
+            "StatsContributorIndentColumn",
+            "StatsCheckboxColumn",
+            "StatsModTypeColumn",
+            "StatsMinimumColumn",
+            "StatsMaximumColumn");
+        Assert.Contains("<CheckBox Grid.Column=\"3\"", propertyContributor);
+        Assert.Contains("<TextBox Grid.Column=\"6\"", propertyContributor);
+        Assert.Contains("<TextBox Grid.Column=\"7\"", propertyContributor);
+
+        AssertColumnGroups(
+            standaloneContributor,
+            "StatsExpansionSlotColumn",
+            "StatsContributorIndentColumn",
+            "StatsCheckboxColumn",
+            "StatsModTypeColumn",
+            "StatsMinimumColumn",
+            "StatsMaximumColumn");
+        Assert.Contains("<CheckBox Grid.Column=\"2\"", standaloneContributor);
+        Assert.Contains("Grid.ColumnSpan=\"4\"", standaloneContributor);
+        Assert.DoesNotContain("OnModifierExpansionClick", standaloneContributor);
     }
 
     [Fact]
     public void WindowXaml_UsesCompactInlineSearchStatusAndContainsNoDeveloperDiagnostics()
     {
         var xaml = LoadWindowXaml();
-        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"4\"", "</Grid>");
+        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"6\"", "</Grid>");
         var results = ExtractElement(xaml, "<Grid x:Name=\"ResultsPanel\"", "</Grid>");
 
         Assert.Contains("x:Name=\"SearchStatusText\"", actionRow);
@@ -254,18 +278,18 @@ Item Level: 82
         Assert.DoesNotContain("DebugPanel", xaml);
         Assert.DoesNotContain("DebugStateText", xaml);
         Assert.DoesNotContain("Validation", xaml);
-        Assert.Contains("Grid.Row=\"5\"", results);
+        Assert.Contains("Grid.Row=\"7\"", results);
     }
 
     [Fact]
     public void WindowXaml_ModifierBoundColumnsAreWideAlignedAndFitInsideTheRow()
     {
         var xaml = LoadWindowXaml();
-        var header = ExtractElement(xaml, "<Grid Grid.Row=\"2\"", "</Grid>");
-        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
-        var row = ExtractElement(modifiers, "<Grid Margin=\"6,4,6,4\"", "</Grid>");
-        var minimum = ExtractElement(modifiers, "<TextBox Grid.Column=\"3\"", "/>");
-        var maximum = ExtractElement(modifiers, "<TextBox Grid.Column=\"4\"", "/>");
+        var header = ExtractElement(xaml, "<Grid x:Name=\"StatsHeader\"", "</Grid>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        var row = ExtractElement(modifiers, "<Grid x:Name=\"StatsTopLevelPropertyRow\"", "</Grid>");
+        var minimum = ExtractElement(modifiers, "<TextBox Grid.Column=\"4\"", "/>");
+        var maximum = ExtractElement(modifiers, "<TextBox Grid.Column=\"5\"", "/>");
 
         Assert.Equal(2, header.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
         Assert.Equal(1, header.Split("<ColumnDefinition Width=\"92\"", StringSplitOptions.None).Length - 1);
@@ -284,10 +308,50 @@ Item Level: 82
     }
 
     [Fact]
+    public void WindowXaml_PresentsOneUnifiedStatsSectionWithPropertiesBeforeUngroupedModifiers()
+    {
+        var xaml = LoadWindowXaml();
+        var propertiesHeader = ExtractElement(xaml, "<Grid x:Name=\"StatsHeader\"", "</Grid>");
+        var properties = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        var propertyRow = ExtractElement(properties, "<Grid x:Name=\"StatsTopLevelPropertyRow\"", "</Grid>");
+        var groupedRow = ExtractElement(properties, "<Grid x:Name=\"StatsPropertyChildRow\"", "</Grid>");
+        var groupedContributors = ExtractElement(
+            properties,
+            "<Grid x:Name=\"StatsPropertyContributorRow\"",
+            "</Grid>");
+
+        Assert.Contains("x:Name=\"StatsCountText\"", propertiesHeader);
+        Assert.Contains("FormatStatsCount(state.SelectedStatsCount, state.StatsCount)", LoadWindowCodeBehind());
+        Assert.DoesNotContain("Text=\"Item Properties\"", xaml);
+        Assert.DoesNotContain("Text=\"Modifiers\"", xaml);
+        Assert.DoesNotContain("ItemPropertyListBox", xaml);
+        Assert.DoesNotContain("ModifierListBox", xaml);
+        Assert.Contains("Grid.Row=\"2\"", propertiesHeader);
+        Assert.Contains("Grid.Row=\"3\"", properties);
+        Assert.Equal(2, propertiesHeader.Split("<ColumnDefinition Width=\"78\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("<ColumnDefinition Width=\"92\"", propertiesHeader);
+        Assert.Contains("Click=\"OnItemPropertySelectionClick\"", propertyRow);
+        Assert.Contains("Click=\"OnItemPropertyExpansionClick\"", propertyRow);
+        Assert.Contains("TextChanged=\"OnItemPropertyBoundTextChanged\"", properties);
+        Assert.Contains("IsEnabled=\"{Binding IsAvailable}\"", propertyRow);
+        Assert.Contains("IsEnabled=\"{Binding CanEditBounds}\"", propertyRow);
+        Assert.Contains("Tag=\"GroupedModifierRow\"", groupedRow);
+        Assert.Contains("PreviewMouseLeftButtonDown=\"OnStatsRowPreviewMouseLeftButtonDown\"", groupedRow);
+        Assert.Contains("Binding=\"{Binding ContributorsVisible}\"", properties);
+        Assert.Contains("Binding=\"{Binding HasSelectedChildren}\"", properties);
+        Assert.Contains("Text=\"{Binding SelectedChildSummary}\"", properties);
+        Assert.Contains("StatsChildIndentColumn", groupedRow);
+        Assert.Contains("StatsContributorIndentColumn", groupedContributors);
+        Assert.Contains("StatsStandaloneContributorRow", xaml);
+        Assert.DoesNotContain("StatId", properties, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProviderStat", properties, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void WindowXaml_UsesCompactFilterSelectorAndReadOnlySingleOptionLabel()
     {
         var xaml = LoadWindowXaml();
-        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
         var style = ExtractElement(xaml, "<Style x:Key=\"ModifierFilterComboBoxStyle\"", "</Style>");
 
         Assert.Contains("Height", style);
@@ -334,7 +398,7 @@ Item Level: 82
     }
 
     [Fact]
-    public void ModifierRowClickDecision_RejectsRealWpfInteractiveDescendants()
+    public void StatsRowClickDecision_RejectsInteractiveAndNestedRowDescendants()
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -366,14 +430,16 @@ Item Level: 82
                 contributorSurface.Children.Add(contributorTextBox);
                 surface.Children.Add(contributorSurface);
 
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboBox));
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(comboOptionContent));
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(textBox));
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(buttonContent));
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierRowFrom(contributorText));
-                Assert.True(PriceCheckerWindow.ShouldToggleModifierRowFrom(plainSurface));
-                Assert.True(PriceCheckerWindow.ShouldToggleModifierContributorRowFrom(contributorText));
-                Assert.False(PriceCheckerWindow.ShouldToggleModifierContributorRowFrom(contributorTextBox));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, comboBox));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, comboOptionContent));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, textBox));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, buttonContent));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, contributorText));
+                Assert.True(PriceCheckerWindow.ShouldToggleStatsRowFrom(row, plainSurface));
+                Assert.True(PriceCheckerWindow.ShouldToggleStatsRowFrom(contributorSurface, contributorText));
+                Assert.False(PriceCheckerWindow.ShouldToggleStatsRowFrom(
+                    contributorSurface,
+                    contributorTextBox));
             }
             catch (Exception exception)
             {
@@ -388,6 +454,567 @@ Item Level: 82
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
+    }
+
+    [Fact]
+    public void StatsRows_RoutedBackgroundAndInteractiveClicksDispatchExactlyTheirOwnActions()
+    {
+        RunOnSta(() =>
+        {
+            var contributor = new PriceCheckerModifierContributorViewModel
+            {
+                ParentSourceIndex = 0,
+                ContributorIndex = 0,
+                Text = "30% increased Physical Damage",
+                IsInteractionEnabled = true,
+                SupportsValueBounds = true,
+            };
+            var explicitVariant = new PriceCheckerModifierFilterVariantViewModel
+            {
+                Identity = "explicit.test",
+                Label = "Explicit",
+                Description = "Explicit test filter",
+                SupportsValueBounds = true,
+            };
+            var grouped = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 0,
+                Text = "146% increased Physical Damage",
+                IsSelected = true,
+                SupportsValueBounds = true,
+                FilterVariants =
+                [
+                    explicitVariant,
+                    explicitVariant with { Identity = "pseudo.test", Label = "Pseudo" },
+                ],
+                SelectedFilterVariant = explicitVariant,
+                Contributors = [contributor],
+            };
+            var property = new PriceCheckerItemPropertyViewModel
+            {
+                SourceIndex = 0,
+                Kind = TradeSearchItemPropertyKind.PhysicalDps,
+                Label = "Physical DPS",
+                IsAvailable = true,
+                IsExpanded = true,
+                Children = [grouped],
+            };
+            var disabledProperty = property with
+            {
+                SourceIndex = 1,
+                Kind = TradeSearchItemPropertyKind.TotalDps,
+                Label = "Total DPS",
+                IsAvailable = false,
+                IsExpanded = false,
+                Children = [],
+            };
+            var standaloneAggregate = grouped with
+            {
+                SourceIndex = 1,
+                Text = "31% increased Stun and Block Recovery",
+                ShowsExpansionControl = true,
+                IsExpanded = true,
+                Contributors =
+                [
+                    contributor with
+                    {
+                        ParentSourceIndex = 1,
+                        Text = "9% increased Stun and Block Recovery",
+                    },
+                ],
+            };
+            var leaf = grouped with
+            {
+                SourceIndex = 2,
+                Text = "+53 to Dexterity",
+                Contributors = [],
+                ShowsExpansionControl = false,
+            };
+            var window = new PriceCheckerWindow();
+            var propertyChanges = new List<PriceCheckerItemPropertySelectionChangedEventArgs>();
+            var modifierChanges = new List<PriceCheckerModifierSelectionChangedEventArgs>();
+            var propertyExpansions = new List<PriceCheckerItemPropertyExpansionChangedEventArgs>();
+            window.ItemPropertySelectionChanged += (_, e) => propertyChanges.Add(e);
+            window.ModifierSelectionChanged += (_, e) => modifierChanges.Add(e);
+            window.ItemPropertyExpansionChanged += (_, e) => propertyExpansions.Add(e);
+            window.UpdateSearch(new PriceCheckerSearchViewState
+            {
+                ItemProperties = [property, disabledProperty],
+                Modifiers = [standaloneAggregate, leaf],
+            });
+            window.Show();
+            window.Measure(new Size(900, 1200));
+            window.Arrange(new Rect(0, 0, 900, 1200));
+            window.UpdateLayout();
+
+            var stats = Assert.IsType<ListBox>(window.FindName("StatsListBox"));
+            var propertyContainer = Assert.IsType<ListBoxItem>(
+                stats.ItemContainerGenerator.ContainerFromIndex(0));
+            var disabledContainer = Assert.IsType<ListBoxItem>(
+                stats.ItemContainerGenerator.ContainerFromIndex(1));
+            var aggregateContainer = Assert.IsType<ListBoxItem>(
+                stats.ItemContainerGenerator.ContainerFromIndex(2));
+            var leafContainer = Assert.IsType<ListBoxItem>(
+                stats.ItemContainerGenerator.ContainerFromIndex(3));
+
+            RaisePreviewLeftClick(FindText(propertyContainer, "Physical DPS"));
+            Assert.Single(propertyChanges);
+            RaisePreviewLeftClick(FindText(disabledContainer, "Total DPS"));
+            Assert.Single(propertyChanges);
+
+            var propertyCheckBox = FindDescendants<CheckBox>(propertyContainer)
+                .First(candidate => ReferenceEquals(candidate.DataContext, property));
+            propertyCheckBox.IsChecked = true;
+            propertyCheckBox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, propertyCheckBox));
+            Assert.Equal(2, propertyChanges.Count);
+
+            var propertyMinimum = FindDescendants<TextBox>(propertyContainer)
+                .First(candidate => ReferenceEquals(candidate.DataContext, property));
+            RaisePreviewLeftClick(propertyMinimum);
+            Assert.Equal(2, propertyChanges.Count);
+
+            var propertyExpand = FindDescendants<Button>(propertyContainer)
+                .First(candidate => ReferenceEquals(candidate.DataContext, property));
+            propertyExpand.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, propertyExpand));
+            Assert.Single(propertyExpansions);
+            Assert.Equal(2, propertyChanges.Count);
+
+            var groupedSurface = FindDescendants<Grid>(propertyContainer)
+                .Single(candidate => Equals(candidate.Tag, "GroupedModifierRow"));
+            RaisePreviewLeftClick(FindText(groupedSurface, grouped.Text));
+            Assert.Single(modifierChanges);
+            Assert.Equal(grouped.SourceIndex, modifierChanges[0].ModifierIndex);
+
+            var groupedCheckBox = FindDescendants<CheckBox>(groupedSurface).Single();
+            groupedCheckBox.IsChecked = false;
+            groupedCheckBox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, groupedCheckBox));
+            Assert.Equal(2, modifierChanges.Count);
+
+            foreach (var groupedBound in FindDescendants<TextBox>(groupedSurface))
+            {
+                RaisePreviewLeftClick(groupedBound);
+            }
+            RaisePreviewLeftClick(FindDescendants<ComboBox>(groupedSurface).Single());
+            Assert.Equal(2, modifierChanges.Count);
+
+            var groupedContributor = FindDescendants<Grid>(propertyContainer)
+                .Single(candidate => Equals(candidate.Tag, "ModifierContributorRow"));
+            RaisePreviewLeftClick(FindText(groupedContributor, contributor.Text));
+            Assert.Equal(3, modifierChanges.Count);
+            Assert.Equal(contributor.ContributorIndex, modifierChanges[2].ContributorIndex);
+            var contributorCheckBox = FindDescendants<CheckBox>(groupedContributor).Single();
+            contributorCheckBox.IsChecked = true;
+            contributorCheckBox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, contributorCheckBox));
+            Assert.Equal(4, modifierChanges.Count);
+
+            RaisePreviewLeftClick(FindText(aggregateContainer, standaloneAggregate.Text));
+            RaisePreviewLeftClick(FindText(leafContainer, leaf.Text));
+            Assert.Equal(6, modifierChanges.Count);
+
+            var aggregateCheckBox = FindDescendants<CheckBox>(aggregateContainer)
+                .First(candidate => ReferenceEquals(candidate.DataContext, standaloneAggregate));
+            aggregateCheckBox.IsChecked = true;
+            aggregateCheckBox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, aggregateCheckBox));
+            var leafCheckBox = FindDescendants<CheckBox>(leafContainer).Single();
+            leafCheckBox.IsChecked = true;
+            leafCheckBox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, leafCheckBox));
+            Assert.Equal(8, modifierChanges.Count);
+
+            var aggregateExpand = FindDescendants<Button>(aggregateContainer)
+                .First(candidate => ReferenceEquals(candidate.DataContext, standaloneAggregate));
+            RaisePreviewLeftClick(aggregateExpand);
+            Assert.Equal(8, modifierChanges.Count);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void StatsRows_RuntimeColumnsAlignTopLevelsAndIndentChildrenAndContributors()
+    {
+        RunOnSta(() =>
+        {
+            var propertyContributor = new PriceCheckerModifierContributorViewModel
+            {
+                ParentSourceIndex = 0,
+                ContributorIndex = 0,
+                Text = "52% increased Physical Damage",
+                IsSelected = true,
+                SupportsValueBounds = true,
+                IsInteractionEnabled = true,
+            };
+            var grouped = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 0,
+                Text = "91% increased Physical Damage",
+                IsSelected = true,
+                SupportsValueBounds = true,
+                Contributors = [propertyContributor],
+            };
+            var total = new PriceCheckerItemPropertyViewModel
+            {
+                SourceIndex = 0,
+                Kind = TradeSearchItemPropertyKind.TotalDps,
+                Label = "Total DPS",
+                IsSelected = true,
+                IsAvailable = true,
+            };
+            var physical = total with
+            {
+                SourceIndex = 1,
+                Kind = TradeSearchItemPropertyKind.PhysicalDps,
+                Label = "Physical DPS",
+                IsExpanded = true,
+                Children = [grouped],
+            };
+            var standaloneContributor = propertyContributor with
+            {
+                ParentSourceIndex = 1,
+                Text = "9% increased Stun and Block Recovery",
+            };
+            var standaloneAggregate = grouped with
+            {
+                SourceIndex = 1,
+                Text = "31% increased Stun and Block Recovery",
+                ShowsExpansionControl = true,
+                IsExpanded = true,
+                Contributors = [standaloneContributor],
+            };
+            var standaloneLeaf = grouped with
+            {
+                SourceIndex = 2,
+                Text = "+6% to Fire Resistance",
+                ShowsExpansionControl = false,
+                Contributors = [],
+            };
+            var window = new PriceCheckerWindow { ShowActivated = true };
+            window.UpdateSearch(new PriceCheckerSearchViewState
+            {
+                ItemProperties = [total, physical],
+                Modifiers = [standaloneAggregate, standaloneLeaf],
+            });
+            window.Show();
+            window.Measure(new Size(900, 1200));
+            window.Arrange(new Rect(0, 0, 900, 1200));
+            window.UpdateLayout();
+
+            var stats = Assert.IsType<ListBox>(window.FindName("StatsListBox"));
+            var checkBoxes = FindDescendants<CheckBox>(stats).ToArray();
+            var totalX = LeftOf(checkBoxes.Single(control => ReferenceEquals(control.DataContext, total)), stats);
+            var physicalX = LeftOf(checkBoxes.Single(control => ReferenceEquals(control.DataContext, physical)), stats);
+            var groupedX = LeftOf(checkBoxes.Single(control => ReferenceEquals(control.DataContext, grouped)), stats);
+            var propertyContributorX = LeftOf(
+                checkBoxes.Single(control => ReferenceEquals(control.DataContext, propertyContributor)),
+                stats);
+            var aggregateX = LeftOf(
+                checkBoxes.Single(control => ReferenceEquals(control.DataContext, standaloneAggregate)),
+                stats);
+            var leafX = LeftOf(
+                checkBoxes.Single(control => ReferenceEquals(control.DataContext, standaloneLeaf)),
+                stats);
+            var standaloneContributorX = LeftOf(
+                checkBoxes.Single(control => ReferenceEquals(control.DataContext, standaloneContributor)),
+                stats);
+
+            Assert.Equal(totalX, physicalX, 3);
+            Assert.Equal(totalX, aggregateX, 3);
+            Assert.Equal(totalX, leafX, 3);
+            Assert.Equal(groupedX - physicalX, propertyContributorX - groupedX, 3);
+            Assert.Equal(groupedX - physicalX, standaloneContributorX - aggregateX, 3);
+            Assert.True(groupedX > physicalX);
+            Assert.True(propertyContributorX > groupedX);
+
+            var textBoxes = FindDescendants<TextBox>(stats).ToArray();
+            var minimumXs = new object[]
+                { physical, grouped, propertyContributor, standaloneAggregate, standaloneContributor }
+                .Select(context => LeftOf(textBoxes.Single(control =>
+                    ReferenceEquals(control.DataContext, context) &&
+                    control.ToolTip is string toolTip &&
+                    toolTip.StartsWith("Minimum", StringComparison.Ordinal)), stats))
+                .ToArray();
+            Assert.All(minimumXs, value => Assert.Equal(minimumXs[0], value, 3));
+
+            var buttons = FindDescendants<Button>(stats).ToArray();
+            Assert.Equal(Visibility.Collapsed, buttons.Single(control =>
+                ReferenceEquals(control.DataContext, total)).Visibility);
+            Assert.Equal(Visibility.Visible, buttons.Single(control =>
+                ReferenceEquals(control.DataContext, physical)).Visibility);
+            Assert.Equal(Visibility.Visible, buttons.Single(control =>
+                ReferenceEquals(control.DataContext, standaloneAggregate)).Visibility);
+            Assert.Equal(Visibility.Collapsed, buttons.Single(control =>
+                ReferenceEquals(control.DataContext, standaloneLeaf)).Visibility);
+            Assert.DoesNotContain(buttons, control => ReferenceEquals(control.DataContext, grouped));
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void AggregateContributor_InactiveStateStrikesAndSubduesTextWithoutChangingValues()
+    {
+        RunOnSta(() =>
+        {
+            var inactiveContributor = new PriceCheckerModifierContributorViewModel
+            {
+                ParentSourceIndex = 0,
+                ContributorIndex = 0,
+                Text = "30% increased Physical Damage",
+                ProvenanceLabel = "Explicit Prefix (Tier 3)",
+                IsSelected = true,
+                SupportsValueBounds = true,
+                IsInteractionEnabled = false,
+                InactiveReason = SearchComponentContributorInactiveReason.ParentModeDoesNotComposeContributors,
+                MinimumText = "30",
+                MaximumText = "40",
+            };
+            var inactiveAggregate = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 0,
+                Text = "146% increased Physical Damage",
+                IsSelected = true,
+                SupportsValueBounds = true,
+                Contributors = [inactiveContributor],
+            };
+            var property = new PriceCheckerItemPropertyViewModel
+            {
+                SourceIndex = 0,
+                Kind = TradeSearchItemPropertyKind.PhysicalDps,
+                Label = "Physical DPS",
+                IsExpanded = true,
+                IsAvailable = true,
+                Children = [inactiveAggregate],
+            };
+            var leaf = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 1,
+                Text = "+53 to Dexterity",
+                IsSelected = true,
+                SupportsValueBounds = true,
+            };
+            var window = new PriceCheckerWindow { ShowActivated = true };
+            var searchRequests = 0;
+            window.SearchRequested += (_, _) => searchRequests++;
+            window.UpdateSearch(new PriceCheckerSearchViewState
+            {
+                ItemProperties = [property],
+                Modifiers = [leaf],
+            });
+            window.Show();
+            window.Measure(new Size(900, 1200));
+            window.Arrange(new Rect(0, 0, 900, 1200));
+            window.UpdateLayout();
+
+            var stats = Assert.IsType<ListBox>(window.FindName("StatsListBox"));
+            var inactivePrimary = FindText(stats, inactiveContributor.Text);
+            var inactiveSecondary = FindText(stats, inactiveContributor.ProvenanceLabel);
+            var inactiveCheckBox = FindDescendants<CheckBox>(stats).Single(control =>
+                ReferenceEquals(control.DataContext, inactiveContributor));
+            var inactiveBounds = FindDescendants<TextBox>(stats).Where(control =>
+                ReferenceEquals(control.DataContext, inactiveContributor)).ToArray();
+
+            Assert.True(inactiveContributor.IsInactive);
+            Assert.False(inactiveContributor.IsInteractionEnabled);
+            Assert.False(inactiveContributor.CanEditBounds);
+            Assert.NotNull(inactivePrimary.TextDecorations);
+            Assert.NotEmpty(inactivePrimary.TextDecorations!);
+            Assert.Equal(Color.FromRgb(0x70, 0x70, 0x70),
+                Assert.IsType<SolidColorBrush>(inactivePrimary.Foreground).Color);
+            Assert.Equal(Color.FromRgb(0x70, 0x70, 0x70),
+                Assert.IsType<SolidColorBrush>(inactiveSecondary.Foreground).Color);
+            Assert.False(inactiveCheckBox.IsEnabled);
+            Assert.All(inactiveBounds, bound => Assert.False(bound.IsEnabled));
+            Assert.True(inactiveContributor.IsSelected);
+            Assert.Equal("30", inactiveContributor.MinimumText);
+            Assert.Equal("40", inactiveContributor.MaximumText);
+
+            var activeContributor = inactiveContributor with
+            {
+                IsInteractionEnabled = true,
+                InactiveReason = SearchComponentContributorInactiveReason.None,
+            };
+            var activeAggregate = inactiveAggregate with
+            {
+                IsSelected = false,
+                Contributors = [activeContributor],
+            };
+            var activeProperty = property with { Children = [activeAggregate] };
+            window.UpdateSearch(new PriceCheckerSearchViewState
+            {
+                ItemProperties = [activeProperty],
+                Modifiers = [leaf],
+            });
+            window.UpdateLayout();
+
+            var activePrimary = FindText(stats, activeContributor.Text);
+            var activeSecondary = FindText(stats, activeContributor.ProvenanceLabel);
+            var activeCheckBox = FindDescendants<CheckBox>(stats).Single(control =>
+                ReferenceEquals(control.DataContext, activeContributor));
+            var activeBounds = FindDescendants<TextBox>(stats).Where(control =>
+                ReferenceEquals(control.DataContext, activeContributor)).ToArray();
+            var leafPrimary = FindText(stats, leaf.Text);
+
+            Assert.False(activeContributor.IsInactive);
+            Assert.True(activeContributor.IsInteractionEnabled);
+            Assert.True(activeContributor.CanEditBounds);
+            Assert.True(activePrimary.TextDecorations is null || activePrimary.TextDecorations.Count == 0);
+            Assert.Equal(Color.FromRgb(0xD8, 0xD8, 0xD8),
+                Assert.IsType<SolidColorBrush>(activePrimary.Foreground).Color);
+            Assert.Equal(Color.FromRgb(0x8F, 0x8F, 0x8F),
+                Assert.IsType<SolidColorBrush>(activeSecondary.Foreground).Color);
+            Assert.True(activeCheckBox.IsEnabled);
+            Assert.All(activeBounds, bound => Assert.True(bound.IsEnabled));
+            Assert.True(activeContributor.IsSelected);
+            Assert.Equal("30", activeContributor.MinimumText);
+            Assert.Equal("40", activeContributor.MaximumText);
+            Assert.True(leafPrimary.TextDecorations is null || leafPrimary.TextDecorations.Count == 0);
+            Assert.Equal(0, searchRequests);
+
+            window.Close();
+        });
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData("0", true)]
+    [InlineData("123", true)]
+    [InlineData("12.5", true)]
+    [InlineData("12,5", true)]
+    [InlineData(".", true)]
+    [InlineData(",", true)]
+    [InlineData("abc", false)]
+    [InlineData("1 2", false)]
+    [InlineData("1.2.3", false)]
+    [InlineData("1,2,3", false)]
+    [InlineData("1.2,3", false)]
+    [InlineData("+1", false)]
+    [InlineData("-1", false)]
+    [InlineData("1e3", false)]
+    public void DecimalInput_TypingAllowsOnlyUnsignedProspectiveDecimalText(string text, bool expected)
+    {
+        Assert.Equal(expected, PriceCheckerDecimalInputBehavior.IsTextAllowed(text));
+    }
+
+    [Theory]
+    [InlineData("0", true)]
+    [InlineData("123", true)]
+    [InlineData("12.5", true)]
+    [InlineData("12,5", true)]
+    [InlineData("", false)]
+    [InlineData(".", false)]
+    [InlineData(",", false)]
+    [InlineData("1.", false)]
+    [InlineData(" 1", false)]
+    [InlineData("1 ", false)]
+    [InlineData("1.2,3", false)]
+    [InlineData("+1", false)]
+    [InlineData("-1", false)]
+    [InlineData("1e3", false)]
+    public void DecimalInput_PasteAcceptsOnlyCompleteUnsignedIntegersOrDecimals(string text, bool expected)
+    {
+        Assert.Equal(expected, PriceCheckerDecimalInputBehavior.IsPasteTextAllowed(text));
+    }
+
+    [Fact]
+    public void DecimalInput_UsesCaretAndSelectionForReplacementBackspaceAndDeleteResults()
+    {
+        Assert.True(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("12.34", 0, 5, "9,5"));
+        Assert.Equal("12.4", PriceCheckerDecimalInputBehavior.ProspectiveText("12.34", 3, 1, ""));
+        Assert.Equal("12.4", PriceCheckerDecimalInputBehavior.ProspectiveText("12.34", 3, 1, ""));
+        Assert.Equal(".34", PriceCheckerDecimalInputBehavior.ProspectiveText("12.34", 0, 2, ""));
+        Assert.True(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("12.34", 2, 1, ","));
+        Assert.False(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("12.34", 2, 0, ","));
+    }
+
+    [Fact]
+    public void WindowXaml_AppliesOneDecimalBehaviorToEveryStatsBoundField()
+    {
+        var xaml = LoadWindowXaml();
+        var style = ExtractElement(xaml, "<Style x:Key=\"ModifierBoundTextBoxStyle\"", "</Style>");
+        var stats = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+
+        Assert.Contains("PriceCheckerDecimalInputBehavior.IsEnabled", style);
+        Assert.Equal(10, stats.Split(
+            "Style=\"{StaticResource ModifierBoundTextBoxStyle}\"",
+            StringSplitOptions.None).Length - 1);
+        Assert.Contains("OnItemPropertyBoundTextChanged", stats);
+        Assert.Contains("OnModifierBoundTextChanged", stats);
+        Assert.Contains("PriceCheckerModifierContributorViewModel", LoadWindowCodeBehind());
+    }
+
+    [Theory]
+    [InlineData(StatsBoundTarget.PropertyMinimum, "12.5")]
+    [InlineData(StatsBoundTarget.PropertyMaximum, "12.5")]
+    [InlineData(StatsBoundTarget.StandaloneMinimum, "12.5")]
+    [InlineData(StatsBoundTarget.StandaloneMaximum, "12.5")]
+    [InlineData(StatsBoundTarget.GroupedMinimum, "12.5")]
+    [InlineData(StatsBoundTarget.GroupedMaximum, "12.5")]
+    [InlineData(StatsBoundTarget.ContributorMinimum, "12.5")]
+    [InlineData(StatsBoundTarget.ContributorMaximum, "12.5")]
+    [InlineData(StatsBoundTarget.PropertyMinimum, "12,5")]
+    public void StatsBounds_ContinuousInputKeepsTheSameFocusedTextBoxAndCaret(
+        StatsBoundTarget target,
+        string input)
+    {
+        RunOnSta(() =>
+        {
+            using var fixture = new BoundEditingWindowFixture(target);
+
+            var expectedText = string.Empty;
+            foreach (var character in input)
+            {
+                fixture.EnterText(character.ToString());
+                expectedText += character;
+                fixture.AssertStable(expectedText);
+            }
+
+            Assert.Equal(input.Length, fixture.BoundUpdateCount);
+            Assert.Equal(0, fixture.SearchRequestCount);
+            Assert.False(fixture.TradeButton.IsEnabled);
+            Assert.Empty(fixture.OfferListBox.Items);
+        });
+    }
+
+    [Fact]
+    public void StatsBounds_SelectionReplacementBackspaceAndDeleteKeepFocusAndCaret()
+    {
+        RunOnSta(() =>
+        {
+            using var fixture = new BoundEditingWindowFixture(StatsBoundTarget.GroupedMinimum);
+            fixture.EnterText("1");
+            fixture.EnterText("2");
+            fixture.EnterText("3");
+            fixture.EnterText("4");
+            fixture.AssertStable("1234");
+
+            fixture.TextBox.Select(1, 2);
+            fixture.EnterText("9");
+            fixture.AssertStable("194", expectedCaretIndex: 2);
+
+            EditingCommands.Backspace.Execute(null, fixture.TextBox);
+            fixture.AssertStable("14", expectedCaretIndex: 1);
+
+            EditingCommands.Delete.Execute(null, fixture.TextBox);
+            fixture.AssertStable("1", expectedCaretIndex: 1);
+        });
+    }
+
+    [Fact]
+    public void StatsBounds_InvalidTextIsRejectedWithoutRefreshOrFocusLoss()
+    {
+        RunOnSta(() =>
+        {
+            using var fixture = new BoundEditingWindowFixture(StatsBoundTarget.ContributorMaximum);
+            fixture.EnterText("1");
+            fixture.EnterText("2");
+            fixture.AssertStable("12");
+            var updatesBeforeInvalidInput = fixture.BoundUpdateCount;
+
+            fixture.EnterText("x");
+
+            fixture.AssertStable("12");
+            Assert.Equal(updatesBeforeInvalidInput, fixture.BoundUpdateCount);
+            Assert.Equal(0, fixture.SearchRequestCount);
+        });
     }
 
     [Fact]
@@ -427,7 +1054,7 @@ Item Level: 82
     public void WindowXaml_AddsTheCompactTradeButtonBesideTheDisabledAdvancedPlaceholder()
     {
         var xaml = LoadWindowXaml();
-        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"4\"", "</Grid>");
+        var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"6\"", "</Grid>");
         var trade = ExtractElement(xaml, "<Button x:Name=\"TradeButton\"", "</Button>");
         var advanced = ExtractElement(actionRow, "<ToggleButton Grid.Column=\"2\"", "/>");
 
@@ -450,7 +1077,7 @@ Item Level: 82
     {
         var xaml = LoadWindowXaml();
         var style = ExtractElement(xaml, "<Style x:Key=\"ModifierBoundTextBoxStyle\"", "</Style>");
-        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"ModifierListBox\"", "</ListBox>");
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
 
         Assert.Contains("TextAlignment", style);
         Assert.Contains("VerticalContentAlignment", style);
@@ -495,6 +1122,246 @@ Item Level: 82
         Assert.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Disabled\"", offers);
     }
 
+    public enum StatsBoundTarget
+    {
+        PropertyMinimum,
+        PropertyMaximum,
+        StandaloneMinimum,
+        StandaloneMaximum,
+        GroupedMinimum,
+        GroupedMaximum,
+        ContributorMinimum,
+        ContributorMaximum,
+    }
+
+    private sealed record BoundEditingRows(
+        PriceCheckerItemPropertyViewModel Property,
+        PriceCheckerModifierViewModel Grouped,
+        PriceCheckerModifierContributorViewModel Contributor,
+        PriceCheckerModifierViewModel Standalone);
+
+    private sealed class BoundEditingWindowFixture : IDisposable
+    {
+        private readonly StatsBoundTarget target;
+        private readonly BoundEditingRows rows;
+
+        public BoundEditingWindowFixture(StatsBoundTarget target)
+        {
+            this.target = target;
+            rows = CreateBoundEditingRows();
+            Window = new PriceCheckerWindow
+            {
+                ShowActivated = true,
+            };
+            var initialState = CreateBoundEditingState(rows);
+            Window.UpdateSearch(initialState);
+            Window.Show();
+            Window.Activate();
+            Window.Measure(new Size(900, 1200));
+            Window.Arrange(new Rect(0, 0, 900, 1200));
+            Window.UpdateLayout();
+
+            StatsListBox = Assert.IsType<ListBox>(Window.FindName("StatsListBox"));
+            OfferListBox = Assert.IsType<ListBox>(Window.FindName("OfferListBox"));
+            TradeButton = Assert.IsType<Button>(Window.FindName("TradeButton"));
+            InitialItemsSource = StatsListBox.ItemsSource;
+            object dataContext = target switch
+            {
+                StatsBoundTarget.PropertyMinimum or StatsBoundTarget.PropertyMaximum => rows.Property,
+                StatsBoundTarget.StandaloneMinimum or StatsBoundTarget.StandaloneMaximum => rows.Standalone,
+                StatsBoundTarget.GroupedMinimum or StatsBoundTarget.GroupedMaximum => rows.Grouped,
+                StatsBoundTarget.ContributorMinimum or StatsBoundTarget.ContributorMaximum => rows.Contributor,
+                _ => throw new ArgumentOutOfRangeException(nameof(target)),
+            };
+            var isMaximum = target is StatsBoundTarget.PropertyMaximum or
+                StatsBoundTarget.StandaloneMaximum or
+                StatsBoundTarget.GroupedMaximum or
+                StatsBoundTarget.ContributorMaximum;
+            TextBox = FindDescendants<TextBox>(StatsListBox).Single(candidate =>
+                ReferenceEquals(candidate.DataContext, dataContext) &&
+                candidate.ToolTip is string toolTip &&
+                toolTip.StartsWith(isMaximum ? "Maximum" : "Minimum", StringComparison.Ordinal));
+
+            Window.SearchRequested += (_, _) => SearchRequestCount++;
+            Window.ItemPropertyBoundsChanged += (_, _) => RefreshAfterBoundEdit();
+            Window.ModifierBoundsChanged += (_, _) => RefreshAfterBoundEdit();
+
+            Assert.True(TextBox.Focus());
+            Assert.Same(TextBox, Keyboard.Focus(TextBox));
+            TextBox.Select(0, 0);
+            AssertStable(string.Empty);
+        }
+
+        public PriceCheckerWindow Window { get; }
+
+        public ListBox StatsListBox { get; }
+
+        public ListBox OfferListBox { get; }
+
+        public Button TradeButton { get; }
+
+        public TextBox TextBox { get; }
+
+        public object? InitialItemsSource { get; }
+
+        public int BoundUpdateCount { get; private set; }
+
+        public int SearchRequestCount { get; private set; }
+
+        public void EnterText(string text)
+        {
+            var composition = new TextComposition(
+                InputManager.Current,
+                TextBox,
+                text,
+                TextCompositionAutoComplete.On);
+            Assert.True(TextCompositionManager.StartComposition(composition));
+        }
+
+        public void AssertStable(string expectedText, int? expectedCaretIndex = null)
+        {
+            Assert.Equal(expectedText, TextBox.Text);
+            Assert.Equal(expectedText, CanonicalText());
+            Assert.Equal(expectedCaretIndex ?? expectedText.Length, TextBox.CaretIndex);
+            Assert.Same(TextBox, Keyboard.FocusedElement);
+            Assert.True(TextBox.IsKeyboardFocused);
+            Assert.True(StatsListBox.IsAncestorOf(TextBox));
+            Assert.Same(InitialItemsSource, StatsListBox.ItemsSource);
+        }
+
+        public void Dispose()
+        {
+            Window.Close();
+        }
+
+        private void RefreshAfterBoundEdit()
+        {
+            BoundUpdateCount++;
+            Window.UpdateSearch(Assert.IsType<PriceCheckerSearchViewState>(Window.CurrentSearchState) with
+            {
+                CanOpenTrade = false,
+                Offers = [],
+            });
+        }
+
+        private string CanonicalText()
+        {
+            var state = Assert.IsType<PriceCheckerSearchViewState>(Window.CurrentSearchState);
+            return target switch
+            {
+                StatsBoundTarget.PropertyMinimum => state.ItemProperties[0].MinimumText,
+                StatsBoundTarget.PropertyMaximum => state.ItemProperties[0].MaximumText,
+                StatsBoundTarget.StandaloneMinimum => state.Modifiers[0].MinimumText,
+                StatsBoundTarget.StandaloneMaximum => state.Modifiers[0].MaximumText,
+                StatsBoundTarget.GroupedMinimum => state.ItemProperties[0].Children[0].MinimumText,
+                StatsBoundTarget.GroupedMaximum => state.ItemProperties[0].Children[0].MaximumText,
+                StatsBoundTarget.ContributorMinimum =>
+                    state.ItemProperties[0].Children[0].Contributors[0].MinimumText,
+                StatsBoundTarget.ContributorMaximum =>
+                    state.ItemProperties[0].Children[0].Contributors[0].MaximumText,
+                _ => throw new ArgumentOutOfRangeException(nameof(target)),
+            };
+        }
+    }
+
+    private static BoundEditingRows CreateBoundEditingRows()
+    {
+        var contributor = new PriceCheckerModifierContributorViewModel
+        {
+            ParentSourceIndex = 0,
+            ContributorIndex = 0,
+            Text = "52% increased Physical Damage",
+            IsSelected = true,
+            SupportsValueBounds = true,
+            IsInteractionEnabled = true,
+        };
+        var grouped = new PriceCheckerModifierViewModel
+        {
+            SourceIndex = 0,
+            Text = "91% increased Physical Damage",
+            IsSelected = true,
+            SupportsValueBounds = true,
+            Contributors = [contributor],
+        };
+        var property = new PriceCheckerItemPropertyViewModel
+        {
+            SourceIndex = 0,
+            Kind = TradeSearchItemPropertyKind.PhysicalDps,
+            Label = "Physical DPS",
+            IsSelected = true,
+            IsAvailable = true,
+            IsExpanded = true,
+            Children = [grouped],
+        };
+        var standalone = new PriceCheckerModifierViewModel
+        {
+            SourceIndex = 1,
+            Text = "+53 to Dexterity",
+            IsSelected = true,
+            SupportsValueBounds = true,
+        };
+        return new BoundEditingRows(property, grouped, contributor, standalone);
+    }
+
+    private static PriceCheckerSearchViewState CreateBoundEditingState(BoundEditingRows rows)
+    {
+        return new PriceCheckerSearchViewState
+        {
+            CanSearch = true,
+            CanOpenTrade = true,
+            ItemProperties = [rows.Property],
+            Modifiers = [rows.Standalone],
+            Offers =
+            [
+                new PriceCheckerOfferViewModel
+                {
+                    Id = "offer-before-edit",
+                    ItemName = "Horror Mangler",
+                    SellerAccountName = "seller",
+                    ListedText = "now",
+                    ItemLevelText = "82",
+                    PriceText = "1 divine",
+                },
+            ],
+        };
+    }
+
+    private static void AssertTopLevelHierarchyColumns(string row, string expansionBinding)
+    {
+        AssertColumnGroups(
+            row,
+            "StatsExpansionSlotColumn",
+            "StatsCheckboxColumn",
+            "StatsModTypeColumn",
+            "StatsMinimumColumn",
+            "StatsMaximumColumn");
+        Assert.Contains("<Button Grid.Column=\"0\"", row);
+        Assert.Contains($"Binding=\"{{Binding {expansionBinding}}}\"", row);
+        Assert.Contains("Property=\"Visibility\"", row);
+        Assert.Contains("Value=\"Collapsed\"", row);
+        Assert.Contains("<CheckBox Grid.Column=\"1\"", row);
+        Assert.True(
+            row.IndexOf("<Button Grid.Column=\"0\"", StringComparison.Ordinal) <
+            row.IndexOf("<CheckBox Grid.Column=\"1\"", StringComparison.Ordinal));
+    }
+
+    private static void AssertColumnGroups(string row, params string[] expectedGroups)
+    {
+        Assert.Equal(
+            expectedGroups.Length,
+            row.Split("SharedSizeGroup=", StringSplitOptions.None).Length - 1);
+        var previousIndex = -1;
+        foreach (var group in expectedGroups)
+        {
+            var index = row.IndexOf($"SharedSizeGroup=\"{group}\"", StringComparison.Ordinal);
+            Assert.True(index > previousIndex, $"Expected {group} after the previous hierarchy column.");
+            previousIndex = index;
+        }
+
+        Assert.Contains("<ColumnDefinition Width=\"*\"", row);
+        Assert.DoesNotContain("<ColumnDefinition Width=\"Auto\"", row);
+    }
+
     private static string LoadWindowXaml()
     {
         return File.ReadAllText(Path.Combine(
@@ -513,6 +1380,70 @@ Item Level: 82
             "Features",
             "PriceChecking",
             "PriceCheckerWindow.xaml.cs"));
+    }
+
+    private static void RunOnSta(Action action)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)));
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    private static TextBlock FindText(DependencyObject root, string text)
+    {
+        return FindDescendants<TextBlock>(root).Single(candidate => candidate.Text == text);
+    }
+
+    private static double LeftOf(FrameworkElement element, UIElement relativeTo)
+    {
+        return element.TranslatePoint(new Point(0, 0), relativeTo).X;
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in FindDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private static void RaisePreviewLeftClick(UIElement source)
+    {
+        source.RaiseEvent(new MouseButtonEventArgs(
+            Mouse.PrimaryDevice,
+            Environment.TickCount,
+            MouseButton.Left)
+        {
+            RoutedEvent = Mouse.PreviewMouseDownEvent,
+            Source = source,
+        });
     }
 
     private static string FindRepositoryRoot()

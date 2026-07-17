@@ -127,6 +127,9 @@ public sealed class PriceCheckerCopiedItemCorpusTests
         public event EventHandler? TradeRequested;
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
+        public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
+        public event EventHandler<PriceCheckerItemPropertyBoundsChangedEventArgs>? ItemPropertyBoundsChanged;
+        public event EventHandler<PriceCheckerItemPropertyExpansionChangedEventArgs>? ItemPropertyExpansionChanged;
         public event EventHandler<PriceCheckerModifierSelectionChangedEventArgs>? ModifierSelectionChanged;
 
         public event EventHandler<PriceCheckerModifierBoundsChangedEventArgs>? ModifierBoundsChanged;
