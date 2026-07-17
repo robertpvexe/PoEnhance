@@ -13,12 +13,31 @@ public sealed class ReviewedItemPropertySemanticImporterTests
         ["local_minimum_added_cold_damage", "local_maximum_added_cold_damage"],
         ["local_minimum_added_lightning_damage", "local_maximum_added_lightning_damage"],
         ["local_minimum_added_chaos_damage", "local_maximum_added_chaos_damage"],
+        ["local_attack_speed_+%"],
+        ["local_critical_strike_chance_+%"],
+        ["local_critical_strike_chance"],
+        ["local_item_quality_+"],
+        ["local_base_physical_damage_reduction_rating"],
+        ["local_physical_damage_reduction_rating_+%"],
+        ["local_base_evasion_rating"],
+        ["local_evasion_rating_+%"],
+        ["local_energy_shield"],
+        ["local_energy_shield_+%"],
+        ["local_ward"],
+        ["local_ward_+%"],
+        ["local_additional_block_chance_%"],
+        ["local_block_chance_+%"],
+        ["local_armour_and_evasion_+%"],
+        ["local_armour_and_energy_shield_+%"],
+        ["local_evasion_and_energy_shield_+%"],
+        ["local_armour_and_evasion_and_energy_shield_+%"],
+        ["local_evasion_rating_and_energy_shield"],
     ];
 
     private readonly ReviewedItemPropertySemanticImporter _importer = new();
 
     [Fact]
-    public void Import_TrackedReviewedFile_ImportsOnlySixExpectedDescriptors()
+    public void Import_TrackedReviewedFile_ImportsOnlyTwentyFiveExpectedDescriptors()
     {
         var result = _importer.Import(
             RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath,
@@ -26,8 +45,8 @@ public sealed class ReviewedItemPropertySemanticImporterTests
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
-        Assert.Equal(6, result.SourceRecordsRead);
-        Assert.Equal(6, result.RecordsImported);
+        Assert.Equal(25, result.SourceRecordsRead);
+        Assert.Equal(25, result.RecordsImported);
         Assert.Equal(0, result.RecordsSkipped);
         Assert.Equal(ExpectedVectors.Count, result.ImportedRecords.Count);
         Assert.Equal(ExpectedVectors, result.ImportedRecords.Select(descriptor => descriptor.OrderedStatIds));
@@ -36,7 +55,7 @@ public sealed class ReviewedItemPropertySemanticImporterTests
             Assert.Equal(ItemPropertyApplicability.UnconditionalDisplayedLocal, descriptor.Applicability);
             var evidence = Assert.Single(descriptor.Evidence);
             Assert.Equal(ItemPropertySemanticEvidenceMethod.ReviewedOverride, evidence.Method);
-            Assert.Equal("weapon-dps-v1", evidence.ReviewVersion);
+            Assert.Equal("aps-crit-defence-v1", evidence.ReviewVersion);
             Assert.Equal("poenhance.item-property-semantics", evidence.SourceId);
         });
 

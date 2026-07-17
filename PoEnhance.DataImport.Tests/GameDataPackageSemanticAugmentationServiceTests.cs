@@ -12,7 +12,7 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
     private readonly GameDataPackageSemanticAugmentationService _service = new();
 
     [Fact]
-    public async Task Augment_ValidOlderPackage_CreatesSixSemanticsAndPreservesOriginalData()
+    public async Task Augment_ValidOlderPackage_CreatesTwentyFiveSemanticsAndPreservesOriginalData()
     {
         using var workspace = TemporaryWorkspace.Create();
         var inputPackage = ValidInputPackage.Value;
@@ -26,7 +26,7 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
         Assert.Equal("candidate-version", result.Package.Manifest.DataVersion);
-        Assert.Equal(6, result.Package.ItemPropertySemantics.Count);
+        Assert.Equal(25, result.Package.ItemPropertySemantics.Count);
         Assert.Equal(
             [
                 "weapon.physical-damage.increased-percent.local",
@@ -35,6 +35,25 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
                 "weapon.cold-damage.added.local",
                 "weapon.lightning-damage.added.local",
                 "weapon.chaos-damage.added.local",
+                "weapon.attack-speed.increased-percent.local",
+                "weapon.critical-strike-chance.increased-percent.local",
+                "weapon.critical-strike-chance.added.local",
+                "item.quality.added.local",
+                "item.armour.added.local",
+                "item.armour.increased-percent.local",
+                "item.evasion.added.local",
+                "item.evasion.increased-percent.local",
+                "item.energy-shield.added.local",
+                "item.energy-shield.increased-percent.local",
+                "item.ward.added.local",
+                "item.ward.increased-percent.local",
+                "item.block.added.local",
+                "item.block.increased-percent.local",
+                "item.armour-evasion.increased-percent.local",
+                "item.armour-energy-shield.increased-percent.local",
+                "item.evasion-energy-shield.increased-percent.local",
+                "item.armour-evasion-energy-shield.increased-percent.local",
+                "item.evasion-energy-shield.added.local",
             ],
             result.Package.ItemPropertySemantics.Select(descriptor => descriptor.Id));
         AssertPreservedPackageData(inputPackage, result.Package);
@@ -67,7 +86,7 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
         Assert.Equal(semanticBytes.LongLength, semantic.SizeBytes);
         Assert.Equal(ComputeSha256(semanticBytes), semantic.Sha256);
         Assert.Equal(1, semantic.SchemaVersion);
-        Assert.Equal("weapon-dps-v1", semantic.ReviewVersion);
+        Assert.Equal("aps-crit-defence-v1", semantic.ReviewVersion);
 
         var augmentation = Assert.IsType<GameDataPackageItemPropertySemanticAugmentation>(
             manifest.ItemPropertySemanticAugmentation);
@@ -98,7 +117,7 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
         var result = _service.Augment(CreateRequest(inputPath, workspace.PathFor("candidate.json")));
 
         Assert.Equal(GameDataPackageSemanticAugmentationExitCode.Success, result.ExitCode);
-        Assert.Equal(6, result.Package!.ItemPropertySemantics.Count);
+        Assert.Equal(25, result.Package!.ItemPropertySemantics.Count);
         Assert.DoesNotContain(result.Package.ItemPropertySemantics, descriptor =>
             descriptor.Id == "legacy.semantic.to.replace");
         Assert.Equal(
@@ -337,7 +356,17 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
             modifiers,
             stats,
             translations);
-        return result.Package ?? throw new InvalidOperationException("Reduced package fixture must be valid.");
+        var package = result.Package ?? throw new InvalidOperationException("Reduced package fixture must be valid.");
+        var reviewedStats = ImportTrackedSemanticsWithoutKnownStats()
+            .SelectMany(descriptor => descriptor.OrderedStatIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Except(package.Stats.Select(stat => stat.Id), StringComparer.OrdinalIgnoreCase)
+            .Select(statId => new StatDefinition
+            {
+                Id = statId,
+                IsLocal = true,
+            });
+        return package with { Stats = package.Stats.Concat(reviewedStats).ToArray() };
     }
 
     private static IReadOnlyList<ItemPropertySemanticDescriptor> ImportTrackedSemantics()
@@ -345,6 +374,13 @@ public sealed class GameDataPackageSemanticAugmentationServiceTests
         var result = new ReviewedItemPropertySemanticImporter().Import(
             RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath,
             ValidInputPackage.Value.Stats);
+        return result.ImportedRecords;
+    }
+
+    private static IReadOnlyList<ItemPropertySemanticDescriptor> ImportTrackedSemanticsWithoutKnownStats()
+    {
+        var result = new ReviewedItemPropertySemanticImporter().Import(
+            RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath);
         return result.ImportedRecords;
     }
 

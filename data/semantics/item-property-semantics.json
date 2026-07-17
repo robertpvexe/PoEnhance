@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewVersion": "weapon-dps-v1",
+  "reviewVersion": "aps-crit-defence-v1",
   "descriptors": [
     {
       "id": "weapon.physical-damage.increased-percent.local",
@@ -20,7 +20,7 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
@@ -46,7 +46,7 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
@@ -72,7 +72,7 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
@@ -98,7 +98,7 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
@@ -124,7 +124,7 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
@@ -150,8 +150,489 @@
         {
           "method": "reviewedOverride",
           "sourceId": "poenhance.item-property-semantics",
-          "reviewVersion": "weapon-dps-v1",
+          "reviewVersion": "aps-crit-defence-v1",
           "reviewReference": "repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.attack-speed.increased-percent.local",
+      "orderedStatIds": [
+        "local_attack_speed_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "attacksPerSecond"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-3",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.critical-strike-chance.increased-percent.local",
+      "orderedStatIds": [
+        "local_critical_strike_chance_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "criticalStrikeChance"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-4",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "weapon.critical-strike-chance.added.local",
+      "orderedStatIds": [
+        "local_critical_strike_chance"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "criticalStrikeChance"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-4",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.quality.added.local",
+      "orderedStatIds": [
+        "local_item_quality_+"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "quality"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-6",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.armour.added.local",
+      "orderedStatIds": [
+        "local_base_physical_damage_reduction_rating"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "armour"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.armour.increased-percent.local",
+      "orderedStatIds": [
+        "local_physical_damage_reduction_rating_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "armour"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.evasion.added.local",
+      "orderedStatIds": [
+        "local_base_evasion_rating"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "evasion"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.evasion.increased-percent.local",
+      "orderedStatIds": [
+        "local_evasion_rating_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "evasion"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.energy-shield.added.local",
+      "orderedStatIds": [
+        "local_energy_shield"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "energyShield"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.energy-shield.increased-percent.local",
+      "orderedStatIds": [
+        "local_energy_shield_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "energyShield"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.ward.added.local",
+      "orderedStatIds": [
+        "local_ward"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "ward"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.ward.increased-percent.local",
+      "orderedStatIds": [
+        "local_ward_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "ward"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.block.added.local",
+      "orderedStatIds": [
+        "local_additional_block_chance_%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "block"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.block.increased-percent.local",
+      "orderedStatIds": [
+        "local_block_chance_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "block"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.armour-evasion.increased-percent.local",
+      "orderedStatIds": [
+        "local_armour_and_evasion_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "armour",
+            "evasion"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.armour-energy-shield.increased-percent.local",
+      "orderedStatIds": [
+        "local_armour_and_energy_shield_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "armour",
+            "energyShield"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.evasion-energy-shield.increased-percent.local",
+      "orderedStatIds": [
+        "local_evasion_and_energy_shield_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "evasion",
+            "energyShield"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.armour-evasion-energy-shield.increased-percent.local",
+      "orderedStatIds": [
+        "local_armour_and_evasion_and_energy_shield_+%"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "armour",
+            "evasion",
+            "energyShield"
+          ],
+          "operation": "increasedPercent"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
+          "compatibleSourceId": "repoe",
+          "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
+        }
+      ]
+    },
+    {
+      "id": "item.evasion-energy-shield.added.local",
+      "orderedStatIds": [
+        "local_evasion_rating_and_energy_shield"
+      ],
+      "contributions": [
+        {
+          "targets": [
+            "evasion",
+            "energyShield"
+          ],
+          "operation": "added"
+        }
+      ],
+      "applicability": "unconditionalDisplayedLocal",
+      "evidence": [
+        {
+          "method": "reviewedOverride",
+          "sourceId": "poenhance.item-property-semantics",
+          "reviewVersion": "aps-crit-defence-v1",
+          "reviewReference": "complete-item-property-contributor-and-locality-audit:2026-07-17#section-7",
           "compatibleSourceId": "repoe",
           "compatibleSourceVersion": "c50acab2ed660a70511e7f91ee09db4e632089e4"
         }

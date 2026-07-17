@@ -154,5 +154,139 @@
     "alias": {},
     "is_aliased": false,
     "is_local": true
+  },
+  "local_attack_speed_+%": {
+    "alias": {
+      "when_in_main_hand": "main_hand_local_attack_speed_+%",
+      "when_in_off_hand": "off_hand_local_attack_speed_+%"
+    },
+    "is_aliased": true,
+    "is_local": true
+  },
+  "main_hand_local_attack_speed_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "off_hand_local_attack_speed_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "local_critical_strike_chance_+%": {
+    "alias": {
+      "when_in_main_hand": "main_hand_local_critical_strike_chance_+%",
+      "when_in_off_hand": "off_hand_local_critical_strike_chance_+%"
+    },
+    "is_aliased": true,
+    "is_local": true
+  },
+  "main_hand_local_critical_strike_chance_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "off_hand_local_critical_strike_chance_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "local_critical_strike_chance": {
+    "alias": {
+      "when_in_main_hand": "main_hand_local_critical_strike_chance",
+      "when_in_off_hand": "off_hand_local_critical_strike_chance"
+    },
+    "is_aliased": true,
+    "is_local": true
+  },
+  "main_hand_local_critical_strike_chance": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "off_hand_local_critical_strike_chance": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": false
+  },
+  "local_item_quality_+": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_base_physical_damage_reduction_rating": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_physical_damage_reduction_rating_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_base_evasion_rating": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_evasion_rating_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_energy_shield": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_energy_shield_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_ward": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_ward_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_additional_block_chance_%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_block_chance_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_armour_and_evasion_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_armour_and_energy_shield_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_evasion_and_energy_shield_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_armour_and_evasion_and_energy_shield_+%": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
+  },
+  "local_evasion_rating_and_energy_shield": {
+    "alias": {},
+    "is_aliased": false,
+    "is_local": true
   }
 }

@@ -102,7 +102,7 @@ public static class AugmentPackageSemanticsCommandLineParser
               PoEnhance.DataTool augment-package-semantics --input-package <path> --item-property-semantics <path> --output <path> --data-version <value>
 
             Example:
-              dotnet run --project .\PoEnhance.DataTool\PoEnhance.DataTool.csproj -- augment-package-semantics --input-package .\artifacts\poenhance-game-data.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.candidate.json --data-version dev-milestone-3-semantics-weapon-dps-v1
+              dotnet run --project .\PoEnhance.DataTool\PoEnhance.DataTool.csproj -- augment-package-semantics --input-package .\artifacts\poenhance-game-data.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.aps-crit-defence-semantics.candidate.json --data-version dev-milestone-3-semantics-aps-crit-defence-v1
             """;
     }
 

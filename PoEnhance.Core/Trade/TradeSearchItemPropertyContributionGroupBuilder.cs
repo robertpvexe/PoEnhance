@@ -98,6 +98,8 @@ internal static class TradeSearchItemPropertyContributionGroupBuilder
                 ItemPropertyTarget.ColdDamage or
                 ItemPropertyTarget.LightningDamage => TradeSearchItemPropertyKind.ElementalDps,
             ItemPropertyTarget.ChaosDamage => TradeSearchItemPropertyKind.ChaosDps,
+            ItemPropertyTarget.AttacksPerSecond => TradeSearchItemPropertyKind.AttacksPerSecond,
+            ItemPropertyTarget.CriticalStrikeChance => TradeSearchItemPropertyKind.CriticalStrikeChance,
             _ => default,
         };
         return target is
@@ -105,7 +107,9 @@ internal static class TradeSearchItemPropertyContributionGroupBuilder
             ItemPropertyTarget.FireDamage or
             ItemPropertyTarget.ColdDamage or
             ItemPropertyTarget.LightningDamage or
-            ItemPropertyTarget.ChaosDamage;
+            ItemPropertyTarget.ChaosDamage or
+            ItemPropertyTarget.AttacksPerSecond or
+            ItemPropertyTarget.CriticalStrikeChance;
     }
 
     private readonly record struct ContributionLink(

@@ -14,8 +14,8 @@ public sealed class RePoeStatsImporterTests
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
-        Assert.Equal(30, result.SourceRecordsRead);
-        Assert.Equal(30, result.RecordsImported);
+        Assert.Equal(55, result.SourceRecordsRead);
+        Assert.Equal(55, result.RecordsImported);
         Assert.Equal(0, result.RecordsSkipped);
         Assert.Equal(
             result.ImportedRecords.OrderBy(stat => stat.Id, StringComparer.Ordinal).Select(stat => stat.Id),
@@ -33,6 +33,16 @@ public sealed class RePoeStatsImporterTests
         Assert.Equal("main_hand_local_accuracy_rating", localAccuracy.MainHandAliasId);
         Assert.Equal("off_hand_local_accuracy_rating", localAccuracy.OffHandAliasId);
         AssertRePoeSource(localAccuracy, "local_accuracy_rating");
+
+        var localAttackSpeed = result.ImportedRecords.Single(stat => stat.Id == "local_attack_speed_+%");
+        Assert.True(localAttackSpeed.IsLocal);
+        Assert.Equal("main_hand_local_attack_speed_+%", localAttackSpeed.MainHandAliasId);
+        Assert.Equal("off_hand_local_attack_speed_+%", localAttackSpeed.OffHandAliasId);
+
+        var localFlatCrit = result.ImportedRecords.Single(stat => stat.Id == "local_critical_strike_chance");
+        Assert.True(localFlatCrit.IsLocal);
+        Assert.Equal("main_hand_local_critical_strike_chance", localFlatCrit.MainHandAliasId);
+        Assert.Equal("off_hand_local_critical_strike_chance", localFlatCrit.OffHandAliasId);
 
         var baseLife = result.ImportedRecords.Single(stat => stat.Id == "base_maximum_life");
         Assert.False(baseLife.IsLocal);

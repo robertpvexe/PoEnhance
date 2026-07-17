@@ -178,7 +178,7 @@ public sealed class GameDataPackageBuilderTests
         Assert.NotNull(result.Package);
         Assert.Equal(6, result.Package.ItemBases.Count);
         Assert.Equal(3, result.Package.Modifiers.Count);
-        Assert.Equal(30, result.Package.Stats.Count);
+        Assert.Equal(55, result.Package.Stats.Count);
         Assert.Equal(6, result.Package.StatTranslations.Count);
         Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
     }

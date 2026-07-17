@@ -72,7 +72,6 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
 
     [Theory]
     [InlineData(1, TradeSearchItemPropertyKind.ElementalDps, ItemPropertyTarget.FireDamage, "Fire Damage")]
-    [InlineData(3, TradeSearchItemPropertyKind.PhysicalDps, ItemPropertyTarget.PhysicalDamage, "Physical Damage")]
     public void CreateDraft_SingleDamageCorpusWeaponsLinkTheirCanonicalComponent(
         int fixtureIndex,
         TradeSearchItemPropertyKind expectedParent,
@@ -89,6 +88,49 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
             expectedText,
             draft.ModifierFilters[contribution.ModifierFilterIndex].OriginalText,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateDraft_MorbidBiteLinksLocalAttackSpeedOnlyToAttacksPerSecond()
+    {
+        var draft = CreateDraft(CopiedItemCorpus.LoadItems()[3]);
+
+        Assert.Equal(
+            [TradeSearchItemPropertyKind.PhysicalDps, TradeSearchItemPropertyKind.AttacksPerSecond],
+            draft.ItemPropertyContributionGroups.Select(group => group.ParentKind));
+        var attackSpeedGroup = Assert.Single(draft.ItemPropertyContributionGroups, group =>
+            group.ParentKind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var contribution = Assert.Single(attackSpeedGroup.Contributions);
+        Assert.Equal(ItemPropertyTarget.AttacksPerSecond, contribution.Target);
+        Assert.Equal(ItemPropertyOperation.IncreasedPercent, contribution.Operation);
+        Assert.Equal(
+            "weapon.attack-speed.increased-percent.local",
+            contribution.ReviewedSemanticDescriptorId);
+        Assert.Contains(
+            "increased Attack Speed",
+            draft.ModifierFilters[contribution.ModifierFilterIndex].OriginalText,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            draft.ItemPropertyContributionGroups
+                .Where(group => group.ParentKind != TradeSearchItemPropertyKind.AttacksPerSecond)
+                .SelectMany(group => group.Contributions),
+            candidate => candidate.ModifierFilterIndex == contribution.ModifierFilterIndex);
+    }
+
+    [Fact]
+    public void CreateDraft_ArmageddonThirstLinksCraftedAttackSpeedToCanonicalAttacksPerSecondFilter()
+    {
+        var draft = CreateDraft(ArmageddonThirst);
+
+        var group = Assert.Single(draft.ItemPropertyContributionGroups);
+        Assert.Equal(TradeSearchItemPropertyKind.AttacksPerSecond, group.ParentKind);
+        var contribution = Assert.Single(group.Contributions);
+        var canonical = draft.ModifierFilters[contribution.ModifierFilterIndex];
+        Assert.Equal("20(16-20)% increased Attack Speed", canonical.OriginalText);
+        Assert.True(canonical.IsCrafted);
+        Assert.Equal("EinharMasterLocalIncreasedAttackSpeed3", canonical.ResolvedModifierId);
+        Assert.Equal("weapon.attack-speed.increased-percent.local", canonical.ReviewedItemPropertySemantic?.Id);
+        Assert.Equal(ItemPropertyTarget.AttacksPerSecond, contribution.Target);
     }
 
     [Fact]
@@ -250,6 +292,8 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
             Component("chaos", DamageSemantic("chaos", ItemPropertyTarget.ChaosDamage)),
             Component("cold", DamageSemantic("cold", ItemPropertyTarget.ColdDamage)),
             Component("fire", DamageSemantic("fire", ItemPropertyTarget.FireDamage)),
+            Component("aps", DamageSemantic("aps", ItemPropertyTarget.AttacksPerSecond)),
+            Component("crit", DamageSemantic("crit", ItemPropertyTarget.CriticalStrikeChance)),
         };
 
         var groups = TradeSearchItemPropertyContributionGroupBuilder.Create(properties, modifiers);
@@ -259,14 +303,31 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
             TradeSearchItemPropertyKind.ChaosDps,
             TradeSearchItemPropertyKind.ElementalDps,
             TradeSearchItemPropertyKind.PhysicalDps,
+            TradeSearchItemPropertyKind.AttacksPerSecond,
+            TradeSearchItemPropertyKind.CriticalStrikeChance,
         ], groups.Select(group => group.ParentKind));
         Assert.Equal([2], groups[0].Contributions.Select(contribution => contribution.ModifierFilterIndex));
         Assert.Equal([0, 3, 4], groups[1].Contributions.Select(contribution => contribution.ModifierFilterIndex));
         Assert.Equal([1], groups[2].Contributions.Select(contribution => contribution.ModifierFilterIndex));
-        Assert.DoesNotContain(groups, group => group.ParentKind is
-            TradeSearchItemPropertyKind.TotalDps or
-            TradeSearchItemPropertyKind.AttacksPerSecond or
-            TradeSearchItemPropertyKind.CriticalStrikeChance);
+        Assert.Equal([5], groups[3].Contributions.Select(contribution => contribution.ModifierFilterIndex));
+        Assert.Equal([6], groups[4].Contributions.Select(contribution => contribution.ModifierFilterIndex));
+        Assert.DoesNotContain(groups, group => group.ParentKind == TradeSearchItemPropertyKind.TotalDps);
+    }
+
+    [Theory]
+    [InlineData(ItemPropertyTarget.Quality)]
+    [InlineData(ItemPropertyTarget.Armour)]
+    [InlineData(ItemPropertyTarget.Evasion)]
+    [InlineData(ItemPropertyTarget.EnergyShield)]
+    [InlineData(ItemPropertyTarget.Ward)]
+    [InlineData(ItemPropertyTarget.Block)]
+    public void Builder_UnimplementedParentTargetsRemainUngrouped(ItemPropertyTarget target)
+    {
+        var groups = TradeSearchItemPropertyContributionGroupBuilder.Create(
+            [Property(TradeSearchItemPropertyKind.AttacksPerSecond)],
+            [Component("unmapped", DamageSemantic("unmapped", target))]);
+
+        Assert.Empty(groups);
     }
 
     [Fact]
@@ -494,6 +555,26 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
         --------
         { Prefix Modifier "Flaring" (Tier: 1) - Damage, Physical, Attack }
         Adds 23(22-29) to 46(45-52) Physical Damage
+        """;
+
+    private const string ArmageddonThirst = """
+        Item Class: One Hand Axes
+        Rarity: Rare
+        Armageddon Thirst
+        Reaver Axe
+        --------
+        One Handed Axe
+        Physical Damage: 38-114
+        Critical Strike Chance: 5.00%
+        Attacks per Second: 1.50 (augmented)
+        Weapon Range: 1.1 metres
+        --------
+        Item Level: 85
+        --------
+        { Suffix Modifier "of Thirst" (Tier: 1) - Attack, Physical, Mana }
+        2.83(2.6-3.2)% of Physical Attack Damage Leeched as Mana
+        { Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
+        20(16-20)% increased Attack Speed
         """;
 
     private const string SlinkBoots = """

@@ -71,6 +71,7 @@ public sealed class AugmentPackageSemanticsCommandLineParserTests
         Assert.Contains("--item-property-semantics <path>", usage, StringComparison.Ordinal);
         Assert.Contains("--output <path>", usage, StringComparison.Ordinal);
         Assert.Contains("--data-version <value>", usage, StringComparison.Ordinal);
+        Assert.Contains("aps-crit-defence-semantics.candidate.json", usage, StringComparison.Ordinal);
     }
 
     private static List<string> CreateValidArguments()

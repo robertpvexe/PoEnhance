@@ -19,6 +19,16 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
     private const string LightningMaximum = "local_maximum_added_lightning_damage";
     private const string ChaosMinimum = "local_minimum_added_chaos_damage";
     private const string ChaosMaximum = "local_maximum_added_chaos_damage";
+    private const string LocalAttackSpeed = "local_attack_speed_+%";
+    private const string LocalCriticalStrikeChancePercent = "local_critical_strike_chance_+%";
+    private const string LocalCriticalStrikeChanceAdded = "local_critical_strike_chance";
+    private const string ConditionalLocalCriticalStrikeChance =
+        "local_critical_strike_chance_+%_if_item_corrupted";
+    private const string PerQualityLocalCriticalStrikeChance =
+        "local_critical_strike_chance_+%_per_4%_quality";
+    private const string QualityDoesNotIncreasePhysicalDamage =
+        "local_quality_does_not_increase_physical_damage";
+    private const string LocalExplicitModifierEffect = "local_explicit_mod_effect_+%";
 
     private readonly ItemTextParser parser = new();
     private readonly ParsedItemModifierCandidateResolver resolver = new();
@@ -111,7 +121,85 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
         Assert.Equal([ItemPropertyTarget.ChaosDamage], contribution.Targets);
         var evidence = Assert.Single(component.ReviewedItemPropertySemantic.Evidence);
         Assert.Equal(ItemPropertySemanticEvidenceMethod.ReviewedOverride, evidence.Method);
-        Assert.Equal("weapon-dps-v1", evidence.ReviewVersion);
+        Assert.Equal("aps-crit-defence-v1", evidence.ReviewVersion);
+    }
+
+    [Fact]
+    public void CreateDraft_MorbidBiteAttachesReviewedAttackSpeedSemantic()
+    {
+        var draft = CreateDraft(CopiedItemCorpus.LoadItems()[3], ReviewedWeaponCatalog());
+
+        var attackSpeed = Assert.Single(draft.ModifierFilters, component =>
+            component.ResolvedModifierId == "LocalIncreasedAttackSpeed8");
+        Assert.Equal("weapon.attack-speed.increased-percent.local", attackSpeed.ReviewedItemPropertySemantic?.Id);
+        Assert.Equal([LocalAttackSpeed], attackSpeed.ResolvedStatIds);
+        Assert.Equal(ModifierLocality.Local, attackSpeed.Locality);
+        Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, attackSpeed.StatMappingProof);
+    }
+
+    [Fact]
+    public void CreateDraft_ActiveIncreasedCritRecordSyntheticHarnessAttachesDistinctPercentSemantic()
+    {
+        // Fixture gap: the repository still has no genuine copied local-weapon-Crit capture.
+        // This harness uses the active package's LocalCriticalStrikeChance1 record and translation only.
+        var draft = CreateDraft(IncreasedCritSyntheticHarness, ReviewedWeaponCatalog());
+
+        var component = Assert.Single(draft.ModifierFilters);
+        Assert.Equal("LocalCriticalStrikeChance1", component.ResolvedModifierId);
+        Assert.Equal(
+            "weapon.critical-strike-chance.increased-percent.local",
+            component.ReviewedItemPropertySemantic?.Id);
+        Assert.Equal(ItemPropertyOperation.IncreasedPercent,
+            Assert.Single(component.ReviewedItemPropertySemantic!.Contributions).Operation);
+        Assert.Empty(component.ValueBoundTranslationHandlers.Single());
+        Assert.Equal(14m, component.RequestedMinimum);
+    }
+
+    [Fact]
+    public void CreateDraft_ActiveFlatCritRecordSyntheticHarnessRetainsDivideByOneHundredHandler()
+    {
+        // Fixture gap: WeaponTreeLocalCritChance1 is an active GameData record, not a genuine copied fixture.
+        var item = parser.Parse(FlatCritSyntheticHarness);
+        var catalog = ReviewedWeaponCatalog();
+        var activeRecord = Assert.Single(catalog.Modifiers, modifier =>
+            modifier.Id == "WeaponTreeLocalCritChance1");
+        var parsedModifier = Assert.Single(item.Modifiers);
+        var resolution = new ModifierCandidateResolutionResult(
+            0,
+            parsedModifier,
+            parsedModifier.Name,
+            parsedModifier.Kind,
+            ModifierGenerationType.Unknown,
+            ModifierCandidateResolutionStatus.Exact,
+            [activeRecord],
+            [],
+            Locality: ModifierLocality.Local);
+
+        var result = mapper.CreateDraft(item, modifierResolutions: [resolution], gameDataCatalog: catalog);
+
+        Assert.True(result.IsSuccess);
+        var component = Assert.Single(Assert.IsType<TradeSearchDraft>(result.Draft).ModifierFilters);
+        Assert.Equal("weapon.critical-strike-chance.added.local", component.ReviewedItemPropertySemantic?.Id);
+        Assert.Equal(ItemPropertyOperation.Added,
+            Assert.Single(component.ReviewedItemPropertySemantic!.Contributions).Operation);
+        Assert.Equal(["divide_by_one_hundred"], Assert.Single(component.ValueBoundTranslationHandlers));
+        Assert.Equal(0.4m, component.RequestedMinimum);
+        Assert.NotEqual(
+            "weapon.critical-strike-chance.increased-percent.local",
+            component.ReviewedItemPropertySemantic.Id);
+    }
+
+    [Fact]
+    public void CreateDraft_GlobalConditionalPerQualityAndIndirectApsCritFamiliesReceiveNoSemantic()
+    {
+        var draft = CreateDraft(UnsafeApsCritSyntheticHarness, ReviewedWeaponCatalog());
+
+        var excluded = draft.ModifierFilters.ToArray();
+        Assert.Equal(6, excluded.Length);
+        Assert.All(excluded, component => Assert.Null(component.ReviewedItemPropertySemantic));
+        Assert.All(excluded.Take(3), component => Assert.Equal(ModifierLocality.Global, component.Locality));
+        Assert.All(excluded.Skip(3), component => Assert.Equal(ModifierLocality.Local, component.Locality));
+        Assert.Empty(draft.ItemPropertyContributionGroups);
     }
 
     [Fact]
@@ -307,6 +395,36 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
             Modifier("scorching", "Scorching", ModifierGenerationType.Prefix, FireMinimum, FireMaximum),
             Modifier("sparking", "Sparking", ModifierGenerationType.Prefix, LightningMinimum, LightningMaximum),
             Modifier("chaos", "Chaotic", ModifierGenerationType.Prefix, ChaosMinimum, ChaosMaximum),
+            Modifier("LocalIncreasedAttackSpeed8", "of Celebration", ModifierGenerationType.Suffix, LocalAttackSpeed),
+            ModifierWithDomain(
+                "EinharMasterLocalIncreasedAttackSpeed3",
+                "of Craft",
+                ModifierGenerationType.Suffix,
+                "crafted",
+                LocalAttackSpeed),
+            Modifier(
+                "LocalCriticalStrikeChance1",
+                "of Needling",
+                ModifierGenerationType.Suffix,
+                LocalCriticalStrikeChancePercent),
+            Modifier(
+                "WeaponTreeLocalCritChance1",
+                string.Empty,
+                ModifierGenerationType.Unknown,
+                LocalCriticalStrikeChanceAdded),
+            Modifier("global-attack-speed", "of Global Speed Harness", ModifierGenerationType.Suffix,
+                "attack_speed_+%"),
+            Modifier("global-critical-strike", "of Global Crit Harness", ModifierGenerationType.Suffix,
+                "critical_strike_chance_+%"),
+            Modifier("spell-critical-strike", "of Spell Crit Harness", ModifierGenerationType.Suffix,
+                "spell_critical_strike_chance_+%"),
+            Modifier("conditional-local-critical-strike", "of Conditional Crit Harness",
+                ModifierGenerationType.Suffix, ConditionalLocalCriticalStrikeChance),
+            Modifier("per-quality-local-critical-strike", "of Per Quality Crit Harness",
+                ModifierGenerationType.Suffix, QualityDoesNotIncreasePhysicalDamage,
+                PerQualityLocalCriticalStrikeChance),
+            Modifier("indirect-local-explicit-effect", "of Indirect Effect Harness",
+                ModifierGenerationType.Suffix, LocalExplicitModifierEffect),
             Modifier("spell-lightning", "Shocking", ModifierGenerationType.Prefix,
                 "minimum_added_lightning_damage_to_spells", "maximum_added_lightning_damage_to_spells"),
             Modifier("global-lightning", "of Electricity", ModifierGenerationType.Suffix, "lightning_damage_+%"),
@@ -326,6 +444,29 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
             RangeTranslation("cold", ColdMinimum, ColdMaximum, "Cold Damage"),
             RangeTranslation("lightning", LightningMinimum, LightningMaximum, "Lightning Damage"),
             RangeTranslation("chaos", ChaosMinimum, ChaosMaximum, "Chaos Damage"),
+            Translation("attack-speed", [LocalAttackSpeed], "{0}% increased Attack Speed"),
+            Translation("critical-strike-chance-percent", [LocalCriticalStrikeChancePercent],
+                "{0}% increased Critical Strike Chance"),
+            Translation(
+                "critical-strike-chance-added",
+                [LocalCriticalStrikeChanceAdded],
+                "{0}% to Critical Strike Chance",
+                ["divide_by_one_hundred"],
+                "+#"),
+            Translation("global-attack-speed", ["attack_speed_+%"], "{0}% increased Global Attack Speed"),
+            Translation("global-critical-strike", ["critical_strike_chance_+%"],
+                "{0}% increased Global Critical Strike Chance"),
+            Translation("spell-critical-strike", ["spell_critical_strike_chance_+%"],
+                "{0}% increased Spell Critical Strike Chance"),
+            Translation("conditional-local-critical-strike", [ConditionalLocalCriticalStrikeChance],
+                "{0}% increased Conditional Critical Strike Chance"),
+            ContainingTranslation(
+                "per-quality-local-critical-strike",
+                PerQualityLocalCriticalStrikeChance,
+                QualityDoesNotIncreasePhysicalDamage,
+                "{0}% increased Per Quality Critical Strike Chance"),
+            Translation("indirect-local-explicit-effect", [LocalExplicitModifierEffect],
+                "{0}% increased Indirect Explicit Modifier Effect"),
             RangeTranslation("spell-lightning", "minimum_added_lightning_damage_to_spells",
                 "maximum_added_lightning_damage_to_spells", "Lightning Damage to Spells"),
             Translation("global-lightning", ["lightning_damage_+%"], "{0}% increased Lightning Damage"),
@@ -343,10 +484,20 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
             Semantic("weapon.lightning-damage.added.local", [LightningMinimum, LightningMaximum],
                 ItemPropertyTarget.LightningDamage),
             Semantic("weapon.chaos-damage.added.local", [ChaosMinimum, ChaosMaximum], ItemPropertyTarget.ChaosDamage),
+            Semantic("weapon.attack-speed.increased-percent.local", [LocalAttackSpeed],
+                ItemPropertyTarget.AttacksPerSecond, ItemPropertyOperation.IncreasedPercent),
+            Semantic("weapon.critical-strike-chance.increased-percent.local", [LocalCriticalStrikeChancePercent],
+                ItemPropertyTarget.CriticalStrikeChance, ItemPropertyOperation.IncreasedPercent),
+            Semantic("weapon.critical-strike-chance.added.local", [LocalCriticalStrikeChanceAdded],
+                ItemPropertyTarget.CriticalStrikeChance),
         };
         var localStats = semantics
             .SelectMany(semantic => semantic.OrderedStatIds)
             .Append("local_accuracy_rating")
+            .Append(ConditionalLocalCriticalStrikeChance)
+            .Append(PerQualityLocalCriticalStrikeChance)
+            .Append(QualityDoesNotIncreasePhysicalDamage)
+            .Append(LocalExplicitModifierEffect)
             .ToArray();
         return Catalog(modifiers, translations, semantics, localStats);
     }
@@ -440,7 +591,9 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
     private static StatTranslationDefinition Translation(
         string id,
         IReadOnlyList<string> statIds,
-        string format)
+        string format,
+        IReadOnlyList<string>? handlers = null,
+        string valueFormat = "#")
     {
         return new StatTranslationDefinition
         {
@@ -451,9 +604,13 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
                 new StatTranslationVariant
                 {
                     Conditions = statIds.Select((_, index) => new StatTranslationCondition { Index = index }).ToArray(),
-                    ValueFormats = statIds.Select(_ => "#").ToArray(),
+                    ValueFormats = statIds.Select(_ => valueFormat).ToArray(),
                     IndexHandlers = statIds.Select((_, index) =>
-                        new StatTranslationIndexHandler { Index = index, Handlers = [] }).ToArray(),
+                        new StatTranslationIndexHandler
+                        {
+                            Index = index,
+                            Handlers = handlers ?? [],
+                        }).ToArray(),
                     FormatLines = [format],
                 },
             ],
@@ -518,7 +675,7 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
                 {
                     Method = ItemPropertySemanticEvidenceMethod.ReviewedOverride,
                     SourceId = "poenhance.item-property-semantics",
-                    ReviewVersion = "weapon-dps-v1",
+                    ReviewVersion = "aps-crit-defence-v1",
                     ReviewReference = "tracked-test-fixture",
                 },
             ],
@@ -562,6 +719,67 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
         --------
         { Prefix Modifier "Chaotic" (Tier: 2) - Damage, Chaos, Attack }
         Adds 10(8-12) to 20(18-22) Chaos Damage
+        """;
+
+    private const string IncreasedCritSyntheticHarness = """
+        Item Class: One Hand Axes
+        Rarity: Rare
+        Synthetic Crit Harness
+        Reaver Axe
+        --------
+        One Handed Axe
+        Physical Damage: 38-114
+        Critical Strike Chance: 5.70% (augmented)
+        Attacks per Second: 1.20
+        --------
+        Item Level: 85
+        --------
+        { Suffix Modifier "of Needling" (Tier: 1) - Critical }
+        14(10-14)% increased Critical Strike Chance
+        """;
+
+    private const string FlatCritSyntheticHarness = """
+        Item Class: One Hand Axes
+        Rarity: Rare
+        Synthetic Flat Crit Harness
+        Reaver Axe
+        --------
+        One Handed Axe
+        Physical Damage: 38-114
+        Critical Strike Chance: 5.40% (augmented)
+        Attacks per Second: 1.20
+        --------
+        Item Level: 85
+        --------
+        { Implicit Modifier }
+        +0.4% to Critical Strike Chance
+        """;
+
+    private const string UnsafeApsCritSyntheticHarness = """
+        Item Class: One Hand Axes
+        Rarity: Rare
+        Unsafe APS Crit Synthetic Harness
+        Reaver Axe
+        --------
+        One Handed Axe
+        Physical Damage: 38-114
+        Critical Strike Chance: 5.00%
+        Attacks per Second: 1.20
+        --------
+        Item Level: 85
+        --------
+        { Suffix Modifier "of Global Speed Harness" }
+        10% increased Global Attack Speed
+        { Suffix Modifier "of Global Crit Harness" }
+        20% increased Global Critical Strike Chance
+        { Suffix Modifier "of Spell Crit Harness" }
+        30% increased Spell Critical Strike Chance
+        { Suffix Modifier "of Conditional Crit Harness" }
+        40% increased Conditional Critical Strike Chance
+        { Suffix Modifier "of Per Quality Crit Harness" }
+        5% increased Per Quality Critical Strike Chance
+        { Suffix Modifier "of Indirect Effect Harness" }
+        15% increased Indirect Explicit Modifier Effect
         """;
 
     private const string ConditionalFire = """

@@ -12,4 +12,8 @@ public enum ItemPropertyTarget
     Evasion = 7,
     EnergyShield = 8,
     Ward = 9,
+    AttacksPerSecond = 10,
+    CriticalStrikeChance = 11,
+    Quality = 12,
+    Block = 13,
 }

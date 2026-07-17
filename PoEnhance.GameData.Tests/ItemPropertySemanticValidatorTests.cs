@@ -5,7 +5,7 @@ namespace PoEnhance.GameData.Tests;
 public sealed class ItemPropertySemanticValidatorTests
 {
     [Fact]
-    public void Validate_InitialWeaponDescriptors_Pass()
+    public void Validate_ReviewedProviderNeutralDescriptors_Pass()
     {
         var result = GameDataPackageValidator.Validate(ItemPropertySemanticTestFixtures.CreatePackage());
 

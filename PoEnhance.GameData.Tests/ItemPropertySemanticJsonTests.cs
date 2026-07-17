@@ -18,7 +18,7 @@ public sealed class ItemPropertySemanticJsonTests
         Assert.Contains("\"method\": \"reviewedOverride\"", json);
         Assert.Contains("\"operation\": \"increasedPercent\"", json);
         Assert.DoesNotContain("\"applicability\": 1", json);
-        Assert.Equal(6, roundTripped.ItemPropertySemantics.Count);
+        Assert.Equal(25, roundTripped.ItemPropertySemantics.Count);
 
         var addedPhysical = roundTripped.ItemPropertySemantics[1];
         Assert.Equal(ItemPropertySemanticTestFixtures.AddedPhysicalVector, addedPhysical.OrderedStatIds);
@@ -26,8 +26,9 @@ public sealed class ItemPropertySemanticJsonTests
         var evidence = Assert.Single(addedPhysical.Evidence);
         Assert.Equal(ItemPropertySemanticEvidenceMethod.ReviewedOverride, evidence.Method);
         Assert.Equal(ItemPropertySemanticTestFixtures.ReviewVersion, evidence.ReviewVersion);
-        Assert.Equal("repoe-item-property-semantic-source-audit:2026-07-16#initial-weapon-vectors", evidence.ReviewReference);
+        Assert.Equal("complete-item-property-contributor-and-locality-audit:2026-07-17", evidence.ReviewReference);
         Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+        Assert.Equal(json, GameDataPackageJson.Serialize(roundTripped));
     }
 
     [Fact]
@@ -69,5 +70,22 @@ public sealed class ItemPropertySemanticJsonTests
         var contribution = Assert.Single(Assert.Single(roundTripped.ItemPropertySemantics).Contributions);
         Assert.Equal([ItemPropertyTarget.Armour, ItemPropertyTarget.Evasion], contribution.Targets);
         Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+    }
+
+    [Fact]
+    public void SerializeAndDeserialize_ReviewedHybridTargetOrderIsStable()
+    {
+        var package = ItemPropertySemanticTestFixtures.CreatePackage();
+        var descriptor = Assert.Single(package.ItemPropertySemantics, candidate =>
+            candidate.Id == "item.armour-evasion-energy-shield.increased-percent.local");
+
+        var roundTripped = GameDataPackageJson.Deserialize(GameDataPackageJson.Serialize(
+            package with { ItemPropertySemantics = [descriptor] }));
+
+        Assert.NotNull(roundTripped);
+        var contribution = Assert.Single(Assert.Single(roundTripped.ItemPropertySemantics).Contributions);
+        Assert.Equal(
+            [ItemPropertyTarget.Armour, ItemPropertyTarget.Evasion, ItemPropertyTarget.EnergyShield],
+            contribution.Targets);
     }
 }

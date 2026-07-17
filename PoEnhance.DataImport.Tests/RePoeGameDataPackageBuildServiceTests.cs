@@ -28,20 +28,16 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.True(GameDataPackageValidator.Validate(result.Package).IsValid);
         Assert.Equal(6, result.FinalCounts.ItemBases);
         Assert.Equal(4, result.FinalCounts.Modifiers);
-        Assert.Equal(30, result.FinalCounts.Stats);
+        Assert.Equal(55, result.FinalCounts.Stats);
         Assert.Equal(6, result.FinalCounts.StatTranslations);
-        Assert.Equal(6, result.FinalCounts.ItemPropertySemantics);
-        Assert.Equal(6, result.Package.ItemPropertySemantics.Count);
-        Assert.Equal(
-            [
-                "weapon.physical-damage.increased-percent.local",
-                "weapon.physical-damage.added.local",
-                "weapon.fire-damage.added.local",
-                "weapon.cold-damage.added.local",
-                "weapon.lightning-damage.added.local",
-                "weapon.chaos-damage.added.local",
-            ],
-            result.Package.ItemPropertySemantics.Select(descriptor => descriptor.Id));
+        Assert.Equal(25, result.FinalCounts.ItemPropertySemantics);
+        Assert.Equal(25, result.Package.ItemPropertySemantics.Count);
+        Assert.Equal("weapon.physical-damage.increased-percent.local", result.Package.ItemPropertySemantics[0].Id);
+        Assert.Equal("item.evasion-energy-shield.added.local", result.Package.ItemPropertySemantics[^1].Id);
+        Assert.Contains(result.Package.ItemPropertySemantics, descriptor =>
+            descriptor.Id == "weapon.attack-speed.increased-percent.local");
+        Assert.Contains(result.Package.ItemPropertySemantics, descriptor =>
+            descriptor.Id == "weapon.critical-strike-chance.added.local");
         Assert.Equal(new FileInfo(outputPath).Length, result.OutputFileSizeBytes);
         Assert.Equal(ComputeSha256(outputPath), result.Sha256);
     }
@@ -82,7 +78,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(new FileInfo(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath).Length, semanticInput.SizeBytes);
         Assert.Equal(ComputeSha256(RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath), semanticInput.Sha256);
         Assert.Equal(1, semanticInput.SchemaVersion);
-        Assert.Equal("weapon-dps-v1", semanticInput.ReviewVersion);
+        Assert.Equal("aps-crit-defence-v1", semanticInput.ReviewVersion);
         Assert.True(GameDataPackageValidator.Validate(package).IsValid);
     }
 
@@ -126,7 +122,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
 
         Assert.Equal(GameDataPackageBuildExitCode.Success, result.ExitCode);
         Assert.NotNull(result.Package);
-        Assert.Equal(6, result.Package.ItemPropertySemantics.Count);
+        Assert.Equal(25, result.Package.ItemPropertySemantics.Count);
         Assert.DoesNotContain(
             Assert.Single(result.Package.Manifest.Sources).InputFiles,
             input => input.Label == "item-property-semantics.json");
@@ -379,9 +375,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             result.SourceSummaries,
             itemBases => AssertSummary(itemBases, "ItemBases", 6, 6, 0),
             modifiers => AssertSummary(modifiers, "Modifiers", 4, 4, 0),
-            stats => AssertSummary(stats, "Stats", 30, 30, 0),
+            stats => AssertSummary(stats, "Stats", 55, 55, 0),
             translations => AssertSummary(translations, "StatTranslations", 6, 6, 0),
-            semantics => AssertSummary(semantics, "ItemPropertySemantics", 6, 6, 0));
+            semantics => AssertSummary(semantics, "ItemPropertySemantics", 25, 25, 0));
     }
 
     [Fact]
