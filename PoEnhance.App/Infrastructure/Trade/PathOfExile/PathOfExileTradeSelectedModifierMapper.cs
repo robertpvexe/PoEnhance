@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
@@ -34,6 +35,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             if (TryCreateResolvedProviderFilter(
                     selectedModifier.Index,
                     selectedModifier.Modifier,
+                    catalog,
                     out var resolvedFilter,
                     out var resolvedDiagnostic))
             {
@@ -212,6 +214,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     private static bool TryCreateResolvedProviderFilter(
         int sourceIndex,
         ResolvedSearchComponent modifier,
+        PathOfExileTradeStatCatalog? catalog,
         out PathOfExileTradeSelectedModifierFilter? filter,
         out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
     {
@@ -227,6 +230,15 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
             CanSerializeProviderResolvedComponent(modifier))
         {
+            if (!TryVerifyReviewedLocalProviderScope(
+                    sourceIndex,
+                    modifier,
+                    catalog,
+                    out diagnostic))
+            {
+                return false;
+            }
+
             filter = new PathOfExileTradeSelectedModifierFilter
             {
                 SourceIndex = sourceIndex,
@@ -242,6 +254,58 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         }
 
         diagnostic = ToProviderResolutionDiagnostic(sourceIndex, modifier);
+        return false;
+    }
+
+    private static bool TryVerifyReviewedLocalProviderScope(
+        int sourceIndex,
+        ResolvedSearchComponent modifier,
+        PathOfExileTradeStatCatalog? catalog,
+        out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (modifier.ReviewedItemPropertySemantic?.Applicability !=
+            ItemPropertyApplicability.UnconditionalDisplayedLocal)
+        {
+            return true;
+        }
+
+        if (catalog is null)
+        {
+            diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.CatalogRequired,
+                "The current Trade stat catalog is required to verify a selected local displayed-item modifier.",
+                sourceIndex);
+            return false;
+        }
+
+        var providerIdentity = PathOfExileTradeProviderIdentity.Create(modifier.ProviderStatId!);
+        if (!catalog.TryGetByProviderIdentity(providerIdentity, out var entry))
+        {
+            diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                MessageFor(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                    modifier.OriginalText),
+                sourceIndex);
+            return false;
+        }
+
+        var candidate = PathOfExileTradeStatCandidateClassifier.ToCandidate(entry);
+        var locality = PathOfExileTradeProviderLocalityCompatibility.EvaluateVariant(
+            modifier,
+            candidate,
+            candidate);
+        if (locality.IsCompatible)
+        {
+            return true;
+        }
+
+        diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UnsafeLocalDisplayedProviderScope,
+            locality.Reason,
+            sourceIndex,
+            locality.ReasonCode);
         return false;
     }
 

@@ -2,6 +2,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -106,6 +107,50 @@ public sealed class PathOfExileTradeProviderLocalityCompatibilityTests
         Assert.True(decision.IsCompatible);
         Assert.Equal(ModifierLocality.Local, decision.EffectiveLocality);
         Assert.Equal("ExactRetainedSourceIdentity", decision.EvidenceSource);
+    }
+
+    [Fact]
+    public void EvaluateVariant_ReviewedLocalDisplayedPropertyRejectsUnmarkedBroadPseudo()
+    {
+        var source = Candidate("explicit.stat_210067635", "#% increased Attack Speed (Local)", "Explicit");
+        var pseudo = Candidate("pseudo.pseudo_total_attack_speed", "+#% total Attack Speed", "Pseudo");
+        var component = Component() with
+        {
+            Locality = ModifierLocality.Local,
+            ReviewedItemPropertySemantic = LocalDisplayedSemantic(),
+            Sources = [Source(ModifierLocality.Local, source)],
+        };
+
+        var decision = PathOfExileTradeProviderLocalityCompatibility.EvaluateVariant(
+            component,
+            source,
+            pseudo);
+
+        Assert.Equal(PathOfExileTradeProviderLocalityDecisionStatus.Incompatible, decision.Status);
+        Assert.Equal(
+            PathOfExileTradeProviderLocalityCompatibility.LocalDisplayedScopeUnproven,
+            decision.ReasonCode);
+    }
+
+    [Fact]
+    public void EvaluateVariant_ReviewedLocalDisplayedPropertyAllowsPseudoWithExplicitLocalScope()
+    {
+        var source = Candidate("explicit.stat_210067635", "#% increased Attack Speed (Local)", "Explicit");
+        var pseudo = Candidate("pseudo.local_attack_speed", "+#% total Attack Speed (Local)", "Pseudo");
+        var component = Component() with
+        {
+            Locality = ModifierLocality.Local,
+            ReviewedItemPropertySemantic = LocalDisplayedSemantic(),
+            Sources = [Source(ModifierLocality.Local, source)],
+        };
+
+        var decision = PathOfExileTradeProviderLocalityCompatibility.EvaluateVariant(
+            component,
+            source,
+            pseudo);
+
+        Assert.True(decision.IsCompatible);
+        Assert.Equal(ModifierLocality.Local, decision.EffectiveLocality);
     }
 
     [Fact]
@@ -246,6 +291,12 @@ public sealed class PathOfExileTradeProviderLocalityCompatibilityTests
             ApplicabilityReason = "Applicable fixture family.",
         };
     }
+
+    private static ItemPropertySemanticDescriptor LocalDisplayedSemantic() => new()
+    {
+        Id = "reviewed.local-displayed",
+        Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+    };
 
     private static PathOfExileTradeStatMatchCandidate Candidate(
         string id,

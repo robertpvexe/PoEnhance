@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
@@ -12,6 +13,7 @@ internal static class PathOfExileTradeProviderLocalityCompatibility
     public const string ProviderDomainConflict = "ProviderDomainConflict";
     public const string RetainedIdentityIncomplete = "RetainedIdentityIncomplete";
     public const string RetainedIdentitySemanticConflict = "RetainedIdentitySemanticConflict";
+    public const string LocalDisplayedScopeUnproven = "LocalDisplayedScopeUnproven";
 
     public static PathOfExileTradeProviderLocalityDecision EvaluateVariant(
         ResolvedSearchComponent component,
@@ -24,6 +26,14 @@ internal static class PathOfExileTradeProviderLocalityCompatibility
 
         var candidateKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
         var candidateIdentity = PathOfExileTradeProviderIdentity.Create(candidate.StatId);
+        var localDisplayedScope = RequireProvenLocalDisplayedPseudoScope(
+            component.ReviewedItemPropertySemantic,
+            candidateKind,
+            candidate);
+        if (localDisplayedScope is not null)
+        {
+            return localDisplayedScope;
+        }
 
         var retained = Decide(
             component.Sources
@@ -92,6 +102,15 @@ internal static class PathOfExileTradeProviderLocalityCompatibility
         ArgumentNullException.ThrowIfNull(candidate);
 
         var candidateKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
+        var localDisplayedScope = RequireProvenLocalDisplayedPseudoScope(
+            source.ReviewedItemPropertySemantic,
+            candidateKind,
+            candidate);
+        if (localDisplayedScope is not null)
+        {
+            return localDisplayedScope;
+        }
+
         if (!string.IsNullOrWhiteSpace(source.ProviderDomain) &&
             !string.Equals(source.ProviderDomain, candidateKind, StringComparison.OrdinalIgnoreCase))
         {
@@ -260,6 +279,25 @@ internal static class PathOfExileTradeProviderLocalityCompatibility
                 evidence.EffectiveLocality,
                 $"The provider template is explicitly {markerLocality}, but stronger GameData evidence is {evidence.EffectiveLocality}.",
                 evidence.EvidenceSource);
+    }
+
+    private static PathOfExileTradeProviderLocalityDecision? RequireProvenLocalDisplayedPseudoScope(
+        ItemPropertySemanticDescriptor? reviewedSemantic,
+        string candidateKind,
+        PathOfExileTradeStatMatchCandidate candidate)
+    {
+        if (reviewedSemantic?.Applicability != ItemPropertyApplicability.UnconditionalDisplayedLocal ||
+            !string.Equals(candidateKind, "pseudo", StringComparison.Ordinal) ||
+            candidate.ProviderLocality == PathOfExileTradeProviderStatLocality.Local)
+        {
+            return null;
+        }
+
+        return Incompatible(
+            LocalDisplayedScopeUnproven,
+            ModifierLocality.Local,
+            "A Pseudo Trade identity for a reviewed local displayed-item property must explicitly prove local scope in the official provider catalog.",
+            "ReviewedItemPropertySemantic");
     }
 
     private static PathOfExileTradeProviderLocalityDecision Accepted(

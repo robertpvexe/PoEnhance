@@ -392,6 +392,42 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             diagnostic.Code == PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable);
     }
 
+    [Fact]
+    public void Apply_ReviewedLocalDisplayedComponentHidesBroadPseudoAndRejectsItsStaleIdentity()
+    {
+        var catalog = AttackSpeedCatalog();
+        var staleIdentity = PathOfExileTradeModifierVariantResolver.IdentityFor(
+            "pseudo.pseudo_total_attack_speed");
+        var component = Component(isCrafted: true) with
+        {
+            IsSelected = true,
+            ReviewedItemPropertySemantic = new ItemPropertySemanticDescriptor
+            {
+                Id = "reviewed.local-attack-speed",
+                Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+            },
+            SelectedFilterVariantIdentity = staleIdentity,
+        };
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "crafted.stat_210067635"));
+
+        Assert.Equal(["Explicit", "Crafted"], resolved.FilterVariants.Select(option => option.Label));
+        Assert.DoesNotContain(resolved.FilterVariants, option => option.Label == "Pseudo");
+        Assert.Equal(staleIdentity, resolved.SelectedFilterVariantIdentity);
+        Assert.Equal(SearchComponentProviderResolutionStatus.NotFound, resolved.ProviderResolutionStatus);
+        Assert.Null(resolved.ProviderStatId);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            resolved.ProviderDiagnosticCode);
+        Assert.Contains(
+            new TradeSearchDraftValidator().Validate(Draft(resolved)).Diagnostics,
+            diagnostic => diagnostic.Code ==
+                TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved);
+    }
+
     [Theory]
     [InlineData("crafted.stat_210067635")]
     [InlineData("explicit.stat_210067635")]

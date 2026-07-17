@@ -129,6 +129,21 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         var prepared = await fixture.Controller.PrepareDraftAsync(fixture.RangerBowDraft);
         var parent = Assert.Single(prepared.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        Assert.Equal(
+            [
+                "explicit.stat_1037193709",
+                "explicit.stat_709508406",
+                "explicit.stat_3336890334",
+            ],
+            prepared.ModifierFilters
+                .Where(modifier => modifier.OriginalText.Contains(" Damage", StringComparison.Ordinal))
+                .Select(modifier => modifier.ProviderStatId));
+        Assert.All(
+            prepared.ModifierFilters.Where(modifier =>
+                modifier.OriginalText.Contains(" Damage", StringComparison.Ordinal)),
+            modifier => Assert.DoesNotContain(
+                modifier.FilterVariants,
+                option => option.Label == "Pseudo"));
         Assert.False(parent.IsSelected);
         Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, parent.ProviderResolutionStatus);
         Assert.DoesNotContain(prepared.ModifierFilters, modifier => modifier.IsSelected);
@@ -274,22 +289,26 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             Entry(4, "explicit.stat_1334060246", "Adds # to # Lightning Damage"),
             Entry(5, "explicit.stat_3336890334", "Adds # to # Lightning Damage (Local)"),
             Entry(6, "explicit.stat_3261801346", "+# to Dexterity"),
+            Entry(7, "pseudo.pseudo_adds_cold_damage", "Adds # to # Cold Damage", "pseudo"),
+            Entry(8, "pseudo.pseudo_adds_fire_damage", "Adds # to # Fire Damage", "pseudo"),
+            Entry(9, "pseudo.pseudo_adds_lightning_damage", "Adds # to # Lightning Damage", "pseudo"),
         ]);
     }
 
     private static PathOfExileTradeStatEntry Entry(
         int order,
         string id,
-        string text)
+        string text,
+        string kind = "explicit")
     {
         return new PathOfExileTradeStatEntry
         {
             ProviderOrder = order,
-            GroupId = "explicit",
-            GroupLabel = "Explicit",
+            GroupId = kind,
+            GroupLabel = char.ToUpperInvariant(kind[0]) + kind[1..],
             Id = id,
             Text = text,
-            Type = "explicit",
+            Type = kind,
         };
     }
 

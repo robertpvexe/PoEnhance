@@ -3,6 +3,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -51,6 +52,65 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
         var filter = Assert.Single(result.Filters);
         Assert.Equal(40m, filter.Minimum);
         Assert.Equal(60m, filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_ForgedBroadPseudoForReviewedLocalDisplayedPropertyIsRejected()
+    {
+        var component = Modifier(
+            "20% increased Attack Speed",
+            locality: ModifierLocality.Local,
+            statIds: ["attack_speed_+%"],
+            providerStatId: "pseudo.pseudo_total_attack_speed",
+            canonicalSignature: "<number>% increased Attack Speed") with
+        {
+            ReviewedItemPropertySemantic = LocalDisplayedSemantic(),
+            SupportsValueBounds = true,
+            RequestedMinimum = 20m,
+        };
+        var catalog = Catalog(
+            "pseudo.pseudo_total_attack_speed",
+            "+#% total Attack Speed",
+            "Pseudo");
+
+        var result = mapper.Map(Draft([component]), catalog);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UnsafeLocalDisplayedProviderScope,
+            diagnostic.Code);
+        Assert.Equal(
+            PathOfExileTradeProviderLocalityCompatibility.LocalDisplayedScopeUnproven,
+            diagnostic.SourceCode);
+    }
+
+    [Fact]
+    public void Map_ValidLocalProviderIdentityForReviewedPropertySerializesExactlyOnce()
+    {
+        var component = Modifier(
+            "Adds 10 to 20 Lightning Damage",
+            locality: ModifierLocality.Local,
+            statIds: ["local_minimum_added_lightning_damage", "local_maximum_added_lightning_damage"],
+            providerStatId: "explicit.stat_3336890334",
+            canonicalSignature: "Adds <number> to <number> Lightning Damage") with
+        {
+            ReviewedItemPropertySemantic = LocalDisplayedSemantic(),
+            SupportsValueBounds = true,
+            RequestedMinimum = 15m,
+        };
+        var catalog = Catalog(
+            "explicit.stat_3336890334",
+            "Adds # to # Lightning Damage (Local)",
+            "Explicit");
+
+        var result = mapper.Map(Draft([component]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_3336890334", filter.StatId);
+        Assert.Equal(15m, filter.Minimum);
     }
 
     [Fact]
@@ -654,6 +714,25 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
             },
         ]);
     }
+
+    private static PathOfExileTradeStatCatalog Catalog(string id, string text, string kind) => new(
+    [
+        new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = 0,
+            GroupId = kind.ToLowerInvariant(),
+            GroupLabel = kind,
+            Id = id,
+            Text = text,
+            Type = kind.ToLowerInvariant(),
+        },
+    ]);
+
+    private static ItemPropertySemanticDescriptor LocalDisplayedSemantic() => new()
+    {
+        Id = "reviewed.local-displayed",
+        Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+    };
 
     private static TradeSearchDraft Draft(
         IReadOnlyList<ResolvedSearchComponent> modifiers,

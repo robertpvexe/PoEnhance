@@ -13,9 +13,16 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradePseudoVariantCompatibilityTests
 {
     [Fact]
-    public void OfficialTotalAttackSpeedTemplate_MatchesAdditiveSourceSemantics()
+    public void OfficialTotalAttackSpeedTemplate_IsRejectedForReviewedLocalDisplayedProperty()
     {
-        var component = ScalarComponent("20% increased Attack Speed", "#% increased Attack Speed");
+        var component = ScalarComponent("20% increased Attack Speed", "#% increased Attack Speed") with
+        {
+            ReviewedItemPropertySemantic = new ItemPropertySemanticDescriptor
+            {
+                Id = "reviewed.local-attack-speed",
+                Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+            },
+        };
         var source = Candidate("explicit.stat_210067635", "#% increased Attack Speed (Local)", "Explicit");
         var pseudo = Candidate(
             "pseudo.pseudo_total_attack_speed",
@@ -24,8 +31,10 @@ public sealed class PathOfExileTradePseudoVariantCompatibilityTests
 
         var result = PathOfExileTradePseudoVariantCompatibility.Evaluate(component, source, pseudo);
 
-        Assert.True(result.IsCompatible);
-        Assert.Equal(PathOfExileTradePseudoVariantCompatibility.Compatible, result.RejectionCode);
+        Assert.False(result.IsCompatible);
+        Assert.Equal(
+            PathOfExileTradeProviderLocalityCompatibility.LocalDisplayedScopeUnproven,
+            result.RejectionCode);
         Assert.Equal("#% increased Attack Speed", result.SourceNormalizedTemplate);
         Assert.Equal("+#% total Attack Speed", result.CandidateNormalizedTemplate);
         Assert.Equal("attack speed", result.SourceLogicalEffect);
@@ -42,7 +51,7 @@ public sealed class PathOfExileTradePseudoVariantCompatibilityTests
         Assert.Equal(ModifierBoundDirection.Minimum, result.BoundDirection);
         Assert.Equal(ModifierBoundShape.Scalar, result.ValueShape);
         Assert.Empty(Assert.Single(result.TranslationHandlers));
-        Assert.Equal(result.MaximumCompatibilityScore, result.CompatibilityScore);
+        Assert.Equal(result.MaximumCompatibilityScore - 1, result.CompatibilityScore);
     }
 
     [Fact]
