@@ -144,6 +144,12 @@ Item Level: 85
         Assert.Equal(physical.Sources, physical.Contributors.Select(contributor => contributor.Source));
         Assert.DoesNotContain(snapshot.Draft.ModifierAggregationDiagnostics, diagnostic =>
             diagnostic.Message.Contains("provider domain", StringComparison.OrdinalIgnoreCase));
+        var physicalGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups);
+        Assert.Equal(TradeSearchItemPropertyKind.PhysicalDps, physicalGroup.ParentKind);
+        var physicalContribution = Assert.Single(physicalGroup.Contributions);
+        Assert.Same(physical, snapshot.Draft.ModifierFilters[physicalContribution.ModifierFilterIndex]);
+        Assert.Equal(ItemPropertyTarget.PhysicalDamage, physicalContribution.Target);
+        Assert.Equal(ItemPropertyOperation.IncreasedPercent, physicalContribution.Operation);
 
         var accuracy = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Accuracy Rating", StringComparison.Ordinal));
@@ -203,6 +209,7 @@ Regenerate 46.8(32.1-48) Life per second
 
         var stunRecovery = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Stun and Block Recovery", StringComparison.Ordinal));
+        Assert.Empty(snapshot.Draft.ItemPropertyContributionGroups);
         Assert.Equal("31% increased Stun and Block Recovery", stunRecovery.OriginalText);
         Assert.Equal(31m, stunRecovery.RequestedMinimum);
         Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, stunRecovery.StatMappingProof);
@@ -276,6 +283,44 @@ Regenerate 46.8(32.1-48) Life per second
         Assert.Contains(
             snapshot.Draft.ModifierFilters,
             modifier => modifier.OriginalText.Contains("Physical Damage", StringComparison.Ordinal));
+        var physicalGroup = Assert.Single(snapshot.Draft.ItemPropertyContributionGroups);
+        Assert.Equal(TradeSearchItemPropertyKind.PhysicalDps, physicalGroup.ParentKind);
+        var physicalContribution = Assert.Single(physicalGroup.Contributions);
+        Assert.Contains(
+            "Physical Damage",
+            snapshot.Draft.ModifierFilters[physicalContribution.ModifierFilterIndex].OriginalText,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowOrUpdate_RealCopiedGroupsStayCanonicalAndExcludeUnsafeOrNonWeaponModifiers()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var golem = harness.OpenFixture(2).Draft;
+        var golemGroup = Assert.Single(golem.ItemPropertyContributionGroups);
+        Assert.Equal(TradeSearchItemPropertyKind.ElementalDps, golemGroup.ParentKind);
+        Assert.Equal(
+            ["Cold Damage", "Fire Damage", "Lightning Damage"],
+            golemGroup.Contributions.Select(contribution =>
+                DamageSuffix(golem.ModifierFilters[contribution.ModifierFilterIndex].OriginalText)));
+
+        var wrath = harness.OpenFixture(4).Draft;
+        var wrathGroup = Assert.Single(wrath.ItemPropertyContributionGroups);
+        var wrathContribution = Assert.Single(wrathGroup.Contributions);
+        Assert.Contains(
+            "Cold Damage",
+            wrath.ModifierFilters[wrathContribution.ModifierFilterIndex].OriginalText,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(wrathGroup.Contributions, contribution =>
+        {
+            var text = wrath.ModifierFilters[contribution.ModifierFilterIndex].OriginalText;
+            return text.Contains("Lightning Damage to Spells", StringComparison.Ordinal) ||
+                text.Contains("increased Lightning Damage", StringComparison.Ordinal);
+        });
+
+        var eagle = harness.OpenFixture(7).Draft;
+        Assert.Empty(eagle.ItemPropertyContributionGroups);
     }
 
     [Fact]
@@ -508,6 +553,17 @@ Item Level: 84
         TradeSearchDraft Draft,
         PriceCheckerWindowState WindowState,
         PriceCheckerSearchViewState SearchState);
+
+    private static string DamageSuffix(string text)
+    {
+        return text.Contains("Cold Damage", StringComparison.Ordinal)
+            ? "Cold Damage"
+            : text.Contains("Fire Damage", StringComparison.Ordinal)
+                ? "Fire Damage"
+                : text.Contains("Lightning Damage", StringComparison.Ordinal)
+                    ? "Lightning Damage"
+                    : text;
+    }
 
     internal const string HorrorManglerExplicitAndCraftedPhysicalDamageText = """
 Item Class: One Hand Axes

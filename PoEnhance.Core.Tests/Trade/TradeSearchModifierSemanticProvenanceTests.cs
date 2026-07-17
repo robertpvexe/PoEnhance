@@ -294,7 +294,7 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
         return Assert.IsType<TradeSearchDraft>(result.Draft);
     }
 
-    private static GameDataCatalog ReviewedWeaponCatalog()
+    internal static GameDataCatalog ReviewedWeaponCatalog()
     {
         var modifiers = new[]
         {
@@ -303,6 +303,7 @@ public sealed class TradeSearchModifierSemanticProvenanceTests
             Modifier("flaming", "Flaming", ModifierGenerationType.Prefix, FireMinimum, FireMaximum),
             Modifier("flaring", "Flaring", ModifierGenerationType.Prefix, PhysicalMinimum, PhysicalMaximum),
             Modifier("freezing", "Freezing", ModifierGenerationType.Prefix, ColdMinimum, ColdMaximum),
+            Modifier("glaciated", "Glaciated", ModifierGenerationType.Prefix, ColdMinimum, ColdMaximum),
             Modifier("scorching", "Scorching", ModifierGenerationType.Prefix, FireMinimum, FireMaximum),
             Modifier("sparking", "Sparking", ModifierGenerationType.Prefix, LightningMinimum, LightningMaximum),
             Modifier("chaos", "Chaotic", ModifierGenerationType.Prefix, ChaosMinimum, ChaosMaximum),

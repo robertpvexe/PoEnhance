@@ -26,6 +26,7 @@ public sealed class TradeSearchDraftMapper
         }
 
         var derivedWeaponProperties = new DerivedWeaponPropertyCalculator().Calculate(parsedItem);
+        var itemProperties = CreateItemProperties(derivedWeaponProperties);
         var modifierResolutionByIndex = BuildModifierResolutionIndex(parsedItem, modifierResolutions ?? []);
         var aggregation = CanonicalModifierEffectAggregator.Aggregate(
             CreateSearchComponents(
@@ -34,6 +35,9 @@ public sealed class TradeSearchDraftMapper
                     modifierResolutionByIndex,
                     gameDataCatalog)
                 .ToArray());
+        var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
+            itemProperties,
+            aggregation.Components);
         var draft = new TradeSearchDraft
         {
             ItemClass = TrimToNull(parsedItem.ItemClass),
@@ -46,7 +50,7 @@ public sealed class TradeSearchDraftMapper
             ItemLevel = parsedItem.ItemLevel,
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
-            ItemProperties = CreateItemProperties(derivedWeaponProperties),
+            ItemProperties = itemProperties,
             ItemPropertyDiagnostics = derivedWeaponProperties.Diagnostics
                 .Select(diagnostic => new TradeSearchItemPropertyDiagnostic(
                     diagnostic.Code,
@@ -54,6 +58,7 @@ public sealed class TradeSearchDraftMapper
                     diagnostic.SourceProperty))
                 .ToImmutableArray(),
             ModifierFilters = aggregation.Components,
+            ItemPropertyContributionGroups = itemPropertyContributionGroups,
             ModifierAggregationDiagnostics = aggregation.Diagnostics,
             ListingMode = listingMode,
         };

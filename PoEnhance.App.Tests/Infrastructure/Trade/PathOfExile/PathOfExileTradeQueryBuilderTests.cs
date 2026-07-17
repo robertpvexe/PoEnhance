@@ -3,6 +3,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -792,6 +793,45 @@ public sealed class PathOfExileTradeQueryBuilderTests
         var second = BuildSuccessful(draft);
 
         Assert.Equal(first.SerializedJson, second.SerializedJson);
+    }
+
+    [Fact]
+    public void Build_ItemPropertyContributionGroupsRemainUnserializedPresentationMetadata()
+    {
+        var draft = Draft(
+            itemClass: "One Hand Axes",
+            parsedBaseType: "Reaver Axe",
+            resolvedBaseName: "Reaver Axe",
+            modifiers:
+            [
+                Modifier(isSelected: false, status: ModifierCandidateResolutionStatus.Exact),
+            ]) with
+        {
+            ItemPropertyContributionGroups =
+            [
+                new TradeSearchItemPropertyContributionGroup
+                {
+                    ParentKind = TradeSearchItemPropertyKind.PhysicalDps,
+                    Contributions =
+                    [
+                        new TradeSearchItemPropertyContribution
+                        {
+                            ModifierFilterIndex = 0,
+                            Target = ItemPropertyTarget.PhysicalDamage,
+                            Operation = ItemPropertyOperation.Added,
+                            ReviewedSemanticDescriptorId = "test.reviewed.semantic",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var withGroups = BuildSuccessful(draft);
+        var withoutGroups = BuildSuccessful(draft with { ItemPropertyContributionGroups = [] });
+
+        Assert.Equal(withoutGroups.SerializedJson, withGroups.SerializedJson);
+        Assert.DoesNotContain("test.reviewed.semantic", withGroups.SerializedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("ItemPropertyContribution", withGroups.SerializedJson, StringComparison.Ordinal);
     }
 
     [Fact]
