@@ -74,6 +74,11 @@ internal sealed class PathOfExileTradeItemPropertyResolver
                 continue;
             }
 
+            if (!property.RequestedMinimum.HasValue && !property.RequestedMaximum.HasValue)
+            {
+                continue;
+            }
+
             filters.Add(new PathOfExileTradeSelectedItemPropertyFilter
             {
                 SourceItemPropertyIndex = index,

@@ -28,6 +28,15 @@
       "requiresNumericMinMax": true,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 6
+    },
+    {
+      "kind": "Sockets",
+      "providerGroupId": "socket_filters",
+      "providerFilterId": "sockets",
+      "expectedOfficialText": "Sockets",
+      "requiresNumericMinMax": true,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 6
     }
   ]
 }

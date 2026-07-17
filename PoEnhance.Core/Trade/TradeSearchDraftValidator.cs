@@ -33,16 +33,16 @@ public sealed class TradeSearchDraftValidator
     {
         foreach (var filter in draft.RequestedItemFilters.Where(filter => filter.IsActive))
         {
-            if (filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
-                !filter.RequestedMinimum.HasValue)
+            if (filter.LocalValidationStatus == TradeSearchRequestedItemFilterValidationStatus.Invalid)
             {
                 diagnostics.Add(Error(
                     TradeSearchValidationDiagnosticCodes.RequestedItemFilterInvalid,
-                    filter.DiagnosticReason ?? $"Active {filter.Label} requires a valid unsigned integer."));
+                    filter.DiagnosticReason ?? $"Active {filter.Label} must be an unsigned integer."));
                 continue;
             }
 
-            if (filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact)
+            if (filter.RequestedMinimum.HasValue &&
+                filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact)
             {
                 diagnostics.Add(Error(
                     filter.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Unsupported
@@ -84,8 +84,9 @@ public sealed class TradeSearchDraftValidator
                     ItemPropertyIndex: index));
             }
 
-            if (property.RequestedMaximum.HasValue &&
-                property.RequestedMinimum > property.RequestedMaximum.Value)
+            if (property.RequestedMinimum.HasValue &&
+                property.RequestedMaximum.HasValue &&
+                property.RequestedMinimum.Value > property.RequestedMaximum.Value)
             {
                 diagnostics.Add(new TradeSearchValidationDiagnostic(
                     TradeSearchValidationDiagnosticCodes.InvalidItemPropertyRange,

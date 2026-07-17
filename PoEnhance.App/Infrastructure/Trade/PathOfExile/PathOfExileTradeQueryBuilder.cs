@@ -132,7 +132,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         var providerPropertyFilters = selectedItemPropertyFilters ?? [];
         var selectedPropertyIndexes = draft.ItemProperties
             .Select((property, index) => new { Property = property, Index = index })
-            .Where(indexed => indexed.Property.IsSelected)
+            .Where(indexed => indexed.Property.IsSelected &&
+                (indexed.Property.RequestedMinimum.HasValue || indexed.Property.RequestedMaximum.HasValue))
             .Select(indexed => indexed.Index)
             .ToHashSet();
         if (selectedPropertyIndexes.Count > 0 && providerPropertyFilters.Count == 0)
@@ -162,6 +163,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         if (providerPropertyFilters.Any(filter =>
                 TrimToNull(filter.ProviderGroupId) is null ||
                 TrimToNull(filter.ProviderFilterId) is null ||
+                (!filter.RequestedMinimum.HasValue && !filter.RequestedMaximum.HasValue) ||
                 (!string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) &&
                  !string.Equals(filter.ProviderGroupId.Trim(), ArmourFiltersKey, StringComparison.Ordinal)) ||
                 (string.Equals(filter.ProviderGroupId.Trim(), WeaponFiltersKey, StringComparison.Ordinal) &&
@@ -169,7 +171,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedItemPropertyMapping,
-                "Selected item-property mappings require reviewed weapon or armour filter identities and may not use the per-hit damage filter.");
+                "Selected item-property mappings require reviewed weapon or armour filter identities, at least one bound, and may not use the per-hit damage filter.");
         }
 
         if (providerPropertyFilters
@@ -233,7 +235,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
 
         var providerRequestedFilters = selectedRequestedItemFilters ?? [];
         var activeRequestedKinds = draft.RequestedItemFilters
-            .Where(filter => filter.IsActive)
+            .Where(filter => filter.IsActive && filter.RequestedMinimum.HasValue)
             .Select(filter => filter.Kind)
             .ToHashSet();
         var mappedRequestedKinds = providerRequestedFilters

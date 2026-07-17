@@ -715,6 +715,43 @@ Item Level: 84
     }
 
     [Fact]
+    public void GoldenBuckler_ReconstructsFlooredLocalBlockAndKeepsParentAndChildSelectable()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText(GoldenBucklerText);
+
+        var block = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+        Assert.Equal(40m, block.ObservedValue);
+        Assert.Null(block.DerivationUnsupportedReason);
+        var resolved = new PathOfExileTradeItemPropertyResolver().Resolve(
+            snapshot.Draft,
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+        AssertExactProperty(resolved, TradeSearchItemPropertyKind.ChanceToBlock);
+        harness.ApplyResolvedDraft(resolved);
+        var child = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("increased Chance to Block", StringComparison.Ordinal));
+        Assert.True(child.IsSearchable);
+        Assert.Equal(62m, child.RequestedMinimum);
+
+        var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.ChanceToBlock);
+        var blockRow = Assert.Single(expanded.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+        var childRow = Assert.Single(blockRow.Children, row =>
+            row.Text.Contains("increased Chance to Block", StringComparison.Ordinal));
+
+        var selectedParent = harness.SelectProperty(TradeSearchItemPropertyKind.ChanceToBlock, true);
+        Assert.True(Assert.Single(selectedParent.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChanceToBlock).IsSelected);
+        var selectedChild = harness.SelectModifier(childRow.SourceIndex, true);
+        Assert.True(Assert.Single(selectedChild.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.ChanceToBlock).Children.Single(row =>
+                row.SourceIndex == childRow.SourceIndex).IsSelected);
+        Assert.Equal(0, harness.SearchCount);
+    }
+
+    [Fact]
     public void RuntimeCatalogResolution_GenuineDefensiveFixturesUseOnlyReviewedEvasionAndBlockEntries()
     {
         using var harness = ProductionPathHarness.Create();
@@ -808,7 +845,7 @@ Item Class: Shields
 Rarity: Normal
 Golden Buckler
 --------
-Chance to Block: 25%
+Chance to Block: 40%
 Evasion Rating: 354
 --------
 Requirements:
@@ -816,6 +853,9 @@ Level: 54
 Dex: 130
 --------
 Item Level: 84
+--------
+{ Prefix Modifier "Warded" (Tier: 4) - Block }
+62(58-63)% increased Chance to Block
 """;
 
     private static void AssertExactProperty(
@@ -935,6 +975,22 @@ Item Level: 84
         {
             searchController.UpdateModifierSelection(sourceIndex, selected);
             return Assert.Single(windowFactory.CreatedWindows).CurrentSearchState!;
+        }
+
+        public void ApplyResolvedDraft(TradeSearchDraft draft)
+        {
+            searchController.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        }
+
+        public PriceCheckerSearchViewState SelectProperty(
+            TradeSearchItemPropertyKind kind,
+            bool selected)
+        {
+            var window = Assert.Single(windowFactory.CreatedWindows);
+            var property = Assert.Single(window.CurrentSearchState!.ItemProperties, candidate =>
+                candidate.Kind == kind);
+            searchController.UpdateItemPropertySelection(property.SourceIndex, selected);
+            return window.CurrentSearchState!;
         }
 
         public void Dispose()

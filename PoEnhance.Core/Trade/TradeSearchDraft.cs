@@ -22,6 +22,8 @@ public sealed record TradeSearchDraft
 
     public string? SocketText { get; init; }
 
+    public decimal? BaseRollPercentile { get; init; }
+
     public ImmutableArray<TradeSearchRequestedItemFilter> RequestedItemFilters { get; init; } = [];
 
     public IReadOnlyList<string> TraditionalInfluences { get; init; } = [];

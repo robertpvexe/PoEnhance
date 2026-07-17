@@ -58,6 +58,7 @@ public sealed class TradeSearchDraftMapper
             Base = CreateBaseDraft(parsedItem, itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             SocketText = ReadSocketText(parsedItem),
+            BaseRollPercentile = DerivedBaseRollPercentileCalculator.Calculate(derivedDefensiveProperties),
             RequestedItemFilters = CreateRequestedItemFilters(parsedItem),
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
@@ -82,17 +83,21 @@ public sealed class TradeSearchDraftMapper
     {
         var quality = ReadObservedQualityFilter(parsedItem);
         var links = ReadObservedLinksFilter(parsedItem);
-        return
-        [
-            CreateRequestedFilter(
-                TradeSearchRequestedItemFilterKind.ItemLevel,
-                "Item Level",
-                parsedItem.ItemLevel,
-                parsedItem.ItemLevel?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-                parsedItem.ItemLevel.HasValue ? null : "The copied item has no valid Item Level."),
-            quality,
-            links,
-        ];
+        var filters = ImmutableArray.CreateBuilder<TradeSearchRequestedItemFilter>();
+        filters.Add(CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.ItemLevel,
+            "Item Level",
+            parsedItem.ItemLevel,
+            parsedItem.ItemLevel?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            parsedItem.ItemLevel.HasValue ? null : "The copied item has no valid Item Level."));
+        filters.Add(quality);
+        filters.Add(links);
+        if (ReadObservedSocketCountFilter(parsedItem) is { } sockets)
+        {
+            filters.Add(sockets);
+        }
+
+        return filters.ToImmutable();
     }
 
     public static TradeSearchRequestedItemFilter ParseRequestedItemFilterText(
@@ -101,7 +106,7 @@ public sealed class TradeSearchDraftMapper
         bool? isActive = null)
     {
         currentText ??= string.Empty;
-        var status = currentText.Length == 0
+        var status = string.IsNullOrWhiteSpace(currentText)
             ? TradeSearchRequestedItemFilterValidationStatus.Empty
             : currentText.All(char.IsAsciiDigit) &&
                 int.TryParse(currentText, NumberStyles.None, CultureInfo.InvariantCulture, out _)
@@ -119,8 +124,6 @@ public sealed class TradeSearchDraftMapper
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
             DiagnosticReason = status switch
             {
-                TradeSearchRequestedItemFilterValidationStatus.Empty =>
-                    $"{source.Label} requires an unsigned integer when active.",
                 TradeSearchRequestedItemFilterValidationStatus.Invalid =>
                     $"{source.Label} must be an unsigned integer.",
                 _ => null,
@@ -208,6 +211,24 @@ public sealed class TradeSearchDraftMapper
             links.ToString(CultureInfo.InvariantCulture));
     }
 
+    private static TradeSearchRequestedItemFilter? ReadObservedSocketCountFilter(ParsedItem parsedItem)
+    {
+        var properties = parsedItem.Properties
+            .Where(property => string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal))
+            .ToArray();
+        if (properties.Length != 1 ||
+            !TryReadSocketSummary(properties[0].RawValueText, out _, out var socketCount))
+        {
+            return null;
+        }
+
+        return CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.Sockets,
+            "Sockets",
+            socketCount,
+            socketCount.ToString(CultureInfo.InvariantCulture));
+    }
+
     private static TradeSearchRequestedItemFilter CreateRequestedFilter(
         TradeSearchRequestedItemFilterKind kind,
         string label,
@@ -246,9 +267,16 @@ public sealed class TradeSearchDraftMapper
             : null;
     }
 
-    private static bool TryReadMaximumLinkedGroup(string? socketText, out int maximumLinks)
+    private static bool TryReadMaximumLinkedGroup(string? socketText, out int maximumLinks) =>
+        TryReadSocketSummary(socketText, out maximumLinks, out _);
+
+    private static bool TryReadSocketSummary(
+        string? socketText,
+        out int maximumLinks,
+        out int socketCount)
     {
         maximumLinks = 0;
+        socketCount = 0;
         if (string.IsNullOrWhiteSpace(socketText))
         {
             return false;
@@ -264,9 +292,10 @@ public sealed class TradeSearchDraftMapper
             }
 
             maximumLinks = Math.Max(maximumLinks, sockets.Length);
+            socketCount += sockets.Length;
         }
 
-        return maximumLinks > 0;
+        return maximumLinks > 0 && socketCount > 0;
     }
 
     private static ImmutableArray<TradeSearchItemProperty> CreateItemProperties(

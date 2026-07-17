@@ -8,7 +8,7 @@ internal sealed record PathOfExileTradeSelectedItemPropertyFilter
 
     public required string ProviderFilterId { get; init; }
 
-    public required decimal RequestedMinimum { get; init; }
+    public decimal? RequestedMinimum { get; init; }
 
     public decimal? RequestedMaximum { get; init; }
 }

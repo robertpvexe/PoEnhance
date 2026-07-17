@@ -223,6 +223,47 @@ public sealed class TradeSearchDraftValidatorTests
         Assert.Empty(result.Diagnostics);
     }
 
+    [Fact]
+    public void Validate_SelectedExactItemPropertyWithoutBoundsPasses()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties =
+            [
+                ExactItemProperty() with
+                {
+                    IsSelected = true,
+                    RequestedMinimum = null,
+                    RequestedMaximum = null,
+                },
+            ],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Validate_SelectedExactItemPropertyWithOnlyMaximumPasses()
+    {
+        var draft = ValidDraft() with
+        {
+            ItemProperties =
+            [
+                ExactItemProperty() with
+                {
+                    IsSelected = true,
+                    RequestedMinimum = null,
+                    RequestedMaximum = 200m,
+                },
+            ],
+        };
+
+        Assert.True(validator.Validate(draft).IsValid);
+    }
+
     [Theory]
     [InlineData(
         TradeSearchItemPropertyProviderResolutionStatus.Unsupported,

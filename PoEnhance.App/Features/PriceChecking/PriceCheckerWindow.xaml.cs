@@ -147,6 +147,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
         TitleDisplayNameText.Foreground = (Brush)FindResource(
             TitleForegroundResourceKey(draft.Rarity));
+        var socketFilter = draft.RequestedItemFilters.FirstOrDefault(filter =>
+            filter.Kind == TradeSearchRequestedItemFilterKind.Sockets);
+        SocketFilterBorder.Visibility = socketFilter is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         foreach (var requestedFilter in draft.RequestedItemFilters)
         {
             UpdateRequestedItemFilter(requestedFilter);
@@ -157,7 +162,16 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         BaseCriterionButton.Tag = draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase
             ? "ExactBase"
             : "Category";
-        SocketMetadataText.Text = $"Sockets: {DisplayValue(draft.SocketText)}";
+        SocketMetadataText.Text = draft.SocketText is null ? string.Empty : $"· {draft.SocketText}";
+        SocketMetadataText.Visibility = draft.SocketText is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        BaseRollMetadataText.Text = draft.BaseRollPercentile.HasValue
+            ? $"Base Roll: {decimal.Round(draft.BaseRollPercentile.Value, 0, MidpointRounding.AwayFromZero):0}%"
+            : string.Empty;
+        BaseRollMetadataText.Visibility = draft.BaseRollPercentile.HasValue
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         StatsCountText.Text = FormatStatsCount(
             draft.ItemProperties.Count(property => property.IsSelected) +
                 draft.ModifierFilters.Count(modifier => modifier.IsSelected),
@@ -517,6 +531,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 (QualityFilterBorder, QualityFilterTextBox),
             TradeSearchRequestedItemFilterKind.Links =>
                 (LinksFilterBorder, LinksFilterTextBox),
+            TradeSearchRequestedItemFilterKind.Sockets =>
+                (SocketFilterBorder, SocketFilterTextBox),
             _ => (null!, null!),
         };
         return border is not null && textBox is not null;
@@ -544,6 +560,13 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ReferenceEquals(element, LinksFilterTextBox))
         {
             kind = TradeSearchRequestedItemFilterKind.Links;
+            return true;
+        }
+
+        if (ReferenceEquals(element, SocketFilterBorder) ||
+            ReferenceEquals(element, SocketFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.Sockets;
             return true;
         }
 

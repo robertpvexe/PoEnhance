@@ -56,11 +56,12 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
         var verified = Resolve(draft, catalog);
         var filters = new List<PathOfExileTradeSelectedRequestedItemFilter>();
         var diagnostics = new List<string>();
-        foreach (var filter in verified.RequestedItemFilters.Where(filter => filter.IsActive))
+        foreach (var filter in verified.RequestedItemFilters.Where(filter =>
+                     filter.IsActive && filter.RequestedMinimum.HasValue))
         {
+            var minimum = filter.RequestedMinimum!.Value;
             if (filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact ||
                 filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
-                !filter.RequestedMinimum.HasValue ||
                 !mappingCatalog.TryGet(filter.Kind, out var mapping))
             {
                 diagnostics.Add(filter.DiagnosticReason ??
@@ -73,7 +74,7 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
                 SourceKind = filter.Kind,
                 ProviderGroupId = mapping.ProviderGroupId,
                 ProviderFilterId = mapping.ProviderFilterId,
-                MinimumValue = filter.RequestedMinimum.Value,
+                MinimumValue = minimum,
             });
         }
 
@@ -86,12 +87,20 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
         TradeSearchRequestedItemFilter filter,
         PathOfExileTradeFilterCatalog catalog)
     {
-        if (filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
-            !filter.RequestedMinimum.HasValue)
+        if (filter.LocalValidationStatus == TradeSearchRequestedItemFilterValidationStatus.Invalid)
         {
             return filter with
             {
                 ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            };
+        }
+
+        if (!filter.RequestedMinimum.HasValue)
+        {
+            return filter with
+            {
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+                DiagnosticReason = null,
             };
         }
 
@@ -100,8 +109,8 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
             return Unsupported(filter, "No reviewed provider mapping exists for this requested item filter.");
         }
 
-        if (filter.RequestedMinimum < mapping.MinimumSupportedValue ||
-            filter.RequestedMinimum > mapping.MaximumSupportedValue)
+        if (filter.RequestedMinimum.Value < mapping.MinimumSupportedValue ||
+            filter.RequestedMinimum.Value > mapping.MaximumSupportedValue)
         {
             return Unsupported(
                 filter,

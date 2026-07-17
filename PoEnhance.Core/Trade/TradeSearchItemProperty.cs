@@ -13,7 +13,7 @@ public sealed record TradeSearchItemProperty
 
     public required decimal ObservedValue { get; init; }
 
-    public required decimal RequestedMinimum { get; init; }
+    public decimal? RequestedMinimum { get; init; }
 
     public decimal? RequestedMaximum { get; init; }
 

@@ -164,6 +164,101 @@ public sealed class DerivedDefensivePropertyCalculatorTests
     }
 
     [Fact]
+    public void GoldenBuckler_BlockFinalValueFloorsAtThePositiveHalfBoundary()
+    {
+        const decimal baseBlock = 25m;
+        const decimal increasedBlock = 62m;
+        var raw = baseBlock * (1m + increasedBlock / 100m);
+
+        var result = calculator.CalculateDefensiveQ20(
+            parser.Parse(BlockItem(40m)),
+            Base(block: 25),
+            [Effect(ItemPropertyTarget.Block, ItemPropertyOperation.IncreasedPercent, increasedBlock)]);
+
+        var block = Assert.Single(result.Properties);
+        Assert.Equal(40.5m, raw);
+        Assert.Equal(40m, block.Value);
+        Assert.Equal(25, block.ReconstructedBaseValue);
+        Assert.Equal(0m, block.LocalAdded);
+        Assert.Equal(62m, block.LocalIncreasedPercent);
+        Assert.False(block.IsQ20);
+        Assert.Null(block.UnsupportedReason);
+    }
+
+    [Fact]
+    public void BlockFinalValueFloorsTheExistingFortyFivePercentCase()
+    {
+        const decimal baseBlock = 25m;
+        const decimal increasedBlock = 45m;
+        var raw = baseBlock * (1m + increasedBlock / 100m);
+
+        var result = calculator.CalculateDefensiveQ20(
+            parser.Parse(BlockItem(36m)),
+            Base(block: 25),
+            [Effect(ItemPropertyTarget.Block, ItemPropertyOperation.IncreasedPercent, increasedBlock)]);
+
+        var block = Assert.Single(result.Properties);
+        Assert.Equal(36.25m, raw);
+        Assert.Equal(36m, block.Value);
+        Assert.Null(block.UnsupportedReason);
+    }
+
+    [Fact]
+    public void BlockFinalValueFloorsBeyondTheHalfBoundaryWithoutAHalfSpecificRule()
+    {
+        const decimal baseBlock = 25m;
+        const decimal increasedBlock = 65m;
+        var raw = baseBlock * (1m + increasedBlock / 100m);
+
+        var result = calculator.CalculateDefensiveQ20(
+            parser.Parse(BlockItem(41m)),
+            Base(block: 25),
+            [Effect(ItemPropertyTarget.Block, ItemPropertyOperation.IncreasedPercent, increasedBlock)]);
+
+        var block = Assert.Single(result.Properties);
+        Assert.Equal(41.25m, raw);
+        Assert.Equal(41m, block.Value);
+        Assert.Null(block.UnsupportedReason);
+    }
+
+    [Fact]
+    public void BlockFinalValueAppliesLocalAddedBeforeLocalIncreased()
+    {
+        var result = calculator.CalculateDefensiveQ20(
+            parser.Parse(BlockItem(40m)),
+            Base(block: 25),
+            [Effect(ItemPropertyTarget.Block, ItemPropertyOperation.Added, 3m),
+             Effect(ItemPropertyTarget.Block, ItemPropertyOperation.IncreasedPercent, 45m)]);
+
+        var block = Assert.Single(result.Properties);
+        Assert.Equal(40.6m, (25m + 3m) * 1.45m);
+        Assert.Equal(40m, block.Value);
+        Assert.Equal(3m, block.LocalAdded);
+        Assert.Equal(45m, block.LocalIncreasedPercent);
+        Assert.Null(block.UnsupportedReason);
+    }
+
+    [Fact]
+    public void BlockIgnoresSpellRecoveryGlobalAndConditionalBlockEffects()
+    {
+        var result = calculator.CalculateDefensiveQ20(
+            parser.Parse(BlockItem(36m)),
+            Base(block: 25),
+            [Effect(ItemPropertyTarget.Block, ItemPropertyOperation.IncreasedPercent, 45m),
+             UnrelatedEffect("base_spell_block_chance_+%"),
+             UnrelatedEffect("base_block_recovery_+%"),
+             UnrelatedEffect("base_stun_recovery_+%"),
+             UnrelatedEffect("base_block_chance_+%"),
+             UnrelatedEffect("base_block_chance_+%_while_on_low_life")]);
+
+        var block = Assert.Single(result.Properties);
+        Assert.Equal(36m, block.Value);
+        Assert.Equal(45m, block.LocalIncreasedPercent);
+        Assert.Single(block.ModifierContributions);
+        Assert.Null(block.UnsupportedReason);
+    }
+
+    [Fact]
     public async Task Ward_RemainsExactDisplayedValueWithoutUnprovenQ20Label()
     {
         var item = parser.Parse(Item("Ward", 112, quality: 20));
@@ -225,6 +320,16 @@ public sealed class DerivedDefensivePropertyCalculatorTests
             },
         };
 
+    private static DerivedWeaponModifierEffect UnrelatedEffect(string statId) => new()
+    {
+        ComponentId = statId,
+        IsExactlyResolved = true,
+        IsLocal = false,
+        HasProvenStatAssociation = true,
+        ResolvedStatIds = [statId],
+        CanonicalNumericValues = [10m],
+    };
+
     private static ItemBaseRecord Base(
         (int Min, int Max)? armour = null,
         (int Min, int Max)? evasion = null,
@@ -256,6 +361,17 @@ public sealed class DerivedDefensivePropertyCalculatorTests
         --------
         Quality: +{{quality}}%
         {{property}}: {{value}}
+        --------
+        Item Level: 85
+        """;
+
+    private static string BlockItem(decimal value) => $$"""
+        Item Class: Shields
+        Rarity: Rare
+        Test Block Shield
+        Golden Buckler
+        --------
+        Chance to Block: {{value}}%
         --------
         Item Level: 85
         """;

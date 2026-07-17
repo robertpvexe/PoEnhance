@@ -439,9 +439,7 @@ internal sealed class PriceCheckerSearchController
         var property = currentDraft.ItemProperties[itemPropertyIndex];
         var next = property with
         {
-            RequestedMinimum = minimum.IsValid && minimum.Value.HasValue
-                ? minimum.Value.Value
-                : property.RequestedMinimum,
+            RequestedMinimum = minimum.IsValid ? minimum.Value : property.RequestedMinimum,
             RequestedMaximum = maximum.IsValid
                 ? maximum.Value
                 : property.RequestedMaximum,
@@ -1880,8 +1878,7 @@ internal sealed class PriceCheckerSearchController
 
     private static bool HasInvalidItemPropertyBoundInput(ModifierBoundInput input)
     {
-        var minimum = ParseBound(input.MinimumText);
-        return !minimum.IsValid || !minimum.Value.HasValue || !ParseBound(input.MaximumText).IsValid;
+        return !ParseBound(input.MinimumText).IsValid || !ParseBound(input.MaximumText).IsValid;
     }
 
     private static string FormatBound(decimal? value) => value?.ToString("G29", CultureInfo.InvariantCulture) ?? string.Empty;

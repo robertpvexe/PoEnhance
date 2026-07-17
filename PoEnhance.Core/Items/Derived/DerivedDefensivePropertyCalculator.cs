@@ -30,6 +30,8 @@ public sealed partial class DerivedWeaponPropertyCalculator
     internal static decimal RoundDefence(decimal value) =>
         decimal.Round(value, 0, MidpointRounding.AwayFromZero);
 
+    internal static decimal FloorFinalBlockChance(decimal value) => decimal.Floor(value);
+
     private static void AddQualityNormalized(
         ICollection<DerivedDefensiveProperty> results,
         ParsedItem parsedItem,
@@ -130,7 +132,7 @@ public sealed partial class DerivedWeaponPropertyCalculator
         {
             unsupported ??= "The resolved item base has no exact sourced item-local Chance to Block.";
         }
-        else if (RoundDefence(
+        else if (FloorFinalBlockChance(
                      (baseBlock + contributions.Added) *
                      (1m + contributions.IncreasedPercent / 100m)) != observed)
         {

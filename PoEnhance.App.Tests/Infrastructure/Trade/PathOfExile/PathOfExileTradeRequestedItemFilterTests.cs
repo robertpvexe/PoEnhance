@@ -17,13 +17,13 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         var catalog = RequestedCatalog();
 
         Assert.Equal(
-            ["ilvl", "quality", "links"],
+            ["ilvl", "quality", "links", "sockets"],
             catalog.NumericFilterDefinitions
                 .Where(definition => definition.GroupId is "misc_filters" or "socket_filters")
                 .Select(definition => definition.FilterId));
         Assert.All(
             catalog.NumericFilterDefinitions.Where(definition =>
-                definition.FilterId is "ilvl" or "quality" or "links"),
+                definition.FilterId is "ilvl" or "quality" or "links" or "sockets"),
             definition => Assert.True(definition.SupportsMinMax));
     }
 
@@ -31,6 +31,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     [InlineData(TradeSearchRequestedItemFilterKind.ItemLevel, "misc_filters", "ilvl", 75)]
     [InlineData(TradeSearchRequestedItemFilterKind.Quality, "misc_filters", "quality", 5)]
     [InlineData(TradeSearchRequestedItemFilterKind.Links, "socket_filters", "links", 3)]
+    [InlineData(TradeSearchRequestedItemFilterKind.Sockets, "socket_filters", "sockets", 6)]
     public void Build_OneActiveRequestedFilterSerializesMinimumWithoutMaximum(
         TradeSearchRequestedItemFilterKind kind,
         string groupId,
@@ -51,6 +52,56 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(value, minimumValue);
     }
 
+    [Theory]
+    [InlineData(TradeSearchRequestedItemFilterKind.ItemLevel, "misc_filters", "ilvl")]
+    [InlineData(TradeSearchRequestedItemFilterKind.Quality, "misc_filters", "quality")]
+    [InlineData(TradeSearchRequestedItemFilterKind.Links, "socket_filters", "links")]
+    [InlineData(TradeSearchRequestedItemFilterKind.Sockets, "socket_filters", "sockets")]
+    public void Build_ActiveEmptyRequestedFilterIsOmittedWithoutBlocking(
+        TradeSearchRequestedItemFilterKind kind,
+        string groupId,
+        string filterId)
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        var draft = ResolveRequested(source with
+        {
+            RequestedItemFilters = source.RequestedItemFilters
+                .Select(filter => filter.Kind == kind
+                    ? filter with
+                    {
+                        IsActive = true,
+                        CurrentText = "   ",
+                        RequestedMinimum = null,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
+                        DiagnosticReason = null,
+                    }
+                    : filter)
+                .ToImmutableArray(),
+        }, catalog);
+
+        var validation = new TradeSearchDraftValidator().Validate(draft);
+        var mapping = new PathOfExileTradeRequestedItemFilterResolver().MapSelected(draft, catalog);
+        var result = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            validation,
+            League,
+            selectedModifierFilters: [],
+            providerItemIdentity: null,
+            providerFilterCatalog: catalog,
+            selectedItemPropertyFilters: [],
+            selectedRequestedItemFilters: mapping.Filters);
+
+        Assert.True(validation.IsValid);
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        Assert.False(filters.TryGetProperty(groupId, out var group) &&
+            group.GetProperty("filters").TryGetProperty(filterId, out _));
+    }
+
     [Fact]
     public void Build_AllRequestedFiltersCoexistWithCategoryAndPhysicalDpsWithoutSocketColours()
     {
@@ -67,7 +118,8 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                 WithRequestedFilters(source,
                     (TradeSearchRequestedItemFilterKind.ItemLevel, 85),
                     (TradeSearchRequestedItemFilterKind.Quality, 28),
-                    (TradeSearchRequestedItemFilterKind.Links, 3)) with
+                    (TradeSearchRequestedItemFilterKind.Links, 3),
+                    (TradeSearchRequestedItemFilterKind.Sockets, 5)) with
                 {
                     SocketText = "G-R-R W-B",
                 },
@@ -92,6 +144,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(document, "misc_filters", "ilvl", 85);
         AssertMinimumOnly(document, "misc_filters", "quality", 28);
         AssertMinimumOnly(document, "socket_filters", "links", 3);
+        AssertMinimumOnly(document, "socket_filters", "sockets", 5);
         Assert.DoesNotContain("G-R-R", result.SerializedJson, StringComparison.Ordinal);
         Assert.DoesNotContain("socket_count", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("socket_colors", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
@@ -121,7 +174,8 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                 },
                 (TradeSearchRequestedItemFilterKind.ItemLevel, 85),
                 (TradeSearchRequestedItemFilterKind.Quality, 20),
-                (TradeSearchRequestedItemFilterKind.Links, 3)),
+                (TradeSearchRequestedItemFilterKind.Links, 3),
+                (TradeSearchRequestedItemFilterKind.Sockets, 5)),
             catalog);
         var selectedModifier = new PathOfExileTradeSelectedModifierFilter
         {
@@ -143,6 +197,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(document, "misc_filters", "ilvl", 85);
         AssertMinimumOnly(document, "misc_filters", "quality", 20);
         AssertMinimumOnly(document, "socket_filters", "links", 3);
+        AssertMinimumOnly(document, "socket_filters", "sockets", 5);
     }
 
     [Fact]
@@ -225,6 +280,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                         TradeSearchRequestedItemFilterKind.ItemLevel => "Item Level",
                         TradeSearchRequestedItemFilterKind.Quality => "Quality",
                         TradeSearchRequestedItemFilterKind.Links => "Links",
+                        TradeSearchRequestedItemFilterKind.Sockets => "Sockets",
                         _ => kind.ToString(),
                     },
                     ObservedValue = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0,
@@ -303,7 +359,8 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                   "id": "socket_filters",
                   "title": "Sockets",
                   "filters": [
-                    { "id": "links", "text": "Link Groups", "minMax": true }
+                    { "id": "links", "text": "Link Groups", "minMax": true },
+                    { "id": "sockets", "text": "Sockets", "minMax": true }
                   ]
                 }
               ]

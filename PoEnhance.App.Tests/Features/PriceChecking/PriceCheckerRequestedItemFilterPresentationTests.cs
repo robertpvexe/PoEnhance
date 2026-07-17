@@ -12,24 +12,30 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerRequestedItemFilterPresentationTests
 {
     [Fact]
-    public void WindowXaml_OrdersCompactResponsiveHeaderAndKeepsSocketsInformationalLast()
+    public void WindowXaml_OrdersCompactHeaderWithEditableSocketsColoursAndBaseRollLast()
     {
         var xaml = LoadWindowXaml();
         var header = ExtractElement(xaml, "<WrapPanel Grid.Row=\"1\"", "</WrapPanel>");
         var itemLevel = header.IndexOf("ItemLevelFilterBorder", StringComparison.Ordinal);
         var quality = header.IndexOf("QualityFilterBorder", StringComparison.Ordinal);
         var links = header.IndexOf("LinksFilterBorder", StringComparison.Ordinal);
-        var sockets = header.IndexOf("SocketMetadataText", StringComparison.Ordinal);
+        var sockets = header.IndexOf("SocketFilterBorder", StringComparison.Ordinal);
+        var colours = header.IndexOf("SocketMetadataText", StringComparison.Ordinal);
+        var baseRoll = header.IndexOf("BaseRollMetadataText", StringComparison.Ordinal);
 
-        Assert.True(itemLevel >= 0 && itemLevel < quality && quality < links && links < sockets);
+        Assert.True(itemLevel >= 0 && itemLevel < quality && quality < links && links < sockets &&
+            sockets < colours && colours < baseRoll);
         Assert.Contains("Text=\"Item Level:\"", header);
         Assert.Contains("Text=\"Quality:\"", header);
         Assert.Contains("Text=\"Links:\"", header);
+        Assert.Contains("Text=\"Sockets:\"", header);
         Assert.DoesNotContain("CheckBox", header);
-        Assert.Equal(3, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
-        Assert.Equal(3, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, header.Split("Margin=\"0,0,8,0\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("<TextBlock x:Name=\"SocketMetadataText\"", header);
-        Assert.DoesNotContain("TextBox", header[sockets..]);
+        Assert.Contains("<TextBlock x:Name=\"BaseRollMetadataText\"", header);
+        Assert.DoesNotContain("TextBox", header[colours..]);
     }
 
     [Fact]
@@ -173,6 +179,72 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         });
     }
 
+    [Fact]
+    public void WindowRuntime_SocketCountUsesRequestedFilterInteractionAndColoursRemainInformational()
+    {
+        RunOnSta(() =>
+        {
+            var window = new PriceCheckerWindow { ShowActivated = true };
+            var activations = new List<PriceCheckerRequestedItemFilterActivationChangedEventArgs>();
+            var values = new List<PriceCheckerRequestedItemFilterValueChangedEventArgs>();
+            window.RequestedItemFilterActivationChanged += (_, e) => activations.Add(e);
+            window.RequestedItemFilterValueChanged += (_, e) => values.Add(e);
+            window.UpdateContent(State(Draft()));
+            window.Show();
+            window.UpdateLayout();
+
+            var border = Assert.IsType<Border>(window.FindName("SocketFilterBorder"));
+            var label = Assert.IsType<TextBlock>(Assert.IsType<StackPanel>(border.Child).Children[0]);
+            var textBox = Assert.IsType<TextBox>(window.FindName("SocketFilterTextBox"));
+            var colours = Assert.IsType<TextBlock>(window.FindName("SocketMetadataText"));
+            var baseRoll = Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText"));
+
+            Assert.Equal("5", textBox.Text);
+            Assert.Equal("· G-R-R G-B", colours.Text);
+            Assert.Equal("Base Roll: 83%", baseRoll.Text);
+            Assert.False(colours.Focusable);
+            Assert.False(baseRoll.Focusable);
+
+            RaisePreviewLeftClick(label);
+            var toggle = Assert.Single(activations);
+            Assert.Equal(TradeSearchRequestedItemFilterKind.Sockets, toggle.Kind);
+            Assert.True(toggle.IsActive);
+
+            textBox.Focus();
+            textBox.Text = "6";
+            var edit = Assert.Single(values);
+            Assert.Equal(TradeSearchRequestedItemFilterKind.Sockets, edit.Kind);
+            Assert.Equal("6", edit.Text);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void WindowRuntime_MissingSocketAndBaseRollFactsAreNotFabricated()
+    {
+        RunOnSta(() =>
+        {
+            var draft = Draft();
+            var window = new PriceCheckerWindow();
+            window.UpdateContent(State(draft with
+            {
+                SocketText = null,
+                BaseRollPercentile = null,
+                RequestedItemFilters = draft.RequestedItemFilters
+                    .Where(filter => filter.Kind != TradeSearchRequestedItemFilterKind.Sockets)
+                    .ToImmutableArray(),
+            }));
+
+            Assert.Equal(Visibility.Collapsed,
+                Assert.IsType<Border>(window.FindName("SocketFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Collapsed,
+                Assert.IsType<TextBlock>(window.FindName("SocketMetadataText")).Visibility);
+            Assert.Equal(Visibility.Collapsed,
+                Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText")).Visibility);
+        });
+    }
+
     [Theory]
     [InlineData("", true)]
     [InlineData("123", true)]
@@ -208,12 +280,14 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
     {
         DisplayName = "Header Test",
         ParsedBaseType = "Reaver Axe",
-        SocketText = "G-R-R",
+        SocketText = "G-R-R G-B",
+        BaseRollPercentile = 82.5m,
         RequestedItemFilters =
         [
             Requested(TradeSearchRequestedItemFilterKind.ItemLevel, "Item Level", 85),
             Requested(TradeSearchRequestedItemFilterKind.Quality, "Quality", 0),
             Requested(TradeSearchRequestedItemFilterKind.Links, "Links", 3),
+            Requested(TradeSearchRequestedItemFilterKind.Sockets, "Sockets", 5),
         ],
     };
 

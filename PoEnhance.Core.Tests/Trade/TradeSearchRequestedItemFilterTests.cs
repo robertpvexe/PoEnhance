@@ -10,7 +10,7 @@ public sealed class TradeSearchRequestedItemFilterTests
     private readonly TradeSearchDraftMapper mapper = new();
 
     [Fact]
-    public void CreateDraft_ProjectsRequestedHeaderFiltersInCanonicalOrderWithInformationalSockets()
+    public void CreateDraft_ProjectsRequestedHeaderFiltersInCanonicalOrderWithEditableSocketCount()
     {
         var draft = CreateDraft("""
             Item Class: One Hand Axes
@@ -28,12 +28,23 @@ public sealed class TradeSearchRequestedItemFilterTests
                 TradeSearchRequestedItemFilterKind.ItemLevel,
                 TradeSearchRequestedItemFilterKind.Quality,
                 TradeSearchRequestedItemFilterKind.Links,
+                TradeSearchRequestedItemFilterKind.Sockets,
             ],
             draft.RequestedItemFilters.Select(filter => filter.Kind));
-        Assert.Equal([85, 0, 3], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
-        Assert.Equal(["85", "0", "3"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
+        Assert.Equal([85, 0, 3, 5], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
+        Assert.Equal(["85", "0", "3", "5"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
         Assert.All(draft.RequestedItemFilters, filter => Assert.False(filter.IsActive));
         Assert.Equal("G-R-R G-B", draft.SocketText);
+    }
+
+    [Fact]
+    public void CreateDraft_MissingSocketDataDoesNotFabricateSocketCountOrColours()
+    {
+        var draft = CreateDraft(ItemWithProperty("Quality: +20% (augmented)"));
+
+        Assert.DoesNotContain(draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.Sockets);
+        Assert.Null(draft.SocketText);
     }
 
     [Theory]
@@ -84,11 +95,10 @@ public sealed class TradeSearchRequestedItemFilterTests
     }
 
     [Theory]
-    [InlineData("")]
     [InlineData("-1")]
     [InlineData("1.5")]
     [InlineData("１２")]
-    public void ParseRequestedText_InvalidOrEmptyInputRetainsTextAndHasNoRequestedMinimum(string text)
+    public void ParseRequestedText_InvalidInputRetainsTextAndHasNoRequestedMinimum(string text)
     {
         var source = Filter(CreateDraft(ItemWithProperty("Quality: +20% (augmented)")),
             TradeSearchRequestedItemFilterKind.Quality);
@@ -98,7 +108,40 @@ public sealed class TradeSearchRequestedItemFilterTests
         Assert.Equal(text, result.CurrentText);
         Assert.Null(result.RequestedMinimum);
         Assert.True(result.IsActive);
-        Assert.NotEqual(TradeSearchRequestedItemFilterValidationStatus.Valid, result.LocalValidationStatus);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Invalid, result.LocalValidationStatus);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ParseRequestedText_EmptyInputIsAnOptionalActiveConstraint(string text)
+    {
+        var source = Filter(CreateDraft(ItemWithProperty("Quality: +20% (augmented)")),
+            TradeSearchRequestedItemFilterKind.Quality);
+
+        var result = TradeSearchDraftMapper.ParseRequestedItemFilterText(source, text, isActive: true);
+
+        Assert.True(result.IsActive);
+        Assert.Equal(text, result.CurrentText);
+        Assert.Null(result.RequestedMinimum);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Empty, result.LocalValidationStatus);
+        Assert.Null(result.DiagnosticReason);
+    }
+
+    [Fact]
+    public void Validate_ActiveEmptyRequestedFilterDoesNotBlockSearch()
+    {
+        var draft = CreateDraft(ItemWithProperty("Quality: +20% (augmented)"));
+        var quality = TradeSearchDraftMapper.ParseRequestedItemFilterText(
+            Filter(draft, TradeSearchRequestedItemFilterKind.Quality),
+            "",
+            isActive: true);
+
+        var result = new TradeSearchDraftValidator().Validate(Replace(draft, quality));
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code ==
+            TradeSearchValidationDiagnosticCodes.RequestedItemFilterInvalid);
     }
 
     [Fact]
@@ -114,7 +157,7 @@ public sealed class TradeSearchRequestedItemFilterTests
         var activeUnsupported = Replace(draft, quality with { IsActive = true });
         var activeInvalid = Replace(draft, TradeSearchDraftMapper.ParseRequestedItemFilterText(
             quality,
-            "",
+            "not-a-number",
             isActive: true));
 
         Assert.DoesNotContain(

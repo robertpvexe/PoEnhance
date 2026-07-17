@@ -92,6 +92,99 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
     }
 
     [Theory]
+    [InlineData(TradeSearchItemPropertyKind.Armour, "ar")]
+    [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
+    public void Build_SelectedEmptyDefensiveParentIsOmittedWithoutBlocking(
+        TradeSearchItemPropertyKind kind,
+        string filterId)
+    {
+        var property = PathOfExileTradeItemPropertyTestFixtures.Property(kind, 123m, selected: true) with
+        {
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var (draft, filters) = ResolvedDefensiveSelection(property);
+
+        var result = Build(draft, filters);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(filters);
+        Assert.DoesNotContain($"\"{filterId}\"", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_SelectedEmptyEvasionParentIsOmittedWhileSelectedChildSerializesOnce()
+    {
+        var evasion = PathOfExileTradeItemPropertyTestFixtures.Property(
+            TradeSearchItemPropertyKind.EvasionRating,
+            900m,
+            selected: true) with
+        {
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var (resolved, filters) = ResolvedDefensiveSelection(evasion);
+        var draft = resolved with { ModifierFilters = [SelectedModifier(0)] };
+
+        var result = Build(
+            draft,
+            filters,
+            [SelectedModifierFilter(0, "explicit.test_defensive_child")]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(filters);
+        Assert.DoesNotContain("\"ev\"", result.SerializedJson, StringComparison.Ordinal);
+        Assert.Equal("explicit.test_defensive_child",
+            Assert.Single(StatFilters(result)).GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public void Build_SelectedDefensiveParentWithOnlyMaximumSerializesMaximumOnly()
+    {
+        var property = PathOfExileTradeItemPropertyTestFixtures.Property(
+            TradeSearchItemPropertyKind.EvasionRating,
+            900m,
+            selected: true,
+            maximum: 456m) with
+        {
+            RequestedMinimum = null,
+        };
+        var (draft, filters) = ResolvedDefensiveSelection(property);
+
+        var value = ArmourFilter(Build(draft, filters), "ev");
+
+        Assert.False(value.TryGetProperty("min", out _));
+        Assert.Equal(456m, value.GetProperty("max").GetDecimal());
+    }
+
+    [Fact]
+    public void Build_SeveralSelectedEmptyParentsProduceNoEmptyProviderObjects()
+    {
+        var (draft, filters) = ResolvedDefensiveSelection(
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.Armour, 1000m, selected: true) with
+            {
+                RequestedMinimum = null,
+            },
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.EvasionRating, 900m, selected: true) with
+            {
+                RequestedMinimum = null,
+            },
+            PathOfExileTradeItemPropertyTestFixtures.Property(
+                TradeSearchItemPropertyKind.ChanceToBlock, 25m, selected: true) with
+            {
+                RequestedMinimum = null,
+            });
+
+        var result = Build(draft, filters);
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(filters);
+        Assert.DoesNotContain("armour_filters", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(TradeSearchItemPropertyKind.EvasionRating, "ev")]
     [InlineData(TradeSearchItemPropertyKind.ChanceToBlock, "block")]
     public void Build_DefensiveParentAndIndependentChildStatCoexistWithoutDuplication(
