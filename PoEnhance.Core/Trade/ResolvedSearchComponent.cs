@@ -46,6 +46,8 @@ public sealed record ResolvedSearchComponent
 
     public bool IsVeiled { get; init; }
 
+    public bool IsUnveiled { get; init; }
+
     public bool IsBaseImplicit { get; init; }
 
     public string? GuaranteedExactBaseName { get; init; }
@@ -74,7 +76,11 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<decimal> ObservedNumericValues { get; init; } = [];
 
+    public IReadOnlyList<ModifierSourceRollRange> OriginalSourceRollRanges { get; init; } = [];
+
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
+
+    public string? ProviderCanonicalSignature { get; init; }
 
     public IReadOnlyList<IReadOnlyList<string>> ValueBoundTranslationHandlers { get; init; } = [];
 

@@ -222,6 +222,9 @@ Item Level: 84
 
         var veiledPrefix = Assert.Single(result.PrefixModifiers, modifier => modifier.Name == "Chosen");
         Assert.True(veiledPrefix.IsVeiled);
+        Assert.True(veiledPrefix.IsNamedUnveiled);
+        Assert.False(veiledPrefix.IsUnrevealedVeiledPlaceholder);
+        Assert.Equal(ParsedVeiledModifierState.NamedUnveiled, veiledPrefix.VeiledState);
         Assert.Equal(1, veiledPrefix.Rank);
         Assert.Equal(ParsedModifierKind.Prefix, veiledPrefix.Kind);
     }
@@ -463,6 +466,79 @@ Veiled Prefix
         Assert.Equal("Chosen", modifier.Name);
         Assert.Equal("{ Prefix Modifier \"Chosen\" }", modifier.RawMetadataLine);
         Assert.True(modifier.IsVeiled);
+        Assert.True(modifier.IsUnrevealedVeiledPlaceholder);
+        Assert.False(modifier.IsNamedUnveiled);
+        Assert.Equal(ParsedVeiledModifierState.UnrevealedPlaceholder, modifier.VeiledState);
+    }
+
+    [Fact]
+    public void Parse_Zf2080KrakenTorc_RetainsAnointAndVeiledSuffixWithoutGuessingIdentity()
+    {
+        const string rawText = """
+Item Class: Amulets
+Rarity: Rare
+Kraken Torc
+Coral Amulet
+--------
+Item Level: 85
+--------
+Allocates Blast Waves (enchant)
+--------
+{ Implicit Modifier — Life }
+Regenerate 4(2-4) Life per second
+--------
+{ Suffix Modifier "of the Veil" }
+Veiled Suffix
+""";
+
+        var result = _parser.Parse(rawText);
+
+        var anoint = Assert.Single(result.Enchantments);
+        Assert.True(anoint.IsAnoint);
+        Assert.Equal("Allocates Blast Waves (enchant)", anoint.Text);
+        var veiled = Assert.Single(result.Modifiers, modifier => modifier.IsVeiled);
+        Assert.Equal(ParsedModifierKind.Suffix, veiled.Kind);
+        Assert.Equal("Veiled Suffix", veiled.Text);
+        Assert.Equal("of the Veil", veiled.Name);
+        Assert.False(veiled.IsFractured);
+        Assert.True(veiled.IsUnrevealedVeiledPlaceholder);
+        Assert.False(veiled.IsNamedUnveiled);
+    }
+
+    [Fact]
+    public void Parse_Zf2049PainRoad_RetainsEldritchAndFracturedProvenanceSeparately()
+    {
+        const string rawText = """
+Item Class: Boots
+Rarity: Rare
+Pain Road
+Crusader Boots
+--------
+Item Level: 86
+--------
+{ Searing Exarch Implicit Modifier (Lesser) — Elemental, Lightning, Ailment }
+35(33-35)% chance to Avoid being Shocked
+{ Eater of Worlds Implicit Modifier (Lesser) — Elemental, Fire, Cold, Lightning, Ailment }
+17(15-17)% chance to Avoid Elemental Ailments
+--------
+{ Fractured Prefix Modifier "Robust" (Tier: 4) — Life }
++84(70-84) to maximum Life
+Searing Exarch Item
+Eater of Worlds Item
+--------
+Fractured Item
+""";
+
+        var result = _parser.Parse(rawText);
+
+        Assert.Contains("Fractured Item", result.ItemStates);
+        Assert.Equal(["Searing Exarch Item", "Eater of Worlds Item"], result.EldritchInfluences);
+        var fractured = Assert.Single(result.Modifiers, modifier => modifier.IsFractured);
+        Assert.Equal(ParsedModifierKind.Prefix, fractured.Kind);
+        Assert.Equal("Robust", fractured.Name);
+        Assert.False(fractured.IsVeiled);
+        Assert.Equal(2, result.Modifiers.Count(modifier =>
+            modifier.Kind == ParsedModifierKind.Implicit));
     }
 
     [Fact]

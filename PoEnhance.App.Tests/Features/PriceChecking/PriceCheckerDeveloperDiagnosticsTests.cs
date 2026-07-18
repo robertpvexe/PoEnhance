@@ -1,9 +1,30 @@
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Features.PriceChecking;
 
 public sealed class PriceCheckerDeveloperDiagnosticsTests
 {
+    [Fact]
+    public void UserFacingDiagnosticsHideOnlyTechnicalAggregationSkipInformation()
+    {
+        var snapshot = new PriceCheckerDeveloperDiagnosticsSnapshot(
+            "Success",
+            [
+                new PriceCheckerDeveloperDiagnostic(
+                    TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped,
+                    "Internal aggregation explanation."),
+                new PriceCheckerDeveloperDiagnostic(
+                    TradeSearchDraftDiagnosticCodes.UnsupportedInput,
+                    "Actionable aggregation error."),
+            ]);
+
+        Assert.Equal(2, snapshot.Diagnostics.Count);
+        var userFacing = Assert.Single(snapshot.UserFacingDiagnostics);
+        Assert.Equal(TradeSearchDraftDiagnosticCodes.UnsupportedInput, userFacing.Code);
+        Assert.Equal(userFacing, snapshot.LatestUserFacingDiagnostic);
+    }
+
     [Fact]
     public void DiagnosticsXaml_DefinesASeparateNonActivatingTopLevelToolWindow()
     {

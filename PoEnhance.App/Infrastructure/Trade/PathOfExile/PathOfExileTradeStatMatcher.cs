@@ -47,7 +47,10 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 "A resolved search component is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(component.CanonicalSignature))
+        var providerSignature = string.IsNullOrWhiteSpace(component.ProviderCanonicalSignature)
+            ? component.CanonicalSignature
+            : component.ProviderCanonicalSignature;
+        if (string.IsNullOrWhiteSpace(providerSignature))
         {
             return InvalidInput(
                 PathOfExileTradeStatMatchDiagnosticCodes.BlankModifierText,
@@ -56,7 +59,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
         var normalization = new PathOfExileTradeStatModifierNormalization
         {
-            NormalizedTemplate = ToProviderTemplate(component.CanonicalSignature),
+            NormalizedTemplate = ToProviderTemplate(providerSignature),
             ExtractedNumericValues = [],
         };
         var source = StatMatchSource.FromResolvedComponent(component);

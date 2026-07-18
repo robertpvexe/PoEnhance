@@ -761,8 +761,14 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             };
         }
 
+        if (IsUnrevealedVeiledPlaceholder(component))
+        {
+            return ResolveVeiledPresence(component, catalog);
+        }
+
         if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
-            catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry))
+            catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry) &&
+            HasExpectedSpecialProviderKind(component, previouslyResolvedEntry))
         {
             if (component.ParsedKind == ParsedModifierKind.Unique &&
                 component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact)
@@ -798,6 +804,19 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             };
         }
 
+        else if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            ExpectedSpecialProviderKind(component) is not null)
+        {
+            component = component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
+            };
+        }
+
         if (IsGuaranteedByActiveExactBase(draft, component))
         {
             return component with
@@ -812,7 +831,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
         if (component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.NotResolved)
         {
-            return component.IsSelected && CanUseAvailableExactBaseFallback(draft, component)
+            return CanUseAvailableExactBaseFallback(draft, component)
                 ? component with
                 {
                     ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
@@ -841,8 +860,19 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component,
             catalog,
             CreateMatchContext(draft, component));
-        if (component.IsSelected &&
-            match.Status == PathOfExileTradeStatMatchStatus.NotFound &&
+        if (component.IsFractured && match.Status != PathOfExileTradeStatMatchStatus.Exact)
+        {
+            var ordinaryProjection = component with { IsFractured = false };
+            var ordinaryMatch = statMatcher.Match(
+                ordinaryProjection,
+                catalog,
+                CreateMatchContext(draft, ordinaryProjection));
+            if (ordinaryMatch.Status == PathOfExileTradeStatMatchStatus.Exact)
+            {
+                match = ordinaryMatch;
+            }
+        }
+        if (match.Status == PathOfExileTradeStatMatchStatus.NotFound &&
             CanUseAvailableExactBaseFallback(draft, component))
         {
             return component with
@@ -870,6 +900,16 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             !string.Equals(
                 PathOfExileTradeStatCandidateClassifier.GetProviderKind(match.ExactCandidate!),
                 "explicit",
+                StringComparison.Ordinal))
+        {
+            providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
+        }
+        var expectedSpecialProviderKind = ExpectedSpecialProviderKind(component);
+        if (expectedSpecialProviderKind is not null &&
+            providerStatus == SearchComponentProviderResolutionStatus.Exact &&
+            !string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(match.ExactCandidate!),
+                expectedSpecialProviderKind,
                 StringComparison.Ordinal))
         {
             providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
@@ -947,6 +987,67 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
             (component.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn ||
                 uniqueIdentity.Foulborn == TradeTriState.Yes);
+    }
+
+    private static bool HasExpectedSpecialProviderKind(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatEntry entry)
+    {
+        var expected = ExpectedSpecialProviderKind(component);
+        return expected is null || string.Equals(
+            PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(entry)),
+            expected,
+            StringComparison.Ordinal);
+    }
+
+    private static string? ExpectedSpecialProviderKind(ResolvedSearchComponent component)
+    {
+        return component.IsVeiled ? "veiled" : null;
+    }
+
+    private static bool IsUnrevealedVeiledPlaceholder(ResolvedSearchComponent component)
+    {
+        return component.IsVeiled &&
+            component.ParsedKind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix &&
+            (component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
+                string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
+                component.ResolvedStatIds.Count == 0);
+    }
+
+    private static ResolvedSearchComponent ResolveVeiledPresence(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        if (PathOfExileTradeVeiledPresenceResolver.TryResolve(catalog, out var candidate))
+        {
+            return PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedPresenceExact(
+                component,
+                candidate);
+        }
+
+        const string reason =
+            "The current Trade stat catalog does not expose one unambiguous general Veiled presence filter.";
+        return component with
+        {
+            IsSearchable = false,
+            NotSearchableReason = reason,
+            SupportsValueBounds = false,
+            ValueBoundsUnsupportedReason = reason,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            FilterVariants = [],
+            SelectedFilterVariantIdentity = null,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderCandidateStatIds = [],
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            ProviderDiagnosticMessage = reason,
+            Contributors = [],
+        };
     }
 
     private static ResolvedSearchComponent MarkUnsafeMultiLineUnique(ResolvedSearchComponent component)
@@ -1081,6 +1182,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             IsCrafted = source.IsCrafted,
             IsFractured = source.IsFractured,
             IsVeiled = source.IsVeiled,
+            IsUnveiled = source.IsUnveiled,
             IsBaseImplicit = source.IsBaseImplicit,
             ResolutionStatus = string.IsNullOrWhiteSpace(source.ResolvedModifierId)
                 ? null
@@ -1094,7 +1196,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ModifierBoundShape.Scalar or ModifierBoundShape.ArithmeticMeanRange,
             ValueBoundShape = source.ValueBoundShape,
             ObservedNumericValues = source.ObservedNumericValues,
+            OriginalSourceRollRanges = source.OriginalSourceRollRanges,
             CanonicalNumericValues = source.CanonicalNumericValues,
+            ProviderCanonicalSignature = source.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = source.TranslationHandlers,
             ValueBoundTranslationIdentity = source.TranslationIdentity,
             DefaultBoundDirection = source.DefaultBoundDirection,

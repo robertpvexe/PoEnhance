@@ -4,6 +4,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -104,12 +105,17 @@ public sealed class PathOfExileTradeItemPropertyPriceCheckServiceTests
                     OriginalText = "+55 to maximum Life",
                     CanonicalSignature = "+<number> to maximum Life",
                     ParsedKind = ParsedModifierKind.Prefix,
+                    Locality = ModifierLocality.Global,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.life",
                     ResolvedStatIds = ["base_maximum_life"],
                     IsSearchable = true,
                     SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ObservedNumericValues = [55m],
+                    CanonicalNumericValues = [55m],
                     RequestedMinimum = 55m,
+                    ProviderDomainEvidence = [ExactExplicitEvidence("mod.life")],
                     IsSelected = true,
                 },
             ],
@@ -243,6 +249,7 @@ public sealed class PathOfExileTradeItemPropertyPriceCheckServiceTests
                     OriginalText = "+55 to maximum Life",
                     CanonicalSignature = "+<number> to maximum Life",
                     ParsedKind = ParsedModifierKind.Prefix,
+                    Locality = ModifierLocality.Global,
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.life",
                     ResolvedStatIds = ["base_maximum_life"],
@@ -251,7 +258,11 @@ public sealed class PathOfExileTradeItemPropertyPriceCheckServiceTests
                     ProviderStatId = "explicit.stat_life",
                     ProviderStatText = "+# to maximum Life",
                     SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ObservedNumericValues = [55m],
+                    CanonicalNumericValues = [55m],
                     RequestedMinimum = 55m,
+                    ProviderDomainEvidence = [ExactExplicitEvidence("mod.life")],
                     IsSelected = true,
                 },
             ],
@@ -280,6 +291,20 @@ public sealed class PathOfExileTradeItemPropertyPriceCheckServiceTests
             .GetProperty("id")
             .GetString());
         Assert.Single(filtersClient.Calls);
+    }
+
+    private static SearchComponentProviderDomainEvidence ExactExplicitEvidence(string modifierId)
+    {
+        return new SearchComponentProviderDomainEvidence
+        {
+            ProviderDomain = "Explicit",
+            ModifierId = modifierId,
+            GenerationType = ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Global,
+            IsSourceExact = true,
+            EvidenceStrength = 100,
+            ApplicabilityReason = "Exact provider-domain test evidence",
+        };
     }
 
     private static PathOfExileTradePriceCheckService CreateService(

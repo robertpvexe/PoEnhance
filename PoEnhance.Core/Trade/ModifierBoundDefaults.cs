@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using PoEnhance.Core.Items.GameData;
 using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Trade;
@@ -140,6 +141,10 @@ internal static partial class ModifierBoundDefaults
                 retainedHandlers)
             {
                 TranslationIdentity = translationIdentity,
+                ProviderCanonicalSignature = CreateProviderCanonicalSignature(
+                    translation,
+                    variant,
+                    numericIndexes),
             };
         }
 
@@ -162,6 +167,11 @@ internal static partial class ModifierBoundDefaults
             }
 
             var observed = observedValues[0];
+            if (direction == ModifierBoundDirection.Minimum && observed < 0m)
+            {
+                direction = ModifierBoundDirection.Maximum;
+            }
+
             var canonical = direction == ModifierBoundDirection.Maximum
                 ? -decimal.Abs(observed)
                 : observed;
@@ -175,6 +185,10 @@ internal static partial class ModifierBoundDefaults
                 retainedHandlers)
             {
                 TranslationIdentity = translationIdentity,
+                ProviderCanonicalSignature = CreateProviderCanonicalSignature(
+                    translation,
+                    variant,
+                    numericIndexes),
             };
         }
 
@@ -193,6 +207,10 @@ internal static partial class ModifierBoundDefaults
                 retainedHandlers)
             {
                 TranslationIdentity = translationIdentity,
+                ProviderCanonicalSignature = CreateProviderCanonicalSignature(
+                    translation,
+                    variant,
+                    numericIndexes),
             };
         }
 
@@ -263,6 +281,42 @@ internal static partial class ModifierBoundDefaults
             .Where(value => value.HasValue)
             .Select(value => value!.Value)
             .ToArray();
+    }
+
+    internal static IReadOnlyList<ModifierSourceRollRange> ExtractOriginalSourceRollRanges(
+        IEnumerable<string> sourceLines)
+    {
+        ArgumentNullException.ThrowIfNull(sourceLines);
+
+        var ranges = new List<ModifierSourceRollRange>();
+        foreach (var sourceLine in sourceLines)
+        {
+            if (string.IsNullOrWhiteSpace(sourceLine))
+            {
+                continue;
+            }
+
+            foreach (Match match in OriginalSourceRollRangeRegex().Matches(sourceLine))
+            {
+                if (!decimal.TryParse(
+                        match.Groups["minimum"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var minimum) ||
+                    !decimal.TryParse(
+                        match.Groups["maximum"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var maximum))
+                {
+                    return [];
+                }
+
+                ranges.Add(new ModifierSourceRollRange(minimum, maximum));
+            }
+        }
+
+        return ranges;
     }
 
     internal static IReadOnlyList<decimal> ExtractObservedValues(
@@ -350,7 +404,13 @@ internal static partial class ModifierBoundDefaults
                 translation,
                 variant,
                 translationStats,
-                componentStats))
+                componentStats) &&
+            !TranslationVariantMatchesOriginalRanges(
+                translation,
+                variant,
+                translationStats,
+                componentStats,
+                sourceLine))
         {
             return null;
         }
@@ -412,6 +472,43 @@ internal static partial class ModifierBoundDefaults
             translationStats,
             componentStats);
         return componentNumericIndexes.Length == allNumericIndexes.Length;
+    }
+
+    private static bool TranslationVariantMatchesOriginalRanges(
+        StatTranslationDefinition translation,
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat?> translationStats,
+        IReadOnlyList<ModifierStat> componentStats,
+        string sourceLine)
+    {
+        if (translation.StatIds.Count != variant.ValueFormats.Count ||
+            translation.StatIds.Count != variant.Conditions.Count ||
+            translation.StatIds.Count != translationStats.Count)
+        {
+            return false;
+        }
+
+        var numericIndexes = NumericIndexesForComponent(variant, translationStats, componentStats);
+        var ranges = ExtractOriginalSourceRollRanges([sourceLine]);
+        if (numericIndexes.Length == 0 || ranges.Count != numericIndexes.Length)
+        {
+            return false;
+        }
+
+        for (var position = 0; position < numericIndexes.Length; position++)
+        {
+            var index = numericIndexes[position];
+            var range = ranges[position];
+            if (!VariantConditionMatches(
+                    variant.Conditions[index],
+                    range.Minimum,
+                    range.Maximum))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static int[] NumericIndexesForComponent(
@@ -481,6 +578,65 @@ internal static partial class ModifierBoundDefaults
         return matches.Length == 1
             ? matches[0].Handlers.Select(handler => handler.Trim()).ToArray()
             : null;
+    }
+
+    private static string? CreateProviderCanonicalSignature(
+        StatTranslationDefinition translation,
+        StatTranslationVariant variant,
+        IReadOnlyList<int> numericIndexes)
+    {
+        var selectedSignature = RenderCanonicalSignature(variant);
+        var selectedReversesProviderOrder = numericIndexes.Any(index =>
+            HandlersFor(variant, index)?.Any(OrderReversingHandlers.Contains) == true);
+        if (!selectedReversesProviderOrder)
+        {
+            return selectedSignature;
+        }
+
+        var canonicalCandidates = translation.Variants
+            .Where(candidate => candidate.ValueFormats
+                .Select((format, index) => new { format, index })
+                .Where(entry => entry.format is "#" or "+#")
+                .Select(entry => entry.index)
+                .SequenceEqual(numericIndexes))
+            .Where(candidate => numericIndexes.All(index =>
+            {
+                var handlers = HandlersFor(candidate, index);
+                return handlers is not null && !handlers.Any(OrderReversingHandlers.Contains);
+            }))
+            .Select(RenderCanonicalSignature)
+            .Where(signature => !string.IsNullOrWhiteSpace(signature))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return canonicalCandidates.Length == 1 ? canonicalCandidates[0] : selectedSignature;
+    }
+
+    private static string? RenderCanonicalSignature(StatTranslationVariant variant)
+    {
+        if (variant.FormatLines.Count != 1 || variant.ValueFormats.Count == 0)
+        {
+            return null;
+        }
+
+        var rendered = variant.FormatLines[0];
+        for (var index = 0; index < variant.ValueFormats.Count; index++)
+        {
+            var replacement = variant.ValueFormats[index] switch
+            {
+                "#" => "<number>",
+                "+#" => "+<number>",
+                _ => string.Empty,
+            };
+            if (replacement.Length == 0 &&
+                rendered.Contains($"{{{index}}}", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            rendered = rendered.Replace($"{{{index}}}", replacement, StringComparison.Ordinal);
+        }
+
+        return ModifierTextSignatureNormalizer.NormalizeLine(rendered);
     }
 
     private static bool IsDamageRange(
@@ -600,6 +756,9 @@ internal static partial class ModifierBoundDefaults
     [GeneratedRegex(@"(?<![\w#])(?<roll>[\+\-]?\d+(?:\.\d+)?)\(\s*[\+\-]?\d+(?:\.\d+)?\s*[-–—]\s*[\+\-]?\d+(?:\.\d+)?\s*\)", RegexOptions.CultureInvariant)]
     private static partial Regex AttachedRangeRegex();
 
+    [GeneratedRegex(@"(?<![\w#])[\+\-]?\d+(?:\.\d+)?\(\s*(?<minimum>[\+\-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<maximum>[\+\-]?\d+(?:\.\d+)?)\s*\)", RegexOptions.CultureInvariant)]
+    private static partial Regex OriginalSourceRollRangeRegex();
+
     [GeneratedRegex(@"(?<![\w#])[\+\-]?\d+(?:\.\d+)?(?![\w#])", RegexOptions.CultureInvariant)]
     private static partial Regex NumberRegex();
 }
@@ -614,4 +773,6 @@ internal readonly record struct ModifierBoundDefaultResult(
     IReadOnlyList<IReadOnlyList<string>> TranslationHandlers)
 {
     public string? TranslationIdentity { get; init; }
+
+    public string? ProviderCanonicalSignature { get; init; }
 }

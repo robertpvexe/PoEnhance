@@ -695,7 +695,7 @@ public sealed class TradeSearchDraftMapper
                     itemBaseResolution,
                     catalog,
                     out var baseImplicitCandidate,
-                    out var matchedLineStats))
+                out var matchedLineStats))
             {
                 for (var index = 0; index < valueLines.Length; index++)
                 {
@@ -704,7 +704,7 @@ public sealed class TradeSearchDraftMapper
                         modifier,
                         resolution,
                         baseImplicitCandidate,
-                        [matchedLineStats[index]],
+                        matchedLineStats[index],
                         ModifierStatMappingProofStatus.ProvenExact,
                         sourceLineIndex: index,
                         sourceComponentIndex: index,
@@ -742,7 +742,8 @@ public sealed class TradeSearchDraftMapper
                 exactCandidate,
                 valueLines,
                 catalog,
-                out var exactMatchedLineStats))
+                preserveSingleLineProofSemantics: true,
+                out var exactMatchedLineStatGroups))
         {
             for (var index = 0; index < valueLines.Length; index++)
             {
@@ -751,7 +752,7 @@ public sealed class TradeSearchDraftMapper
                     modifier,
                     resolution,
                     exactCandidate,
-                    [exactMatchedLineStats[index]],
+                    exactMatchedLineStatGroups[index],
                     ModifierStatMappingProofStatus.ProvenExact,
                     sourceLineIndex: index,
                     sourceComponentIndex: index,
@@ -882,7 +883,8 @@ public sealed class TradeSearchDraftMapper
             Rank = modifier.Rank,
             IsCrafted = modifier.IsCrafted,
             IsFractured = modifier.IsFractured,
-            IsVeiled = modifier.IsVeiled,
+            IsVeiled = modifier.IsUnrevealedVeiledPlaceholder,
+            IsUnveiled = modifier.IsNamedUnveiled || IsUnveiledDomain(exactCandidate?.Domain),
             IsBaseImplicit = isBaseImplicit,
             GuaranteedExactBaseName = isBaseImplicit &&
                 !supportsValueBounds &&
@@ -911,7 +913,11 @@ public sealed class TradeSearchDraftMapper
                 : boundDefault.UnsupportedReason,
             ValueBoundShape = valueBoundShape,
             ObservedNumericValues = hasUnscalableValue ? [] : observedNumericValues,
+            OriginalSourceRollRanges = hasUnscalableValue
+                ? []
+                : ModifierBoundDefaults.ExtractOriginalSourceRollRanges(componentLines),
             CanonicalNumericValues = hasUnscalableValue ? [] : canonicalNumericValues,
+            ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,
             DefaultBoundDirection = defaultBoundDirection,
@@ -941,6 +947,11 @@ public sealed class TradeSearchDraftMapper
                     traditionalInfluences,
                     catalog),
             };
+    }
+
+    private static bool IsUnveiledDomain(string? domain)
+    {
+        return string.Equals(domain?.Trim(), "unveiled", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ItemPropertySemanticDescriptor? FindReviewedItemPropertySemantic(
@@ -994,7 +1005,7 @@ public sealed class TradeSearchDraftMapper
         ItemBaseResolutionResult? itemBaseResolution,
         GameDataCatalog? catalog,
         out ModifierDefinition candidate,
-        out IReadOnlyList<ModifierStat> matchedLineStats)
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats)
     {
         candidate = null!;
         matchedLineStats = [];
@@ -1014,11 +1025,17 @@ public sealed class TradeSearchDraftMapper
             .Select(modifierDefinition => new
             {
                 Candidate = modifierDefinition,
-                IsMatch = TryMatchStatsToParsedLines(
-                    modifierDefinition,
-                    valueLines,
-                    catalog,
-                    out var stats),
+                IsMatch = valueLines.Count == 1
+                    ? TryMatchPartialStatsToSingleParsedLine(
+                        modifierDefinition,
+                        valueLines[0],
+                        catalog,
+                        out var stats)
+                    : TryMatchIndividualStatsToParsedLinesUnordered(
+                        modifierDefinition,
+                        valueLines,
+                        catalog,
+                        out stats),
                 Stats = stats,
             })
             .Where(match => match.IsMatch)
@@ -1034,11 +1051,90 @@ public sealed class TradeSearchDraftMapper
         return true;
     }
 
+    private static bool TryMatchIndividualStatsToParsedLinesUnordered(
+        ModifierDefinition candidate,
+        IReadOnlyList<string> valueLines,
+        GameDataCatalog catalog,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats)
+    {
+        matchedLineStats = [];
+        var stats = candidate.Stats.OrderBy(stat => stat.Index).ToArray();
+        if (stats.Length < valueLines.Count)
+        {
+            return false;
+        }
+
+        var matcher = new ModifierTextSignatureMatcher();
+        var matched = new List<ModifierStat>();
+        var groups = new List<IReadOnlyList<ModifierStat>>();
+        foreach (var valueLine in valueLines)
+        {
+            var lineMatches = stats
+                .Where(stat => !matched.Contains(stat))
+                .Where(stat => IsProvenSingleLineStatAssociation(
+                    candidate,
+                    stat,
+                    valueLine,
+                    catalog,
+                    matcher,
+                    allowContainingTranslationProof: true))
+                .ToArray();
+            if (lineMatches.Length != 1)
+            {
+                return false;
+            }
+
+            matched.Add(lineMatches[0]);
+            groups.Add([lineMatches[0]]);
+        }
+
+        matchedLineStats = groups;
+        return true;
+    }
+
+    private static bool TryMatchPartialStatsToSingleParsedLine(
+        ModifierDefinition candidate,
+        string valueLine,
+        GameDataCatalog catalog,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats)
+    {
+        matchedLineStats = [];
+        var stats = candidate.Stats.OrderBy(stat => stat.Index).ToArray();
+        var groups = new List<IReadOnlyList<ModifierStat>>();
+        for (var start = 0; start < stats.Length; start++)
+        {
+            for (var count = 1; start + count <= stats.Length; count++)
+            {
+                var group = stats.Skip(start).Take(count).ToArray();
+                if (IsProvenLineStatAssociation(candidate, group, valueLine, catalog))
+                {
+                    groups.Add(group);
+                }
+            }
+        }
+
+        if (groups.Count == 0)
+        {
+            return false;
+        }
+
+        var smallestSize = groups.Min(group => group.Count);
+        var smallest = groups.Where(group => group.Count == smallestSize).ToArray();
+        if (smallest.Length != 1)
+        {
+            return false;
+        }
+
+        matchedLineStats = [smallest[0]];
+        return true;
+    }
+
     private static bool TryMatchStatsToParsedLines(
         ModifierDefinition candidate,
         IReadOnlyList<string> valueLines,
         GameDataCatalog? catalog,
-        out IReadOnlyList<ModifierStat> matchedLineStats)
+        bool preserveSingleLineProofSemantics,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats)
     {
         matchedLineStats = [];
         if (catalog is null || valueLines.Count == 0)
@@ -1055,17 +1151,15 @@ public sealed class TradeSearchDraftMapper
             return false;
         }
 
-        var matcher = new ModifierTextSignatureMatcher();
-        var allowContainingTranslationProof = stats.Length > 1;
-        var matchedStats = new List<ModifierStat>();
-        foreach (var valueLine in valueLines)
+        if (preserveSingleLineProofSemantics && valueLines.Count == 1)
         {
+            var matcher = new ModifierTextSignatureMatcher();
+            var allowContainingTranslationProof = stats.Length > 1;
             var lineMatches = stats
-                .Where(stat => !matchedStats.Any(matched => EqualsStat(matched, stat)))
-                .Where(stat => IsProvenLineStatAssociation(
+                .Where(stat => IsProvenSingleLineStatAssociation(
                     candidate,
                     stat,
-                    valueLine,
+                    valueLines[0],
                     catalog,
                     matcher,
                     allowContainingTranslationProof))
@@ -1075,14 +1169,98 @@ public sealed class TradeSearchDraftMapper
                 return false;
             }
 
-            matchedStats.Add(lineMatches[0]);
+            matchedLineStats = [[lineMatches[0]]];
+            return true;
         }
 
-        matchedLineStats = matchedStats;
+        var partitions = new List<IReadOnlyList<IReadOnlyList<ModifierStat>>>();
+        MatchLineStatPartitions(
+            candidate,
+            stats,
+            valueLines,
+            catalog,
+            lineIndex: 0,
+            statIndex: 0,
+            current: [],
+            partitions);
+        if (partitions.Count != 1)
+        {
+            return false;
+        }
+
+        matchedLineStats = partitions[0];
         return true;
     }
 
+    private static void MatchLineStatPartitions(
+        ModifierDefinition candidate,
+        IReadOnlyList<ModifierStat> stats,
+        IReadOnlyList<string> valueLines,
+        GameDataCatalog catalog,
+        int lineIndex,
+        int statIndex,
+        IReadOnlyList<IReadOnlyList<ModifierStat>> current,
+        ICollection<IReadOnlyList<IReadOnlyList<ModifierStat>>> partitions)
+    {
+        if (lineIndex == valueLines.Count)
+        {
+            if (statIndex == stats.Count)
+            {
+                partitions.Add(current.ToArray());
+            }
+
+            return;
+        }
+
+        var remainingLines = valueLines.Count - lineIndex;
+        var maximumGroupSize = stats.Count - statIndex - (remainingLines - 1);
+        for (var groupSize = 1; groupSize <= maximumGroupSize; groupSize++)
+        {
+            var group = stats.Skip(statIndex).Take(groupSize).ToArray();
+            if (!IsProvenLineStatAssociation(candidate, group, valueLines[lineIndex], catalog))
+            {
+                continue;
+            }
+
+            MatchLineStatPartitions(
+                candidate,
+                stats,
+                valueLines,
+                catalog,
+                lineIndex + 1,
+                statIndex + groupSize,
+                current.Append(group).ToArray(),
+                partitions);
+        }
+    }
+
     private static bool IsProvenLineStatAssociation(
+        ModifierDefinition candidate,
+        IReadOnlyList<ModifierStat> stats,
+        string valueLine,
+        GameDataCatalog catalog)
+    {
+        var matcher = new ModifierTextSignatureMatcher();
+        var exactGroupMatch = matcher.Match(
+            candidate with { Stats = stats },
+            catalog,
+            [valueLine]);
+        if (exactGroupMatch.Outcome == ModifierTextSignatureMatchOutcome.Match)
+        {
+            return true;
+        }
+
+        var compatibleBranch = ModifierBoundDefaults.Create(
+            candidate,
+            stats,
+            [valueLine],
+            catalog);
+        return compatibleBranch.Shape != ModifierBoundShape.Unsupported &&
+            compatibleBranch.TranslationIdentity is not null &&
+            compatibleBranch.ProviderCanonicalSignature is not null;
+    }
+
+    private static bool IsProvenSingleLineStatAssociation(
         ModifierDefinition candidate,
         ModifierStat stat,
         string valueLine,
@@ -1109,14 +1287,7 @@ public sealed class TradeSearchDraftMapper
             [stat],
             [valueLine],
             catalog);
-        return compatibleBranch.IsSupported &&
-            compatibleBranch.TranslationIdentity is not null;
-    }
-
-    private static bool EqualsStat(ModifierStat left, ModifierStat right)
-    {
-        return left.Index == right.Index &&
-            string.Equals(left.StatId, right.StatId, StringComparison.Ordinal);
+        return compatibleBranch.IsSupported && compatibleBranch.TranslationIdentity is not null;
     }
 
     private static IEnumerable<string> StatIds(IEnumerable<ModifierStat> stats)

@@ -172,6 +172,42 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
 
+            else if (!modifier.IsFractured && !modifier.IsVeiled &&
+                modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Unsupported or
+                    SearchComponentProviderResolutionStatus.Ambiguous)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved,
+                    modifier.ProviderDiagnosticMessage ?? modifier.NotSearchableReason ??
+                        "The selected modifier has no exact safe provider variant.",
+                    index));
+            }
+
+            var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+                variant.Identity,
+                modifier.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal));
+            if (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                selectedVariant is null)
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved,
+                    "The selected modifier has no usable Mod Type in the resolved Trade catalog.",
+                    index));
+            }
+            else if (modifier.Contributors.Count == 0 &&
+                selectedVariant?.SupportsValueBounds == true &&
+                (!modifier.SupportsValueBounds ||
+                    modifier.CanonicalNumericValues.Count == 0))
+            {
+                diagnostics.Add(Error(
+                    TradeSearchValidationDiagnosticCodes.SelectedModifierBoundsUnsupported,
+                    modifier.ValueBoundsUnsupportedReason ??
+                        "The selected modifier type requires a numeric bound, but no safe bound is available.",
+                    index));
+            }
+
             if (IsRepresentedByExactBase(draft, modifier, out var exactBaseName))
             {
                 diagnostics.Add(Info(
@@ -179,7 +215,7 @@ public sealed class TradeSearchDraftValidator
                     $"Selected base implicit is represented by Exact Base: {exactBaseName}.",
                     index));
             }
-            else if (modifier.StatMappingProof != ModifierStatMappingProofStatus.ProviderExact &&
+            else if (!HasExactProviderMapping(modifier) &&
                 (modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
                 string.IsNullOrWhiteSpace(modifier.ResolvedModifierId))
             )
@@ -200,7 +236,8 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
 
-            if (!string.IsNullOrWhiteSpace(modifier.SelectedFilterVariantIdentity) &&
+            if (modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact &&
+                !string.IsNullOrWhiteSpace(modifier.SelectedFilterVariantIdentity) &&
                 !modifier.FilterVariants.Any(variant => string.Equals(
                     variant.Identity,
                     modifier.SelectedFilterVariantIdentity,
@@ -225,6 +262,13 @@ public sealed class TradeSearchDraftValidator
             }
 
         }
+    }
+
+    private static bool HasExactProviderMapping(ResolvedSearchComponent modifier)
+    {
+        return (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                !string.IsNullOrWhiteSpace(modifier.ProviderStatId)) ||
+            modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact;
     }
 
     private static void ValidateContributors(

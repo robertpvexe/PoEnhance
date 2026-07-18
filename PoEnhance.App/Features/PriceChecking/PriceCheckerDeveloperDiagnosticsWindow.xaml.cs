@@ -23,8 +23,8 @@ internal partial class PriceCheckerDeveloperDiagnosticsWindow : Window,
     public void UpdateContent(PriceCheckerDeveloperDiagnosticsSnapshot snapshot)
     {
         StateText.Text = $"Price Checker: {snapshot.State}";
-        DiagnosticCountText.Text = $"Diagnostics: {snapshot.Diagnostics.Count}";
-        var latest = snapshot.LatestDiagnostic;
+        DiagnosticCountText.Text = $"Diagnostics: {snapshot.UserFacingDiagnostics.Count}";
+        var latest = snapshot.LatestUserFacingDiagnostic;
         LatestDiagnosticText.Text = latest is null
             ? string.Empty
             : $"{latest.Code}: {latest.Message}";

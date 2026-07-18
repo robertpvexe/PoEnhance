@@ -487,6 +487,28 @@ public sealed partial class ParsedItemModifierCandidateResolver
         IReadOnlyList<ModifierDefinition> eligibleCandidates,
         IReadOnlyList<ModifierDefinition> eligibilityExcludedCandidates)
     {
+        if (TrySelectOneByAdvancedRange(
+                modifier,
+                eligibleCandidates,
+                out var rangeSelectedCandidate,
+                out var rangeExcludedCandidates))
+        {
+            return MatchedByStructuralEvidence(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                rangeSelectedCandidate,
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                eligibilityExcludedCandidates.Concat(rangeExcludedCandidates).ToArray(),
+                textSignatureCandidateCount: eligibleCandidates.Count,
+                excludedByTextCandidateCount: 0,
+                textResults: [],
+                "Exactly one eligible candidate matched the authentic affix name, generation type, and Advanced Item Description source roll ranges.");
+        }
+
         var textEvaluations = eligibleCandidates
             .Select(candidate => new
             {
@@ -556,19 +578,19 @@ public sealed partial class ParsedItemModifierCandidateResolver
         if (TrySelectOneByAdvancedRange(
                 modifier,
                 finalCandidates,
-                out var rangeSelectedCandidate,
-                out var rangeExcludedCandidates))
+                out var textRangeSelectedCandidate,
+                out var textRangeExcludedCandidates))
         {
             return MatchedByStructuralEvidence(
                 index,
                 modifier,
                 catalog,
                 generationType,
-                rangeSelectedCandidate,
+                textRangeSelectedCandidate,
                 nameCandidateCount,
                 generationKindCandidateCount,
                 eligibleCandidates.Count,
-                allExcludedCandidates.Concat(rangeExcludedCandidates).ToArray(),
+                allExcludedCandidates.Concat(textRangeExcludedCandidates).ToArray(),
                 finalCandidates.Count,
                 textExcludedCandidates.Length,
                 textResults,
@@ -787,10 +809,15 @@ public sealed partial class ParsedItemModifierCandidateResolver
         {
             var minimum = stats[index].MinValue;
             var maximum = stats[index].MaxValue;
-            if (!minimum.HasValue ||
-                !maximum.HasValue ||
-                minimum.Value != ranges[index].Minimum ||
-                maximum.Value != ranges[index].Maximum)
+            if (!minimum.HasValue || !maximum.HasValue)
+            {
+                return false;
+            }
+
+            var range = ranges[index];
+            var exact = minimum.Value == range.Minimum && maximum.Value == range.Maximum;
+            var signInverted = minimum.Value == -range.Minimum && maximum.Value == -range.Maximum;
+            if (!exact && !signInverted)
             {
                 return false;
             }

@@ -663,6 +663,11 @@ public sealed partial class ItemTextParser
                 metadata.IsFractured,
                 metadata.IsVeiled)
             {
+                VeiledState = IsUnrevealedVeiledValue(cleanedValueLines)
+                    ? ParsedVeiledModifierState.UnrevealedPlaceholder
+                    : metadata.IsVeiled && !string.IsNullOrWhiteSpace(metadata.Name)
+                        ? ParsedVeiledModifierState.NamedUnveiled
+                        : ParsedVeiledModifierState.None,
                 ImplicitOrigin = metadata.ImplicitOrigin,
                 UniqueOrigin = metadata.UniqueOrigin,
                 EldritchTier = metadata.EldritchTier,
@@ -766,7 +771,17 @@ public sealed partial class ItemTextParser
             CategoryText: null,
             IsCrafted: false,
             IsFractured: false,
-            IsVeiled: true);
+            IsVeiled: true)
+        {
+            VeiledState = ParsedVeiledModifierState.UnrevealedPlaceholder,
+        };
+    }
+
+    private static bool IsUnrevealedVeiledValue(IReadOnlyList<string> valueLines)
+    {
+        return valueLines.Count == 1 &&
+            (valueLines[0].Equals(VeiledPrefixLine, StringComparison.OrdinalIgnoreCase) ||
+                valueLines[0].Equals(VeiledSuffixLine, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsDescriptionLine(string line)

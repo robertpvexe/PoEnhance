@@ -201,7 +201,7 @@ internal sealed class PriceCheckerSearchController
         generation++;
         CancelActiveRequest();
         ClearPaginationState();
-        currentDraft = ResetModifierSelections(draft);
+        currentDraft = ResetModifierSelections(priceCheckService.ResolveEffectiveDraft(draft));
         expandedModifierIndexes.Clear();
         expandedItemPropertyIndexes.Clear();
         InitializeItemPropertyBoundInputs(currentDraft);
@@ -570,9 +570,7 @@ internal sealed class PriceCheckerSearchController
         }
 
         var requestedModifier = currentDraft.ModifierFilters[modifierIndex];
-        if (isSelected &&
-            requestedModifier.ParsedKind == ParsedModifierKind.Unique &&
-            !IsExactlySearchableUniqueModifier(requestedModifier))
+        if (isSelected && !IsModifierInteractionReady(requestedModifier))
         {
             return;
         }
@@ -661,7 +659,8 @@ internal sealed class PriceCheckerSearchController
     public void UpdateModifierBounds(int modifierIndex, string? minimumText, string? maximumText)
     {
         if (currentDraft is null || modifierIndex < 0 || modifierIndex >= currentDraft.ModifierFilters.Count ||
-            !currentDraft.ModifierFilters[modifierIndex].SupportsValueBounds)
+            !currentDraft.ModifierFilters[modifierIndex].SupportsValueBounds ||
+            !IsModifierInteractionReady(currentDraft.ModifierFilters[modifierIndex]))
         {
             return;
         }
@@ -763,7 +762,8 @@ internal sealed class PriceCheckerSearchController
 
         var component = currentDraft.ModifierFilters[modifierIndex];
         var selectedIdentity = variantIdentity.Trim();
-        if (!component.IsSelected ||
+        if (HasFixedProviderVariant(component) ||
+            !component.IsSelected ||
             string.Equals(component.SelectedFilterVariantIdentity, selectedIdentity, StringComparison.Ordinal) ||
             !component.FilterVariants.Any(option => string.Equals(
                 option.Identity,
@@ -1605,11 +1605,16 @@ internal sealed class PriceCheckerSearchController
         var isUniqueModifier = modifier.ParsedKind == ParsedModifierKind.Unique;
         var isFoulbornUniqueModifier =
             modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn;
-        var isInteractionEnabled = !isUniqueModifier || IsExactlySearchableUniqueModifier(modifier);
+        var isFracturedModifier = modifier.IsFractured;
+        var isVeiledModifier = modifier.IsVeiled;
+        var requiresExactAvailability =
+            isUniqueModifier || isFracturedModifier || isVeiledModifier;
+        var isInteractionEnabled = IsModifierInteractionReady(modifier);
         var availabilityReason = isInteractionEnabled
             ? null
             : modifier.ProviderDiagnosticMessage ?? modifier.NotSearchableReason ??
-                "Unsupported Unique modifier: no exact Trade stat identity is available.";
+                $"Unsupported {StaticModifierLabel(modifier)} modifier: no exact compatible Trade stat identity is available.";
+        var exposesValueBounds = isInteractionEnabled;
         var variants = CreateVariantViewModels(modifier.FilterVariants);
         var contributorsEnabled = isInteractionEnabled &&
             SearchComponentContributorActivation.SupportsComposition(modifier);
@@ -1650,14 +1655,14 @@ internal sealed class PriceCheckerSearchController
             Text = SafeModifierText(modifier.OriginalText),
             SectionLabel = FormatModifierSectionLabel(
                 sectionLabelOverride ?? SectionLabelWithSources(modifier),
-                isUniqueModifier,
+                requiresExactAvailability,
                 isInteractionEnabled),
             SourceCount = modifier.SourceCount,
             SourceBreakdown = CombineSourceBreakdown(SourceBreakdown(modifier), availabilityReason),
             IsSelected = modifier.IsSelected,
             IsInteractionEnabled = isInteractionEnabled,
             AvailabilityReason = availabilityReason,
-            SupportsValueBounds = modifier.SupportsValueBounds,
+            SupportsValueBounds = exposesValueBounds && modifier.SupportsValueBounds,
             ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
             FilterVariants = variants,
             SelectedFilterVariant = variants.FirstOrDefault(option => string.Equals(
@@ -1667,8 +1672,14 @@ internal sealed class PriceCheckerSearchController
             IsCanonicalImplicit = IsImplicitPresentationModifier(modifier),
             IsUniqueModifier = isUniqueModifier,
             IsFoulbornUniqueModifier = isFoulbornUniqueModifier,
-            MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
-            MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
+            IsFracturedModifier = isFracturedModifier,
+            IsVeiledModifier = isVeiledModifier,
+            MinimumText = exposesValueBounds
+                ? ModifierBoundText(index, modifier.RequestedMinimum, minimum: true)
+                : string.Empty,
+            MaximumText = exposesValueBounds
+                ? ModifierBoundText(index, modifier.RequestedMaximum, minimum: false)
+                : string.Empty,
             Contributors = contributors,
             ShowsExpansionControl = showsExpansionControl && contributors.Length > 0,
             IsExpanded = showsExpansionControl &&
@@ -1678,8 +1689,49 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private static bool IsExactlySearchableUniqueModifier(ResolvedSearchComponent modifier)
+    private static bool IsExactlySearchableRestrictedModifier(ResolvedSearchComponent modifier)
     {
+        if (modifier.IsVeiled)
+        {
+            var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+                variant.Identity,
+                modifier.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal));
+            if (selectedVariant is null)
+            {
+                return false;
+            }
+
+            return modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                modifier.IsSearchable &&
+                modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+                !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
+                string.Equals(selectedVariant.ProviderKind, "veiled", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(
+                    selectedVariant.Identity,
+                    PathOfExileTradeProviderIdentity.Create(modifier.ProviderStatId),
+                    StringComparison.Ordinal);
+        }
+
+        if (modifier.IsFractured)
+        {
+            var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+                variant.Identity,
+                modifier.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal));
+            return modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                modifier.IsSearchable &&
+                modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+                !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+                modifier.ResolvedStatIds.Count > 0 &&
+                !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
+                selectedVariant is not null &&
+                string.Equals(
+                    selectedVariant.Identity,
+                    PathOfExileTradeProviderIdentity.Create(modifier.ProviderStatId),
+                    StringComparison.Ordinal);
+        }
+
         var hasExactGameDataProof =
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
@@ -1691,12 +1743,87 @@ internal sealed class PriceCheckerSearchController
                 hasExactGameDataProof);
     }
 
+    private static bool IsModifierInteractionReady(ResolvedSearchComponent modifier)
+    {
+        if (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.BaseGuaranteed)
+        {
+            return true;
+        }
+
+        var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+            variant.Identity,
+            modifier.SelectedFilterVariantIdentity,
+            StringComparison.Ordinal));
+        if (selectedVariant is null)
+        {
+            return false;
+        }
+
+        var providerReady = modifier.ProviderResolutionStatus ==
+                SearchComponentProviderResolutionStatus.Exact
+            ? RequiresExactAvailability(modifier)
+                ? IsExactlySearchableRestrictedModifier(modifier)
+                : modifier.IsSearchable && !string.IsNullOrWhiteSpace(modifier.ProviderStatId)
+            : modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.NotResolved &&
+                modifier.IsSearchable &&
+                (modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+                    !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+                    modifier.ResolvedStatIds.Count > 0 ||
+                    modifier.FilterVariants.Count > 0);
+        if (!providerReady)
+        {
+            return false;
+        }
+
+        return !selectedVariant.SupportsValueBounds ||
+            modifier.SupportsValueBounds &&
+            modifier.CanonicalNumericValues.Count > 0;
+    }
+
+    private static bool RequiresExactAvailability(ResolvedSearchComponent modifier)
+    {
+        return modifier.ParsedKind == ParsedModifierKind.Unique || modifier.IsFractured || modifier.IsVeiled;
+    }
+
+    private static bool HasFixedProviderVariant(ResolvedSearchComponent modifier)
+    {
+        return modifier.ParsedKind == ParsedModifierKind.Unique ||
+            modifier.IsVeiled ||
+            IsImplicitPresentationModifier(modifier);
+    }
+
+    private static string StaticModifierLabel(ResolvedSearchComponent modifier)
+    {
+        if (modifier.IsFractured)
+        {
+            return "Fractured";
+        }
+
+        if (modifier.IsVeiled)
+        {
+            return "Veiled";
+        }
+
+        if (modifier.ParsedKind == ParsedModifierKind.Unique)
+        {
+            return modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn ? "Foulborn" : "Unique";
+        }
+
+        return modifier.ParsedKind switch
+        {
+            ParsedModifierKind.Prefix => "Prefix",
+            ParsedModifierKind.Suffix => "Suffix",
+            ParsedModifierKind.Implicit => "Implicit",
+            _ => "modifier",
+        };
+    }
+
     private static string FormatModifierSectionLabel(
         string sectionLabel,
-        bool isUniqueModifier,
+        bool requiresExactStaticAvailability,
         bool isInteractionEnabled)
     {
-        return isUniqueModifier && !isInteractionEnabled
+        return requiresExactStaticAvailability && !isInteractionEnabled
             ? $"{sectionLabel} · Unsupported"
             : sectionLabel;
     }
@@ -2133,6 +2260,14 @@ internal sealed class PriceCheckerSearchController
             ParsedModifierKind.Unique => "Unique",
             _ => string.Empty,
         };
+        if (source.IsFractured)
+        {
+            section = "Fractured";
+        }
+        else if (source.IsVeiled)
+        {
+            section = "Veiled";
+        }
         if (source.IsCrafted)
         {
             return string.IsNullOrWhiteSpace(section) ? "Crafted" : $"Crafted {section}";
@@ -2291,7 +2426,9 @@ internal sealed class PriceCheckerSearchController
                     contributor.ProviderDiagnosticCode ?? "CONTRIBUTOR_PROVIDER_COVERAGE",
                     contributor.ProviderDiagnosticMessage!)));
             diagnostics.AddRange(currentDraft.ModifierFilters
-                .Where(modifier => modifier.IsSelected && !modifier.SupportsValueBounds)
+                .Where(modifier => modifier.IsSelected &&
+                    !modifier.SupportsValueBounds &&
+                    modifier.ValueBoundShape != ModifierBoundShape.PresenceOnly)
                 .Select(modifier => new PriceCheckerDeveloperDiagnostic(
                     "MODIFIER_BOUNDS_UNSUPPORTED",
                     modifier.ValueBoundsUnsupportedReason ??

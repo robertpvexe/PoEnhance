@@ -321,12 +321,12 @@ public sealed class PathOfExileTradeImplicitProductionTests
     {
         var fixture = Fixture.Create(Catalog());
         fixture.OpenText(CorpusItem(4));
-        fixture.SelectRow("Cannot roll Caster Modifiers");
+        var unsupported = fixture.SelectRow("Cannot roll Caster Modifiers");
 
-        await fixture.SearchAsync();
-
-        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState!.Status);
-        Assert.Equal("Selected modifier is not available in Trade search.", fixture.Window.CurrentSearchState.Message);
+        Assert.False(unsupported.IsInteractionEnabled);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.SourceIndex == unsupported.SourceIndex).IsSelected);
+        Assert.True(fixture.Window.CurrentSearchState!.CanSearch);
         Assert.Empty(fixture.SearchClient.Calls);
     }
 
@@ -446,9 +446,10 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, unresolved.ResolutionStatus);
 
         var unresolvedRow = fixture.SelectRow("999(999-999)");
-        await fixture.SearchAsync();
-
-        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState!.Status);
+        Assert.False(unresolvedRow.IsInteractionEnabled);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, row =>
+            row.SourceIndex == unresolvedRow.SourceIndex).IsSelected);
+        Assert.True(fixture.Window.CurrentSearchState!.CanSearch);
         Assert.Empty(fixture.SearchClient.Calls);
 
         fixture.Window.RaiseModifierSelectionChanged(unresolvedRow.SourceIndex, isSelected: false);

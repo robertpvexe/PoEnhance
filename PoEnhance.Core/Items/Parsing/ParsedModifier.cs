@@ -12,6 +12,17 @@ public sealed record ParsedModifier(
     bool IsFractured,
     bool IsVeiled)
 {
+    public ParsedVeiledModifierState VeiledState { get; init; } = IsVeiled
+        ? string.IsNullOrWhiteSpace(Name)
+            ? ParsedVeiledModifierState.UnrevealedPlaceholder
+            : ParsedVeiledModifierState.NamedUnveiled
+        : ParsedVeiledModifierState.None;
+
+    public bool IsUnrevealedVeiledPlaceholder =>
+        VeiledState == ParsedVeiledModifierState.UnrevealedPlaceholder;
+
+    public bool IsNamedUnveiled => VeiledState == ParsedVeiledModifierState.NamedUnveiled;
+
     public ParsedImplicitModifierOrigin ImplicitOrigin { get; init; }
 
     public ParsedUniqueModifierOrigin UniqueOrigin { get; init; }

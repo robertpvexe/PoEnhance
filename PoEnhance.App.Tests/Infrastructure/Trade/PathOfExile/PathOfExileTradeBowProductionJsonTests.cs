@@ -52,7 +52,10 @@ public sealed class PathOfExileTradeBowProductionJsonTests
         IReadOnlyList<decimal> expectedMinimums)
     {
         var fixture = ProductionTradeFixture.Create();
-        fixture.Controller.UpdateCurrentDraft(fixture.RangerBowDraft, fixture.RangerBowValidation);
+        var prepared = await fixture.Controller.PrepareDraftAsync(fixture.RangerBowDraft);
+        fixture.Controller.UpdateCurrentDraft(
+            prepared,
+            new TradeSearchDraftValidator().Validate(prepared));
         var elemental = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.ElementalDps);
         fixture.Window.RaiseItemPropertyExpansionChanged(elemental.SourceIndex, isExpanded: true);
@@ -63,6 +66,10 @@ public sealed class PathOfExileTradeBowProductionJsonTests
                 fixture.Window.CurrentSearchState!.Modifiers.Concat(
                     fixture.Window.CurrentSearchState.ItemProperties.SelectMany(property => property.Children)),
                 modifier => modifier.Text.Contains(selectedRowFragment, StringComparison.Ordinal));
+            Assert.True(
+                row.IsInteractionEnabled,
+                $"{row.Text}: {row.AvailabilityReason}; bounds={row.SupportsValueBounds}; " +
+                $"min={row.MinimumText}; max={row.MaximumText}; variants={row.FilterVariants.Count}");
             fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
         }
 

@@ -35,6 +35,9 @@ public static class TradeSearchValidationDiagnosticCodes
     public const string SelectedModifierVariantUnresolved =
         "TRADE_VALIDATION_SELECTED_MODIFIER_VARIANT_UNRESOLVED";
 
+    public const string SelectedModifierBoundsUnsupported =
+        "TRADE_VALIDATION_SELECTED_MODIFIER_BOUNDS_UNSUPPORTED";
+
     public const string SelectedSpecialModifierUnsupported =
         "TRADE_VALIDATION_SELECTED_SPECIAL_MODIFIER_UNSUPPORTED";
 

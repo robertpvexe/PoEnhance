@@ -40,15 +40,23 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool IsFoulbornUniqueModifier { get; init; }
 
-    public bool HasStaticModType => IsCanonicalImplicit || IsUniqueModifier;
+    public bool IsFracturedModifier { get; init; }
+
+    public bool IsVeiledModifier { get; init; }
+
+    public bool HasStaticModType =>
+        IsCanonicalImplicit || IsUniqueModifier || IsVeiledModifier;
 
     public string ModTypeLabel => IsCanonicalImplicit
         ? "Implicit"
-        : IsFoulbornUniqueModifier
-            ? "Foulborn"
-            : IsUniqueModifier
-                ? "Unique"
-                : SelectedFilterVariant?.Label ?? string.Empty;
+        : IsVeiledModifier
+                ? "Veiled"
+                : IsFoulbornUniqueModifier
+                    ? "Foulborn"
+                    : IsUniqueModifier
+                        ? "Unique"
+                        : SelectedFilterVariant?.Label ??
+                            (IsInteractionEnabled ? string.Empty : "Unsupported");
 
     public bool HasSingleFilterVariant => FilterVariants.Count == 1;
 

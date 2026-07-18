@@ -583,6 +583,8 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
 
     private static ResolvedSearchComponent SelectedModifier(int sourceComponentIndex)
     {
+        const string providerStatId = "explicit.test_defensive_child";
+        var variantIdentity = PathOfExileTradeProviderIdentity.Create(providerStatId);
         return new ResolvedSearchComponent
         {
             ComponentId = $"modifier:{sourceComponentIndex}:0",
@@ -596,8 +598,25 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
             ResolvedStatIds = ["local_evasion_rating_+%"],
             IsSearchable = true,
             IsSelected = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [20m],
+            CanonicalNumericValues = [20m],
+            RequestedMinimum = 20m,
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
-            ProviderStatId = "explicit.test_defensive_child",
+            ProviderStatId = providerStatId,
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = variantIdentity,
+                    Label = "Explicit",
+                    Description = "Exact defensive child test stat",
+                    ProviderKind = "explicit",
+                    SupportsValueBounds = true,
+                },
+            ],
+            SelectedFilterVariantIdentity = variantIdentity,
         };
     }
 

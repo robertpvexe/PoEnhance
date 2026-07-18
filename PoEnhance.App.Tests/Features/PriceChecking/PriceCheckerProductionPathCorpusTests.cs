@@ -47,6 +47,7 @@ Item Level: 85
 { Master Crafted Suffix Modifier "of Craft" (Rank: 3) - Attack, Speed }
 20(16-20)% increased Attack Speed
 """);
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(snapshot.Draft));
 
         var physicalComponents = snapshot.Draft.ModifierFilters
             .Where(component => component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal))
@@ -131,6 +132,7 @@ Item Level: 85
         using var harness = ProductionPathHarness.Create();
 
         var snapshot = harness.OpenText(HorrorManglerExplicitAndCraftedPhysicalDamageText);
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(snapshot.Draft));
 
         var physical = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("increased Physical Damage", StringComparison.Ordinal));
@@ -219,6 +221,8 @@ Regenerate 46.8(32.1-48) Life per second
 { Suffix Modifier "of Steel Skin" (Tier: 3) }
 22(20-22)% increased Stun and Block Recovery
 """);
+        var providerReadyState = harness.ApplyResolvedDraft(
+            WithExactTestProviderVariants(snapshot.Draft));
 
         var stunRecovery = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Stun and Block Recovery", StringComparison.Ordinal));
@@ -238,12 +242,12 @@ Regenerate 46.8(32.1-48) Life per second
             Assert.Null(source.ReviewedItemPropertySemantic);
         });
 
-        var row = Assert.Single(snapshot.SearchState.Modifiers, modifier =>
+        var row = Assert.Single(providerReadyState.Modifiers, modifier =>
             modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
         Assert.Equal(
             TradeSearchItemPropertyKind.EvasionRating,
-            Assert.Single(snapshot.SearchState.ItemProperties).Kind);
-        Assert.Equal(4, snapshot.SearchState.Stats.Count);
+            Assert.Single(providerReadyState.ItemProperties).Kind);
+        Assert.Equal(4, providerReadyState.Stats.Count);
         Assert.True(row.ShowsExpansionControl);
         Assert.True(row.HasContributors);
         Assert.Equal("31", row.MinimumText);
@@ -252,7 +256,7 @@ Regenerate 46.8(32.1-48) Life per second
             ["Hybrid Prefix", "Explicit Suffix"],
             row.Contributors.Select(contributor => contributor.ProvenanceLabel));
         Assert.All(
-            snapshot.SearchState.Modifiers.Where(modifier => modifier.SourceIndex != row.SourceIndex),
+            providerReadyState.Modifiers.Where(modifier => modifier.SourceIndex != row.SourceIndex),
             modifier => Assert.False(modifier.ShowsExpansionControl));
     }
 
@@ -497,6 +501,8 @@ Item Level: 84
 { Suffix Modifier "of Thick Skin" (Tier: 6) }
 11(11-13)% increased Stun and Block Recovery
 """);
+        var providerReadyState = harness.ApplyResolvedDraft(
+            WithExactTestProviderVariants(snapshot.Draft));
 
         Assert.Equal("Magic", snapshot.AfterParse.Rarity);
         Assert.Equal("Wasp's Supreme Spiked Shield of Thick Skin", snapshot.AfterParse.DisplayName);
@@ -516,17 +522,17 @@ Item Level: 84
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
         Assert.Equal("Wasp's Supreme Spiked Shield of Thick Skin", snapshot.WindowState.Draft.DisplayName);
-        Assert.Equal(2, snapshot.SearchState.Modifiers.Count);
+        Assert.Equal(2, providerReadyState.Modifiers.Count);
         Assert.Contains(
-            snapshot.SearchState.Modifiers,
+            providerReadyState.Modifiers,
             row => row.Text.Contains("chance to Suppress Spell Damage", StringComparison.Ordinal));
         Assert.All(
-            snapshot.SearchState.ItemProperties.Where(property => property.Kind is
+            providerReadyState.ItemProperties.Where(property => property.Kind is
                 TradeSearchItemPropertyKind.EnergyShield or TradeSearchItemPropertyKind.EvasionRating),
             property => Assert.Contains(property.Children,
                 row => row.Text.Contains("increased Evasion and Energy Shield", StringComparison.Ordinal)));
         Assert.Contains(
-            snapshot.SearchState.Modifiers,
+            providerReadyState.Modifiers,
             row => row.Text == "24% increased Stun and Block Recovery" &&
                 row.SourceCount == 2 &&
                 row.MinimumText == "24");
@@ -669,6 +675,7 @@ Item Level: 84
                 Assert.Equal(2349m, property.ObservedValue);
                 Assert.Equal("Q20", property.CalculationBasisLabel);
             });
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(gale.Draft));
 
         harness.ExpandProperty(TradeSearchItemPropertyKind.Armour);
         var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.EvasionRating);
@@ -729,7 +736,7 @@ Item Level: 84
             snapshot.Draft,
             PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
         AssertExactProperty(resolved, TradeSearchItemPropertyKind.ChanceToBlock);
-        harness.ApplyResolvedDraft(resolved);
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(resolved));
         var child = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("increased Chance to Block", StringComparison.Ordinal));
         Assert.True(child.IsSearchable);
@@ -794,6 +801,212 @@ Item Level: 84
                 Assert.Contains("catalog entry is incompatible", property.NotSearchableReason, StringComparison.Ordinal);
             });
     }
+
+    [Fact]
+    public void ShowOrUpdate_DemonIdolNamedUnveiledBlockKeepsOneSourceAndTwoExactLineComponents()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText(DemonIdolText);
+
+        var chosenPair = Assert.Single(snapshot.AfterParse.Modifiers
+            .Select((modifier, index) => new { modifier, index }), pair => pair.modifier.Name == "Chosen");
+        var chosen = chosenPair.modifier;
+        Assert.Equal(ParsedModifierKind.Prefix, chosen.Kind);
+        Assert.Equal(2, chosen.ValueLines.Count);
+        Assert.False(chosen.IsUnrevealedVeiledPlaceholder);
+
+        var resolution = Assert.Single(snapshot.ModifierResolutions, candidate =>
+            candidate.ParsedModifierIndex == chosenPair.index);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, resolution.Status);
+        Assert.Equal("unveiled", Assert.Single(resolution.Candidates).Domain);
+
+        var components = snapshot.Draft.ModifierFilters
+            .Where(component => component.SourceModifierIndex == resolution.ParsedModifierIndex)
+            .OrderBy(component => component.SourceLineIndex)
+            .ToArray();
+        Assert.Equal(2, components.Length);
+        Assert.All(components, component =>
+        {
+            Assert.True(component.IsUnveiled);
+            Assert.False(component.IsVeiled);
+            Assert.Equal("Chosen", component.ParsedModifierName);
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+            Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, component.StatMappingProof);
+            Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, component.ValueBoundShape);
+            Assert.NotNull(component.ProviderCanonicalSignature);
+        });
+        Assert.Equal([16m, 21m], components[0].ObservedNumericValues);
+        Assert.Equal([15m, 20m], components[1].ObservedNumericValues);
+        Assert.Equal(
+            [new ModifierSourceRollRange(14m, 16m), new ModifierSourceRollRange(20m, 22m)],
+            components[0].OriginalSourceRollRanges);
+        Assert.Equal(
+            [new ModifierSourceRollRange(14m, 16m), new ModifierSourceRollRange(20m, 22m)],
+            components[1].OriginalSourceRollRanges);
+        Assert.All(components, component => Assert.Equal(resolution.ParsedModifierIndex, component.SourceModifierIndex));
+    }
+
+    [Fact]
+    public void ShowOrUpdate_OnslaughtTwirlTransformedAffixesUseOriginalRangesForIdentityAndDisplayedValuesForBounds()
+    {
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText(OnslaughtTwirlText);
+
+        var life = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("maximum Life", StringComparison.Ordinal));
+        AssertTransformedScalar(life, -215m, 100m, 114m);
+
+        var rarity = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Rarity of Items", StringComparison.Ordinal));
+        AssertTransformedScalar(rarity, -52m, -25m, -28m);
+        Assert.Equal(
+            "<number>% increased Rarity of Items found",
+            rarity.ProviderCanonicalSignature);
+
+        var recoup = Assert.Single(snapshot.Draft.ModifierFilters, component =>
+            component.OriginalText.Contains("Recouped as Life", StringComparison.Ordinal));
+        AssertTransformedScalar(recoup, -29m, 13m, 15m);
+
+        Assert.True(snapshot.AfterParse.IsMirrored);
+        Assert.All([life, rarity, recoup], component =>
+        {
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+            Assert.True(component.StatMappingProof is
+                ModifierStatMappingProofStatus.ProvenExact or
+                ModifierStatMappingProofStatus.WholeVector);
+            Assert.False(component.IsVeiled);
+            Assert.False(component.IsUnveiled);
+            Assert.NotNull(component.ProviderCanonicalSignature);
+        });
+    }
+
+    private static void AssertTransformedScalar(
+        ResolvedSearchComponent component,
+        decimal providerValue,
+        decimal sourceMinimum,
+        decimal sourceMaximum)
+    {
+        Assert.True(
+            component.IsSearchable,
+            $"Resolution={component.ResolutionStatus}; Id={component.ResolvedModifierId}; " +
+            $"Reason={component.NotSearchableReason}; Bounds={component.ValueBoundsUnsupportedReason}; " +
+            $"Shape={component.ValueBoundShape}; Signature={component.ProviderCanonicalSignature}");
+        Assert.True(component.SupportsValueBounds, component.ValueBoundsUnsupportedReason);
+        Assert.Equal([providerValue], component.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Maximum, component.DefaultBoundDirection);
+        Assert.Null(component.RequestedMinimum);
+        Assert.Equal(providerValue, component.RequestedMaximum);
+        Assert.Equal(
+            [new ModifierSourceRollRange(sourceMinimum, sourceMaximum)],
+            component.OriginalSourceRollRanges);
+    }
+
+    private static TradeSearchDraft WithExactTestProviderVariants(TradeSearchDraft draft)
+    {
+        return draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select((component, index) =>
+                {
+                    if (!component.IsSearchable ||
+                        component.ParsedKind is not (ParsedModifierKind.Prefix or ParsedModifierKind.Suffix) ||
+                        component.IsFractured ||
+                        component.IsVeiled)
+                    {
+                        return component;
+                    }
+
+                    var providerStatId = $"explicit.test-provider.{index}";
+                    var identity = PathOfExileTradeProviderIdentity.Create(providerStatId);
+                    return component with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                        ProviderStatId = providerStatId,
+                        ProviderStatText = component.ProviderCanonicalSignature ?? component.CanonicalSignature,
+                        FilterVariants =
+                        [
+                            new SearchFilterVariant
+                            {
+                                Identity = identity,
+                                Label = "Explicit",
+                                Description = "Exact test provider variant",
+                                ProviderKind = "explicit",
+                                SupportsValueBounds = component.SupportsValueBounds,
+                            },
+                        ],
+                        SelectedFilterVariantIdentity = identity,
+                        ProviderDiagnosticCode = null,
+                        ProviderDiagnosticMessage = null,
+                    };
+                })
+                .ToArray(),
+        };
+    }
+
+    internal const string DemonIdolText = """
+Item Class: Amulets
+Rarity: Rare
+Demon Idol
+Lapis Amulet
+--------
+Requirements:
+Level: 48
+--------
+Item Level: 85
+--------
+Allocates Sentinel (enchant)
+--------
+{ Implicit Modifier — Attribute }
++26(20-30) to Intelligence
+--------
+{ Prefix Modifier "Chosen" (Tier: 1) — Damage, Elemental, Cold, Lightning }
+Adds 16(14-16) to 21(20-22) Cold Damage
+Adds 15(14-16) to 20(20-22) Lightning Damage
+{ Prefix Modifier "Sapphire" (Tier: 10) — Mana }
++30(30-34) to maximum Mana
+{ Suffix Modifier "of Coals" (Tier: 4) — Damage, Elemental, Fire }
+15(13-15)% increased Fire Damage
+{ Suffix Modifier "of Joy" (Tier: 5) — Mana }
+27(20-29)% increased Mana Regeneration Rate
+""";
+
+    internal const string OnslaughtTwirlText = """
+Item Class: Rings
+Rarity: Rare
+Onslaught Twirl
+Manifold Ring
+--------
+Quality (Life and Mana Modifiers): +20% (augmented)
+--------
+Requirements:
+Level: 67
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++1 Prefix Modifier allowed
+-2 Suffix Modifiers allowed
+Implicit Modifiers Cannot Be Changed — Unscalable Value
+50% increased Prefix Modifier magnitudes — Unscalable Value
+--------
+{ Fractured Prefix Modifier "Glowing" (Tier: 8) — Defences, Energy Shield  — 50% Increased }
++29(13-15) to maximum Energy Shield
+{ Prefix Modifier "Virile" (Tier: 1) — Life  — 70% Increased }
+-215(100-114) to maximum Life
+{ Prefix Modifier "Beryl" (Tier: 13) — Mana  — 70% Increased }
++31(15-19) to maximum Mana
+{ Prefix Modifier "Perandus'" (Tier: 1) — Drop  — 50% Increased }
+52(-25--28)% reduced Rarity of Items found
+{ Suffix Modifier "of Fleshbinding" (Tier: 1) — Life  — 20% Increased }
+-29(13-15)% of Damage taken Recouped as Life
+(Only Damage from Hits can be Recouped, over 4 seconds following the Hit. Recouping negative amounts will cause loss)
+--------
+Mirrored
+--------
+Fractured Item
+""";
 
     private sealed record ProductionPathSnapshot(
         ParsedItem AfterParse,
@@ -977,9 +1190,10 @@ Item Level: 84
             return Assert.Single(windowFactory.CreatedWindows).CurrentSearchState!;
         }
 
-        public void ApplyResolvedDraft(TradeSearchDraft draft)
+        public PriceCheckerSearchViewState ApplyResolvedDraft(TradeSearchDraft draft)
         {
             searchController.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+            return Assert.Single(windowFactory.CreatedWindows).CurrentSearchState!;
         }
 
         public PriceCheckerSearchViewState SelectProperty(

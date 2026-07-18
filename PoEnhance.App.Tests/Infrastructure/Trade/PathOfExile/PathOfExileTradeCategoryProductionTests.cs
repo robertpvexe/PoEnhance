@@ -287,8 +287,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
         fixture.Controller.UpdateCurrentDraft(prepared, new TradeSearchDraftValidator().Validate(prepared));
         fixture.Controller.UpdateModifierSelection(attackSpeedIndex, isSelected: true);
-        Assert.False(fixture.Window.CurrentSearchState!.CanSearch);
-        await fixture.Controller.SearchAsync();
+        Assert.False(fixture.Window.FindModifier(attackSpeedIndex).IsSelected);
+        Assert.False(fixture.Window.FindModifier(attackSpeedIndex).IsInteractionEnabled);
+        Assert.True(fixture.Window.CurrentSearchState!.CanSearch);
         Assert.Empty(fixture.SearchClient.Calls);
 
         fixture.Controller.UpdateModifierSelection(attackSpeedIndex, isSelected: false);

@@ -48,6 +48,8 @@ public sealed record SearchComponentSourceProvenance
 
     public bool IsVeiled { get; init; }
 
+    public bool IsUnveiled { get; init; }
+
     public bool IsBaseImplicit { get; init; }
 
     public bool IsHybrid { get; init; }
@@ -60,7 +62,11 @@ public sealed record SearchComponentSourceProvenance
 
     public IReadOnlyList<decimal> ObservedNumericValues { get; init; } = [];
 
+    public IReadOnlyList<ModifierSourceRollRange> OriginalSourceRollRanges { get; init; } = [];
+
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
+
+    public string? ProviderCanonicalSignature { get; init; }
 
     public ModifierBoundShape ValueBoundShape { get; init; }
 

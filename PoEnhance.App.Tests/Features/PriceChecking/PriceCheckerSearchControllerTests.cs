@@ -642,6 +642,63 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task SearchAsync_FinalExactProviderMappingReconcilesProvisionalWarningAndHidesTechnicalToastDiagnostic()
+    {
+        var fixture = SearchFixture.Create();
+        var provisionalVariant = new SearchFilterVariant
+        {
+            Identity = "variant-veiled",
+            Label = "Veiled",
+            Description = "Veiled",
+            ProviderKind = "veiled",
+            SupportsValueBounds = false,
+        };
+        var unresolved = Modifier("Veiled Suffix", resolvedModifierId: null) with
+        {
+            IsSearchable = true,
+            FilterVariants = [provisionalVariant],
+            SelectedFilterVariantIdentity = provisionalVariant.Identity,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+        var draft = Draft("Kraken Torc", modifiers: [unresolved]) with
+        {
+            ModifierAggregationDiagnostics =
+            [
+                new TradeSearchDraftDiagnostic(
+                    TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped,
+                    "Canonical modifier aggregation was skipped: no shared numeric shape."),
+            ],
+        };
+        var exact = unresolved with
+        {
+            IsSelected = true,
+            IsSearchable = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "veiled.general",
+            ProviderStatText = "Veiled",
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+        fixture.PriceCheckService.Result = SuccessResult([], total: 0) with
+        {
+            EffectiveDraft = draft with { ModifierFilters = [exact] },
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        Assert.Contains(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+        Assert.DoesNotContain(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+        Assert.Contains(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped);
+        Assert.Empty(fixture.Controller.CurrentDeveloperDiagnostics.UserFacingDiagnostics);
+    }
+
+    [Fact]
     public async Task ResetItem_RestoresInitialEditableStateWithoutRequestsOrPresentationChanges()
     {
         var fixture = SearchFixture.Create();
@@ -755,6 +812,7 @@ public sealed class PriceCheckerSearchControllerTests
     public async Task ProviderExactUniqueRow_IsStaticEnabledInitiallyUncheckedAndDoesNotSearchWhenEdited()
     {
         var fixture = SearchFixture.Create();
+        var uniqueVariantIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_life");
         var unique = Modifier(
             "+69 to maximum Life",
             ParsedModifierKind.Unique,
@@ -770,6 +828,18 @@ public sealed class PriceCheckerSearchControllerTests
             ProviderStatId = "explicit.stat_life",
             ProviderStatText = "+# to maximum Life",
             ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = uniqueVariantIdentity,
+                    Label = "Unique",
+                    Description = "+# to maximum Life",
+                    ProviderKind = "explicit",
+                    SupportsValueBounds = true,
+                },
+            ],
+            SelectedFilterVariantIdentity = uniqueVariantIdentity,
         };
         var draft = Draft("Ahn's Contempt", modifiers: [unique]) with { Rarity = "Unique" };
 
@@ -844,25 +914,244 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void SelectedUnsupportedModifier_PublishesItsBoundReasonToDeveloperDiagnostics()
+    public async Task ExactFracturedRow_SwitchesProviderVariantsWithoutSearchingAndResetRestoresFractured()
     {
         var fixture = SearchFixture.Create();
+        var fracturedIdentity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life");
+        var explicitIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_life");
+        var fracturedVariant = new SearchFilterVariant
+        {
+            Identity = fracturedIdentity,
+            Label = "Fractured",
+            Description = "+# to maximum Life",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var explicitVariant = fracturedVariant with
+        {
+            Identity = explicitIdentity,
+            Label = "Explicit",
+            ProviderKind = "explicit",
+        };
+        var fractured = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            isSelected: true,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "fractured.stat_life",
+            ProviderStatText = "+# to maximum Life",
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants = [fracturedVariant, explicitVariant],
+            SelectedFilterVariantIdentity = fracturedVariant.Identity,
+        };
+        var draft = Draft("Pain Road", modifiers: [fractured]) with
+        {
+            ItemStates = ["Fractured Item"],
+        };
+        fixture.PriceCheckService.EffectiveDraftResolver = candidate => candidate with
+        {
+            ModifierFilters = candidate.ModifierFilters.Select(modifier =>
+            {
+                var selected = Assert.Single(modifier.FilterVariants, variant =>
+                    variant.Identity == modifier.SelectedFilterVariantIdentity);
+                return modifier with
+                {
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                    ProviderStatId = selected.ProviderKind == "fractured"
+                        ? "fractured.stat_life"
+                        : "explicit.stat_life",
+                    ProviderStatText = selected.Description,
+                    SupportsValueBounds = selected.SupportsValueBounds,
+                };
+            }).ToArray(),
+        };
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var initial = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(initial.IsInteractionEnabled);
+        Assert.False(initial.IsSelected);
+        Assert.True(initial.IsFracturedModifier);
+        Assert.Equal("Fractured", initial.ModTypeLabel);
+        Assert.False(initial.HasStaticModType);
+        Assert.False(initial.CanSelectFilterVariant);
+        Assert.Equal("84", initial.MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.True(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).CanSelectFilterVariant);
+        await fixture.Controller.SearchAsync();
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Controller.UpdateModifierFilterVariant(0, explicitVariant.Identity);
+        var explicitRow = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(explicitRow.IsSelected);
+        Assert.Equal("Explicit", explicitRow.ModTypeLabel);
+        Assert.Equal("explicit.stat_life", fixture.Window.CurrentState!.Draft.ModifierFilters[0].ProviderStatId);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Controller.UpdateModifierFilterVariant(0, fracturedVariant.Identity);
+        Assert.Equal("Fractured", Assert.Single(fixture.Window.CurrentSearchState.Modifiers).ModTypeLabel);
+        Assert.Equal("fractured.stat_life", fixture.Window.CurrentState!.Draft.ModifierFilters[0].ProviderStatId);
+        fixture.Controller.UpdateModifierFilterVariant(0, explicitVariant.Identity);
+        fixture.Window.RaiseModifierBoundsChanged(0, "80", "90");
+
+        var edited = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(edited.IsSelected);
+        Assert.True(edited.CanEditBounds);
+        Assert.Equal("Explicit", edited.ModTypeLabel);
+        Assert.Equal(explicitVariant.Identity, fixture.Window.CurrentState!.Draft.ModifierFilters[0].SelectedFilterVariantIdentity);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        await fixture.Controller.SearchAsync();
+
+        var searched = fixture.PriceCheckService.Calls[1].Draft!;
+        Assert.Equal("explicit.stat_life", searched.ModifierFilters[0].ProviderStatId);
+        Assert.Equal(80m, searched.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(90m, searched.ModifierFilters[0].RequestedMaximum);
+
+        fixture.Window.RaiseResetItemRequested();
+        var reset = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.False(reset.IsSelected);
+        Assert.Equal("Fractured", reset.ModTypeLabel);
+        Assert.Equal("84", reset.MinimumText);
+        Assert.Equal(fracturedVariant.Identity, fixture.Window.CurrentState!.Draft.ModifierFilters[0].SelectedFilterVariantIdentity);
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+    }
+
+    [Fact]
+    public async Task ExactVeiledPresenceRow_IsStaticEnabledUncheckedAndSearchesWithoutBounds()
+    {
+        var fixture = SearchFixture.Create();
+        var veiledVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("veiled.general"),
+            Label = "Veiled",
+            Description = "Veiled",
+            ProviderKind = "veiled",
+            SupportsValueBounds = false,
+        };
+        var veiled = Modifier(
+            "Veiled Suffix",
+            ParsedModifierKind.Suffix,
+            resolvedModifierId: null) with
+        {
+            IsVeiled = true,
+            IsSearchable = true,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "veiled.general",
+            ProviderStatText = "Veiled",
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            FilterVariants = [veiledVariant],
+            SelectedFilterVariantIdentity = veiledVariant.Identity,
+        };
         fixture.Controller.UpdateCurrentDraft(
-            Draft(
-                "Armoured Shell",
-                modifiers:
-                [
-                    Modifier(
-                        "Unsupported value",
-                        valueBoundsUnsupportedReason: "The translation has multiple numeric provider values."),
-                ]),
+            Draft("Kraken Torc", modifiers: [veiled]),
+            new TradeSearchDraftValidator().Validate(Draft("Kraken Torc", modifiers: [veiled])));
+
+        var initial = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(initial.IsInteractionEnabled);
+        Assert.False(initial.IsSelected);
+        Assert.True(initial.IsVeiledModifier);
+        Assert.True(initial.HasStaticModType);
+        Assert.Equal("Veiled", initial.ModTypeLabel);
+        Assert.False(initial.SupportsValueBounds);
+        Assert.False(initial.CanSelectFilterVariant);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        await fixture.Controller.SearchAsync();
+
+        var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        var selected = Assert.Single(searched.ModifierFilters);
+        Assert.True(selected.IsSelected);
+        Assert.Equal("veiled.general", selected.ProviderStatId);
+        Assert.Null(selected.RequestedMinimum);
+        Assert.Null(selected.RequestedMaximum);
+
+        fixture.Window.RaiseResetItemRequested();
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).IsSelected);
+        Assert.True(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsVeiled);
+    }
+
+    [Fact]
+    public void UnsupportedVeiledPlaceholder_IsVisibleStaticDisabledAndCannotMutateDraft()
+    {
+        var fixture = SearchFixture.Create();
+        var veiled = Modifier(
+            "Veiled Suffix",
+            ParsedModifierKind.Suffix,
+            isSelected: true,
+            resolvedModifierId: null,
+            supportsValueBounds: true,
+            minimum: 10m) with
+        {
+            IsVeiled = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            NotSearchableReason = "The Veiled placeholder does not reveal an exact modifier identity.",
+        };
+        var draft = Draft("Kraken Torc", modifiers: [veiled]);
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.False(row.IsSelected);
+        Assert.True(row.IsVeiledModifier);
+        Assert.Equal("Veiled", row.ModTypeLabel);
+        Assert.True(row.HasStaticModType);
+        Assert.False(row.SupportsValueBounds);
+        Assert.False(row.CanEditBounds);
+        Assert.Empty(row.MinimumText);
+        Assert.Empty(row.MaximumText);
+        Assert.Contains("Unsupported", row.SectionLabel, StringComparison.Ordinal);
+        Assert.Contains("does not reveal", row.SourceBreakdown, StringComparison.Ordinal);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Controller.UpdateModifierBounds(0, "20", "30");
+
+        Assert.False(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
+        Assert.Equal(10m, fixture.Window.CurrentState.Draft.ModifierFilters[0].RequestedMinimum);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseResetItemRequested();
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsVeiled);
+    }
+
+    [Fact]
+    public void UnsupportedOrdinaryModifier_IsDisabledUncheckedAndCannotEnterSelectedBlankState()
+    {
+        var fixture = SearchFixture.Create();
+        var unsupported = Modifier(
+            "Unsupported value",
+            resolvedModifierId: null,
+            valueBoundsUnsupportedReason: "The translation has multiple numeric provider values.") with
+        {
+            IsSelected = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderDiagnosticMessage = "The translation has multiple numeric provider values.",
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Armoured Shell", modifiers: [unsupported]),
             ValidationSuccess());
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsSelected);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.Equal("Unsupported", row.ModTypeLabel);
+        Assert.Empty(row.MinimumText);
+        Assert.Empty(row.MaximumText);
 
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
-        var diagnostic = Assert.Single(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics);
-        Assert.Equal("MODIFIER_BOUNDS_UNSUPPORTED", diagnostic.Code);
-        Assert.Equal("The translation has multiple numeric provider values.", diagnostic.Message);
+        Assert.False(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
+        Assert.DoesNotContain(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
+            diagnostic.Code == "MODIFIER_BOUNDS_UNSUPPORTED");
     }
 
     [Fact]
@@ -883,7 +1172,7 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public async Task MixedDomainAggregateWithoutWideProviderVariantBlocksSearchWithoutRequest()
+    public async Task MixedDomainAggregateWithoutWideProviderVariantIsUncheckedAndDoesNotBlockBaselineSearch()
     {
         var fixture = SearchFixture.Create();
         var aggregate = Modifier(
@@ -915,9 +1204,13 @@ public sealed class PriceCheckerSearchControllerTests
             ValidationSuccess());
 
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.False(row.IsSelected);
         await fixture.Controller.SearchAsync();
 
-        Assert.Empty(fixture.PriceCheckService.Calls);
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.False(Assert.Single(call.Draft!.ModifierFilters).IsSelected);
         Assert.Contains(
             fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics,
             diagnostic => diagnostic.Code ==
@@ -925,9 +1218,7 @@ public sealed class PriceCheckerSearchControllerTests
                 diagnostic.Message.Contains(
                     "No aggregate-wide Trade variant",
                     StringComparison.Ordinal));
-        Assert.Equal(
-            "Select a supported Trade search.",
-            fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
     [Fact]
@@ -935,7 +1226,7 @@ public sealed class PriceCheckerSearchControllerTests
     {
         var fixture = SearchFixture.Create();
         fixture.Controller.UpdateCurrentDraft(
-            Draft("Armoured Shell", modifiers: [Modifier("Test Value", supportsValueBounds: true)]),
+            Draft("Armoured Shell", modifiers: [Modifier("Test Value", supportsValueBounds: true, minimum: 10m)]),
             ValidationSuccess());
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         var rows = fixture.Window.CurrentSearchState!.Modifiers;
@@ -1664,21 +1955,9 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public async Task SearchAsync_SelectedLocallyUnresolvedModifierUsesProviderMappingFailure()
+    public async Task SearchAsync_UnsupportedLocallyUnresolvedModifierStaysUnselectedInBaselineRequest()
     {
         var fixture = SearchFixture.Create();
-        fixture.PriceCheckService.Result = new PathOfExileTradePriceCheckResult
-        {
-            Stage = PathOfExileTradePriceCheckStage.ModifierMapping,
-            Diagnostics =
-            [
-                new PathOfExileTradePriceCheckDiagnostic(
-                    PathOfExileTradePriceCheckDiagnosticCodes.SelectedModifierMappingFailed,
-                    "Not found.",
-                    PathOfExileTradePriceCheckStage.ModifierMapping,
-                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound),
-            ],
-        };
         fixture.Controller.UpdateCurrentDraft(
             Draft(
                 "Armoured Shell",
@@ -1689,17 +1968,14 @@ public sealed class PriceCheckerSearchControllerTests
         await fixture.Controller.SearchAsync();
 
         var call = Assert.Single(fixture.PriceCheckService.Calls);
-        Assert.Contains(
-            call.ValidationResult?.Diagnostics ?? [],
-            diagnostic =>
-                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved &&
-                diagnostic.Severity == TradeSearchValidationSeverity.Warning);
-        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
-        Assert.Equal("Selected modifier is not available in Trade search.", fixture.Window.CurrentSearchState?.Message);
+        Assert.False(Assert.Single(call.Draft?.ModifierFilters ?? []).IsSelected);
+        Assert.DoesNotContain(call.ValidationResult?.Diagnostics ?? [], diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
     }
 
     [Fact]
-    public void ModifierSelectionChanged_LocallyUnresolvedModifierKeepsSearchEnabledBeforeProviderMapping()
+    public void ModifierSelectionChanged_LocallyUnresolvedModifierIsDisabledUncheckedAndBaselineRemainsReady()
     {
         var fixture = SearchFixture.Create();
         fixture.Controller.UpdateCurrentDraft(
@@ -1711,14 +1987,16 @@ public sealed class PriceCheckerSearchControllerTests
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
         Assert.Empty(fixture.PriceCheckService.Calls);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.False(row.IsSelected);
+        Assert.Equal("Unsupported", row.ModTypeLabel);
         Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
         Assert.True(fixture.Window.CurrentSearchState?.CanSearch);
         Assert.Equal("Ready to search.", fixture.Window.CurrentSearchState?.Message);
-        Assert.Contains(
+        Assert.DoesNotContain(
             fixture.Window.CurrentState?.ValidationResult.Diagnostics ?? [],
-            diagnostic =>
-                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved &&
-                diagnostic.Severity == TradeSearchValidationSeverity.Warning);
+            diagnostic => diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
     }
 
     [Fact]
@@ -3301,6 +3579,8 @@ public sealed class PriceCheckerSearchControllerTests
         decimal? maximum = null,
         string? valueBoundsUnsupportedReason = null)
     {
+        const string providerStatId = "explicit.stat_test";
+        var variantIdentity = PathOfExileTradeProviderIdentity.Create(providerStatId);
         return new ResolvedSearchComponent
         {
             ComponentId = "modifier:0:0",
@@ -3317,8 +3597,32 @@ public sealed class PriceCheckerSearchControllerTests
             IsSearchable = resolvedModifierId is not null,
             SupportsValueBounds = supportsValueBounds,
             ValueBoundsUnsupportedReason = valueBoundsUnsupportedReason,
+            ValueBoundShape = supportsValueBounds
+                ? ModifierBoundShape.Scalar
+                : ModifierBoundShape.PresenceOnly,
+            CanonicalNumericValues = supportsValueBounds && (minimum.HasValue || maximum.HasValue)
+                ? [minimum ?? maximum!.Value]
+                : [],
             RequestedMinimum = minimum,
             RequestedMaximum = maximum,
+            ProviderResolutionStatus = resolvedModifierId is null
+                ? SearchComponentProviderResolutionStatus.NotResolved
+                : SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = resolvedModifierId is null ? null : providerStatId,
+            FilterVariants = resolvedModifierId is null
+                ? []
+                :
+                [
+                    new SearchFilterVariant
+                    {
+                        Identity = variantIdentity,
+                        Label = "Explicit",
+                        Description = "Exact provider variant",
+                        ProviderKind = "explicit",
+                        SupportsValueBounds = supportsValueBounds,
+                    },
+                ],
+            SelectedFilterVariantIdentity = resolvedModifierId is null ? null : variantIdentity,
             IsSelected = isSelected,
         };
     }

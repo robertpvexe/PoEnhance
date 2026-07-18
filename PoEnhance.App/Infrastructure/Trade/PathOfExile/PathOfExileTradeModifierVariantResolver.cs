@@ -39,6 +39,55 @@ internal static class PathOfExileTradeModifierVariantResolver
         return ApplyBounds(resolved, option, exactCandidate);
     }
 
+    public static ResolvedSearchComponent ApplyProviderOwnedPresenceExact(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate exactCandidate)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(exactCandidate);
+
+        var providerKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(exactCandidate);
+        var option = new SearchFilterVariant
+        {
+            Identity = IdentityFor(exactCandidate.StatId),
+            Label = ConciseLabel(exactCandidate, providerKind),
+            Description = exactCandidate.Text,
+            ProviderKind = providerKind,
+            Mode = SearchFilterVariantMode.Standalone,
+            SupportsContributorComposition = false,
+            SupportsValueBounds = false,
+            ValueBoundsUnsupportedReason =
+                "This Trade filter represents presence only and has no numeric Min/Max.",
+        };
+        var providerIdentity = PathOfExileTradeProviderIdentity.Create(exactCandidate.StatId);
+        return component with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            IsSearchable = true,
+            NotSearchableReason = null,
+            FilterVariants = [option],
+            SelectedFilterVariantIdentity = option.Identity,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = exactCandidate.StatId,
+            ProviderStatText = exactCandidate.Text,
+            ProviderCandidateStatIds = [exactCandidate.StatId],
+            ProviderDiagnosticCode = null,
+            ProviderDiagnosticMessage = null,
+            SupportsValueBounds = false,
+            ValueBoundsUnsupportedReason = option.ValueBoundsUnsupportedReason,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            Sources = component.Sources.Select(source => source with
+            {
+                StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+                ProviderIdentity = providerIdentity,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            }).ToArray(),
+            Contributors = [],
+        };
+    }
+
     private static ResolvedSearchComponent Apply(
         ResolvedSearchComponent component,
         PathOfExileTradeStatCatalog catalog,
@@ -53,12 +102,14 @@ internal static class PathOfExileTradeModifierVariantResolver
             component,
             catalog,
             sourceExactCandidate);
+        var requiresExactSourceIdentity = component.ParsedKind == ParsedModifierKind.Unique ||
+            component.IsVeiled;
         var discoveredCandidates = discovery.Candidates
             .Where(candidate => includePseudo || !string.Equals(
                 PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 "pseudo",
                 StringComparison.Ordinal))
-            .Where(candidate => component.ParsedKind != ParsedModifierKind.Unique ||
+            .Where(candidate => !requiresExactSourceIdentity ||
                 string.Equals(candidate.StatId, sourceExactCandidate.StatId, StringComparison.Ordinal))
             .ToArray();
 
@@ -144,6 +195,21 @@ internal static class PathOfExileTradeModifierVariantResolver
             Sources = component.Sources,
             Contributors = contributors,
         };
+
+        if (component.IsFractured &&
+            !options.Any(option => string.Equals(
+                option.ProviderKind,
+                "fractured",
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            resolved = resolved with
+            {
+                ProviderDiagnosticCode =
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                ProviderDiagnosticMessage =
+                    $"The source is Fractured, but the current Trade catalog has no exact compatible Fractured variant; using the independently proven {selectedOption.Label} variant.",
+            };
+        }
 
         return ApplyBounds(resolved, selectedOption, selectedCandidate);
     }
@@ -321,7 +387,7 @@ internal static class PathOfExileTradeModifierVariantResolver
         SearchFilterVariant option,
         PathOfExileTradeStatMatchCandidate candidate)
     {
-        if (!option.SupportsValueBounds || component.ValueBoundShape is ModifierBoundShape.PresenceOnly or ModifierBoundShape.Unsupported)
+        if (!option.SupportsValueBounds || component.ValueBoundShape == ModifierBoundShape.PresenceOnly)
         {
             return component with
             {
@@ -337,7 +403,17 @@ internal static class PathOfExileTradeModifierVariantResolver
             SupportsValueBounds = true,
             ValueBoundsUnsupportedReason = null,
         };
-        return PathOfExileTradeModifierBoundProjector.Project(restored, candidate);
+        var projected = PathOfExileTradeModifierBoundProjector.Project(restored, candidate);
+        return projected.ValueBoundShape == ModifierBoundShape.Unsupported
+            ? projected with
+            {
+                SupportsValueBounds = false,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason = component.ValueBoundsUnsupportedReason ??
+                    "The exact provider stat has no reviewed numeric projection for this copied value.",
+            }
+            : projected;
     }
 
     private static bool HasCompatibleNumericSemantics(

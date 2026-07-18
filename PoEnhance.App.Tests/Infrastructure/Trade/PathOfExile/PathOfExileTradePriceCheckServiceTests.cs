@@ -168,6 +168,347 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
+    public void ResolveProviderComponents_FracturedModifier_ExposesSafeVariantsAndDefaultsToFractured()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ItemStates = ["Fractured Item"],
+            ModifierFilters =
+            [
+                SpecialComponent("+84 to maximum Life", "+<number> to maximum Life") with
+                {
+                    IsFractured = true,
+                    Locality = ModifierLocality.Global,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    CanonicalNumericValues = [84m],
+                    ValueBoundTranslationHandlers = [[]],
+                    ValueBoundTranslationIdentity = "test-life",
+                    RequestedMinimum = 84m,
+                    ProviderDomainEvidence =
+                    [
+                        new SearchComponentProviderDomainEvidence
+                        {
+                            ProviderDomain = "Fractured",
+                            ModifierId = "mod.special.test",
+                            GenerationType = ModifierGenerationType.Suffix,
+                            Locality = ModifierLocality.Global,
+                            IsSourceExact = true,
+                            ItemBaseId = "base.fixture",
+                            ItemClass = "Ring",
+                            ApplicabilityReason = "Exact Fractured source fixture.",
+                        },
+                        new SearchComponentProviderDomainEvidence
+                        {
+                            ProviderDomain = "Explicit",
+                            ModifierId = "mod.ordinary.test",
+                            GenerationType = ModifierGenerationType.Suffix,
+                            Locality = ModifierLocality.Global,
+                            IsProjectedDomain = true,
+                            ItemBaseId = "base.fixture",
+                            ItemClass = "Ring",
+                            ApplicabilityReason = "An independently eligible ordinary family fixture.",
+                        },
+                    ],
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("fractured.stat_life", component.ProviderStatId);
+        Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "fractured");
+        Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "explicit");
+        Assert.Equal(
+            "fractured",
+            Assert.Single(component.FilterVariants, variant =>
+                variant.Identity == component.SelectedFilterVariantIdentity).ProviderKind,
+            ignoreCase: true);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(84m, component.RequestedMinimum);
+        Assert.False(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedModifier_UsesExplicitFallbackOnlyWhenItIsExactAndCompatible()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent("+84 to maximum Life", "+<number> to maximum Life") with
+                {
+                    IsFractured = true,
+                    Locality = ModifierLocality.Global,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    CanonicalNumericValues = [84m],
+                    ValueBoundTranslationHandlers = [[]],
+                    ValueBoundTranslationIdentity = "test-life",
+                    RequestedMinimum = 84m,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_life", component.ProviderStatId);
+        Assert.DoesNotContain(component.FilterVariants, variant => variant.ProviderKind == "fractured");
+        Assert.Equal("explicit", Assert.Single(component.FilterVariants, variant =>
+            variant.Identity == component.SelectedFilterVariantIdentity).ProviderKind);
+        Assert.Contains("source is Fractured", component.ProviderDiagnosticMessage, StringComparison.Ordinal);
+        Assert.Equal(84m, component.RequestedMinimum);
+        Assert.True(component.IsFractured);
+        Assert.False(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedModifierWithoutSafeVariantRemainsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent("+84 to maximum Life", "+<number> to maximum Life") with
+                {
+                    IsFractured = true,
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("explicit.unrelated", "Adds # to # Fire Damage", "explicit"),
+            ]));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.NotFound, component.ProviderResolutionStatus);
+        Assert.Empty(component.FilterVariants);
+        Assert.Null(component.ProviderStatId);
+        Assert.False(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_VeiledPrefixAndSuffixUseTheGeneralPresenceIdentity()
+    {
+        var fixture = ServiceFixture.Create();
+        var suffix = SpecialComponent("Veiled Suffix", "Veiled Suffix") with
+        {
+            IsVeiled = true,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+            ResolvedModifierId = null,
+            ResolvedStatIds = [],
+            IsSearchable = false,
+        };
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                suffix,
+                suffix with
+                {
+                    ComponentId = "modifier:1:0",
+                    SourceModifierIndex = 1,
+                    OriginalText = "Veiled Prefix",
+                    CanonicalSignature = "Veiled Prefix",
+                    ParsedKind = ParsedModifierKind.Prefix,
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("explicit.veiled_text", "Veiled Suffix", "explicit"),
+                Stat("veiled.general", "veiled", "veiled"),
+                Stat("veiled.named", "Member's Veiled", "veiled"),
+            ]));
+
+        Assert.Equal(2, resolved.ModifierFilters.Count);
+        Assert.All(resolved.ModifierFilters, component =>
+        {
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+            Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+            Assert.Equal("veiled.general", component.ProviderStatId);
+            Assert.True(component.IsSearchable);
+            Assert.False(component.IsSelected);
+            Assert.False(component.SupportsValueBounds);
+            Assert.Null(component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            Assert.Equal("veiled", Assert.Single(component.FilterVariants).ProviderKind);
+        });
+        Assert.Equal(ParsedModifierKind.Suffix, resolved.ModifierFilters[0].ParsedKind);
+        Assert.Equal(ParsedModifierKind.Prefix, resolved.ModifierFilters[1].ParsedKind);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_VeiledPlaceholderWithoutGeneralPresenceRemainsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent("Veiled Suffix", "Veiled Suffix") with
+                {
+                    IsVeiled = true,
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsSearchable = false,
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("veiled.named", "Member's Veiled", "veiled"),
+            ]));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            component.ProviderDiagnosticCode);
+        Assert.Null(component.ProviderStatId);
+        Assert.False(component.IsSearchable);
+        Assert.False(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_NamedUnveiledElementalLinesUseIndependentExplicitStatsAndBounds()
+    {
+        var fixture = ServiceFixture.Create();
+        ResolvedSearchComponent Line(
+            int index,
+            string text,
+            string signature,
+            decimal minimum,
+            decimal maximum) => SpecialComponent(text, signature) with
+        {
+            ComponentId = $"modifier:1:{index}",
+            SourceModifierIndex = 1,
+            SourceLineIndex = index,
+            SourceComponentIndex = index,
+            ParsedKind = ParsedModifierKind.Prefix,
+            ParsedModifierName = "Chosen",
+            IsUnveiled = true,
+            IsVeiled = false,
+            ProviderCanonicalSignature = signature,
+            ResolvedStatIds = [$"stat.chosen.{index}.minimum", $"stat.chosen.{index}.maximum"],
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            Locality = ModifierLocality.Global,
+            ValueBoundShape = ModifierBoundShape.ArithmeticMeanRange,
+            ObservedNumericValues = [minimum, maximum],
+            CanonicalNumericValues = [minimum, maximum],
+            OriginalSourceRollRanges =
+            [
+                new ModifierSourceRollRange(index == 0 ? 14m : 14m, 16m),
+                new ModifierSourceRollRange(20m, 22m),
+            ],
+        };
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                Line(0, "Adds 16(14-16) to 21(20-22) Cold Damage", "Adds <number> to <number> Cold Damage", 16m, 21m),
+                Line(1, "Adds 15(14-16) to 20(20-22) Lightning Damage", "Adds <number> to <number> Lightning Damage", 15m, 20m),
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.chosen.cold", "Adds # to # Cold Damage", "explicit"),
+            Stat("explicit.chosen.lightning", "Adds # to # Lightning Damage", "explicit"),
+            Stat("veiled.general", "Veiled", "veiled"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+
+        Assert.Equal(2, resolved.ModifierFilters.Count);
+        Assert.Equal(
+            ["explicit.chosen.cold", "explicit.chosen.lightning"],
+            resolved.ModifierFilters.Select(component => component.ProviderStatId));
+        Assert.Equal([18.5m, 17.5m], resolved.ModifierFilters.Select(component => component.RequestedMinimum));
+        Assert.All(resolved.ModifierFilters, component =>
+        {
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+            Assert.True(component.SupportsValueBounds, component.ValueBoundsUnsupportedReason);
+            Assert.True(component.IsUnveiled);
+            Assert.False(component.IsVeiled);
+            Assert.Equal("explicit", Assert.Single(component.FilterVariants, variant =>
+                variant.Identity == component.SelectedFilterVariantIdentity).ProviderKind);
+            Assert.DoesNotContain(component.FilterVariants, variant =>
+                string.Equals(variant.ProviderKind, "veiled", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    [Theory]
+    [InlineData("-215(100-114) to maximum Life", "+<number> to maximum Life", "+# to maximum Life", -215)]
+    [InlineData("52(-25--28)% reduced Rarity of Items found", "<number>% increased Rarity of Items found", "#% increased Rarity of Items found", -52)]
+    [InlineData("-29(13-15)% of Damage taken Recouped as Life", "<number>% of Damage taken Recouped as Life", "#% of Damage taken Recouped as Life", -29)]
+    public void ResolveProviderComponents_TransformedSignedScalarUsesProviderSignatureAndMaximumBound(
+        string originalText,
+        string providerSignature,
+        string providerText,
+        int providerValue)
+    {
+        var fixture = ServiceFixture.Create();
+        var component = SpecialComponent(originalText, originalText) with
+        {
+            ParsedKind = ParsedModifierKind.Prefix,
+            ProviderCanonicalSignature = providerSignature,
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            Locality = ModifierLocality.Global,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [Math.Abs(providerValue)],
+            CanonicalNumericValues = [providerValue],
+            DefaultBoundDirection = ModifierBoundDirection.Maximum,
+            RequestedMaximum = providerValue,
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.transformed", providerText, "explicit"),
+            Stat("pseudo.transformed", providerText, "pseudo"),
+        ]);
+
+        var resolved = Assert.Single(fixture.Service.ResolveProviderComponents(
+            Draft() with { ModifierFilters = [component] },
+            catalog).ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
+        Assert.Equal("explicit.transformed", resolved.ProviderStatId);
+        Assert.Equal(providerValue, resolved.RequestedMaximum);
+        Assert.Null(resolved.RequestedMinimum);
+        Assert.DoesNotContain(resolved.FilterVariants, variant =>
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase) &&
+            variant.Identity == resolved.SelectedFilterVariantIdentity);
+    }
+
+    [Fact]
     public async Task CheckAsync_ValidDraftBuildsSearchFetchesFirstBatchAndReturnsOrderedOffers()
     {
         var fixture = ServiceFixture.Create();
@@ -639,7 +980,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
-    public async Task CheckAsync_TwoSelectedSourcesSharingPresenceStatStaySelectedAndSerializeOnce()
+    public async Task CheckAsync_TwoSelectedUnaggregatedNumericSourcesSharingStatFailInsteadOfDuplicatingFilter()
     {
         var queryBuilder = SuccessfulQueryBuilder();
         var catalogProvider = new FakeCatalogProvider();
@@ -663,16 +1004,10 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ValidationSuccess(),
             League);
 
-        Assert.True(result.IsSuccess);
-        var effectiveDraft = Assert.IsType<TradeSearchDraft>(result.EffectiveDraft);
-        Assert.True(effectiveDraft.ModifierFilters[0].IsSelected);
-        Assert.True(effectiveDraft.ModifierFilters[1].IsSelected);
-        Assert.NotEqual(
-            effectiveDraft.ModifierFilters[0].ResolvedModifierId,
-            effectiveDraft.ModifierFilters[1].ResolvedModifierId);
-        var providerFilter = Assert.Single(Assert.Single(queryBuilder.Calls).SelectedModifierFilters ?? []);
-        Assert.Equal("explicit.physical", providerFilter.StatId);
-        Assert.Equal([0, 1], providerFilter.SourceIndexes);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.ModifierMapping, result.Stage);
+        Assert.Empty(queryBuilder.Calls);
+        Assert.Empty(searchClient.Calls);
     }
 
     [Fact]
@@ -1106,6 +1441,9 @@ public sealed class PathOfExileTradePriceCheckServiceTests
 
     private static TradeSearchDraft SelectedDraft(string originalText = "+55 to maximum Life")
     {
+        var displayedValue = decimal.Parse(
+            System.Text.RegularExpressions.Regex.Match(originalText, @"[+-]?\d+(?:\.\d+)?").Value,
+            System.Globalization.CultureInfo.InvariantCulture);
         return Draft() with
         {
             ModifierFilters =
@@ -1121,6 +1459,11 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     ResolvedModifierId = "mod.life",
                     ResolvedStatIds = ["base_maximum_life"],
                     IsSearchable = true,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ObservedNumericValues = [displayedValue],
+                    CanonicalNumericValues = [displayedValue],
+                    RequestedMinimum = displayedValue,
                     IsSelected = true,
                 },
             ],
@@ -1144,6 +1487,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     "<number>% increased Physical Damage",
                     "mod.pure-physical",
                     "local_physical_damage_percent",
+                    52m,
                     selected.Contains(0)),
                 DuplicateEffectComponent(
                     "modifier:1:0",
@@ -1153,6 +1497,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     "<number>% increased Physical Damage",
                     "mod.hybrid-physical-accuracy",
                     "local_physical_damage_percent",
+                    39m,
                     selected.Contains(1)),
                 DuplicateEffectComponent(
                     "modifier:1:1",
@@ -1162,6 +1507,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     "+<number> to Accuracy Rating",
                     "mod.hybrid-physical-accuracy",
                     "local_accuracy",
+                    93m,
                     selected.Contains(2)),
             ],
         };
@@ -1175,6 +1521,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         string canonicalSignature,
         string modifierId,
         string statId,
+        decimal value,
         bool isSelected)
     {
         return new ResolvedSearchComponent
@@ -1191,6 +1538,11 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ResolvedModifierId = modifierId,
             ResolvedStatIds = [statId],
             IsSearchable = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [value],
+            CanonicalNumericValues = [value],
+            RequestedMinimum = value,
             IsSelected = isSelected,
         };
     }
@@ -1354,6 +1706,27 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ParsedKind = ParsedModifierKind.Unique,
             UniqueOrigin = origin,
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            IsSelected = false,
+        };
+    }
+
+    private static ResolvedSearchComponent SpecialComponent(
+        string originalText,
+        string canonicalSignature)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            SourceComponentIndex = 0,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ParsedKind = ParsedModifierKind.Suffix,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = "mod.special.test",
+            ResolvedStatIds = ["stat.special.test"],
+            IsSearchable = true,
             IsSelected = false,
         };
     }

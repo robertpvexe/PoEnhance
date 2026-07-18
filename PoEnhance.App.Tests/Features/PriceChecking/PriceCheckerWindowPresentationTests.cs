@@ -652,6 +652,25 @@ Item Level: 82
         Assert.False(unique.CanSelectFilterVariant);
         Assert.False(foulborn.CanSelectFilterVariant);
 
+        var fractured = nonImplicit with
+        {
+            SourceIndex = 4,
+            Text = "Fractured modifier",
+            IsFracturedModifier = true,
+        };
+        var veiled = nonImplicit with
+        {
+            SourceIndex = 5,
+            Text = "Veiled Suffix",
+            IsVeiledModifier = true,
+        };
+        Assert.Equal("Explicit", fractured.ModTypeLabel);
+        Assert.Equal("Veiled", veiled.ModTypeLabel);
+        Assert.False(fractured.HasStaticModType);
+        Assert.True(veiled.HasStaticModType);
+        Assert.True(fractured.CanSelectFilterVariant);
+        Assert.False(veiled.CanSelectFilterVariant);
+
         var xaml = LoadWindowXaml();
         var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
         Assert.Contains("Text=\"{Binding ModTypeLabel}\"", modifiers);

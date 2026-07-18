@@ -45,13 +45,13 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
-    public void ScalarBoundDefault_NormalNegativeValueIsNotTreatedAsInverse()
+    public void ScalarBoundDefault_NormalNegativeValueUsesRestrictiveMaximum()
     {
         var result = BoundDefault("-15 Test Value", -15m, handlers: []);
 
         Assert.True(result.IsSupported);
         Assert.Equal(-15m, result.ObservedCanonicalValue);
-        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
     }
 
     [Theory]
@@ -106,6 +106,52 @@ public sealed class TradeSearchDraftMapperTests
         Assert.Equal(
             [2.83m],
             ModifierBoundDefaults.ExtractObservedValues("2.83(2.6–3.2)% Test Value"));
+    }
+
+    [Fact]
+    public void OriginalSourceRollExtraction_PreservesSignedRangesSeparatelyFromDisplayedValues()
+    {
+        var ranges = ModifierBoundDefaults.ExtractOriginalSourceRollRanges(
+        [
+            "-215(100-114) to maximum Life",
+            "52(-25--28)% reduced Rarity of Items found",
+            "-29(13-15)% of Damage taken Recouped as Life",
+        ]);
+
+        Assert.Equal(
+        [
+            new ModifierSourceRollRange(100m, 114m),
+            new ModifierSourceRollRange(-25m, -28m),
+            new ModifierSourceRollRange(13m, 15m),
+        ], ranges);
+        Assert.Equal([-215m], ModifierBoundDefaults.ExtractObservedValues(
+            "-215(100-114) to maximum Life"));
+        Assert.Equal([52m], ModifierBoundDefaults.ExtractObservedValues(
+            "52(-25--28)% reduced Rarity of Items found"));
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_NegativeOrderPreservingValueDefaultsToMaximum()
+    {
+        var result = BoundDefault("-215(-300--1) Test Value", -300m, maximum: -1m);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-215m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_PositiveReducedDisplayUsesNegatedProviderMaximum()
+    {
+        var result = BoundDefault(
+            "52(-60--1) Test Value",
+            -60m,
+            maximum: -1m,
+            handlers: ["negate"]);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-52m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
     }
 
     [Fact]
@@ -893,7 +939,8 @@ Item Level: 84
     private static ModifierBoundDefaultResult BoundDefault(
         string source,
         decimal observedRangeValue,
-        IReadOnlyList<string> handlers)
+        IReadOnlyList<string>? handlers = null,
+        decimal? maximum = null)
     {
         const string statId = "test_stat";
         var stat = new ModifierStat
@@ -901,7 +948,7 @@ Item Level: 84
             Index = 0,
             StatId = statId,
             MinValue = observedRangeValue,
-            MaxValue = observedRangeValue,
+            MaxValue = maximum ?? observedRangeValue,
         };
         var catalog = GameDataCatalog.FromPackage(new GameDataPackage
         {
@@ -936,7 +983,7 @@ Item Level: 84
                         {
                             Conditions = [new StatTranslationCondition { Index = 0 }],
                             ValueFormats = ["#"],
-                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = handlers }],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = handlers ?? [] }],
                             FormatLines = [ObservedFormat(source, 1)],
                         },
                     ],

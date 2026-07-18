@@ -70,6 +70,81 @@ public sealed class TradeSearchDraftValidatorTests
     }
 
     [Fact]
+    public void Validate_SelectedGameDataUnknownModifierWithFinalExactProviderMappingHasNoProvisionalWarning()
+    {
+        var variant = ProviderVariant("veiled.catalog-presence", supportsBounds: false);
+        var draft = ValidDraft(modifiers:
+        [
+            UnknownModifier() with
+            {
+                IsSelected = true,
+                IsSearchable = true,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderStatId = "veiled.catalog-presence",
+                FilterVariants = [variant],
+                SelectedFilterVariantIdentity = variant.Identity,
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierUnresolved);
+    }
+
+    [Fact]
+    public void Validate_StaleSelectedUnsupportedOrdinaryModifierIsRejected()
+    {
+        var draft = ValidDraft(modifiers:
+        [
+            UnknownModifier() with
+            {
+                IsSelected = true,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+                ProviderDiagnosticMessage = "No exact provider variant is available.",
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
+    public void Validate_SelectedExactNumericVariantWithoutCanonicalBoundIsRejected()
+    {
+        var variant = ProviderVariant("explicit.maximum-life", supportsBounds: true);
+        var draft = ValidDraft(modifiers:
+        [
+            ExactModifier() with
+            {
+                IsSelected = true,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderStatId = "explicit.maximum-life",
+                FilterVariants = [variant],
+                SelectedFilterVariantIdentity = variant.Identity,
+                SupportsValueBounds = false,
+                CanonicalNumericValues = [],
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.SelectedModifierBoundsUnsupported,
+            TradeSearchValidationSeverity.Error,
+            modifierFilterIndex: 0);
+    }
+
+    [Fact]
     public void Validate_SelectedBaseGuaranteedImplicit_IsRepresentedByExactBaseInfoWithoutUnresolvedWarning()
     {
         var draft = ValidDraft(modifiers:
@@ -607,7 +682,7 @@ Item Level: 82
     [Theory]
     [InlineData("Fractured Item", "Rare")]
     [InlineData("Fractured Item", "Any")]
-    public void Validate_UnsupportedOrdinaryItemState_IsInvalid(string itemState, string rarity)
+    public void Validate_FracturedItemFactIsRetainedWithoutBlockingBaseline(string itemState, string rarity)
     {
         var draft = ValidDraft() with
         {
@@ -617,11 +692,9 @@ Item Level: 82
 
         var result = validator.Validate(draft);
 
-        Assert.False(result.IsValid);
-        AssertDiagnostic(
-            result,
-            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
-            TradeSearchValidationSeverity.Error);
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+        Assert.Contains(itemState, draft.ItemStates);
     }
 
     [Fact]
@@ -709,7 +782,7 @@ Item Level: 82
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void Validate_UnsupportedOrdinarySpecialModifier_IsInvalid(
+    public void Validate_UnselectedFracturedOrVeiledModifierDoesNotBlockBaseline(
         bool isFractured,
         bool isVeiled)
     {
@@ -724,12 +797,70 @@ Item Level: 82
 
         var result = validator.Validate(draft);
 
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Validate_SelectedUnsupportedFracturedOrVeiledModifierIsRejected(
+        bool isFractured,
+        bool isVeiled)
+    {
+        var draft = ValidDraft(modifiers:
+        [
+            UnknownModifier() with
+            {
+                IsFractured = isFractured,
+                IsVeiled = isVeiled,
+                IsSelected = true,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+                ProviderDiagnosticMessage = "No exact special provider identity is available.",
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
         Assert.False(result.IsValid);
         AssertDiagnostic(
             result,
-            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
+            TradeSearchValidationDiagnosticCodes.SelectedSpecialModifierUnsupported,
             TradeSearchValidationSeverity.Error,
             modifierFilterIndex: 0);
+    }
+
+    [Theory]
+    [InlineData(true, false, "fractured.stat_life")]
+    [InlineData(false, true, "veiled.stat_life")]
+    public void Validate_SelectedExactFracturedOrVeiledModifierIsLegal(
+        bool isFractured,
+        bool isVeiled,
+        string providerStatId)
+    {
+        var variant = ProviderVariant(providerStatId, supportsBounds: true);
+        var draft = ValidDraft(modifiers:
+        [
+            ExactModifier() with
+            {
+                IsFractured = isFractured,
+                IsVeiled = isVeiled,
+                IsSelected = true,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderStatId = providerStatId,
+                FilterVariants = [variant],
+                SelectedFilterVariantIdentity = variant.Identity,
+                SupportsValueBounds = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                CanonicalNumericValues = [55m],
+                RequestedMinimum = 55m,
+            },
+        ]);
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
@@ -858,6 +989,18 @@ Item Level: 82
             ResolvedStatIds = ["base_maximum_life"],
             IsSearchable = true,
             IsSelected = false,
+        };
+    }
+
+    private static SearchFilterVariant ProviderVariant(string providerStatId, bool supportsBounds)
+    {
+        return new SearchFilterVariant
+        {
+            Identity = providerStatId,
+            Label = "Explicit",
+            Description = "Exact provider variant",
+            ProviderKind = "explicit",
+            SupportsValueBounds = supportsBounds,
         };
     }
 

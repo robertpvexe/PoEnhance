@@ -936,6 +936,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             SupportsValueBounds = true,
             ValueBoundShape = ModifierBoundShape.Scalar,
             ObservedNumericValues = [20m],
+            CanonicalNumericValues = [20m],
             RequestedMinimum = 20m,
             ProviderDomainEvidence = isCrafted
                 ?

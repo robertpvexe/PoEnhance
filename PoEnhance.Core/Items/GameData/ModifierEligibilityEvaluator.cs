@@ -31,7 +31,12 @@ public sealed class ModifierEligibilityEvaluator
                 itemBaseDomain);
         }
 
-        if (!string.Equals(modifierDomain, itemBaseDomain, StringComparison.OrdinalIgnoreCase))
+        var usesProviderOwnedAffixDomain = string.Equals(
+            modifierDomain,
+            "unveiled",
+            StringComparison.OrdinalIgnoreCase);
+        if (!string.Equals(modifierDomain, itemBaseDomain, StringComparison.OrdinalIgnoreCase) &&
+            !usesProviderOwnedAffixDomain)
         {
             return new ModifierEligibilityResult(
                 true,

@@ -231,6 +231,11 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
             CanSerializeProviderResolvedComponent(modifier))
         {
+            if (!TryVerifySpecialProviderKind(sourceIndex, modifier, catalog, out diagnostic))
+            {
+                return false;
+            }
+
             if (!TryVerifyReviewedLocalProviderScope(
                     sourceIndex,
                     modifier,
@@ -255,6 +260,54 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         }
 
         diagnostic = ToProviderResolutionDiagnostic(sourceIndex, modifier);
+        return false;
+    }
+
+    private static bool TryVerifySpecialProviderKind(
+        int sourceIndex,
+        ResolvedSearchComponent modifier,
+        PathOfExileTradeStatCatalog? catalog,
+        out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (!modifier.IsFractured && !modifier.IsVeiled)
+        {
+            return true;
+        }
+
+        var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+            variant.Identity,
+            modifier.SelectedFilterVariantIdentity,
+            StringComparison.Ordinal));
+        if (catalog is not null &&
+            selectedVariant is not null &&
+            catalog.TryGetById(modifier.ProviderStatId, out var entry))
+        {
+            var providerKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(entry));
+            var providerIdentity = PathOfExileTradeProviderIdentity.Create(entry.Id);
+            var identityMatches = string.Equals(
+                selectedVariant.Identity,
+                providerIdentity,
+                StringComparison.Ordinal);
+            var kindMatches = string.Equals(
+                selectedVariant.ProviderKind,
+                providerKind,
+                StringComparison.OrdinalIgnoreCase);
+            var veiledPresenceMatches = !modifier.IsVeiled || string.Equals(
+                providerKind,
+                "veiled",
+                StringComparison.Ordinal);
+            if (identityMatches && kindMatches && veiledPresenceMatches)
+            {
+                return true;
+            }
+        }
+
+        diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
+            $"Selected {(modifier.IsFractured ? "Fractured-source" : "Veiled")} modifier requires one exact catalog-backed provider identity for its selected Mod Type.",
+            sourceIndex);
         return false;
     }
 
@@ -353,11 +406,17 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
             modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
+        var hasExactProviderOwnedVeiledPresence = modifier.IsVeiled &&
+            modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+            modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            modifier.IsSearchable &&
+            !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
         var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
             modifier.ResolvedStatIds.Count > 0;
         return hasExactGameDataProvenance || hasExactProviderOwnedUniqueProvenance ||
+            hasExactProviderOwnedVeiledPresence ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&
             modifier.ImplicitOrigin is
                 ParsedImplicitModifierOrigin.Unspecified or

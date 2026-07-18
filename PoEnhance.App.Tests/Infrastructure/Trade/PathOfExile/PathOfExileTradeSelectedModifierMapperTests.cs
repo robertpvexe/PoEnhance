@@ -108,6 +108,131 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_ExactFracturedComponent_EmitsOneFracturedStatWithBounds()
+    {
+        var fracturedVariant = Variant("fractured.stat_life", "Fractured", "fractured", supportsBounds: true);
+        var component = Modifier(
+            "+84 to maximum Life",
+            providerStatId: "fractured.stat_life",
+            canonicalSignature: "+<number> to maximum Life") with
+        {
+            IsFractured = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 84m,
+            FilterVariants = [fracturedVariant],
+            SelectedFilterVariantIdentity = fracturedVariant.Identity,
+        };
+
+        var result = mapper.Map(
+            Draft([component, component with { ComponentId = "modifier:1:0" }]),
+            Catalog("fractured.stat_life", "+# to maximum Life", "Fractured"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("fractured.stat_life", filter.StatId);
+        Assert.Equal(84m, filter.Minimum);
+        Assert.Equal([0, 1], filter.SourceIndexes);
+    }
+
+    [Fact]
+    public void Map_FracturedSourceWithSelectedExactExplicitVariant_EmitsOnlyExplicit()
+    {
+        var explicitVariant = Variant("explicit.stat_life", "Explicit", "explicit", supportsBounds: true);
+        var component = Modifier(
+            "+84 to maximum Life",
+            providerStatId: "explicit.stat_life",
+            canonicalSignature: "+<number> to maximum Life") with
+        {
+            IsFractured = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 84m,
+            FilterVariants = [explicitVariant],
+            SelectedFilterVariantIdentity = explicitVariant.Identity,
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog("explicit.stat_life", "+# to maximum Life", "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_life", filter.StatId);
+        Assert.Equal(84m, filter.Minimum);
+        Assert.DoesNotContain(result.Filters, candidate =>
+            candidate.StatId.StartsWith("fractured.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Map_VeiledPrefixAndSuffixPresence_CollapseToOneUnboundedProviderFilter()
+    {
+        var veiledVariant = Variant("veiled.general", "Veiled", "veiled", supportsBounds: false);
+        var suffix = Modifier(
+            "Veiled Suffix",
+            providerStatId: "veiled.general",
+            canonicalSignature: "Veiled Suffix",
+            hasGameDataProvenance: false) with
+        {
+            IsVeiled = true,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            IsSearchable = true,
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            FilterVariants = [veiledVariant],
+            SelectedFilterVariantIdentity = veiledVariant.Identity,
+        };
+        var prefix = suffix with
+        {
+            ComponentId = "modifier:1:0",
+            OriginalText = "Veiled Prefix",
+            CanonicalSignature = "Veiled Prefix",
+            ParsedKind = ParsedModifierKind.Prefix,
+        };
+
+        var result = mapper.Map(
+            Draft([suffix, prefix]),
+            Catalog("veiled.general", "Veiled", "Veiled"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("veiled.general", filter.StatId);
+        Assert.Equal([0, 1], filter.SourceIndexes);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
+    [Theory]
+    [InlineData(true, false, "explicit.stat_life", "Explicit")]
+    [InlineData(true, false, "pseudo.total_life", "Pseudo")]
+    [InlineData(false, true, "explicit.stat_life", "Explicit")]
+    public void Map_SpecialProvenanceWithWrongProviderDomain_IsRejected(
+        bool isFractured,
+        bool isVeiled,
+        string providerStatId,
+        string providerGroup)
+    {
+        var component = Modifier(
+            "+84 to maximum Life",
+            providerStatId: providerStatId,
+            canonicalSignature: "+<number> to maximum Life") with
+        {
+            IsFractured = isFractured,
+            IsVeiled = isVeiled,
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog(providerStatId, "+# to maximum Life", providerGroup));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Map_ForgedBroadPseudoForReviewedLocalDisplayedPropertyIsRejected()
     {
         var component = Modifier(
@@ -789,6 +914,22 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
                 Type = "explicit",
             },
         ]);
+    }
+
+    private static SearchFilterVariant Variant(
+        string statId,
+        string label,
+        string providerKind,
+        bool supportsBounds)
+    {
+        return new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create(statId),
+            Label = label,
+            Description = label,
+            ProviderKind = providerKind,
+            SupportsValueBounds = supportsBounds,
+        };
     }
 
     private static PathOfExileTradeStatCatalog Catalog(string id, string text, string kind) => new(
