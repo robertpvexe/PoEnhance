@@ -331,6 +331,49 @@ public sealed class PathOfExileTradeQueryBuilderTests
         AssertRarityFilter(result.SerializedJson!, "rare");
     }
 
+    [Theory]
+    [InlineData("Two Hand Swords", "Two Hand Sword", "Two-Handed Sword")]
+    [InlineData("One Hand Maces", "One Hand Mace", "Base One-Handed Mace")]
+    [InlineData("Staves", "Staff", "Base Staff")]
+    [InlineData("Warstaves", "Warstaff", "Warstaff")]
+    [InlineData("Daggers", "Dagger", "Base Dagger")]
+    [InlineData("Rune Daggers", "Rune Dagger", "Rune Dagger")]
+    [InlineData("Quivers", "Quiver", "Quiver")]
+    [InlineData("Abyss Jewels", "AbyssJewel", "Abyss Jewel")]
+    [InlineData("Jewels", "Jewel", "Base Jewel")]
+    [InlineData("Body Armours", "Body Armour", "Body Armour")]
+    [InlineData("Rings", "Ring", "Ring")]
+    public void Build_CanonicalEquipmentCategory_ResolvesReviewedOfficialSemanticOption(
+        string rawItemClass,
+        string canonicalItemClass,
+        string officialCategoryText)
+    {
+        const string catalogProvidedOptionId = "test.current-option";
+        var result = BuildSuccessful(
+            WithCategoryMode(
+                Draft(
+                    parsedBaseType: "Test Base",
+                    resolvedBaseName: "Test Base",
+                    itemClass: rawItemClass),
+                canonicalItemClass),
+            providerFilterCatalog: CategoryCatalog(
+                ("test.unrelated-option", "Unrelated"),
+                (catalogProvidedOptionId, officialCategoryText)));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal(catalogProvidedOptionId, query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.DoesNotContain(rawItemClass, result.SerializedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(query.GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+    }
+
     [Fact]
     public void Build_TradeCategoryOneHandAxes_ResolvesProviderCategoryWithoutExactBase()
     {
@@ -342,7 +385,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 status: ItemBaseResolutionStatus.Probable,
                 resolvedBaseName: "Reaver Axe",
                 itemClass: "One Hand Axes",
-                listingMode: TradeListingMode.InstantBuyout), "One Hand Axes"),
+                listingMode: TradeListingMode.InstantBuyout), "One Hand Axe"),
             providerFilterCatalog: CategoryCatalog(
                 ("weapon.bow", "Bow"),
                 ("weapon.oneaxe", "One-Handed Axe"),

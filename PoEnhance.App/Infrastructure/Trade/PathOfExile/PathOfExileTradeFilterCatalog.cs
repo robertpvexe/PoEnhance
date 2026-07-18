@@ -2,6 +2,7 @@ namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed class PathOfExileTradeFilterCatalog
 {
+    private readonly PathOfExileTradeCategorySemanticResolver categorySemanticResolver = new();
     private readonly Dictionary<string, PathOfExileTradeFilterOption> categoriesByText;
     private readonly Dictionary<string, PathOfExileTradeFilterOption> categoriesById;
 
@@ -63,13 +64,19 @@ internal sealed class PathOfExileTradeFilterCatalog
             return false;
         }
 
-        foreach (var candidate in ProviderCategoryTextCandidates(trimmed))
+        if (categorySemanticResolver.TryResolveExpectedOfficialText(
+                trimmed,
+                out var expectedOfficialText) &&
+            categoriesByText.TryGetValue(expectedOfficialText, out var foundBySemanticText))
         {
-            if (categoriesByText.TryGetValue(candidate, out var foundByText))
-            {
-                option = foundByText;
-                return true;
-            }
+            option = foundBySemanticText;
+            return true;
+        }
+
+        if (categoriesByText.TryGetValue(trimmed, out var foundByText))
+        {
+            option = foundByText;
+            return true;
         }
 
         if (categoriesById.TryGetValue(trimmed, out var foundById))
@@ -135,21 +142,6 @@ internal sealed class PathOfExileTradeFilterCatalog
             .ToArray();
     }
 
-    private static IEnumerable<string> ProviderCategoryTextCandidates(string category)
-    {
-        yield return category;
-
-        if (string.Equals(category, "Jewel", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return "Base Jewel";
-        }
-
-        if (string.Equals(category, "One Hand Axes", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(category, "One Hand Axe", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return "One-Handed Axe";
-        }
-    }
 }
 
 internal sealed record PathOfExileTradeFilterOption

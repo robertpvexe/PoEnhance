@@ -1005,7 +1005,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             string expectedRarity,
             int expectedModifierCount,
             string expectedBaseName = "Reaver Axe",
-            string expectedCategory = "One Hand Axes")
+            string expectedCategory = "One Hand Axe")
         {
             var catalog = LoadGameDataCatalog();
             var parsed = new ItemTextParser().Parse(itemText);

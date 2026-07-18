@@ -50,6 +50,7 @@ public sealed class TradeSearchDraftMapper
         var draft = new TradeSearchDraft
         {
             ItemClass = TrimToNull(parsedItem.ItemClass),
+            CanonicalItemClass = ResolveCanonicalItemClass(parsedItem, itemBaseResolution),
             Rarity = TrimToNull(parsedItem.Rarity),
             DisplayName = TrimToNull(parsedItem.DisplayName),
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
@@ -539,8 +540,7 @@ public sealed class TradeSearchDraftMapper
             ? null
             : TrimToNull(itemBaseResolution?.ResolvedBaseName);
         var observedExactBaseName = exactBaseName ?? parsedBaseName;
-        var category = CanonicalizeOrdinaryCategory(
-            parsedItem.ItemClass ?? itemBaseResolution?.MatchedItemBase?.ItemClass);
+        var category = ResolveCanonicalItemClass(parsedItem, itemBaseResolution);
 
         var observed = new ObservedBaseIdentity
         {
@@ -1195,31 +1195,20 @@ public sealed class TradeSearchDraftMapper
         return rendered;
     }
 
-    private static string? CanonicalizeOrdinaryCategory(string? itemClass)
+    private static string? ResolveCanonicalItemClass(
+        ParsedItem parsedItem,
+        ItemBaseResolutionResult? itemBaseResolution)
     {
-        var normalized = TrimToNull(itemClass);
-        if (normalized is null)
+        var catalogIdentity = CanonicalItemClassIdentityResolver.Resolve(
+            itemBaseResolution?.MatchedItemBase?.ItemClass);
+        if (catalogIdentity.IsSupported)
         {
-            return null;
+            return catalogIdentity.CanonicalItemClass;
         }
 
-        return normalized switch
-        {
-            "Bows" => "Bow",
-            "Wands" => "Wand",
-            "Body Armours" => "Body Armour",
-            "Helmets" => "Helmet",
-            "Gloves" => "Gloves",
-            "Boots" => "Boots",
-            "Rings" => "Ring",
-            "Sceptres" => "Sceptre",
-            "Amulets" => "Amulet",
-            "Belts" => "Belt",
-            "Shields" => "Shield",
-            "Quivers" => "Quiver",
-            "Jewels" => "Jewel",
-            _ => normalized,
-        };
+        var parsedIdentity = itemBaseResolution?.ItemClassIdentity ??
+            CanonicalItemClassIdentityResolver.Resolve(parsedItem.ItemClass);
+        return parsedIdentity.IsSupported ? parsedIdentity.CanonicalItemClass : null;
     }
 
     private static string? TrimToNull(string? value)

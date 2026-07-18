@@ -193,6 +193,7 @@ public sealed class TradeSearchDraftMapperTests
 
         var draft = AssertSuccessfulDraft(result);
         Assert.Equal("Amulets", draft.ItemClass);
+        Assert.Equal("Amulet", draft.CanonicalItemClass);
         Assert.Equal("Rare", draft.Rarity);
         Assert.Equal("Dusk Beads", draft.DisplayName);
         Assert.Equal("Onyx Amulet", draft.ParsedBaseType);
@@ -364,6 +365,16 @@ public sealed class TradeSearchDraftMapperTests
     [InlineData("Wands", "Blasting Wand", "Wand", "Wand")]
     [InlineData("Body Armours", "Titan Plate", "Body Armour", "Body Armour")]
     [InlineData("Rings", "Vermillion Ring", "Ring", "Ring")]
+    [InlineData("Two Hand Swords", "Engraved Greatsword", "Two Hand Sword", "Two Hand Sword")]
+    [InlineData("One Hand Maces", "Petrified Club", "One Hand Mace", "One Hand Mace")]
+    [InlineData("Staves", "Primordial Staff", "Staff", "Staff")]
+    [InlineData("Warstaves", "Foul Staff", "Warstaff", "Warstaff")]
+    [InlineData("Daggers", "Gutting Knife", "Dagger", "Dagger")]
+    [InlineData("Rune Daggers", "Golden Kris", "Rune Dagger", "Rune Dagger")]
+    [InlineData("Thrusting One Hand Swords", "Apex Rapier", "Thrusting One Hand Sword", "Thrusting One Hand Sword")]
+    [InlineData("Quivers", "Fire Arrow Quiver", "Quiver", "Quiver")]
+    [InlineData("Jewels", "Cobalt Jewel", "Jewel", "Jewel")]
+    [InlineData("Abyss Jewels", "Murderous Eye Jewel", "AbyssJewel", "AbyssJewel")]
     public void CreateDraft_OrdinaryExactBaseDefaultsToCategoryCriterion(
         string itemClass,
         string baseName,
@@ -377,6 +388,8 @@ public sealed class TradeSearchDraftMapperTests
 
         Assert.Equal(baseRecord.Id, draft.Base.Observed?.ExactBaseId);
         Assert.Equal(baseName, draft.Base.Observed?.ExactBaseName);
+        Assert.Equal(itemClass, draft.ItemClass);
+        Assert.Equal(expectedCategory, draft.CanonicalItemClass);
         Assert.Equal(expectedCategory, draft.Base.Observed?.Category);
         Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
         Assert.Equal(expectedCategory, draft.Base.ActiveCriterion?.Category);

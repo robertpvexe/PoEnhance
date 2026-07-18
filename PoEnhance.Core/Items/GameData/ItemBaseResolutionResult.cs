@@ -4,6 +4,8 @@ namespace PoEnhance.Core.Items.GameData;
 
 public sealed record ItemBaseResolutionResult
 {
+    public CanonicalItemClassIdentity? ItemClassIdentity { get; init; }
+
     public ItemBaseResolutionStatus Status { get; init; }
 
     public ItemBaseRecord? MatchedItemBase { get; init; }

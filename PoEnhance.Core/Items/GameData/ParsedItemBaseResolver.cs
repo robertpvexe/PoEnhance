@@ -7,6 +7,7 @@ namespace PoEnhance.Core.Items.GameData;
 public sealed class ParsedItemBaseResolver
 {
     private const string MagicRarity = "Magic";
+    private const string NormalRarity = "Normal";
     private const string CurrencyRarity = "Currency";
     private const string CurrencyBaseType = "Currency";
     private const string StackableCurrencyItemClass = "Stackable Currency";
@@ -23,19 +24,49 @@ public sealed class ParsedItemBaseResolver
         ArgumentNullException.ThrowIfNull(parsedItem);
         ArgumentNullException.ThrowIfNull(catalog);
 
+        var itemClassIdentity = CanonicalItemClassIdentityResolver.Resolve(parsedItem.ItemClass);
+        ItemBaseResolutionResult result;
         if (!string.IsNullOrWhiteSpace(parsedItem.BaseType))
         {
-            return ResolveExactBaseType(parsedItem, catalog);
-        }
+            result = ResolveExactBaseType(parsedItem, catalog);
+            if (result.Status is ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable)
+            {
+                return result with { ItemClassIdentity = itemClassIdentity };
+            }
 
-        if (IsMagic(parsedItem) && !string.IsNullOrWhiteSpace(parsedItem.DisplayName))
+            if (IsMagic(parsedItem))
+            {
+                result = ResolveCatalogNameSpan(
+                    parsedItem,
+                    catalog,
+                    ItemBaseResolutionDiagnosticCodes.BaseProbableMagicSuffixMatch,
+                    "magic item display name");
+            }
+            else if (IsNormal(parsedItem))
+            {
+                result = ResolveCatalogNameSpan(
+                    parsedItem,
+                    catalog,
+                    ItemBaseResolutionDiagnosticCodes.BaseProbableDecoratedNameMatch,
+                    "decorated Normal item name");
+            }
+        }
+        else if (IsMagic(parsedItem) && !string.IsNullOrWhiteSpace(parsedItem.DisplayName))
         {
-            return ResolveMagicDisplayName(parsedItem, catalog);
+            result = ResolveCatalogNameSpan(
+                parsedItem,
+                catalog,
+                ItemBaseResolutionDiagnosticCodes.BaseProbableMagicSuffixMatch,
+                "magic item display name");
+        }
+        else
+        {
+            result = Unknown(
+                ItemBaseResolutionDiagnosticCodes.BaseNotFound,
+                "The parsed item does not contain a base type that can be resolved.");
         }
 
-        return Unknown(
-            ItemBaseResolutionDiagnosticCodes.BaseNotFound,
-            "The parsed item does not contain a base type that can be resolved.");
+        return result with { ItemClassIdentity = itemClassIdentity };
     }
 
     private static ItemBaseResolutionResult ResolveExactBaseType(
@@ -51,6 +82,7 @@ public sealed class ParsedItemBaseResolver
         if (TryResolveCandidates(
             parsedItem,
             candidates,
+            catalog,
             ItemBaseResolutionStatus.Exact,
             ItemBaseResolutionDiagnosticCodes.BaseExactMatch,
             "The parsed base type exactly matched one catalog item base.",
@@ -71,21 +103,23 @@ public sealed class ParsedItemBaseResolver
             "The parsed base type was not found in the game-data catalog.");
     }
 
-    private static ItemBaseResolutionResult ResolveMagicDisplayName(
+    private static ItemBaseResolutionResult ResolveCatalogNameSpan(
         ParsedItem parsedItem,
-        GameDataCatalog catalog)
+        GameDataCatalog catalog,
+        string successDiagnosticCode,
+        string sourceDescription)
     {
         var displayName = parsedItem.DisplayName?.Trim();
         if (string.IsNullOrEmpty(displayName))
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseNotFound,
-                "The magic item display name is empty.");
+                $"The {sourceDescription} is empty.");
         }
 
         var normalizedDisplayName = NormalizeWhitespace(displayName);
         var nameMatches = catalog.ItemBases
-            .Select(itemBase => new MagicBaseNameCandidate(itemBase, NormalizeWhitespace(itemBase.Name ?? string.Empty)))
+            .Select(itemBase => new BaseNameCandidate(itemBase, NormalizeWhitespace(itemBase.Name ?? string.Empty)))
             .Where(candidate =>
                 candidate.NormalizedName.Length > 0 &&
                 ContainsCompleteTokenPhrase(normalizedDisplayName, candidate.NormalizedName))
@@ -94,7 +128,7 @@ public sealed class ParsedItemBaseResolver
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseNotFound,
-                "No catalog item base matched the magic item display name.");
+                $"No catalog item base matched the {sourceDescription} as a complete token phrase.");
         }
 
         var compatibleMatches = nameMatches
@@ -104,7 +138,7 @@ public sealed class ParsedItemBaseResolver
         {
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseItemClassMismatch,
-                "Magic-name item base candidates were found, but none matched the parsed item class.",
+                $"Catalog-name candidates were found in the {sourceDescription}, but none matched the parsed item class.",
                 nameMatches.Select(candidate => candidate.ItemBase).ToArray());
         }
 
@@ -117,17 +151,30 @@ public sealed class ParsedItemBaseResolver
 
         if (longestCandidates.Length > 1)
         {
+            if (TryDisambiguateByParsedImplicit(
+                parsedItem,
+                longestCandidates.Select(candidate => candidate.ItemBase).ToArray(),
+                catalog,
+                out var implicitMatch))
+            {
+                return Matched(
+                    ItemBaseResolutionStatus.Probable,
+                    implicitMatch,
+                    ItemBaseResolutionDiagnosticCodes.BaseExactImplicitDisambiguationMatch,
+                    $"The {sourceDescription} contained an equally named catalog base and the copied base implicit uniquely proved the selected variant.");
+            }
+
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
-                "Multiple equally specific magic-name item base candidates remain.",
+                $"Multiple equally specific catalog base-name candidates remain in the {sourceDescription}.",
                 longestCandidates.Select(candidate => candidate.ItemBase).ToArray());
         }
 
         return Matched(
             ItemBaseResolutionStatus.Probable,
             longestCandidates[0].ItemBase,
-            ItemBaseResolutionDiagnosticCodes.BaseProbableMagicSuffixMatch,
-            "The magic item display name contained one compatible catalog item base as a complete token phrase.");
+            successDiagnosticCode,
+            $"The {sourceDescription} contained the unique longest compatible catalog item base as a complete token phrase.");
     }
 
     private static bool TryResolveGenericCategoryDisplayName(
@@ -149,6 +196,7 @@ public sealed class ParsedItemBaseResolver
         if (!TryResolveCandidates(
             parsedItem,
             candidates,
+            catalog,
             ItemBaseResolutionStatus.Exact,
             ItemBaseResolutionDiagnosticCodes.BaseExactMatch,
             "The item display name exactly matched one catalog item base for an explicitly supported generic category.",
@@ -181,6 +229,7 @@ public sealed class ParsedItemBaseResolver
         if (!TryResolveCandidates(
             parsedItem,
             candidates,
+            catalog,
             ItemBaseResolutionStatus.Probable,
             ItemBaseResolutionDiagnosticCodes.BaseProbableStateDecorationMatch,
             "A confirmed parsed item state allowed the decorated base type to match one catalog item base.",
@@ -226,6 +275,7 @@ public sealed class ParsedItemBaseResolver
     private static bool TryResolveCandidates(
         ParsedItem parsedItem,
         IReadOnlyList<ItemBaseRecord> candidates,
+        GameDataCatalog catalog,
         ItemBaseResolutionStatus successStatus,
         string successDiagnosticCode,
         string successReason,
@@ -252,6 +302,20 @@ public sealed class ParsedItemBaseResolver
 
         if (classMatches.Count > 1)
         {
+            if (TryDisambiguateByParsedImplicit(
+                parsedItem,
+                classMatches,
+                catalog,
+                out var implicitMatch))
+            {
+                result = Matched(
+                    successStatus,
+                    implicitMatch,
+                    ItemBaseResolutionDiagnosticCodes.BaseExactImplicitDisambiguationMatch,
+                    "The copied base implicit uniquely matched one same-name, class-compatible catalog base.");
+                return true;
+            }
+
             result = Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
                 ambiguousReason,
@@ -270,6 +334,40 @@ public sealed class ParsedItemBaseResolver
     private static bool IsMagic(ParsedItem parsedItem)
     {
         return string.Equals(parsedItem.Rarity?.Trim(), MagicRarity, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsNormal(ParsedItem parsedItem)
+    {
+        return string.Equals(parsedItem.Rarity?.Trim(), NormalRarity, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryDisambiguateByParsedImplicit(
+        ParsedItem parsedItem,
+        IReadOnlyList<ItemBaseRecord> candidates,
+        GameDataCatalog catalog,
+        out ItemBaseRecord match)
+    {
+        match = null!;
+        if (parsedItem.ImplicitModifiers.Count == 0)
+        {
+            return false;
+        }
+
+        var matcher = new ModifierTextSignatureMatcher();
+        var matches = candidates
+            .Where(candidate => candidate.ImplicitModifierIds.Any(implicitModifierId =>
+                catalog.FindModifiersById(implicitModifierId).Any(modifier =>
+                    parsedItem.ImplicitModifiers.Any(parsedImplicit =>
+                        matcher.Match(modifier, catalog, parsedImplicit.ValueLines).Outcome ==
+                        ModifierTextSignatureMatchOutcome.Match))))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            return false;
+        }
+
+        match = matches[0];
+        return true;
     }
 
     private static string NormalizeWhitespace(string value)
@@ -379,5 +477,5 @@ public sealed class ParsedItemBaseResolver
         return new ReadOnlyCollection<T>(values.ToArray());
     }
 
-    private sealed record MagicBaseNameCandidate(ItemBaseRecord ItemBase, string NormalizedName);
+    private sealed record BaseNameCandidate(ItemBaseRecord ItemBase, string NormalizedName);
 }

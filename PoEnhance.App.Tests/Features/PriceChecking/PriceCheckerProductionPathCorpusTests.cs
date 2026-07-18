@@ -284,7 +284,7 @@ Regenerate 46.8(32.1-48) Life per second
         Assert.Equal("Morbid Bite", snapshot.Draft.DisplayName);
         Assert.Equal("Reaver Axe", snapshot.Draft.ParsedBaseType);
         Assert.Equal("Reaver Axe", snapshot.Draft.Base.Observed?.ExactBaseName);
-        Assert.Equal("One Hand Axes", snapshot.Draft.Base.ActiveCriterion?.Category);
+        Assert.Equal("One Hand Axe", snapshot.Draft.Base.ActiveCriterion?.Category);
         Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
         Assert.Equal(2, snapshot.Draft.ModifierFilters.Count);
 
@@ -440,7 +440,7 @@ Item Level: 85
         Assert.Null(snapshot.Draft.ParsedBaseType);
         Assert.Equal("Reaver Axe", snapshot.Draft.Base.ResolvedBaseName);
         Assert.Equal("Reaver Axe", snapshot.Draft.Base.Observed?.ExactBaseName);
-        Assert.Equal("One Hand Axes", snapshot.Draft.Base.ActiveCriterion?.Category);
+        Assert.Equal("One Hand Axe", snapshot.Draft.Base.ActiveCriterion?.Category);
         Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
         Assert.Single(snapshot.Draft.ModifierFilters);
 

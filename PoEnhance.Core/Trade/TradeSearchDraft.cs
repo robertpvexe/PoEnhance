@@ -6,6 +6,8 @@ public sealed record TradeSearchDraft
 {
     public string? ItemClass { get; init; }
 
+    public string? CanonicalItemClass { get; init; }
+
     public string? Rarity { get; init; }
 
     public string? DisplayName { get; init; }

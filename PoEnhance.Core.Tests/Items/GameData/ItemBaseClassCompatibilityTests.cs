@@ -25,6 +25,19 @@ public sealed class ItemBaseClassCompatibilityTests
     [InlineData("Life Flasks", "LifeFlask")]
     [InlineData("Mana Flasks", "ManaFlask")]
     [InlineData("Hybrid Flasks", "HybridFlask")]
+    [InlineData("Utility-Flasks", "UtilityFlask")]
+    [InlineData("Two Hand Swords", "Two Hand Sword")]
+    [InlineData("Two-Hand Maces", "Two Hand Mace")]
+    [InlineData("One Hand Swords", "One Hand Sword")]
+    [InlineData("One-Hand Maces", "One Hand Mace")]
+    [InlineData("Staves", "Staff")]
+    [InlineData("Warstaves", "Warstaff")]
+    [InlineData("Claws", "Claw")]
+    [InlineData("Daggers", "Dagger")]
+    [InlineData("Rune Daggers", "Rune Dagger")]
+    [InlineData("Thrusting One Hand Swords", "Thrusting One Hand Sword")]
+    [InlineData("Quivers", "Quiver")]
+    [InlineData("Abyss Jewels", "AbyssJewel")]
     public void AreCompatible_KnownDisplayAndCatalogClasses_ReturnsTrue(
         string parsedItemClass,
         string catalogItemClass)
@@ -60,7 +73,6 @@ public sealed class ItemBaseClassCompatibilityTests
     }
 
     [Theory]
-    [InlineData("Utility-Flasks", "UtilityFlask")]
     [InlineData("Rings", "Rune Dagger")]
     [InlineData("Maps", "MapFragment")]
     [InlineData("Gloves", "Glove")]
@@ -75,5 +87,45 @@ public sealed class ItemBaseClassCompatibilityTests
         var result = ItemBaseClassCompatibility.AreCompatible(parsedItemClass, catalogItemClass);
 
         Assert.False(result);
+    }
+
+    [Theory]
+    [InlineData("Staves", "Warstaff")]
+    [InlineData("Daggers", "Rune Dagger")]
+    [InlineData("Jewels", "AbyssJewel")]
+    [InlineData("One Hand Swords", "Thrusting One Hand Sword")]
+    [InlineData("One Hand Maces", "Sceptre")]
+    public void AreCompatible_SemanticallyDifferentClasses_DoNotCollide(
+        string parsedItemClass,
+        string catalogItemClass)
+    {
+        Assert.False(ItemBaseClassCompatibility.AreCompatible(parsedItemClass, catalogItemClass));
+    }
+
+    [Theory]
+    [InlineData("  TWO---HAND   SWORDS ", "Two Hand Sword")]
+    [InlineData("rune...daggers", "Rune Dagger")]
+    [InlineData("Abyss-Jewels", "AbyssJewel")]
+    public void Resolve_ReviewedAliases_AreCaseWhitespaceAndPunctuationSafe(
+        string rawItemClass,
+        string expectedCanonicalItemClass)
+    {
+        var result = CanonicalItemClassIdentityResolver.Resolve(rawItemClass);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(expectedCanonicalItemClass, result.CanonicalItemClass);
+        Assert.Equal(rawItemClass.Trim(), result.RawItemClass);
+        Assert.Contains(result.RawItemClass!, result.Diagnostic, StringComparison.Ordinal);
+        Assert.Contains(expectedCanonicalItemClass, result.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_UnknownFutureClass_RemainsUnsupportedWithoutGuessing()
+    {
+        var result = CanonicalItemClassIdentityResolver.Resolve("Prototype Widgets");
+
+        Assert.Equal(CanonicalItemClassResolutionStatus.Unsupported, result.Status);
+        Assert.Null(result.CanonicalItemClass);
+        Assert.Contains("Prototype Widgets", result.Diagnostic, StringComparison.Ordinal);
     }
 }

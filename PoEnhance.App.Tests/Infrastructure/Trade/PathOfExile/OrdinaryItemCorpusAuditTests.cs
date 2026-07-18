@@ -1104,7 +1104,7 @@ internal static class AnchorExpectations
             {
                 ResolvedBaseName = "Reaver Axe",
                 Rarity = "Magic",
-                Category = "One Hand Axes",
+                Category = "One Hand Axe",
                 EffectCount = 2,
                 RequiredEffectFragments =
                 [

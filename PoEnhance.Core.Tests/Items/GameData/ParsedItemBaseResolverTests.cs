@@ -469,6 +469,14 @@ Item Level: 84
 
     [Theory]
     [InlineData("One Hand Axes", "Reaver Axe", "One Hand Axe")]
+    [InlineData("One Hand Swords", "Corsair Sword", "One Hand Sword")]
+    [InlineData("One Hand Maces", "Petrified Club", "One Hand Mace")]
+    [InlineData("Two Hand Swords", "Engraved Greatsword", "Two Hand Sword")]
+    [InlineData("Two Hand Maces", "Imperial Maul", "Two Hand Mace")]
+    [InlineData("Claws", "Great White Claw", "Claw")]
+    [InlineData("Daggers", "Gutting Knife", "Dagger")]
+    [InlineData("Rune Daggers", "Golden Kris", "Rune Dagger")]
+    [InlineData("Abyss Jewels", "Hypnotic Eye Jewel", "AbyssJewel")]
     [InlineData("Sceptres", "Platinum Sceptre", "Sceptre")]
     [InlineData("Wands", "Blasting Wand", "Wand")]
     public void Resolve_CopiedPluralWeaponClassWithVerifiedCatalogClass_ReturnsExact(
@@ -490,6 +498,101 @@ Item Level: 84
 
         Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
         Assert.Equal(baseName, result.ResolvedBaseName);
+        Assert.Equal(copiedItemClass, result.ItemClassIdentity?.RawItemClass);
+        Assert.Equal(catalogItemClass, result.ItemClassIdentity?.CanonicalItemClass);
+        Assert.Contains(copiedItemClass, result.ItemClassIdentity?.Diagnostic, StringComparison.Ordinal);
+        Assert.Contains(catalogItemClass, result.ItemClassIdentity?.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Two Hand Axes", "Two Hand Axe", "Entombing Headsman Axe of the Leviathan", "Headsman Axe")]
+    [InlineData("Warstaves", "Warstaff", "Foul Staff of Ashes", "Foul Staff")]
+    [InlineData("Staves", "Staff", "Polar Primordial Staff", "Primordial Staff")]
+    [InlineData("Wands", "Wand", "Mage's Tornado Wand of Penetrating", "Tornado Wand")]
+    [InlineData("Thrusting One Hand Swords", "Thrusting One Hand Sword", "Apex Rapier of Recuperation", "Apex Rapier")]
+    [InlineData("Quivers", "Quiver", "Fecund Fire Arrow Quiver of the Leopard", "Fire Arrow Quiver")]
+    [InlineData("Abyss Jewels", "AbyssJewel", "Frosted Murderous Eye Jewel", "Murderous Eye Jewel")]
+    public void Resolve_MagicDisplayName_UsesLongestCatalogSpanWithCanonicalClassCompatibility(
+        string copiedItemClass,
+        string catalogItemClass,
+        string copiedDisplayName,
+        string expectedBaseName)
+    {
+        var catalog = CreateCatalog(Base($"item-base.{expectedBaseName}", expectedBaseName, catalogItemClass));
+        var item = _parser.Parse($"""
+Item Class: {copiedItemClass}
+Rarity: Magic
+{copiedDisplayName}
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Probable, result.Status);
+        Assert.Equal(expectedBaseName, result.ResolvedBaseName);
+        Assert.Equal(copiedDisplayName, item.DisplayName);
+        Assert.Equal(catalogItemClass, result.ItemClassIdentity?.CanonicalItemClass);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseProbableMagicSuffixMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_DecoratedNormalName_UsesLongestCatalogSpanWithoutRewritingCopiedName()
+    {
+        var catalog = CreateCatalog(
+            Base("item-base.circlet", "Circlet", "Helmet"),
+            Base("item-base.hubris-circlet", "Hubris Circlet", "Helmet"));
+        var item = _parser.Parse("""
+Item Class: Helmets
+Rarity: Normal
+Superior Hubris Circlet
+--------
+Quality: +20% (augmented)
+Energy Shield: 100
+--------
+Item Level: 84
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Probable, result.Status);
+        Assert.Equal("item-base.hubris-circlet", result.ResolvedBaseId);
+        Assert.Equal("Superior Hubris Circlet", item.BaseType);
+        Assert.Equal("Superior Hubris Circlet", item.DisplayName);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseProbableDecoratedNameMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public async Task Resolve_TwoStoneRing_UsesCanonicalImplicitToDisambiguateRealGameDataBase()
+    {
+        var loaded = await GameDataPackageLoader.LoadFromFileAsync(
+            FindRepoFile("artifacts", "poenhance-game-data.json"));
+        Assert.True(loaded.IsSuccess);
+        var catalog = GameDataCatalog.FromPackage(loaded.Package!);
+        var item = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Dusk Knuckle
+Two-Stone Ring
+--------
+Item Level: 79
+--------
+{ Implicit Modifier — Elemental, Fire, Lightning, Resistance }
++16(12-16)% to Fire and Lightning Resistances
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("Metadata/Items/Rings/Ring12", result.ResolvedBaseId);
+        Assert.Equal("Two-Stone Ring", result.ResolvedBaseName);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseExactImplicitDisambiguationMatch,
+            Assert.Single(result.Diagnostics).Code);
     }
 
     [Theory]
@@ -882,5 +985,22 @@ Adds 2 to 28(25-29) Lightning Damage
             Enchantments: [],
             DescriptionLines: [],
             UnclassifiedLines: []);
+    }
+
+    private static string FindRepoFile(params string[] relativeParts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine([directory.FullName, .. relativeParts]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find {Path.Combine(relativeParts)}.");
     }
 }

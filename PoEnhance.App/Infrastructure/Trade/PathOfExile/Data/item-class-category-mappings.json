@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "reviewReference": "official-trade-filters-category-audit-2026-07-18",
+  "mappings": [
+    {
+      "canonicalItemClass": "AbyssJewel",
+      "expectedOfficialText": "Abyss Jewel"
+    },
+    {
+      "canonicalItemClass": "Amulet",
+      "expectedOfficialText": "Amulet"
+    },
+    {
+      "canonicalItemClass": "Belt",
+      "expectedOfficialText": "Belt"
+    },
+    {
+      "canonicalItemClass": "Body Armour",
+      "expectedOfficialText": "Body Armour"
+    },
+    {
+      "canonicalItemClass": "Boots",
+      "expectedOfficialText": "Boots"
+    },
+    {
+      "canonicalItemClass": "Bow",
+      "expectedOfficialText": "Bow"
+    },
+    {
+      "canonicalItemClass": "Claw",
+      "expectedOfficialText": "Claw"
+    },
+    {
+      "canonicalItemClass": "Dagger",
+      "expectedOfficialText": "Base Dagger"
+    },
+    {
+      "canonicalItemClass": "Gloves",
+      "expectedOfficialText": "Gloves"
+    },
+    {
+      "canonicalItemClass": "Helmet",
+      "expectedOfficialText": "Helmet"
+    },
+    {
+      "canonicalItemClass": "Jewel",
+      "expectedOfficialText": "Base Jewel"
+    },
+    {
+      "canonicalItemClass": "One Hand Axe",
+      "expectedOfficialText": "One-Handed Axe"
+    },
+    {
+      "canonicalItemClass": "One Hand Mace",
+      "expectedOfficialText": "Base One-Handed Mace"
+    },
+    {
+      "canonicalItemClass": "One Hand Sword",
+      "expectedOfficialText": "Base One-Handed Sword"
+    },
+    {
+      "canonicalItemClass": "Quiver",
+      "expectedOfficialText": "Quiver"
+    },
+    {
+      "canonicalItemClass": "Ring",
+      "expectedOfficialText": "Ring"
+    },
+    {
+      "canonicalItemClass": "Rune Dagger",
+      "expectedOfficialText": "Rune Dagger"
+    },
+    {
+      "canonicalItemClass": "Sceptre",
+      "expectedOfficialText": "Sceptre"
+    },
+    {
+      "canonicalItemClass": "Shield",
+      "expectedOfficialText": "Shield"
+    },
+    {
+      "canonicalItemClass": "Staff",
+      "expectedOfficialText": "Base Staff"
+    },
+    {
+      "canonicalItemClass": "Thrusting One Hand Sword",
+      "expectedOfficialText": "Rapier"
+    },
+    {
+      "canonicalItemClass": "Two Hand Axe",
+      "expectedOfficialText": "Two-Handed Axe"
+    },
+    {
+      "canonicalItemClass": "Two Hand Mace",
+      "expectedOfficialText": "Two-Handed Mace"
+    },
+    {
+      "canonicalItemClass": "Two Hand Sword",
+      "expectedOfficialText": "Two-Handed Sword"
+    },
+    {
+      "canonicalItemClass": "Wand",
+      "expectedOfficialText": "Wand"
+    },
+    {
+      "canonicalItemClass": "Warstaff",
+      "expectedOfficialText": "Warstaff"
+    }
+  ]
+}

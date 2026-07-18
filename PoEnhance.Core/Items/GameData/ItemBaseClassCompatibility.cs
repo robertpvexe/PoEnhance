@@ -2,30 +2,6 @@ namespace PoEnhance.Core.Items.GameData;
 
 public static class ItemBaseClassCompatibility
 {
-    private static readonly IReadOnlyDictionary<string, string[]> DisplayToCatalogClasses =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Amulets"] = ["Amulet"],
-            ["Belts"] = ["Belt"],
-            ["Body Armours"] = ["Body Armour"],
-            ["Bows"] = ["Bow"],
-            ["Helmets"] = ["Helmet"],
-            ["Incubators"] = ["IncubatorStackable"],
-            ["Jewels"] = ["Jewel"],
-            ["Life Flasks"] = ["LifeFlask"],
-            ["Mana Flasks"] = ["ManaFlask"],
-            ["Hybrid Flasks"] = ["HybridFlask"],
-            ["Maps"] = ["Map"],
-            ["Rings"] = ["Ring"],
-            ["Sceptres"] = ["Sceptre"],
-            ["Shields"] = ["Shield"],
-            ["Stackable Currency"] = ["StackableCurrency", "Currency"],
-            ["One Hand Axes"] = ["One Hand Axe"],
-            ["Two Hand Axes"] = ["Two Hand Axe"],
-            ["Utility Flasks"] = ["UtilityFlask"],
-            ["Wands"] = ["Wand"],
-        };
-
     public static bool AreCompatible(string? parsedItemClass, string? catalogItemClass)
     {
         var parsed = parsedItemClass?.Trim();
@@ -36,12 +12,18 @@ public static class ItemBaseClassCompatibility
             return false;
         }
 
-        if (string.Equals(parsed, catalog, StringComparison.OrdinalIgnoreCase))
+        var parsedIdentity = CanonicalItemClassIdentityResolver.Resolve(parsed);
+        var catalogIdentity = CanonicalItemClassIdentityResolver.Resolve(catalog);
+        if (parsedIdentity.IsSupported && catalogIdentity.IsSupported)
         {
-            return true;
+            return string.Equals(
+                parsedIdentity.CanonicalItemClass,
+                catalogIdentity.CanonicalItemClass,
+                StringComparison.Ordinal);
         }
 
-        return DisplayToCatalogClasses.TryGetValue(parsed, out var catalogClasses)
-            && catalogClasses.Contains(catalog, StringComparer.OrdinalIgnoreCase);
+        // Exact normalized equality is safe for non-reviewed catalog classes because it does
+        // not infer a new alias. Such a class still remains unsupported for provider mapping.
+        return CanonicalItemClassIdentityResolver.HaveEquivalentNormalizedText(parsed, catalog);
     }
 }
