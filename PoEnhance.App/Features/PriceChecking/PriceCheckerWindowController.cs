@@ -115,6 +115,16 @@ internal sealed class PriceCheckerWindowController
         });
     }
 
+    public void Close()
+    {
+        ++contentGeneration;
+        developerDiagnosticsPresenter?.Close();
+        if (window is { IsClosed: false })
+        {
+            window.Close();
+        }
+    }
+
     private bool TryPrepareUpdate(
         ParsedItem parsedItem,
         ItemBaseResolutionResult? itemBaseResolution,

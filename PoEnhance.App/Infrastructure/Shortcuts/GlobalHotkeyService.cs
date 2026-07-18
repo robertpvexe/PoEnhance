@@ -5,12 +5,15 @@ using Serilog;
 
 namespace PoEnhance.App.Infrastructure.Shortcuts;
 
-internal sealed class GlobalHotkeyService : IDisposable
+internal sealed class GlobalHotkeyService : IGlobalHotkeyService
 {
-    private const int HotkeyId = 0x5045;
+    internal const int PriceCheckerHotkeyId = 0x5045;
+    internal const int DeveloperWindowHotkeyId = 0x5046;
     private const int WmHotkey = 0x0312;
     private const uint ModNoRepeat = 0x4000;
 
+    private readonly int hotkeyId;
+    private readonly bool requiresPathOfExileForeground;
     private HwndSource? hwndSource;
     private IntPtr windowHandle;
     private bool isDisposed;
@@ -19,10 +22,34 @@ internal sealed class GlobalHotkeyService : IDisposable
 
     public event EventHandler? Triggered;
 
+    public GlobalHotkeyService()
+        : this(PriceCheckerHotkeyId, requiresPathOfExileForeground: true)
+    {
+    }
+
+    internal GlobalHotkeyService(int hotkeyId, bool requiresPathOfExileForeground)
+    {
+        this.hotkeyId = hotkeyId;
+        this.requiresPathOfExileForeground = requiresPathOfExileForeground;
+    }
+
+    public static GlobalHotkeyService CreateDeveloperWindowService()
+    {
+        var service = new GlobalHotkeyService(
+            DeveloperWindowHotkeyId,
+            requiresPathOfExileForeground: false);
+        service.SetShortcut(ShortcutBinding.DeveloperWindow);
+        return service;
+    }
+
     public ShortcutBinding SelectedShortcut { get; private set; } = ShortcutBinding.DefaultPriceChecker;
 
     public ShortcutRegistrationState RegistrationState { get; private set; }
-        = ShortcutRegistrationState.InactiveBecausePathOfExileIsNotForeground;
+        = ShortcutRegistrationState.NotAttached;
+
+    public bool RequiresPathOfExileForeground => requiresPathOfExileForeground;
+
+    public bool SuppressesKeyRepeat => true;
 
     public void Attach(Window window)
     {
@@ -33,9 +60,10 @@ internal sealed class GlobalHotkeyService : IDisposable
             return;
         }
 
-        windowHandle = new WindowInteropHelper(window).Handle;
+        windowHandle = new WindowInteropHelper(window).EnsureHandle();
         hwndSource = HwndSource.FromHwnd(windowHandle);
         hwndSource?.AddHook(WndProc);
+        UpdateRegistrationForForegroundState();
     }
 
     public void SetShortcut(ShortcutBinding shortcut)
@@ -85,7 +113,13 @@ internal sealed class GlobalHotkeyService : IDisposable
 
     private void UpdateRegistrationForForegroundState()
     {
-        if (!isPathOfExileForeground)
+        if (windowHandle == IntPtr.Zero)
+        {
+            RegistrationState = ShortcutRegistrationState.NotAttached;
+            return;
+        }
+
+        if (requiresPathOfExileForeground && !isPathOfExileForeground)
         {
             UnregisterHotkey();
             RegistrationState = ShortcutRegistrationState.InactiveBecausePathOfExileIsNotForeground;
@@ -110,7 +144,7 @@ internal sealed class GlobalHotkeyService : IDisposable
         }
 
         var modifiers = ModNoRepeat | (uint)SelectedShortcut.Modifiers;
-        if (RegisterHotKey(windowHandle, HotkeyId, modifiers, (uint)SelectedShortcut.PrimaryKey))
+        if (RegisterHotKey(windowHandle, hotkeyId, modifiers, (uint)SelectedShortcut.PrimaryKey))
         {
             isRegistered = true;
             RegistrationState = ShortcutRegistrationState.Active;
@@ -132,7 +166,7 @@ internal sealed class GlobalHotkeyService : IDisposable
             return;
         }
 
-        if (!UnregisterHotKey(windowHandle, HotkeyId))
+        if (!UnregisterHotKey(windowHandle, hotkeyId))
         {
             int errorCode = Marshal.GetLastWin32Error();
             Log.Warning("Shortcut unregistration failed. Win32 error: {Win32ErrorCode}", errorCode);
@@ -143,7 +177,7 @@ internal sealed class GlobalHotkeyService : IDisposable
 
     private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (message == WmHotkey && wParam.ToInt32() == HotkeyId)
+        if (message == WmHotkey && wParam.ToInt32() == hotkeyId)
         {
             handled = true;
             Triggered?.Invoke(this, EventArgs.Empty);

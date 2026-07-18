@@ -4,7 +4,11 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="PoEnhance" Height="720" Width="900">
+        Title="PoEnhance Developer Diagnostics"
+        Height="720"
+        Width="900"
+        ShowInTaskbar="False"
+        Icon="Assets/poenhance.ico">
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

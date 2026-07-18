@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace PoEnhance.App.Infrastructure.PathOfExile;
 
-internal sealed class PathOfExileProcessDetector
+internal sealed class PathOfExileProcessDetector : IPathOfExileProcessDetector
 {
     public bool IsPathOfExileRunning()
     {

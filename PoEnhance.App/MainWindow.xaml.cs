@@ -1,12 +1,14 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
+using System.Windows.Interop;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Clipboard;
 using PoEnhance.App.Infrastructure.GameData;
 using PoEnhance.App.Infrastructure.Input;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
+using PoEnhance.App.Shell;
 using PoEnhance.Core.Items.Parsing;
 using Serilog;
 
@@ -15,29 +17,27 @@ namespace PoEnhance.App;
 /// <summary>
 /// Interaction logic for MainWindow.xaml
 /// </summary>
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IDeveloperWindow
 {
     private const string NotDetectedText = "Not detected";
     private static readonly TimeSpan CopyChordDelay = TimeSpan.FromMilliseconds(75);
     private static readonly TimeSpan ClipboardCaptureTimeout = TimeSpan.FromMilliseconds(650);
 
     private readonly ClipboardSequenceNumberReader clipboardSequenceNumberReader = new();
-    private readonly GlobalHotkeyService globalHotkeyService = new();
     private readonly ItemTextParser itemTextParser = new();
     private readonly ParsedItemGameDataDisplayService itemGameDataDisplayService = new();
     private readonly KeyboardInputSender keyboardInputSender = new();
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
-    private readonly PathOfExileProcessDetector pathOfExileProcessDetector = new();
     private readonly PriceCheckerWindowController priceCheckerWindowController;
     private readonly ProvisionalGameDataRecordingService provisionalGameDataRecordingService;
     private readonly RuntimeGameDataService runtimeGameDataService;
     private readonly WpfClipboardTextReader clipboardTextReader = new();
-    private readonly DispatcherTimer pathOfExileStatusTimer;
     private readonly IDisposable? ownedComposition;
     private int shortcutActivationCount;
     private bool isClipboardCaptureInProgress;
-    private bool? lastPathOfExileForeground;
-    private bool? lastPathOfExileRunning;
+    private bool allowApplicationClose;
+
+    internal event EventHandler<ShortcutBinding>? PriceCheckerShortcutChanged;
 
     public MainWindow()
         : this(PoEnhanceApplicationComposition.CreateDefault(), ownsComposition: true)
@@ -76,30 +76,26 @@ public partial class MainWindow : Window
         DisplayProvisionalStoreStatus(provisionalGameDataRecordingService.Status);
         ClearParsedItemResult();
 
-        pathOfExileStatusTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(1),
-        };
-
-        pathOfExileStatusTimer.Tick += (_, _) => RefreshPathOfExileStatus();
-        globalHotkeyService.Triggered += OnShortcutTriggered;
         runtimeGameDataService.StateChanged += OnRuntimeGameDataStateChanged;
-
-        SourceInitialized += (_, _) => globalHotkeyService.Attach(this);
-        Loaded += (_, _) =>
-        {
-            RefreshPathOfExileStatus();
-            pathOfExileStatusTimer.Start();
-            _ = RefreshProvisionalStoreStatusAsync();
-        };
 
         Closed += (_, _) =>
         {
-            pathOfExileStatusTimer.Stop();
             runtimeGameDataService.StateChanged -= OnRuntimeGameDataStateChanged;
-            globalHotkeyService.Dispose();
             ownedComposition?.Dispose();
         };
+    }
+
+    internal ShortcutBinding SelectedPriceCheckerShortcut =>
+        ShortcutComboBox.SelectedItem as ShortcutBinding ?? ShortcutBinding.DefaultPriceChecker;
+
+    IntPtr IDeveloperWindow.EnsureHandle()
+    {
+        return new WindowInteropHelper(this).EnsureHandle();
+    }
+
+    void IDeveloperWindow.CloseForApplicationExit()
+    {
+        CloseForApplicationExit();
     }
 
     internal async Task LoadGameDataAsync(
@@ -120,6 +116,11 @@ public partial class MainWindow : Window
         }
     }
 
+    internal Task InitializeBackgroundDiagnosticsAsync()
+    {
+        return RefreshProvisionalStoreStatusAsync();
+    }
+
     private void InitializeManualInputControls()
     {
         ParseManualInputButton.Click += async (_, _) => await ParseManualItemInputAsync();
@@ -134,8 +135,7 @@ public partial class MainWindow : Window
         {
             if (ShortcutComboBox.SelectedItem is ShortcutBinding shortcut)
             {
-                globalHotkeyService.SetShortcut(shortcut);
-                UpdateShortcutRegistrationStatus();
+                PriceCheckerShortcutChanged?.Invoke(this, shortcut);
             }
         };
     }
@@ -194,11 +194,11 @@ public partial class MainWindow : Window
         ProvisionalStoreDiagnosticText.Text = DisplayValue(status.LastDiagnostic);
     }
 
-    private void RefreshPathOfExileStatus()
+    internal void UpdatePathOfExileStatus(
+        bool isRunning,
+        bool isForeground,
+        ShortcutRegistrationState shortcutRegistrationState)
     {
-        bool isRunning = pathOfExileProcessDetector.IsPathOfExileRunning();
-        bool isForeground = pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow();
-
         PathOfExileStatusText.Text = isRunning
             ? "Path of Exile: Running"
             : "Path of Exile: Not running";
@@ -206,52 +206,10 @@ public partial class MainWindow : Window
             ? "Foreground window: Path of Exile"
             : "Foreground window: Other application";
 
-        LogPathOfExileRunningChange(isRunning);
-        LogPathOfExileForegroundChange(isForeground);
-
-        globalHotkeyService.UpdatePathOfExileForegroundState(isForeground);
-        UpdateShortcutRegistrationStatus();
+        UpdateShortcutRegistrationStatus(shortcutRegistrationState);
     }
 
-    private void LogPathOfExileRunningChange(bool isRunning)
-    {
-        if (lastPathOfExileRunning == isRunning)
-        {
-            return;
-        }
-
-        if (isRunning)
-        {
-            Log.Information("Path of Exile detected");
-        }
-        else if (lastPathOfExileRunning is true)
-        {
-            Log.Information("Path of Exile no longer detected");
-        }
-
-        lastPathOfExileRunning = isRunning;
-    }
-
-    private void LogPathOfExileForegroundChange(bool isForeground)
-    {
-        if (lastPathOfExileForeground == isForeground)
-        {
-            return;
-        }
-
-        if (isForeground)
-        {
-            Log.Information("Path of Exile became the foreground application");
-        }
-        else if (lastPathOfExileForeground is true)
-        {
-            Log.Information("Path of Exile is no longer the foreground application");
-        }
-
-        lastPathOfExileForeground = isForeground;
-    }
-
-    private async void OnShortcutTriggered(object? sender, EventArgs e)
+    internal async Task HandlePriceCheckerShortcutAsync(ShortcutBinding shortcut)
     {
         shortcutActivationCount++;
         ShortcutActivationStatusText.Text =
@@ -259,7 +217,7 @@ public partial class MainWindow : Window
 
         Log.Information(
             "Shortcut {ShortcutKey} triggered while Path of Exile is foreground",
-            globalHotkeyService.SelectedShortcut);
+            shortcut);
 
         await CaptureItemTextFromPathOfExileAsync();
     }
@@ -881,12 +839,32 @@ public partial class MainWindow : Window
             exception.Message);
     }
 
-    private void UpdateShortcutRegistrationStatus()
+    internal void CloseForApplicationExit()
     {
-        ShortcutRegistrationStatusText.Text = globalHotkeyService.RegistrationState switch
+        allowApplicationClose = true;
+        Close();
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!allowApplicationClose)
+        {
+            e.Cancel = true;
+            Hide();
+            ShowInTaskbar = false;
+            return;
+        }
+
+        base.OnClosing(e);
+    }
+
+    private void UpdateShortcutRegistrationStatus(ShortcutRegistrationState registrationState)
+    {
+        ShortcutRegistrationStatusText.Text = registrationState switch
         {
             ShortcutRegistrationState.Active => "Shortcut registration: Active",
             ShortcutRegistrationState.RegistrationFailed => "Shortcut registration: Registration failed",
+            ShortcutRegistrationState.NotAttached => "Shortcut registration: Not attached",
             _ => "Shortcut registration: Inactive because Path of Exile is not foreground",
         };
     }

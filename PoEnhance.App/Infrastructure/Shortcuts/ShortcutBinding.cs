@@ -5,6 +5,11 @@ internal sealed record ShortcutBinding(ShortcutKey PrimaryKey, ShortcutModifiers
     public static ShortcutBinding DefaultPriceChecker { get; } =
         new(ShortcutKey.D, ShortcutModifiers.Control);
 
+    public static ShortcutBinding DeveloperWindow { get; } =
+        new(
+            ShortcutKey.OemBackslash,
+            ShortcutModifiers.Control | ShortcutModifiers.Shift);
+
     public static IReadOnlyList<ShortcutBinding> DevelopmentChoices { get; } =
     [
         DefaultPriceChecker,
@@ -42,7 +47,7 @@ internal sealed record ShortcutBinding(ShortcutKey PrimaryKey, ShortcutModifiers
             parts.Add("Win");
         }
 
-        parts.Add(PrimaryKey.ToString());
+        parts.Add(PrimaryKey == ShortcutKey.OemBackslash ? "\\" : PrimaryKey.ToString());
 
         return string.Join(" + ", parts);
     }
