@@ -99,6 +99,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierExpansionChanged += OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
         priceCheckerWindow.ItemStateChanged += OnItemStateChanged;
+        priceCheckerWindow.RarityChanged += OnRarityChanged;
         priceCheckerWindow.ResetItemRequested += OnResetItemRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
@@ -126,6 +127,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierExpansionChanged -= OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
         priceCheckerWindow.ItemStateChanged -= OnItemStateChanged;
+        priceCheckerWindow.RarityChanged -= OnRarityChanged;
         priceCheckerWindow.ResetItemRequested -= OnResetItemRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
@@ -213,7 +215,10 @@ internal sealed class PriceCheckerSearchController
         }
 
         userSelectedBaseCriterion = currentDraft.Base.ActiveCriterion;
-        currentPresentation = presentation ?? new PriceCheckerItemPresentation();
+        currentPresentation = (presentation ?? new PriceCheckerItemPresentation()) with
+        {
+            IsRarityEditable = PriceCheckerRarity.IsOrdinary(draft.Rarity),
+        };
         currentValidationResult = ReferenceEquals(currentDraft, draft)
             ? validationResult
             : draftValidator.Validate(currentDraft);
@@ -913,6 +918,25 @@ internal sealed class PriceCheckerSearchController
         ApplyState(CreateBoundChangeInvalidatedState());
     }
 
+    public void UpdateRarity(string? rarity)
+    {
+        if (currentDraft is null ||
+            !currentPresentation.IsRarityEditable ||
+            !PriceCheckerRarity.TryNormalizeEditable(rarity, out var normalizedRarity) ||
+            string.Equals(currentDraft.Rarity?.Trim(), normalizedRarity, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with { Rarity = normalizedRarity };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
     private void OnSearchRequested(object? sender, EventArgs e)
     {
         _ = SearchAsync();
@@ -1056,6 +1080,11 @@ internal sealed class PriceCheckerSearchController
     private void OnItemStateChanged(object? sender, PriceCheckerItemStateChangedEventArgs e)
     {
         UpdateItemStateCriterion(e.Kind, e.State);
+    }
+
+    private void OnRarityChanged(object? sender, PriceCheckerRarityChangedEventArgs e)
+    {
+        UpdateRarity(e.Rarity);
     }
 
     private void OnResetItemRequested(object? sender, EventArgs e)

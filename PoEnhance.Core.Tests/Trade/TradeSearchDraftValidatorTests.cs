@@ -605,11 +605,13 @@ Item Level: 82
     }
 
     [Theory]
-    [InlineData("Fractured Item")]
-    public void Validate_UnsupportedOrdinaryItemState_IsInvalid(string itemState)
+    [InlineData("Fractured Item", "Rare")]
+    [InlineData("Fractured Item", "Any")]
+    public void Validate_UnsupportedOrdinaryItemState_IsInvalid(string itemState, string rarity)
     {
         var draft = ValidDraft() with
         {
+            Rarity = rarity,
             ItemStates = [itemState],
         };
 

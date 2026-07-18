@@ -54,6 +54,12 @@ internal interface IPriceCheckerWindow
         remove { }
     }
 
+    event EventHandler<PriceCheckerRarityChangedEventArgs>? RarityChanged
+    {
+        add { }
+        remove { }
+    }
+
     event EventHandler<bool>? PinStateChanged;
 
     event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;

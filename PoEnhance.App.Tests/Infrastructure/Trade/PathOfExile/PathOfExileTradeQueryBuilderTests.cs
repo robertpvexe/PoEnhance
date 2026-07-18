@@ -48,6 +48,20 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_AnyRarityOmitsRarityWithoutAddingEmptyOrUnrelatedFilters()
+    {
+        var result = BuildSuccessful(Draft(rarity: "Any"));
+
+        Assert.Equal("Titan Plate", result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.GetProperty("filters").TryGetProperty("type_filters", out _));
+        Assert.Empty(query.GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.DoesNotContain("\"rarity\"", result.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_UniqueItem_ProducesNameAndType()
     {
         var result = BuildSuccessful(Draft(

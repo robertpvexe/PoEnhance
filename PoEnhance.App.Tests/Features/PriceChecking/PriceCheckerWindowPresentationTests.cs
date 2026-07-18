@@ -16,11 +16,11 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerWindowPresentationTests
 {
     [Theory]
-    [InlineData(BaseSearchMode.Category, "One-Handed Axe", null, null, "Item Category: —")]
-    [InlineData(BaseSearchMode.Category, "Wand", null, "Wand", "Item Category: Wand")]
-    [InlineData(BaseSearchMode.Category, "One Hand Axes", null, "One-Handed Axe", "Item Category: One-Handed Axe")]
-    [InlineData(BaseSearchMode.Category, "Belt", null, "Belt", "Item Category: Belt")]
-    [InlineData(BaseSearchMode.ExactBase, null, "Stygian Vise", "One-Handed Axe", "Exact Base: Stygian Vise")]
+    [InlineData(BaseSearchMode.Category, "One-Handed Axe", null, null, "Category: —")]
+    [InlineData(BaseSearchMode.Category, "Wand", null, "Wand", "Category: Wand")]
+    [InlineData(BaseSearchMode.Category, "One Hand Axes", null, "One-Handed Axe", "Category: One-Handed Axe")]
+    [InlineData(BaseSearchMode.Category, "Belt", null, "Belt", "Category: Belt")]
+    [InlineData(BaseSearchMode.ExactBase, null, "Stygian Vise", "One-Handed Axe", "Base: Stygian Vise")]
     public void ActiveBaseCriterion_UsesTheEffectiveCategoryOrExactBase(
         BaseSearchMode mode,
         string? category,
@@ -56,6 +56,7 @@ public sealed class PriceCheckerWindowPresentationTests
     [InlineData("Magic", "PriceCheckerTitleMagicForegroundBrush")]
     [InlineData("Rare", "PriceCheckerTitleRareForegroundBrush")]
     [InlineData("Unique", "PriceCheckerTitleUniqueForegroundBrush")]
+    [InlineData("Any", "PriceCheckerTitleAnyForegroundBrush")]
     public void TitleForeground_UsesTheParsedRarityBrush(string rarity, string expectedResourceKey)
     {
         Assert.Equal(expectedResourceKey, PriceCheckerWindow.TitleForegroundResourceKey(rarity));
@@ -65,10 +66,10 @@ public sealed class PriceCheckerWindowPresentationTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("Unsupported")]
-    public void TitleForeground_UnknownRarityFallsBackToNormal(string? rarity)
+    public void TitleForeground_UnknownRarityFallsBackToNeutral(string? rarity)
     {
         Assert.Equal(
-            "PriceCheckerTitleNormalForegroundBrush",
+            "PriceCheckerTitleAnyForegroundBrush",
             PriceCheckerWindow.TitleForegroundResourceKey(rarity));
     }
 
@@ -93,25 +94,39 @@ public sealed class PriceCheckerWindowPresentationTests
     }
 
     [Fact]
-    public void WindowXaml_PresentsThreeStableClickableItemStateControlsInOneHeaderRow()
+    public void WindowXaml_PresentsRarityAndThreeStableClickableItemStateControlsInOneHeaderRow()
     {
         var xaml = LoadWindowXaml();
         var categoryBar = ExtractElement(
             xaml,
             "<Border Grid.Row=\"0\"",
-            "</Border>");
+            "<StackPanel x:Name=\"HeaderRequestedFiltersPanel\"");
         var stateStyle = ExtractElement(xaml, "<Style x:Key=\"ItemStateButtonStyle\"", "</Style>");
+        var baseCriterion = ExtractElement(categoryBar, "<Button x:Name=\"BaseCriterionButton\"", "</Button>");
+        var baseCriterionText = ExtractElement(baseCriterion, "<TextBlock x:Name=\"BaseCriterionText\"", "/>" );
         var mirrored = ExtractElement(categoryBar, "<Button x:Name=\"MirroredStateButton\"", "/>" );
         var corrupted = ExtractElement(categoryBar, "<Button x:Name=\"CorruptedStateButton\"", "/>" );
         var identified = ExtractElement(categoryBar, "<Button x:Name=\"IdentifiedStateButton\"", "/>" );
+        var rarity = ExtractElement(categoryBar, "<ComboBox x:Name=\"RarityComboBox\"", "</ComboBox>");
 
+        Assert.True(categoryBar.IndexOf("BaseCriterionButton", StringComparison.Ordinal) <
+            categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal));
+        Assert.True(categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal) <
+            categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal));
-        Assert.Contains("Grid.Column=\"1\"", categoryBar);
-        Assert.Contains("Orientation=\"Horizontal\"", categoryBar);
+        Assert.Contains("Grid.Column=\"4\"", identified);
         Assert.DoesNotContain("WrapPanel", categoryBar);
+        Assert.Contains("MinWidth=\"72\"", baseCriterion);
+        Assert.Contains("HorizontalAlignment=\"Stretch\"", baseCriterion);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", baseCriterionText);
+        Assert.Contains("TextWrapping=\"NoWrap\"", baseCriterionText);
+        Assert.Contains("ComboBoxItem Content=\"Any\"", rarity);
+        Assert.Contains("ComboBoxItem Content=\"Normal\"", rarity);
+        Assert.Contains("ComboBoxItem Content=\"Magic\"", rarity);
+        Assert.Contains("ComboBoxItem Content=\"Rare\"", rarity);
         Assert.Contains("BasedOn=\"{StaticResource PriceCheckerButtonStyle}\"", stateStyle);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", mirrored);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", corrupted);
@@ -123,7 +138,6 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Contains("Width=\"78\"", mirrored);
         Assert.Contains("Width=\"82\"", corrupted);
         Assert.Contains("Width=\"82\"", identified);
-        Assert.DoesNotContain("ComboBox", categoryBar);
         Assert.DoesNotContain("Path", categoryBar);
     }
 
@@ -153,7 +167,10 @@ public sealed class PriceCheckerWindowPresentationTests
             };
             PriceCheckerItemStateChangedEventArgs? changed = null;
             window.ItemStateChanged += (_, e) => changed = e;
-            window.UpdateContent(new PriceCheckerWindowState(draft, validation));
+            window.UpdateContent(new PriceCheckerWindowState(draft, validation)
+            {
+                Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
+            });
             window.Show();
             window.UpdateLayout();
 
@@ -184,7 +201,10 @@ public sealed class PriceCheckerWindowPresentationTests
                         Identified = TradeTriState.Any,
                     },
                 },
-                validation));
+                validation)
+            {
+                Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
+            });
             window.UpdateLayout();
             Assert.Equal(widths, buttons.Select(button => button.ActualWidth));
             Assert.Equal(["Mirrored: Any", "Corrupted: Any", "Identified: Any"],
@@ -193,6 +213,71 @@ public sealed class PriceCheckerWindowPresentationTests
                 Assert.IsType<ToggleButton>(window.FindName("AdvancedToggle")).Visibility);
             Assert.Equal(Visibility.Visible,
                 Assert.IsType<Button>(window.FindName("TradeButton")).Visibility);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void RarityControl_RuntimeEditsOrdinaryItemsAndKeepsUniqueItemsStatic()
+    {
+        RunOnSta(() =>
+        {
+            var validation = TradeSearchValidationResult.FromDiagnostics([]);
+            var ordinaryDraft = new TradeSearchDraft
+            {
+                Rarity = "Rare",
+                DisplayName = "State Band",
+                ParsedBaseType = "Iron Ring",
+            };
+            var window = new PriceCheckerWindow
+            {
+                Width = PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+                Height = 720,
+            };
+            PriceCheckerRarityChangedEventArgs? changed = null;
+            window.RarityChanged += (_, e) => changed = e;
+            window.UpdateContent(new PriceCheckerWindowState(ordinaryDraft, validation)
+            {
+                Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
+            });
+            window.Show();
+            window.UpdateLayout();
+
+            var selector = Assert.IsType<ComboBox>(window.FindName("RarityComboBox"));
+            var staticField = Assert.IsType<Border>(window.FindName("RarityStaticBorder"));
+            Assert.Equal(Visibility.Visible, selector.Visibility);
+            Assert.Equal(Visibility.Collapsed, staticField.Visibility);
+            Assert.Equal("Rare", Assert.IsType<ComboBoxItem>(selector.SelectedItem).Content);
+
+            selector.SelectedIndex = 0;
+
+            Assert.Equal("Any", changed?.Rarity);
+            window.UpdateContent(new PriceCheckerWindowState(
+                ordinaryDraft with { Rarity = "Any" },
+                validation)
+            {
+                Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
+            });
+            var title = Assert.IsType<TextBlock>(window.FindName("TitleDisplayNameText"));
+            Assert.Same(window.FindResource("PriceCheckerTitleAnyForegroundBrush"), title.Foreground);
+
+            changed = null;
+            window.UpdateContent(new PriceCheckerWindowState(
+                ordinaryDraft with
+                {
+                    Rarity = "Unique",
+                    DisplayName = "Foulborn Moonbender's Wing",
+                    ParsedBaseType = "Tomahawk",
+                },
+                validation));
+            window.UpdateLayout();
+
+            Assert.Equal(Visibility.Collapsed, selector.Visibility);
+            Assert.Equal(Visibility.Visible, staticField.Visibility);
+            Assert.Equal("Unique", Assert.IsType<TextBlock>(window.FindName("RarityStaticText")).Text);
+            selector.SelectedIndex = 2;
+            Assert.Null(changed);
+            Assert.Same(window.FindResource("PriceCheckerTitleUniqueForegroundBrush"), title.Foreground);
             window.Close();
         });
     }
@@ -215,6 +300,7 @@ Item Level: 82
 
         Assert.Equal("B B-R", presentation.SocketText);
         Assert.Equal("2", presentation.LinkText);
+        Assert.True(presentation.IsRarityEditable);
     }
 
     [Fact]
@@ -233,6 +319,22 @@ Item Level: 82
 
         Assert.Null(presentation.SocketText);
         Assert.Null(presentation.LinkText);
+        Assert.True(presentation.IsRarityEditable);
+    }
+
+    [Fact]
+    public void ItemPresentation_KeepsUniqueAndFoulbornUniqueRarityStatic()
+    {
+        var parsedItem = new ItemTextParser().Parse("""
+Item Class: One Hand Axes
+Rarity: Unique
+Foulborn Moonbender's Wing
+Tomahawk
+--------
+Item Level: 82
+""");
+
+        Assert.False(PriceCheckerItemPresentation.FromParsedItem(parsedItem).IsRarityEditable);
     }
 
     [Fact]
@@ -256,6 +358,10 @@ Item Level: 82
         Assert.Contains("Color=\"White\"", ExtractElement(
             xaml,
             "<SolidColorBrush x:Key=\"PriceCheckerTitleNormalForegroundBrush\"",
+            "/>"));
+        Assert.Contains("Color=\"#EEEEEE\"", ExtractElement(
+            xaml,
+            "<SolidColorBrush x:Key=\"PriceCheckerTitleAnyForegroundBrush\"",
             "/>"));
         Assert.Contains("Color=\"#8888FF\"", ExtractElement(
             xaml,
@@ -669,6 +775,14 @@ Item Level: 82
                 SocketText = "R-R-G-R-B-G",
                 BaseRollPercentile = 100m,
                 RequestedItemFilters = filters.ToImmutableArray(),
+                Base = new TradeSearchBaseDraft
+                {
+                    ActiveCriterion = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = "Body Armour",
+                    },
+                },
                 ItemStateCriteria = new TradeItemStateCriteria
                 {
                     Mirrored = TradeTriState.No,
@@ -683,13 +797,23 @@ Item Level: 82
             };
             window.UpdateContent(new PriceCheckerWindowState(
                 draft,
-                TradeSearchValidationResult.FromDiagnostics([])));
+                TradeSearchValidationResult.FromDiagnostics([]))
+            {
+                Presentation = new PriceCheckerItemPresentation
+                {
+                    IsRarityEditable = true,
+                    CategoryDisplayLabel = "An intentionally very long provider category label that must be trimmed",
+                },
+            });
             window.Show();
             window.UpdateLayout();
 
             var header = Assert.IsType<StackPanel>(window.FindName("HeaderRequestedFiltersPanel"));
             var itemLevel = Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder"));
             var baseRoll = Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText"));
+            var baseCriterion = Assert.IsType<Button>(window.FindName("BaseCriterionButton"));
+            var baseCriterionText = Assert.IsType<TextBlock>(window.FindName("BaseCriterionText"));
+            var rarity = Assert.IsType<ComboBox>(window.FindName("RarityComboBox"));
             var stateButtons = new[]
             {
                 Assert.IsType<Button>(window.FindName("MirroredStateButton")),
@@ -705,6 +829,11 @@ Item Level: 82
                 3d);
             Assert.True(baseRoll.TranslatePoint(new Point(baseRoll.ActualWidth, 0), window).X <=
                 window.ActualWidth - 12d);
+            Assert.Equal(68d, rarity.ActualWidth);
+            Assert.True(baseCriterion.ActualWidth >= 72d);
+            Assert.Contains(baseCriterionText.Text, baseCriterion.ToolTip?.ToString(), StringComparison.Ordinal);
+            Assert.True(rarity.TranslatePoint(new Point(rarity.ActualWidth, 0), window).X <=
+                window.ActualWidth);
             Assert.All(stateButtons, button => Assert.True(
                 button.TranslatePoint(new Point(button.ActualWidth, 0), window).X <= window.ActualWidth));
             Assert.All(stateButtons, button => Assert.Equal(

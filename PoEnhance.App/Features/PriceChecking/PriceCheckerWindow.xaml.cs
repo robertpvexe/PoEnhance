@@ -23,6 +23,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private bool isClosed;
     private bool isHorizontalResizeActive;
     private bool isOfferCapacityReportScheduled;
+    private bool isUpdatingContent;
     private TextBlock? hoverExpandedModifierNameText;
 
     public PriceCheckerWindow()
@@ -101,6 +102,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged;
 
+    public event EventHandler<PriceCheckerRarityChangedEventArgs>? RarityChanged;
+
     public event EventHandler<bool>? PinStateChanged;
 
     public event EventHandler? HorizontalDragCompleted;
@@ -161,12 +164,16 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         {
             UpdateRequestedItemFilter(requestedFilter);
         }
-        BaseCriterionButton.Content = FormatActiveCriterion(
+        var activeCriterionText = FormatActiveCriterion(
             draft.Base.ActiveCriterion,
             state.Presentation.CategoryDisplayLabel);
+        BaseCriterionText.Text = activeCriterionText;
+        BaseCriterionButton.ToolTip =
+            $"{activeCriterionText}{Environment.NewLine}Click to toggle category or exact base";
         BaseCriterionButton.Tag = draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase
             ? "ExactBase"
             : "Category";
+        UpdateRarityControl(draft.Rarity, state.Presentation.IsRarityEditable);
         UpdateItemStateButton(
             MirroredStateButton,
             TradeItemStateKind.Mirrored,
@@ -377,6 +384,47 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             new PriceCheckerItemStateChangedEventArgs(
                 kind,
                 CycleItemState(CurrentState.Draft.ItemStateCriteria.Get(kind))));
+    }
+
+    private void OnRaritySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (isUpdatingContent ||
+            CurrentState?.Presentation.IsRarityEditable != true ||
+            RarityComboBox.SelectedItem is not ComboBoxItem { Content: string rarity } ||
+            !PriceCheckerRarity.TryNormalizeEditable(rarity, out var normalizedRarity))
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        RarityChanged?.Invoke(this, new PriceCheckerRarityChangedEventArgs(normalizedRarity));
+    }
+
+    private void UpdateRarityControl(string? rarity, bool isEditable)
+    {
+        RarityComboBox.Visibility = isEditable ? Visibility.Visible : Visibility.Collapsed;
+        RarityStaticBorder.Visibility = isEditable ? Visibility.Collapsed : Visibility.Visible;
+        RarityStaticText.Text = PriceCheckerRarity.DisplayValue(rarity);
+        if (!isEditable)
+        {
+            return;
+        }
+
+        var displayRarity = PriceCheckerRarity.DisplayValue(rarity);
+        isUpdatingContent = true;
+        try
+        {
+            RarityComboBox.SelectedItem = RarityComboBox.Items
+                .OfType<ComboBoxItem>()
+                .First(item => string.Equals(
+                    item.Content?.ToString(),
+                    displayRarity,
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            isUpdatingContent = false;
+        }
     }
 
     private static void UpdateItemStateButton(
@@ -933,8 +981,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     {
         return criterion?.Mode switch
         {
-            BaseSearchMode.Category => $"Item Category: {(providerCategoryDisplayLabel?.Trim() is { Length: > 0 } label ? label : "—")}",
-            BaseSearchMode.ExactBase => $"Exact Base: {DisplayValue(criterion.ExactBaseName)}",
+            BaseSearchMode.Category => $"Category: {(providerCategoryDisplayLabel?.Trim() is { Length: > 0 } label ? label : "—")}",
+            BaseSearchMode.ExactBase => $"Base: {DisplayValue(criterion.ExactBaseName)}",
             _ => NotDetectedText,
         };
     }
@@ -960,7 +1008,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 "PriceCheckerTitleRareForegroundBrush",
             var value when string.Equals(value, "Unique", StringComparison.OrdinalIgnoreCase) =>
                 "PriceCheckerTitleUniqueForegroundBrush",
-            _ => "PriceCheckerTitleNormalForegroundBrush",
+            var value when string.Equals(value, "Normal", StringComparison.OrdinalIgnoreCase) =>
+                "PriceCheckerTitleNormalForegroundBrush",
+            _ => "PriceCheckerTitleAnyForegroundBrush",
         };
     }
 

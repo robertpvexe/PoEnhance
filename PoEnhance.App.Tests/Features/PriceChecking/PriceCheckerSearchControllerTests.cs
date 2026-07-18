@@ -81,6 +81,76 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task RarityChangeInvalidatesSearchPreservesDraftAndResetUsesTheCurrentItemSnapshot()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("rarity-offer")], total: 1);
+        var modifier = Modifier(
+            "+42 to maximum Life",
+            supportsValueBounds: true,
+            minimum: 42m,
+            maximum: 60m);
+        var draft = Draft("Rarity Shell", modifiers: [modifier]) with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.Yes,
+                Corrupted = TradeTriState.No,
+                Identified = TradeTriState.Any,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        fixture.Window.RaiseRarityChanged("Any");
+
+        var changed = fixture.Window.CurrentState!.Draft;
+        Assert.Equal("Any", changed.Rarity);
+        Assert.Equal(TradeTriState.Yes, changed.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.No, changed.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, changed.ItemStateCriteria.Identified);
+        Assert.True(changed.ModifierFilters[0].IsSelected);
+        Assert.Equal(42m, changed.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(60m, changed.ModifierFilters[0].RequestedMaximum);
+        Assert.Empty(fixture.Window.CurrentSearchState!.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+        fixture.Window.RaiseTradeRequested();
+        Assert.Empty(fixture.ExternalUrlLauncher.OpenedUris);
+
+        await fixture.Controller.SearchAsync();
+        Assert.Equal("Any", fixture.PriceCheckService.Calls[1].Draft?.Rarity);
+
+        fixture.Window.RaiseResetItemRequested();
+        Assert.Equal("Rare", fixture.Window.CurrentState.Draft.Rarity);
+        Assert.False(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+
+        var replacement = Draft("Replacement Shell") with { Rarity = "Normal" };
+        fixture.Controller.UpdateCurrentDraft(replacement, ValidationSuccess());
+        fixture.Window.RaiseRarityChanged("Magic");
+        Assert.Equal("Magic", fixture.Window.CurrentState.Draft.Rarity);
+        fixture.Window.RaiseResetItemRequested();
+        Assert.Equal("Normal", fixture.Window.CurrentState.Draft.Rarity);
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+    }
+
+    [Fact]
+    public void RarityChangeCannotEditUniqueOrFoulbornUniqueDrafts()
+    {
+        var fixture = SearchFixture.Create();
+        var unique = Draft("Foulborn Moonbender's Wing") with { Rarity = "Unique" };
+        fixture.Controller.UpdateCurrentDraft(unique, ValidationSuccess());
+
+        fixture.Window.RaiseRarityChanged("Rare");
+
+        Assert.Equal("Unique", fixture.Window.CurrentState!.Draft.Rarity);
+        Assert.False(fixture.Window.CurrentState.Presentation.IsRarityEditable);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
     public void ItemPropertyProjection_UsesCanonicalOrderFlattensAggregatesAndHidesGroupedModifiers()
     {
         var fixture = SearchFixture.Create();
@@ -3654,6 +3724,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged;
 
+        public event EventHandler<PriceCheckerRarityChangedEventArgs>? RarityChanged;
+
         public event EventHandler<bool>? PinStateChanged;
 
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -3877,6 +3949,12 @@ public sealed class PriceCheckerSearchControllerTests
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             ItemStateChanged?.Invoke(this, new PriceCheckerItemStateChangedEventArgs(kind, state));
+        }
+
+        public void RaiseRarityChanged(string rarity)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            RarityChanged?.Invoke(this, new PriceCheckerRarityChangedEventArgs(rarity));
         }
 
         public void RaiseResetItemRequested()

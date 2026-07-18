@@ -347,7 +347,8 @@ public sealed class TradeSearchDraftValidator
     {
         return string.Equals(rarity?.Trim(), "Normal", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(rarity?.Trim(), "Magic", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(rarity?.Trim(), "Rare", StringComparison.OrdinalIgnoreCase);
+            string.Equals(rarity?.Trim(), "Rare", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(rarity?.Trim(), "Any", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsUnsupportedSpecialItemState(string? state)

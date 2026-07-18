@@ -25,8 +25,8 @@
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
                     CornerRadius="2">
-                <ContentPresenter HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
+                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                   RecognizesAccessKey="True" />
             </Border>
             <ControlTemplate.Triggers>
@@ -64,6 +64,10 @@
                     Value="1" />
             <Setter Property="Foreground"
                     Value="#E6E6E6" />
+            <Setter Property="HorizontalContentAlignment"
+                    Value="Center" />
+            <Setter Property="VerticalContentAlignment"
+                    Value="Center" />
             <Setter Property="FocusVisualStyle"
                     Value="{x:Null}" />
             <Setter Property="Template"
@@ -106,6 +110,8 @@
                          Color="White" />
         <SolidColorBrush x:Key="PriceCheckerTitleNormalForegroundBrush"
                          Color="White" />
+        <SolidColorBrush x:Key="PriceCheckerTitleAnyForegroundBrush"
+                         Color="#EEEEEE" />
         <SolidColorBrush x:Key="PriceCheckerTitleMagicForegroundBrush"
                          Color="#8888FF" />
         <SolidColorBrush x:Key="PriceCheckerTitleRareForegroundBrush"
@@ -511,6 +517,33 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="RarityComboBoxStyle"
+               TargetType="{x:Type ComboBox}"
+               BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
+            <Setter Property="Width"
+                    Value="68" />
+            <Setter Property="Margin"
+                    Value="0" />
+            <Setter Property="FontSize"
+                    Value="10" />
+            <Setter Property="Visibility"
+                    Value="Visible" />
+        </Style>
+        <Style x:Key="RarityStaticFieldStyle"
+               TargetType="{x:Type Border}">
+            <Setter Property="Width"
+                    Value="68" />
+            <Setter Property="Height"
+                    Value="24" />
+            <Setter Property="Background"
+                    Value="#202020" />
+            <Setter Property="BorderBrush"
+                    Value="#3A3A3A" />
+            <Setter Property="BorderThickness"
+                    Value="0.75" />
+            <Setter Property="CornerRadius"
+                    Value="3" />
+        </Style>
         <Style x:Key="ModifierContributorExpandButtonStyle"
                TargetType="{x:Type Button}">
             <Setter Property="Width"
@@ -799,37 +832,69 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Button x:Name="BaseCriterionButton"
-                                HorizontalAlignment="Left"
+                                MinWidth="72"
+                                Padding="6,4"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
                                 VerticalAlignment="Center"
-                                Content="Category"
                                 ToolTip="Toggle between category and exact base"
-                                Style="{StaticResource BaseCriterionButtonStyle}" />
-                        <StackPanel Grid.Column="1"
-                                    Margin="8,0,0,0"
-                                    Orientation="Horizontal">
-                            <Button x:Name="MirroredStateButton"
-                                    Width="78"
-                                    Margin="0,0,6,0"
-                                    Click="OnItemStateButtonClick"
-                                    Content="Mirrored: No"
-                                    Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Click to cycle: No → Yes → Any" />
-                            <Button x:Name="CorruptedStateButton"
-                                    Width="82"
-                                    Margin="0,0,6,0"
-                                    Click="OnItemStateButtonClick"
-                                    Content="Corrupted: No"
-                                    Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Click to cycle: No → Yes → Any" />
-                            <Button x:Name="IdentifiedStateButton"
-                                    Width="82"
-                                    Click="OnItemStateButtonClick"
-                                    Content="Identified: Yes"
-                                    Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Click to cycle: No → Yes → Any" />
-                        </StackPanel>
+                                Style="{StaticResource BaseCriterionButtonStyle}">
+                            <TextBlock x:Name="BaseCriterionText"
+                                       Text="Category"
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="NoWrap" />
+                        </Button>
+                        <Grid Grid.Column="1"
+                              Margin="6,0,0,0">
+                            <ComboBox x:Name="RarityComboBox"
+                                      SelectionChanged="OnRaritySelectionChanged"
+                                      Style="{StaticResource RarityComboBoxStyle}"
+                                      ToolTip="Rarity">
+                                <ComboBoxItem Content="Any" />
+                                <ComboBoxItem Content="Normal" />
+                                <ComboBoxItem Content="Magic" />
+                                <ComboBoxItem Content="Rare" />
+                            </ComboBox>
+                            <Border x:Name="RarityStaticBorder"
+                                    Style="{StaticResource RarityStaticFieldStyle}"
+                                    ToolTip="Rarity">
+                                <TextBlock x:Name="RarityStaticText"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="10"
+                                           Foreground="#E6E6E6"
+                                           Text="Unique" />
+                            </Border>
+                        </Grid>
+                        <Button x:Name="MirroredStateButton"
+                                Grid.Column="2"
+                                Width="78"
+                                Margin="6,0,0,0"
+                                Click="OnItemStateButtonClick"
+                                Content="Mirrored: No"
+                                Style="{StaticResource ItemStateButtonStyle}"
+                                ToolTip="Click to cycle: No → Yes → Any" />
+                        <Button x:Name="CorruptedStateButton"
+                                Grid.Column="3"
+                                Width="82"
+                                Margin="6,0,0,0"
+                                Click="OnItemStateButtonClick"
+                                Content="Corrupted: No"
+                                Style="{StaticResource ItemStateButtonStyle}"
+                                ToolTip="Click to cycle: No → Yes → Any" />
+                        <Button x:Name="IdentifiedStateButton"
+                                Grid.Column="4"
+                                Width="82"
+                                Margin="6,0,0,0"
+                                Click="OnItemStateButtonClick"
+                                Content="Identified: Yes"
+                                Style="{StaticResource ItemStateButtonStyle}"
+                                ToolTip="Click to cycle: No → Yes → Any" />
                     </Grid>
                 </Border>
 

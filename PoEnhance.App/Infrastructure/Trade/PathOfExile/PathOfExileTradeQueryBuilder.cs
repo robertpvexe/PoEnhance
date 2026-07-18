@@ -10,6 +10,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string RarityRare = "Rare";
     private const string RarityMagic = "Magic";
     private const string RarityNormal = "Normal";
+    private const string RarityAny = "Any";
     private const string StatusInstantBuyout = "securable";
     private const string StatusInPerson = "onlineleague";
     private const string TypeFiltersKey = "type_filters";
@@ -402,6 +403,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         if (!IsRarity(draft, RarityRare) &&
             !IsRarity(draft, RarityMagic) &&
             !IsRarity(draft, RarityNormal) &&
+            !IsRarity(draft, RarityAny) &&
             !IsRarity(draft, RarityUnique))
         {
             return false;
