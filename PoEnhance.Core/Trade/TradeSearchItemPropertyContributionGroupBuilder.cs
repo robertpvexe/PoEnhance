@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.GameData;
 
 namespace PoEnhance.Core.Trade;
@@ -21,7 +22,13 @@ internal static class TradeSearchItemPropertyContributionGroupBuilder
 
         for (var modifierFilterIndex = 0; modifierFilterIndex < modifierFilters.Count; modifierFilterIndex++)
         {
-            var semantic = modifierFilters[modifierFilterIndex].ReviewedItemPropertySemantic;
+            var modifier = modifierFilters[modifierFilterIndex];
+            if (IsImplicit(modifier))
+            {
+                continue;
+            }
+
+            var semantic = modifier.ReviewedItemPropertySemantic;
             if (semantic is null ||
                 semantic.Applicability != ItemPropertyApplicability.UnconditionalDisplayedLocal)
             {
@@ -86,6 +93,11 @@ internal static class TradeSearchItemPropertyContributionGroupBuilder
 
         return groups.ToImmutable();
     }
+
+    private static bool IsImplicit(ResolvedSearchComponent component) =>
+        component.IsBaseImplicit ||
+        component.ParsedKind == ParsedModifierKind.Implicit ||
+        component.GenerationType == ModifierGenerationType.Implicit;
 
     private static bool TryMapParent(
         ItemPropertyTarget target,

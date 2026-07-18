@@ -16,6 +16,8 @@ public sealed record TradeSearchDraft
 
     public bool IsCorrupted { get; init; }
 
+    public TradeItemStateCriteria ItemStateCriteria { get; init; } = new();
+
     public TradeSearchBaseDraft Base { get; init; } = new();
 
     public int? ItemLevel { get; init; }

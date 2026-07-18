@@ -15,7 +15,10 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
     public void WindowXaml_OrdersCompactHeaderWithEditableSocketsColoursAndBaseRollLast()
     {
         var xaml = LoadWindowXaml();
-        var header = ExtractElement(xaml, "<WrapPanel Grid.Row=\"1\"", "</WrapPanel>");
+        var header = ExtractElement(
+            xaml,
+            "<StackPanel x:Name=\"HeaderRequestedFiltersPanel\"",
+            "<Grid x:Name=\"StatsHeader\"");
         var itemLevel = header.IndexOf("ItemLevelFilterBorder", StringComparison.Ordinal);
         var quality = header.IndexOf("QualityFilterBorder", StringComparison.Ordinal);
         var links = header.IndexOf("LinksFilterBorder", StringComparison.Ordinal);
@@ -30,6 +33,7 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         Assert.Contains("Text=\"Links:\"", header);
         Assert.Contains("Text=\"Sockets:\"", header);
         Assert.DoesNotContain("CheckBox", header);
+        Assert.Contains("Orientation=\"Horizontal\"", header);
         Assert.Equal(4, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
         Assert.Equal(4, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
         Assert.Equal(4, header.Split("Margin=\"0,0,8,0\"", StringSplitOptions.None).Length - 1);

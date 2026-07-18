@@ -159,20 +159,6 @@ public sealed class TradeSearchDraftValidator
             }
         }
 
-        if (draft.TraditionalInfluences.Count > 0 || draft.EldritchInfluences.Count > 0)
-        {
-            diagnostics.Add(Error(
-                TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
-                "Influenced ordinary items require provider filters that are outside the current Trade search slice."));
-        }
-
-        if (draft.IsCorrupted)
-        {
-            diagnostics.Add(Error(
-                TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
-                "Corrupted ordinary-item behavior is outside the current Trade search slice."));
-        }
-
         for (var index = 0; index < draft.ModifierFilters.Count; index++)
         {
             var modifier = draft.ModifierFilters[index];
@@ -366,9 +352,7 @@ public sealed class TradeSearchDraftValidator
 
     private static bool IsUnsupportedSpecialItemState(string? state)
     {
-        return string.Equals(state?.Trim(), "Synthesised Item", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(state?.Trim(), "Fractured Item", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(state?.Trim(), "Mirrored", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(state?.Trim(), "Fractured Item", StringComparison.OrdinalIgnoreCase);
     }
 
     private static TradeSearchValidationDiagnostic Warning(

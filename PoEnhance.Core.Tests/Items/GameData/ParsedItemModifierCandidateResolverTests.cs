@@ -891,6 +891,141 @@ Regenerate 29.2(24.1-32) Life per second
     }
 
     [Fact]
+    public void Resolve_DualEldritchImplicits_UsesOriginTierRangeAndItemEligibility()
+    {
+        const string coldStat = "physical_damage_taken_%_as_cold";
+        const string criticalStat = "attack_critical_strike_multiplier_+";
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.marshalls-brigandine", "Marshall's Brigandine", "Body Armours", "item", ["body_armour", "default"])],
+            [
+                Translation([coldStat], Variant(["{0}% of Physical Damage from Hits taken as Cold Damage"], ["#"])),
+                Translation([criticalStat], Variant(["{0}% to Critical Strike Multiplier for Attack Damage"], ["+#"])),
+            ],
+            EldritchModifier(
+                "PhysicalDamageTakenAsColdBodyUberEldritchImplicit1",
+                "eater_of_worlds_implicit",
+                ParsedEldritchImplicitTier.Lesser,
+                coldStat,
+                10m,
+                10m),
+            EldritchModifier(
+                "PhysicalDamageTakenAsColdBodyUberEldritchImplicit2",
+                "eater_of_worlds_implicit",
+                ParsedEldritchImplicitTier.Greater,
+                coldStat,
+                10m,
+                10m),
+            EldritchModifier(
+                "AttackCriticalStrikeMultiplierEldritchImplicit2",
+                "searing_exarch_implicit",
+                ParsedEldritchImplicitTier.Greater,
+                criticalStat,
+                22m,
+                23m));
+        var item = parser.Parse("""
+Item Class: Body Armours
+Rarity: Rare
+Gale Wrap
+Marshall's Brigandine
+--------
+Item Level: 84
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) - Physical, Elemental, Cold }
+10% of Physical Damage from Hits taken as Cold Damage
+{ Searing Exarch Implicit Modifier (Greater) }
++23(22-23)% to Critical Strike Multiplier for Attack Damage
+--------
+Searing Exarch Item
+Eater of Worlds Item
+""");
+
+        var results = resolver.Resolve(item, catalog, ExactBase(catalog, "base.marshalls-brigandine"));
+
+        Assert.Collection(
+            results,
+            eater =>
+            {
+                Assert.Equal(ModifierCandidateResolutionStatus.Exact, eater.Status);
+                Assert.Equal(ModifierGenerationType.Implicit, eater.GenerationType);
+                Assert.Equal(
+                    "PhysicalDamageTakenAsColdBodyUberEldritchImplicit1",
+                    Assert.Single(eater.Candidates).Id);
+            },
+            exarch =>
+            {
+                Assert.Equal(ModifierCandidateResolutionStatus.Exact, exarch.Status);
+                Assert.Equal(ModifierGenerationType.Implicit, exarch.GenerationType);
+                Assert.Equal(
+                    "AttackCriticalStrikeMultiplierEldritchImplicit2",
+                    Assert.Single(exarch.Candidates).Id);
+            });
+    }
+
+    [Fact]
+    public void Resolve_SynthesisImplicit_UsesConfirmedStateAndImportedSourceIdentity()
+    {
+        const string energyShieldStat = "local_energy_shield";
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [Base("base.reaver-helmet", "Reaver Helmet", "Helmets", "item", ["helmet", "default"])],
+            [Stat(energyShieldStat, isLocal: true)],
+            [Translation([energyShieldStat], Variant(["{0} to maximum Energy Shield"], ["+#"]))],
+            SynthesisModifier("SynthesisImplicitFlatEnergyShield4", energyShieldStat, 19m, 21m),
+            SynthesisModifier("SynthesisImplicitFlatEnergyShield5", energyShieldStat, 22m, 25m));
+        var item = parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++24(22-25) to maximum Energy Shield
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ProbableBase(catalog, "base.reaver-helmet")));
+
+        Assert.Equal(ParsedImplicitModifierOrigin.Synthesis, result.ParsedModifier.ImplicitOrigin);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(ModifierGenerationType.Implicit, result.GenerationType);
+        Assert.Equal("SynthesisImplicitFlatEnergyShield5", Assert.Single(result.Candidates).Id);
+        Assert.Equal(ModifierLocality.Local, result.Locality);
+    }
+
+    [Fact]
+    public void Resolve_IndistinguishableSynthesisImplicits_RemainsUnsupported()
+    {
+        const string statId = "local_energy_shield";
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [Base("base.reaver-helmet", "Reaver Helmet", "Helmets", "item", ["helmet", "default"])],
+            [Stat(statId, isLocal: true)],
+            [Translation([statId], Variant(["{0} to maximum Energy Shield"], ["+#"]))],
+            SynthesisModifier("SynthesisImplicitFlatEnergyShieldA", statId, 22m, 25m),
+            SynthesisModifier("SynthesisImplicitFlatEnergyShieldB", statId, 22m, 25m));
+        var item = parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++24(22-25) to maximum Energy Shield
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ProbableBase(catalog, "base.reaver-helmet")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Resolve_DoubleInfluencedItemCanMatchEitherTraditionalInfluence()
     {
         var catalog = CreateCatalog(
@@ -1292,6 +1427,45 @@ Item Level: 80
             StatId = statId,
             MinValue = min,
             MaxValue = max,
+        };
+    }
+
+    private static ModifierDefinition EldritchModifier(
+        string id,
+        string sourceGenerationType,
+        ParsedEldritchImplicitTier tier,
+        string statId,
+        decimal minimum,
+        decimal maximum)
+    {
+        return ModifierWithStats(
+            id,
+            string.Empty,
+            ModifierGenerationType.Unknown,
+            "item",
+            [StatRef(statId, minimum, maximum)],
+            SpawnWeight($"no_tier_{7 - (int)tier}_eldritch_implicit", 0),
+            SpawnWeight("body_armour", 500),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = sourceGenerationType,
+        };
+    }
+
+    private static ModifierDefinition SynthesisModifier(
+        string id,
+        string statId,
+        decimal minimum,
+        decimal maximum)
+    {
+        return ModifierWithStats(
+            id,
+            string.Empty,
+            ModifierGenerationType.Implicit,
+            "item",
+            [StatRef(statId, minimum, maximum)]) with
+        {
+            SourceGenerationType = "unique",
         };
     }
 

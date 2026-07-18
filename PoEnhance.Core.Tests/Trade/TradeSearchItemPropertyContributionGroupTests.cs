@@ -304,6 +304,31 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
         Assert.Empty(groups);
     }
 
+    [Theory]
+    [InlineData(ItemPropertyTarget.PhysicalDamage, TradeSearchItemPropertyKind.PhysicalDps)]
+    [InlineData(ItemPropertyTarget.AttacksPerSecond, TradeSearchItemPropertyKind.AttacksPerSecond)]
+    [InlineData(ItemPropertyTarget.Armour, TradeSearchItemPropertyKind.Armour)]
+    public void Builder_ReviewedImplicitContributionRemainsOutsideParentPresentationGroup(
+        ItemPropertyTarget target,
+        TradeSearchItemPropertyKind parentKind)
+    {
+        var implicitComponent = Component(
+            $"implicit-{target}",
+            DamageSemantic($"implicit-{target}", target)) with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+
+        var groups = TradeSearchItemPropertyContributionGroupBuilder.Create(
+            [Property(parentKind)],
+            [implicitComponent]);
+
+        Assert.Empty(groups);
+        Assert.Equal(ParsedModifierKind.Implicit, implicitComponent.ParsedKind);
+        Assert.Equal($"implicit-{target}", implicitComponent.ReviewedItemPropertySemantic?.Id);
+    }
+
     [Fact]
     public void Builder_GroupOrderFollowsItemPropertiesAndContributionOrderFollowsModifierFilters()
     {

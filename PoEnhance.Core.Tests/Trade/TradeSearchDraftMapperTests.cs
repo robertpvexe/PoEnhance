@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Tests.Items.Parsing;
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
 
@@ -537,6 +538,23 @@ Item Level: 84
     }
 
     [Fact]
+    public void CreateDraft_GenuineEldritchCorpusItemPreservesInfluencesImplicitsAndIsAccepted()
+    {
+        var item = parser.Parse(CopiedItemCorpus.LoadItems()[11]);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+        var validation = new TradeSearchDraftValidator().Validate(draft);
+
+        Assert.Equal("Gale Wrap", draft.DisplayName);
+        Assert.Equal(["Searing Exarch Item", "Eater of Worlds Item"], draft.EldritchInfluences);
+        Assert.Equal(2, draft.ModifierFilters.Count(component =>
+            component.ParsedKind == ParsedModifierKind.Implicit));
+        Assert.True(validation.IsValid);
+        Assert.DoesNotContain(validation.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact);
+    }
+
+    [Fact]
     public void CreateDraft_PreservesItemStatesAndCorruptionForTradeValidation()
     {
         var item = parser.Parse("""
@@ -556,6 +574,35 @@ Item Level: 84
         Assert.Contains("Synthesised Item", draft.ItemStates);
         Assert.Contains("Corrupted", draft.ItemStates);
         Assert.True(draft.IsCorrupted);
+    }
+
+    [Theory]
+    [InlineData(null, TradeTriState.No, TradeTriState.No, TradeTriState.Yes)]
+    [InlineData("Corrupted", TradeTriState.No, TradeTriState.Yes, TradeTriState.Yes)]
+    [InlineData("Mirrored", TradeTriState.Yes, TradeTriState.No, TradeTriState.Yes)]
+    [InlineData("Unidentified", TradeTriState.No, TradeTriState.No, TradeTriState.No)]
+    public void CreateDraft_InitializesProviderNeutralItemStateCriteriaFromCanonicalFlags(
+        string? state,
+        TradeTriState mirrored,
+        TradeTriState corrupted,
+        TradeTriState identified)
+    {
+        var stateSection = state is null ? string.Empty : $"--------\n{state}";
+        var item = parser.Parse($"""
+Item Class: Rings
+Rarity: Rare
+State Band
+Iron Ring
+--------
+Item Level: 84
+{stateSection}
+""");
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.Equal(mirrored, draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(corrupted, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(identified, draft.ItemStateCriteria.Identified);
     }
 
     [Fact]

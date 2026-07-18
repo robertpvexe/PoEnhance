@@ -69,6 +69,35 @@ public sealed class RePoeModifierImporterTests
         Assert.Equal("base_item_found_rarity_+%", Assert.Single(implicitModifier.Stats).StatId);
     }
 
+    [Theory]
+    [InlineData("exarch_implicit")]
+    [InlineData("searing_exarch_implicit")]
+    [InlineData("eater_implicit")]
+    [InlineData("eater_of_worlds_implicit")]
+    public void Import_EldritchGeneration_MapsToImplicit(string generationType)
+    {
+        var result = ImportJson($$"""
+            {
+              "EldritchImplicit": {
+                "domain": "item",
+                "generation_type": "{{generationType}}",
+                "groups": ["EldritchImplicit"],
+                "stats": [
+                  {
+                    "id": "test_stat",
+                    "min": 1,
+                    "max": 2
+                  }
+                ]
+              }
+            }
+            """);
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(ModifierGenerationType.Implicit, modifier.GenerationType);
+        Assert.Equal(generationType, modifier.SourceGenerationType);
+    }
+
     [Fact]
     public void Import_MalformedRecords_SkipsInvalidRecordsWithDiagnostics()
     {

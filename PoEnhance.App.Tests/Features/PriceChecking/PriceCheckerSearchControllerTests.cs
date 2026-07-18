@@ -24,6 +24,63 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task ItemStateChangeIsIndependentInvalidatesOffersWithoutAutomaticRequestAndResetRestoresSnapshot()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("state-offer")], total: 1);
+        var modifier = Modifier(
+            "+42 to maximum Life",
+            supportsValueBounds: true,
+            minimum: 42m,
+            maximum: 60m);
+        var draft = Draft("State Shell", modifiers: [modifier]) with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.No,
+                Corrupted = TradeTriState.No,
+                Identified = TradeTriState.Yes,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState!.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Mirrored, TradeTriState.Yes);
+
+        var changed = fixture.Window.CurrentState!.Draft;
+        Assert.Equal(TradeTriState.Yes, changed.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.No, changed.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Yes, changed.ItemStateCriteria.Identified);
+        Assert.True(changed.ModifierFilters[0].IsSelected);
+        Assert.Equal(42m, changed.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(60m, changed.ModifierFilters[0].RequestedMaximum);
+        Assert.Empty(fixture.Window.CurrentSearchState.Offers);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Corrupted, TradeTriState.Yes);
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState.Draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState.Draft.ItemStateCriteria.Corrupted);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseResetItemRequested();
+
+        var reset = fixture.Window.CurrentState.Draft;
+        Assert.Equal(TradeTriState.No, reset.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.No, reset.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Yes, reset.ItemStateCriteria.Identified);
+        Assert.False(reset.ModifierFilters[0].IsSelected);
+        Assert.Equal(42m, reset.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(60m, reset.ModifierFilters[0].RequestedMaximum);
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
     public void ItemPropertyProjection_UsesCanonicalOrderFlattensAggregatesAndHidesGroupedModifiers()
     {
         var fixture = SearchFixture.Create();
@@ -98,6 +155,69 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(fixture.Window.CurrentSearchState.ItemProperties[1].IsExpanded);
         Assert.True(fixture.Window.CurrentSearchState.ItemProperties[2].IsExpanded);
         Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+    }
+
+    [Fact]
+    public async Task StatsOrderKeepsParentsThenImplicitsThenRemainingAndImplicitSelectionIndependent()
+    {
+        var fixture = SearchFixture.Create();
+        var explicitContributor = Modifier(
+            "20% increased Physical Damage",
+            ParsedModifierKind.Prefix,
+            supportsValueBounds: true,
+            minimum: 20m);
+        var firstImplicit = Modifier(
+            "Adds 3 to 7 Physical Damage",
+            ParsedModifierKind.Implicit,
+            supportsValueBounds: true,
+            minimum: 5m);
+        var suffix = Modifier("+30% to Fire Resistance", ParsedModifierKind.Suffix);
+        var secondImplicit = Modifier(
+            "8% increased Attack Speed",
+            ParsedModifierKind.Implicit,
+            supportsValueBounds: true,
+            minimum: 8m);
+        var draft = Draft(
+            "Implicit Order",
+            modifiers: [explicitContributor, firstImplicit, suffix, secondImplicit]) with
+        {
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 120m)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        Assert.Equal(
+            [1, 3, 2],
+            fixture.Window.CurrentSearchState!.Modifiers.Select(modifier => modifier.SourceIndex));
+        Assert.IsType<PriceCheckerItemPropertyViewModel>(fixture.Window.CurrentSearchState.Stats[0]);
+        Assert.Equal(
+            [1, 3, 2],
+            fixture.Window.CurrentSearchState.Stats.Skip(1)
+                .Cast<PriceCheckerModifierViewModel>()
+                .Select(modifier => modifier.SourceIndex));
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        var parent = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties);
+        Assert.Equal(0, Assert.Single(parent.Children).SourceIndex);
+        Assert.DoesNotContain(parent.Children, child => child.SourceIndex is 1 or 3);
+
+        fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
+
+        parent = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties);
+        Assert.False(fixture.Window.CurrentState!.Draft.ItemProperties[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[1].IsSelected);
+        Assert.False(parent.HasSelectedChildren);
+        Assert.Equal(120m, fixture.Window.CurrentState.Draft.ItemProperties[0].ObservedValue);
+        Assert.Equal(1, fixture.Window.CurrentSearchState.SelectedStatsCount);
+
+        await fixture.Controller.SearchAsync();
+
+        var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        Assert.Equal([1], searched.ModifierFilters
+            .Select((modifier, index) => (modifier, index))
+            .Where(entry => entry.modifier.IsSelected)
+            .Select(entry => entry.index));
     }
 
     [Fact]
@@ -3532,6 +3652,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         public event EventHandler? BaseCriterionToggleRequested;
 
+        public event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged;
+
         public event EventHandler<bool>? PinStateChanged;
 
         public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -3749,6 +3871,12 @@ public sealed class PriceCheckerSearchControllerTests
         public void RaiseBaseCriterionToggleRequested()
         {
             BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseItemStateChanged(TradeItemStateKind kind, TradeTriState state)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            ItemStateChanged?.Invoke(this, new PriceCheckerItemStateChangedEventArgs(kind, state));
         }
 
         public void RaiseResetItemRequested()

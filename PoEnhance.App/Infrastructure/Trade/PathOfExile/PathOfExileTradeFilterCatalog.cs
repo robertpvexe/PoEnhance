@@ -8,7 +8,8 @@ internal sealed class PathOfExileTradeFilterCatalog
     public PathOfExileTradeFilterCatalog(
         IEnumerable<PathOfExileTradeFilterOption> categoryOptions,
         IReadOnlyList<PathOfExileTradeQueryDiagnostic>? diagnostics = null,
-        IEnumerable<PathOfExileTradeNumericFilterDefinition>? numericFilterDefinitions = null)
+        IEnumerable<PathOfExileTradeNumericFilterDefinition>? numericFilterDefinitions = null,
+        IEnumerable<PathOfExileTradeOptionFilterDefinition>? optionFilterDefinitions = null)
     {
         ArgumentNullException.ThrowIfNull(categoryOptions);
 
@@ -16,6 +17,10 @@ internal sealed class PathOfExileTradeFilterCatalog
             .OrderBy(option => option.ProviderOrder)
             .ToArray();
         NumericFilterDefinitions = (numericFilterDefinitions ?? [])
+            .OrderBy(definition => definition.GroupProviderOrder)
+            .ThenBy(definition => definition.ProviderOrder)
+            .ToArray();
+        OptionFilterDefinitions = (optionFilterDefinitions ?? [])
             .OrderBy(definition => definition.GroupProviderOrder)
             .ThenBy(definition => definition.ProviderOrder)
             .ToArray();
@@ -42,6 +47,8 @@ internal sealed class PathOfExileTradeFilterCatalog
     public IReadOnlyList<PathOfExileTradeFilterOption> CategoryOptions { get; }
 
     public IReadOnlyList<PathOfExileTradeNumericFilterDefinition> NumericFilterDefinitions { get; }
+
+    public IReadOnlyList<PathOfExileTradeOptionFilterDefinition> OptionFilterDefinitions { get; }
 
     public IReadOnlyList<PathOfExileTradeQueryDiagnostic> Diagnostics { get; }
 
@@ -109,6 +116,25 @@ internal sealed class PathOfExileTradeFilterCatalog
             .ToArray();
     }
 
+    public IReadOnlyList<PathOfExileTradeOptionFilterDefinition> FindOptionFilterDefinitions(
+        string? groupId,
+        string? filterId)
+    {
+        var trimmedGroupId = groupId?.Trim();
+        var trimmedFilterId = filterId?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedGroupId) ||
+            string.IsNullOrWhiteSpace(trimmedFilterId))
+        {
+            return [];
+        }
+
+        return OptionFilterDefinitions
+            .Where(definition =>
+                string.Equals(definition.GroupId, trimmedGroupId, StringComparison.Ordinal) &&
+                string.Equals(definition.FilterId, trimmedFilterId, StringComparison.Ordinal))
+            .ToArray();
+    }
+
     private static IEnumerable<string> ProviderCategoryTextCandidates(string category)
     {
         yield return category;
@@ -158,4 +184,28 @@ internal sealed record PathOfExileTradeNumericFilterDefinition
     public string? Tip { get; init; }
 
     public bool SupportsMinMax { get; init; }
+}
+
+internal sealed record PathOfExileTradeOptionFilterDefinition
+{
+    public required int GroupProviderOrder { get; init; }
+
+    public required int ProviderOrder { get; init; }
+
+    public required string GroupId { get; init; }
+
+    public required string GroupTitle { get; init; }
+
+    public required string FilterId { get; init; }
+
+    public required string Text { get; init; }
+
+    public IReadOnlyList<PathOfExileTradeOptionDefinition> Options { get; init; } = [];
+}
+
+internal sealed record PathOfExileTradeOptionDefinition
+{
+    public string? Id { get; init; }
+
+    public required string Text { get; init; }
 }

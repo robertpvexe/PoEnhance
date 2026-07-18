@@ -138,6 +138,7 @@ internal static partial class CanonicalModifierEffectAggregator
             OriginalText = component.OriginalText,
             CanonicalSignature = component.CanonicalSignature,
             ParsedKind = component.ParsedKind,
+            ImplicitOrigin = component.ImplicitOrigin,
             GenerationType = component.GenerationType,
             Locality = component.Locality,
             StatMappingProof = component.StatMappingProof,
@@ -214,6 +215,8 @@ internal static partial class CanonicalModifierEffectAggregator
             TranslationTransformIdentity(component),
             component.DefaultBoundDirection,
             component.SupportsValueBounds ? "DirectScalar" : "DeferredRangeProjection",
+            IsImplicit(component),
+            component.ImplicitOrigin,
             ReviewedSemanticIdentity(component.ReviewedItemPropertySemantic));
         return true;
     }
@@ -408,6 +411,16 @@ internal static partial class CanonicalModifierEffectAggregator
         ResolvedSearchComponent left,
         ResolvedSearchComponent right)
     {
+        if (IsImplicit(left) != IsImplicit(right))
+        {
+            return "different canonical source origin";
+        }
+
+        if (left.ImplicitOrigin != right.ImplicitOrigin)
+        {
+            return "different implicit source provenance";
+        }
+
         if (left.Locality != right.Locality)
         {
             return "different locality";
@@ -504,6 +517,11 @@ internal static partial class CanonicalModifierEffectAggregator
             evidence);
     }
 
+    private static bool IsImplicit(ResolvedSearchComponent component) =>
+        component.IsBaseImplicit ||
+        component.ParsedKind == ParsedModifierKind.Implicit ||
+        component.GenerationType == ModifierGenerationType.Implicit;
+
     private sealed record AggregationKey(
         string CanonicalStatVector,
         string LogicalEffectIdentity,
@@ -514,6 +532,8 @@ internal static partial class CanonicalModifierEffectAggregator
         string TranslationTransforms,
         ModifierBoundDirection BoundDirection,
         string ProjectionSemantics,
+        bool IsImplicit,
+        ParsedImplicitModifierOrigin ImplicitOrigin,
         string ReviewedSemanticIdentity);
 
     private sealed record IndexedComponent(

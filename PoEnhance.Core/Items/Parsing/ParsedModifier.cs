@@ -12,6 +12,10 @@ public sealed record ParsedModifier(
     bool IsFractured,
     bool IsVeiled)
 {
+    public ParsedImplicitModifierOrigin ImplicitOrigin { get; init; }
+
+    public ParsedEldritchImplicitTier? EldritchTier { get; init; }
+
     public IReadOnlyList<ParsedModifierEffect> Effects { get; init; } = ValueLines
         .Select(line => new ParsedModifierEffect(line, [], HasUnscalableValue: false))
         .ToArray();

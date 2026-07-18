@@ -1,4 +1,5 @@
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
 
@@ -346,16 +347,20 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
 
     private static bool CanSerializeSelectedComponent(ResolvedSearchComponent modifier)
     {
-        return modifier.IsSearchable &&
+        var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
             modifier.ResolvedStatIds.Count > 0;
+        return hasExactGameDataProvenance ||
+            modifier.ParsedKind == ParsedModifierKind.Implicit &&
+            modifier.ImplicitOrigin is
+                ParsedImplicitModifierOrigin.Unspecified or
+                ParsedImplicitModifierOrigin.Corrupted;
     }
 
     private static bool CanSerializeProviderResolvedComponent(ResolvedSearchComponent modifier)
     {
-        return CanSerializeSelectedComponent(modifier) ||
-            modifier.ParsedKind == PoEnhance.Core.Items.Parsing.ParsedModifierKind.Implicit;
+        return CanSerializeSelectedComponent(modifier);
     }
 
     private static PathOfExileTradeSelectedModifierMappingDiagnostic ToProviderResolutionDiagnostic(

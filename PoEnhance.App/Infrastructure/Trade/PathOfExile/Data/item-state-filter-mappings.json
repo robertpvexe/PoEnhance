@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "reviewReference": "item-state-filter-trade-catalog-audit-2026-07-17",
+  "mappings": [
+    {
+      "kind": "Mirrored",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "mirrored",
+      "expectedOfficialText": "Mirrored",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Corrupted",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "corrupted",
+      "expectedOfficialText": "Corrupted",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Identified",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "identified",
+      "expectedOfficialText": "Identified",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    }
+  ]
+}

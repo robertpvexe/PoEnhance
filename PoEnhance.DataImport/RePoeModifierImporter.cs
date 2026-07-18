@@ -192,6 +192,10 @@ public sealed class RePoeModifierImporter
             "suffix" => ModifierGenerationType.Suffix,
             "enchantment" => ModifierGenerationType.Enchantment,
             "unique" => ModifierGenerationType.Implicit,
+            "exarch_implicit" => ModifierGenerationType.Implicit,
+            "searing_exarch_implicit" => ModifierGenerationType.Implicit,
+            "eater_implicit" => ModifierGenerationType.Implicit,
+            "eater_of_worlds_implicit" => ModifierGenerationType.Implicit,
             _ => ModifierGenerationType.Unknown,
         };
     }

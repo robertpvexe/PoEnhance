@@ -68,6 +68,17 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         if (string.IsNullOrWhiteSpace(modifier.Name))
         {
+            var specialImplicitResult = TryResolveSpecialImplicit(
+                index,
+                modifier,
+                catalog,
+                eligibilityContext,
+                generationType);
+            if (specialImplicitResult is not null)
+            {
+                return specialImplicitResult;
+            }
+
             return Unknown(
                 index,
                 modifier,
@@ -254,6 +265,216 @@ public sealed partial class ParsedItemModifierCandidateResolver
             kindCandidates.Count,
             eligibleCandidates,
             excludedCandidates);
+    }
+
+    private ModifierCandidateResolutionResult? TryResolveSpecialImplicit(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        ItemModifierEligibilityContext? eligibilityContext,
+        ModifierGenerationType generationType)
+    {
+        if (generationType != ModifierGenerationType.Implicit)
+        {
+            return null;
+        }
+
+        var originCandidates = modifier.ImplicitOrigin switch
+        {
+            ParsedImplicitModifierOrigin.SearingExarch => catalog.Modifiers
+                .Where(candidate => IsEldritchSource(candidate, ParsedImplicitModifierOrigin.SearingExarch)),
+            ParsedImplicitModifierOrigin.EaterOfWorlds => catalog.Modifiers
+                .Where(candidate => IsEldritchSource(candidate, ParsedImplicitModifierOrigin.EaterOfWorlds)),
+            ParsedImplicitModifierOrigin.Synthesis => catalog.Modifiers.Where(IsSynthesisImplicitSource),
+            _ => null,
+        };
+        if (originCandidates is null)
+        {
+            return null;
+        }
+
+        var originAndTierCandidates = originCandidates
+            .Where(candidate => modifier.EldritchTier is null ||
+                MatchesEldritchTier(candidate, modifier.EldritchTier.Value))
+            .ToArray();
+        var candidates = originAndTierCandidates
+            .Where(candidate => SpecialImplicitValuesMatchCandidate(modifier, candidate))
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                candidates: [],
+                ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound,
+                "No GameData modifier matched the parsed implicit source origin, tier, and copied roll values.");
+        }
+
+        if (modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Synthesis || eligibilityContext is null)
+        {
+            return ResolveTextSignatures(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                nameCandidateCount: 0,
+                generationKindCandidateCount: candidates.Length,
+                candidates,
+                eligibilityExcludedCandidates: []);
+        }
+
+        var evaluations = candidates
+            .Select(candidate => new
+            {
+                Candidate = candidate,
+                Result = eligibilityEvaluator.Evaluate(candidate, eligibilityContext),
+            })
+            .ToArray();
+        var retainedCandidates = evaluations
+            .Where(evaluation => evaluation.Result.Outcome != ModifierEligibilityOutcome.Ineligible)
+            .Select(evaluation => evaluation.Candidate)
+            .ToArray();
+        var excludedCandidates = evaluations
+            .Where(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Ineligible)
+            .Select(evaluation => evaluation.Candidate)
+            .ToArray();
+        if (retainedCandidates.Length == 0)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                candidates: [],
+                ModifierCandidateResolutionDiagnosticCodes.ModifierNoEligibleCandidates,
+                "All implicit source-origin candidates were excluded by item-base eligibility.",
+                nameCandidateCount: 0,
+                generationKindCandidateCount: candidates.Length,
+                eligibilityCandidateCount: 0,
+                excludedCandidates);
+        }
+
+        return ResolveTextSignatures(
+            index,
+            modifier,
+            catalog,
+            generationType,
+            nameCandidateCount: 0,
+            generationKindCandidateCount: candidates.Length,
+            retainedCandidates,
+            excludedCandidates);
+    }
+
+    private static bool SpecialImplicitValuesMatchCandidate(
+        ParsedModifier modifier,
+        ModifierDefinition candidate)
+    {
+        var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
+        if (advancedRanges.Count > 0)
+        {
+            return CandidateRangesMatch(candidate, advancedRanges);
+        }
+
+        var observedValues = ExtractDisplayedStatValues(modifier.ValueLines);
+        var stats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (observedValues.Count == 0 || stats.Length != observedValues.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < stats.Length; index++)
+        {
+            var minimum = stats[index].MinValue;
+            var maximum = stats[index].MaxValue;
+            if (!minimum.HasValue ||
+                !maximum.HasValue ||
+                observedValues[index] < minimum.Value ||
+                observedValues[index] > maximum.Value)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<decimal> ExtractDisplayedStatValues(IReadOnlyList<string> valueLines)
+    {
+        var values = new List<decimal>();
+        foreach (var line in valueLines)
+        {
+            foreach (Match match in DisplayedStatValuePattern().Matches(line))
+            {
+                if (!decimal.TryParse(
+                        match.Groups["value"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var value))
+                {
+                    return [];
+                }
+
+                values.Add(value);
+            }
+        }
+
+        return values;
+    }
+
+    private static bool IsEldritchSource(
+        ModifierDefinition candidate,
+        ParsedImplicitModifierOrigin origin)
+    {
+        var sourceGeneration = NormalizeSourceGeneration(candidate.SourceGenerationType);
+        return origin switch
+        {
+            ParsedImplicitModifierOrigin.SearingExarch => sourceGeneration is
+                "exarch_implicit" or "searing_exarch_implicit",
+            ParsedImplicitModifierOrigin.EaterOfWorlds => sourceGeneration is
+                "eater_implicit" or "eater_of_worlds_implicit",
+            _ => false,
+        };
+    }
+
+    private static bool IsSynthesisImplicitSource(ModifierDefinition candidate)
+    {
+        if (candidate.GenerationType != ModifierGenerationType.Implicit)
+        {
+            return false;
+        }
+
+        return IsSynthesisImplicitIdentity(candidate.Id) ||
+            candidate.Sources.Any(source => IsSynthesisImplicitIdentity(source.ExternalId));
+    }
+
+    private static bool IsSynthesisImplicitIdentity(string? value)
+    {
+        return value?.Trim().StartsWith("SynthesisImplicit", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private static bool MatchesEldritchTier(
+        ModifierDefinition candidate,
+        ParsedEldritchImplicitTier tier)
+    {
+        var excludedTier = 7 - (int)tier;
+        var tierTag = $"no_tier_{excludedTier}_eldritch_implicit";
+        return candidate.SpawnWeights.Any(spawnWeight =>
+            spawnWeight.Weight == 0 &&
+            string.Equals(
+                NormalizeSourceGeneration(spawnWeight.Tag),
+                tierTag,
+                StringComparison.Ordinal));
+    }
+
+    private static string NormalizeSourceGeneration(string? value)
+    {
+        return (value?.Trim() ?? string.Empty)
+            .Replace('-', '_')
+            .Replace(' ', '_')
+            .ToLowerInvariant();
     }
 
     private ModifierCandidateResolutionResult ResolveTextSignatures(
@@ -819,4 +1040,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
     [GeneratedRegex(@"[+-]?\d+(?:\.\d+)?\((?<minimum>[+-]?\d+(?:\.\d+)?)-(?<maximum>[+-]?\d+(?:\.\d+)?)\)", RegexOptions.CultureInvariant)]
     private static partial Regex AdvancedRangePattern();
+
+    [GeneratedRegex(@"(?<![\w])(?<value>[+-]?\d+(?:\.\d+)?)(?:\([+-]?\d+(?:\.\d+)?-[+-]?\d+(?:\.\d+)?\))?", RegexOptions.CultureInvariant)]
+    private static partial Regex DisplayedStatValuePattern();
 }

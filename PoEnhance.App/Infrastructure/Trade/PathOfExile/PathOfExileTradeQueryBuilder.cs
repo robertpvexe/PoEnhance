@@ -25,14 +25,18 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private const string ProviderPerHitDamageFilterKey = "damage";
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
+    private readonly PathOfExileTradeItemStateFilterResolver itemStateFilterResolver;
 
     public PathOfExileTradeQueryBuilder(
         PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null,
-        PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null)
+        PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null,
+        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null)
     {
         this.itemPropertyResolver = itemPropertyResolver ?? new PathOfExileTradeItemPropertyResolver();
         this.requestedItemFilterResolver = requestedItemFilterResolver ??
             new PathOfExileTradeRequestedItemFilterResolver();
+        this.itemStateFilterResolver = itemStateFilterResolver ??
+            new PathOfExileTradeItemStateFilterResolver();
     }
 
     public PathOfExileTradeQueryBuildResult Build(
@@ -270,6 +274,29 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             }
         }
 
+        IReadOnlyList<PathOfExileTradeSelectedItemStateFilter> providerItemStateFilters = [];
+        var hasItemStateFilters = Enum.GetValues<TradeItemStateKind>()
+            .Any(kind => draft.ItemStateCriteria.Get(kind) is TradeTriState.Yes or TradeTriState.No);
+        if (hasItemStateFilters)
+        {
+            if (providerFilterCatalog is null)
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidItemStateFilterMapping,
+                    "Item-state filters require the session-verified Trade filter catalog.");
+            }
+
+            var stateMapping = itemStateFilterResolver.MapSelected(draft, providerFilterCatalog);
+            if (!stateMapping.IsSuccess)
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidItemStateFilterMapping,
+                    string.Join(" ", stateMapping.Diagnostics));
+            }
+
+            providerItemStateFilters = stateMapping.Filters;
+        }
+
         if (!IsSupportedBaseOnlyIndividualItemPath(draft))
         {
             return Failure(
@@ -355,7 +382,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     providerItemIdentity,
                     categoryOptionResult.Option,
                     providerPropertyFilters,
-                    providerRequestedFilters),
+                    providerRequestedFilters,
+                    providerItemStateFilters),
             },
             Sort = new PathOfExileTradeSearchSort(),
         };
@@ -496,7 +524,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         PathOfExileTradeItemIdentity? providerItemIdentity,
         PathOfExileTradeFilterOption? categoryOption,
         IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> itemPropertyFilters,
-        IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter> requestedItemFilters)
+        IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter> requestedItemFilters,
+        IReadOnlyList<PathOfExileTradeSelectedItemStateFilter> itemStateFilters)
     {
         var groups = new Dictionary<string, object>(StringComparer.Ordinal);
         var typeFilters = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -556,6 +585,22 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     filter => (object)new PathOfExileTradeSearchStatValue
                     {
                         Min = filter.MinimumValue,
+                    },
+                    StringComparer.Ordinal));
+        }
+
+        foreach (var stateGroup in itemStateFilters.GroupBy(
+                     filter => filter.ProviderGroupId.Trim(),
+                     StringComparer.Ordinal))
+        {
+            AddFilterGroup(
+                groups,
+                stateGroup.Key,
+                stateGroup.ToDictionary(
+                    filter => filter.ProviderFilterId.Trim(),
+                    filter => (object)new PathOfExileTradeSearchOptionFilter
+                    {
+                        Option = filter.Option,
                     },
                     StringComparer.Ordinal));
         }

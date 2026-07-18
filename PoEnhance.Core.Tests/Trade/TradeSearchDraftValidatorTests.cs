@@ -605,9 +605,7 @@ Item Level: 82
     }
 
     [Theory]
-    [InlineData("Synthesised Item")]
     [InlineData("Fractured Item")]
-    [InlineData("Mirrored")]
     public void Validate_UnsupportedOrdinaryItemState_IsInvalid(string itemState)
     {
         var draft = ValidDraft() with
@@ -625,37 +623,85 @@ Item Level: 82
     }
 
     [Fact]
-    public void Validate_UnsupportedOrdinaryInfluence_IsInvalid()
+    public void Validate_SynthesisedOrdinaryEquipment_IsNotRejectedAsAWholeItem()
     {
         var draft = ValidDraft() with
         {
-            TraditionalInfluences = ["Shaper Item"],
+            ItemStates = ["Synthesised Item"],
         };
 
         var result = validator.Validate(draft);
 
-        Assert.False(result.IsValid);
-        AssertDiagnostic(
-            result,
-            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
-            TradeSearchValidationSeverity.Error);
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact);
+    }
+
+    [Theory]
+    [InlineData("Shaper Item", false)]
+    [InlineData("Elder Item", false)]
+    [InlineData("Crusader Item", false)]
+    [InlineData("Hunter Item", false)]
+    [InlineData("Redeemer Item", false)]
+    [InlineData("Warlord Item", false)]
+    [InlineData("Searing Exarch Item", true)]
+    [InlineData("Eater of Worlds Item", true)]
+    public void Validate_InfluencedOrdinaryEquipmentIsAccepted(string influence, bool eldritch)
+    {
+        var draft = ValidDraft() with
+        {
+            TraditionalInfluences = eldritch ? [] : [influence],
+            EldritchInfluences = eldritch ? [influence] : [],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact);
     }
 
     [Fact]
-    public void Validate_UnsupportedOrdinaryCorruption_IsInvalid()
+    public void Validate_DualInfluenceMirroredAndCorruptedFactsAreAccepted()
     {
         var draft = ValidDraft() with
         {
+            ItemStates = ["Mirrored", "Corrupted"],
             IsCorrupted = true,
+            TraditionalInfluences = ["Shaper Item", "Elder Item"],
         };
 
         var result = validator.Validate(draft);
 
-        Assert.False(result.IsValid);
-        AssertDiagnostic(
-            result,
-            TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact,
-            TradeSearchValidationSeverity.Error);
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact);
+    }
+
+    [Fact]
+    public void Validate_InfluencedItemWithOneUnresolvedModifierDoesNotRejectWholeItem()
+    {
+        var draft = ValidDraft(modifiers:
+        [
+            ExactModifier(),
+            ExactModifier() with
+            {
+                ComponentId = "unresolved-influence-modifier",
+                ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                ResolvedModifierId = null,
+                ResolvedStatIds = [],
+                IsSearchable = false,
+            },
+        ]) with
+        {
+            TraditionalInfluences = ["Redeemer Item"],
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnsupportedSpecialItemFact);
     }
 
     [Theory]

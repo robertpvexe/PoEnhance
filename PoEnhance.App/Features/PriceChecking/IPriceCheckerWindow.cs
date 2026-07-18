@@ -48,6 +48,12 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? BaseCriterionToggleRequested;
 
+    event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged
+    {
+        add { }
+        remove { }
+    }
+
     event EventHandler<bool>? PinStateChanged;
 
     event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;

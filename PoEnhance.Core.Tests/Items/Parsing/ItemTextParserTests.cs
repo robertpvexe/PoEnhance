@@ -143,6 +143,61 @@ public sealed class ItemTextParserTests
     }
 
     [Fact]
+    public void Parse_EldritchImplicitMetadata_RetainsDistinctOriginAndTier()
+    {
+        var result = _parser.Parse("""
+Item Class: Body Armours
+Rarity: Rare
+Gale Wrap
+Marshall's Brigandine
+--------
+Item Level: 84
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) - Physical, Elemental, Cold }
+10% of Physical Damage from Hits taken as Cold Damage
+{ Searing Exarch Implicit Modifier (Greater) }
++23(22-23)% to Critical Strike Multiplier for Attack Damage
+--------
+Searing Exarch Item
+Eater of Worlds Item
+""");
+
+        Assert.Collection(
+            result.ImplicitModifiers,
+            eater =>
+            {
+                Assert.Equal(ParsedImplicitModifierOrigin.EaterOfWorlds, eater.ImplicitOrigin);
+                Assert.Equal(ParsedEldritchImplicitTier.Lesser, eater.EldritchTier);
+            },
+            exarch =>
+            {
+                Assert.Equal(ParsedImplicitModifierOrigin.SearingExarch, exarch.ImplicitOrigin);
+                Assert.Equal(ParsedEldritchImplicitTier.Greater, exarch.EldritchTier);
+            });
+    }
+
+    [Fact]
+    public void Parse_SynthesisedItem_AssignsGenericImplicitFromConfirmedItemState()
+    {
+        var result = _parser.Parse("""
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++24(22-25) to maximum Energy Shield
+""");
+
+        var implicitModifier = Assert.Single(result.ImplicitModifiers);
+        Assert.Equal(ParsedImplicitModifierOrigin.Synthesis, implicitModifier.ImplicitOrigin);
+        Assert.Null(implicitModifier.EldritchTier);
+    }
+
+    [Fact]
     public void Parse_AdvancedItem_ClassifiesModifierBucketsFromMetadata()
     {
         var rawText = ReadSample("advanced-rare-ring-with-implicit.txt");
@@ -277,6 +332,27 @@ public sealed class ItemTextParserTests
         Assert.DoesNotContain("Note: ~price 1 chaos", result.ModifierLines);
         Assert.DoesNotContain(result.Modifiers, modifier => modifier.ValueLines.Contains("Note: ~price 1 chaos"));
         Assert.DoesNotContain("Note: ~price 1 chaos", result.UnclassifiedLines);
+    }
+
+    [Fact]
+    public void Parse_ItemStateFlagsAreCanonicalForMirroredAndIdentification()
+    {
+        var mirrored = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Mirror Band
+Iron Ring
+--------
+Item Level: 84
+--------
+Mirrored
+""");
+        var unidentified = _parser.Parse(ReadSample("unidentified-rare-poleaxe.txt"));
+
+        Assert.True(mirrored.IsMirrored);
+        Assert.True(mirrored.IsIdentified);
+        Assert.False(unidentified.IsMirrored);
+        Assert.False(unidentified.IsIdentified);
     }
 
     [Fact]

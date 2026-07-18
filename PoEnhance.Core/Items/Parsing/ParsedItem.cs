@@ -30,6 +30,10 @@ public sealed record ParsedItem(
 {
     public string? DisplayName => string.IsNullOrWhiteSpace(Name) ? BaseType : Name;
 
+    public bool IsMirrored => ItemStates.Contains("Mirrored", StringComparer.OrdinalIgnoreCase);
+
+    public bool IsIdentified => !ItemStates.Contains("Unidentified", StringComparer.OrdinalIgnoreCase);
+
     public IReadOnlyList<string> PropertyLines { get; } = Properties
         .Select(property => property.OriginalText)
         .ToArray();

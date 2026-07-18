@@ -139,6 +139,71 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_ImplicitAndNonImplicitOriginsRemainIndependent()
+    {
+        var explicitComponent = Scalar(
+            "modifier:0:0",
+            0,
+            "20% increased Physical Damage",
+            20m,
+            "explicit");
+        var implicitComponent = Scalar(
+            "modifier:1:0",
+            1,
+            "10% increased Physical Damage",
+            10m,
+            "implicit") with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([explicitComponent, implicitComponent]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal([20m, 10m], result.Components.Select(component => component.RequestedMinimum));
+        Assert.Equal(
+            [ParsedModifierKind.Prefix, ParsedModifierKind.Implicit],
+            result.Components.Select(component => component.ParsedKind));
+    }
+
+    [Fact]
+    public void Aggregate_EldritchImplicitOriginsRemainIndependent()
+    {
+        var eater = Scalar(
+            "modifier:0:0",
+            0,
+            "10% increased Effect",
+            10m,
+            "eater") with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            ImplicitOrigin = ParsedImplicitModifierOrigin.EaterOfWorlds,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+        var exarch = eater with
+        {
+            ComponentId = "modifier:1:0",
+            SourceModifierIndex = 1,
+            OriginalText = "20% increased Effect",
+            ImplicitOrigin = ParsedImplicitModifierOrigin.SearingExarch,
+            ResolvedModifierId = "exarch",
+            RequestedMinimum = 20m,
+            ObservedNumericValues = [20m],
+            CanonicalNumericValues = [20m],
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([eater, exarch]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal(
+            [ParsedImplicitModifierOrigin.EaterOfWorlds, ParsedImplicitModifierOrigin.SearingExarch],
+            result.Components.Select(component => component.ImplicitOrigin));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Message.Contains("different implicit source provenance", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Aggregate_DifferentReviewedSemanticsRemainSeparate()
     {
         var first = Scalar("modifier:0:0", 0, "30% increased Physical Damage", 30m, "first") with

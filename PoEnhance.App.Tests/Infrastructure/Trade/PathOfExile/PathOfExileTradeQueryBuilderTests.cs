@@ -175,6 +175,126 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetString());
     }
 
+    [Theory]
+    [InlineData(TradeItemStateKind.Mirrored, TradeTriState.Yes, "mirrored", "true")]
+    [InlineData(TradeItemStateKind.Mirrored, TradeTriState.No, "mirrored", "false")]
+    [InlineData(TradeItemStateKind.Corrupted, TradeTriState.Yes, "corrupted", "true")]
+    [InlineData(TradeItemStateKind.Corrupted, TradeTriState.No, "corrupted", "false")]
+    [InlineData(TradeItemStateKind.Identified, TradeTriState.Yes, "identified", "true")]
+    [InlineData(TradeItemStateKind.Identified, TradeTriState.No, "identified", "false")]
+    public void Build_ItemStateYesAndNoUseReviewedOfficialOptionShape(
+        TradeItemStateKind kind,
+        TradeTriState state,
+        string providerFilterId,
+        string expectedOption)
+    {
+        var draft = Draft() with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria().With(kind, state),
+        };
+
+        var result = BuildSuccessful(draft, providerFilterCatalog: StateFilterCatalog());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var stateFilter = document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("misc_filters")
+            .GetProperty("filters")
+            .GetProperty(providerFilterId);
+        Assert.Equal(expectedOption, stateFilter.GetProperty("option").GetString());
+        Assert.Single(stateFilter.EnumerateObject());
+    }
+
+    [Fact]
+    public void Build_AllItemStatesAnyOmitStateFiltersWithoutEmptyGroup()
+    {
+        var result = BuildSuccessful(Draft() with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.Any,
+                Corrupted = TradeTriState.Any,
+                Identified = TradeTriState.Any,
+            },
+        });
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        Assert.False(filters.TryGetProperty("misc_filters", out _));
+    }
+
+    [Fact]
+    public void Build_ThreeItemStatesCoexistWithCategoryRarityAndExactModifier()
+    {
+        var draft = WithCategoryMode(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            "Body Armour") with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.No,
+                Corrupted = TradeTriState.Yes,
+                Identified = TradeTriState.Yes,
+            },
+        };
+
+        var result = BuildSuccessful(
+            draft,
+            selectedModifierFilters: [ProviderFilter(0, "explicit.stat_test")],
+            providerFilterCatalog: StateFilterCatalog(("armour.chest", "Body Armour")));
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        var misc = query.GetProperty("filters").GetProperty("misc_filters").GetProperty("filters");
+        Assert.Equal("false", misc.GetProperty("mirrored").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("corrupted").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("identified").GetProperty("option").GetString());
+        Assert.Equal("rare", query.GetProperty("filters").GetProperty("type_filters")
+            .GetProperty("filters").GetProperty("rarity").GetProperty("option").GetString());
+        Assert.Equal("armour.chest", query.GetProperty("filters").GetProperty("type_filters")
+            .GetProperty("filters").GetProperty("category").GetProperty("option").GetString());
+        Assert.Equal("explicit.stat_test", query.GetProperty("stats")[0]
+            .GetProperty("filters")[0].GetProperty("id").GetString());
+    }
+
+    [Theory]
+    [InlineData(ParsedModifierKind.Prefix, false)]
+    [InlineData(ParsedModifierKind.Implicit, true)]
+    public void Build_SelectedInfluencedModifierUsesNormalStatPipelineWithoutInfluenceFilter(
+        ParsedModifierKind kind,
+        bool eldritch)
+    {
+        var modifier = Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact) with
+        {
+            ParsedKind = kind,
+            GenerationType = kind == ParsedModifierKind.Implicit
+                ? ModifierGenerationType.Implicit
+                : ModifierGenerationType.Prefix,
+        };
+        var draft = Draft(modifiers: [modifier]) with
+        {
+            TraditionalInfluences = eldritch ? [] : ["Shaper Item"],
+            EldritchInfluences = eldritch
+                ? ["Searing Exarch Item", "Eater of Worlds Item"]
+                : [],
+        };
+
+        var result = BuildSuccessful(
+            draft,
+            selectedModifierFilters: [ProviderFilter(0, eldritch ? "implicit.stat_test" : "explicit.stat_test")]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal(
+            eldritch ? "implicit.stat_test" : "explicit.stat_test",
+            query.GetProperty("stats")[0].GetProperty("filters")[0].GetProperty("id").GetString());
+        Assert.DoesNotContain("influence", result.SerializedJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("shaper", result.SerializedJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("elder", result.SerializedJson!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("exarch", result.SerializedJson!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Build_ExactResolvedBaseName_IsPreferred()
     {
@@ -1071,6 +1191,48 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 Id = category.Id,
                 Text = category.Text,
             }));
+    }
+
+    private static PathOfExileTradeFilterCatalog StateFilterCatalog(
+        params (string Id, string Text)[] categories)
+    {
+        return new PathOfExileTradeFilterCatalog(
+            categories.Select((category, index) => new PathOfExileTradeFilterOption
+            {
+                ProviderOrder = index,
+                GroupId = "type_filters",
+                FilterId = "category",
+                Id = category.Id,
+                Text = category.Text,
+            }),
+            optionFilterDefinitions: new[]
+            {
+                OptionDefinition(0, "identified", "Identified"),
+                OptionDefinition(1, "corrupted", "Corrupted"),
+                OptionDefinition(2, "mirrored", "Mirrored"),
+            });
+    }
+
+    private static PathOfExileTradeOptionFilterDefinition OptionDefinition(
+        int providerOrder,
+        string id,
+        string text)
+    {
+        return new PathOfExileTradeOptionFilterDefinition
+        {
+            GroupProviderOrder = 1,
+            ProviderOrder = providerOrder,
+            GroupId = "misc_filters",
+            GroupTitle = "Miscellaneous",
+            FilterId = id,
+            Text = text,
+            Options =
+            [
+                new PathOfExileTradeOptionDefinition { Id = null, Text = "Any" },
+                new PathOfExileTradeOptionDefinition { Id = "true", Text = "Yes" },
+                new PathOfExileTradeOptionDefinition { Id = "false", Text = "No" },
+            ],
+        };
     }
 
     private static TradeSearchValidationResult ValidValidation()

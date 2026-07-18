@@ -7,7 +7,7 @@ internal sealed class PriceCheckerPlacementCalculator
     public const double ProvisionalPanelMaximumWidth = 560d;
     public const double ProvisionalInventoryWidthToClientHeightRatio = 0.60d;
     public const double ProvisionalInventorySafetyGap = 12d;
-    public const double UserPanelMinimumWidth = 320d;
+    public const double UserPanelMinimumWidth = 576d;
     public const double UserPanelLeftMargin = 8d;
 
     public PriceCheckerPlacementCalculator()

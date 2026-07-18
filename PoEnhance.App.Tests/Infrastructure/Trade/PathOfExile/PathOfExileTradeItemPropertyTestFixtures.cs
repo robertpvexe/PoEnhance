@@ -65,6 +65,45 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                   "minMax": true
                 }
               ]
+            },
+            {
+              "id": "misc_filters",
+              "title": "Miscellaneous",
+              "filters": [
+                {
+                  "id": "identified",
+                  "text": "Identified",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                },
+                {
+                  "id": "corrupted",
+                  "text": "Corrupted",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                },
+                {
+                  "id": "mirrored",
+                  "text": "Mirrored",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                }
+              ]
             }
           ]
         }

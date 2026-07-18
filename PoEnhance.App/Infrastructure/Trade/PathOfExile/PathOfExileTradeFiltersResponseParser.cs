@@ -46,10 +46,12 @@ internal sealed class PathOfExileTradeFiltersResponseParser
             }
 
             var numericFilterDefinitions = ParseNumericFilterDefinitions(resultElement, diagnostics).ToArray();
+            var optionFilterDefinitions = ParseOptionFilterDefinitions(resultElement).ToArray();
             var catalog = new PathOfExileTradeFilterCatalog(
                 categoryOptions,
                 diagnostics,
-                numericFilterDefinitions);
+                numericFilterDefinitions,
+                optionFilterDefinitions);
             return PathOfExileTradeFiltersResponseParseResult.Success(catalog, diagnostics);
         }
         catch (JsonException)
@@ -57,6 +59,81 @@ internal sealed class PathOfExileTradeFiltersResponseParser
             return StructuralFailure(
                 PathOfExileTradeFiltersDiagnosticCodes.MalformedJson,
                 "The Trade filters response body is not valid JSON.");
+        }
+    }
+
+    private static IEnumerable<PathOfExileTradeOptionFilterDefinition> ParseOptionFilterDefinitions(
+        JsonElement resultElement)
+    {
+        var groupIndex = 0;
+        foreach (var groupElement in resultElement.EnumerateArray())
+        {
+            if (groupElement.ValueKind != JsonValueKind.Object)
+            {
+                groupIndex++;
+                continue;
+            }
+
+            var groupId = ReadOptionalString(groupElement, "id");
+            var groupTitle = ReadOptionalString(groupElement, "title");
+            if (string.IsNullOrWhiteSpace(groupId) ||
+                string.IsNullOrWhiteSpace(groupTitle) ||
+                !groupElement.TryGetProperty("filters", out var filtersElement) ||
+                filtersElement.ValueKind != JsonValueKind.Array)
+            {
+                groupIndex++;
+                continue;
+            }
+
+            var filterIndex = 0;
+            foreach (var filterElement in filtersElement.EnumerateArray())
+            {
+                if (filterElement.ValueKind != JsonValueKind.Object)
+                {
+                    filterIndex++;
+                    continue;
+                }
+
+                var filterId = ReadOptionalString(filterElement, "id");
+                var filterText = ReadOptionalString(filterElement, "text");
+                if (string.IsNullOrWhiteSpace(filterId) ||
+                    string.IsNullOrWhiteSpace(filterText) ||
+                    !filterElement.TryGetProperty("option", out var optionElement) ||
+                    optionElement.ValueKind != JsonValueKind.Object ||
+                    !optionElement.TryGetProperty("options", out var optionsElement) ||
+                    optionsElement.ValueKind != JsonValueKind.Array)
+                {
+                    filterIndex++;
+                    continue;
+                }
+
+                var options = optionsElement.EnumerateArray()
+                    .Where(option => option.ValueKind == JsonValueKind.Object)
+                    .Select(option => new PathOfExileTradeOptionDefinition
+                    {
+                        Id = ReadOptionalString(option, "id"),
+                        Text = ReadOptionalString(option, "text") ?? string.Empty,
+                    })
+                    .Where(option => !string.IsNullOrWhiteSpace(option.Text))
+                    .ToArray();
+                if (options.Length > 0)
+                {
+                    yield return new PathOfExileTradeOptionFilterDefinition
+                    {
+                        GroupProviderOrder = groupIndex,
+                        ProviderOrder = filterIndex,
+                        GroupId = groupId,
+                        GroupTitle = groupTitle,
+                        FilterId = filterId,
+                        Text = filterText,
+                        Options = options,
+                    };
+                }
+
+                filterIndex++;
+            }
+
+            groupIndex++;
         }
     }
 

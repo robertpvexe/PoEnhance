@@ -125,6 +125,15 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                 },
                 catalog),
             catalog);
+        draft = draft with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.No,
+                Corrupted = TradeTriState.No,
+                Identified = TradeTriState.Yes,
+            },
+        };
         var selectedProperty = propertyResolver.MapSelected(draft, catalog);
         Assert.True(selectedProperty.IsSuccess);
 
@@ -145,6 +154,12 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(document, "misc_filters", "quality", 28);
         AssertMinimumOnly(document, "socket_filters", "links", 3);
         AssertMinimumOnly(document, "socket_filters", "sockets", 5);
+        Assert.Equal("false", filters.GetProperty("misc_filters").GetProperty("filters")
+            .GetProperty("mirrored").GetProperty("option").GetString());
+        Assert.Equal("false", filters.GetProperty("misc_filters").GetProperty("filters")
+            .GetProperty("corrupted").GetProperty("option").GetString());
+        Assert.Equal("true", filters.GetProperty("misc_filters").GetProperty("filters")
+            .GetProperty("identified").GetProperty("option").GetString());
         Assert.DoesNotContain("G-R-R", result.SerializedJson, StringComparison.Ordinal);
         Assert.DoesNotContain("socket_count", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("socket_colors", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
@@ -177,6 +192,15 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                 (TradeSearchRequestedItemFilterKind.Links, 3),
                 (TradeSearchRequestedItemFilterKind.Sockets, 5)),
             catalog);
+        draft = draft with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.No,
+                Corrupted = TradeTriState.Yes,
+                Identified = TradeTriState.Yes,
+            },
+        };
         var selectedModifier = new PathOfExileTradeSelectedModifierFilter
         {
             SourceIndex = 0,
@@ -198,6 +222,11 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(document, "misc_filters", "quality", 20);
         AssertMinimumOnly(document, "socket_filters", "links", 3);
         AssertMinimumOnly(document, "socket_filters", "sockets", 5);
+        var misc = document.RootElement.GetProperty("query").GetProperty("filters")
+            .GetProperty("misc_filters").GetProperty("filters");
+        Assert.Equal("false", misc.GetProperty("mirrored").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("corrupted").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("identified").GetProperty("option").GetString());
     }
 
     [Fact]
@@ -352,7 +381,22 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                   "title": "Miscellaneous",
                   "filters": [
                     { "id": "ilvl", "text": "Item Level", "minMax": true },
-                    { "id": "quality", "text": "Quality", "minMax": true }
+                    { "id": "quality", "text": "Quality", "minMax": true },
+                    { "id": "identified", "text": "Identified", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } },
+                    { "id": "corrupted", "text": "Corrupted", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } },
+                    { "id": "mirrored", "text": "Mirrored", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } }
                   ]
                 },
                 {

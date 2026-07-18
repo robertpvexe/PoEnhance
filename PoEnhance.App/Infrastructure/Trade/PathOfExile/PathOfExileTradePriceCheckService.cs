@@ -942,6 +942,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             OriginalText = source.OriginalText,
             CanonicalSignature = source.CanonicalSignature,
             ParsedKind = source.ParsedKind,
+            ImplicitOrigin = source.ImplicitOrigin,
             GenerationType = source.GenerationType,
             Locality = source.Locality,
             ParsedModifierName = source.ParsedModifierName,

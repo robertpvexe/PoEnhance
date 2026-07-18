@@ -1,4 +1,6 @@
 using PoEnhance.App.Features.PriceChecking;
+using System.Collections.Immutable;
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -79,6 +81,120 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Equal("PriceCheckerTitleMagicForegroundBrush", firstItemBrush);
         Assert.Equal("PriceCheckerTitleUniqueForegroundBrush", replacementItemBrush);
         Assert.NotEqual(firstItemBrush, replacementItemBrush);
+    }
+
+    [Theory]
+    [InlineData(TradeTriState.No, TradeTriState.Yes)]
+    [InlineData(TradeTriState.Yes, TradeTriState.Any)]
+    [InlineData(TradeTriState.Any, TradeTriState.No)]
+    public void ItemStateCycleUsesNoYesAnyOrder(TradeTriState current, TradeTriState expected)
+    {
+        Assert.Equal(expected, PriceCheckerWindow.CycleItemState(current));
+    }
+
+    [Fact]
+    public void WindowXaml_PresentsThreeStableClickableItemStateControlsInOneHeaderRow()
+    {
+        var xaml = LoadWindowXaml();
+        var categoryBar = ExtractElement(
+            xaml,
+            "<Border Grid.Row=\"0\"",
+            "</Border>");
+        var stateStyle = ExtractElement(xaml, "<Style x:Key=\"ItemStateButtonStyle\"", "</Style>");
+        var mirrored = ExtractElement(categoryBar, "<Button x:Name=\"MirroredStateButton\"", "/>" );
+        var corrupted = ExtractElement(categoryBar, "<Button x:Name=\"CorruptedStateButton\"", "/>" );
+        var identified = ExtractElement(categoryBar, "<Button x:Name=\"IdentifiedStateButton\"", "/>" );
+
+        Assert.True(categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal) <
+            categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal));
+        Assert.True(categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal) <
+            categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal));
+        Assert.Contains("Grid.Column=\"1\"", categoryBar);
+        Assert.Contains("Orientation=\"Horizontal\"", categoryBar);
+        Assert.DoesNotContain("WrapPanel", categoryBar);
+        Assert.Contains("BasedOn=\"{StaticResource PriceCheckerButtonStyle}\"", stateStyle);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", mirrored);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", corrupted);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", identified);
+        Assert.Contains("Content=\"Mirrored: No\"", mirrored);
+        Assert.Contains("Content=\"Corrupted: No\"", corrupted);
+        Assert.Contains("Content=\"Identified: Yes\"", identified);
+        Assert.Contains("ToolTip=\"Click to cycle: No → Yes → Any\"", mirrored);
+        Assert.Contains("Width=\"78\"", mirrored);
+        Assert.Contains("Width=\"82\"", corrupted);
+        Assert.Contains("Width=\"82\"", identified);
+        Assert.DoesNotContain("ComboBox", categoryBar);
+        Assert.DoesNotContain("Path", categoryBar);
+    }
+
+    [Fact]
+    public void ItemStateControls_RuntimeStayVisibleStableAndClickableAtMinimumWidth()
+    {
+        RunOnSta(() =>
+        {
+            var draft = new TradeSearchDraft
+            {
+                ItemClass = "Rings",
+                Rarity = "Rare",
+                DisplayName = "State Band",
+                ParsedBaseType = "Iron Ring",
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Mirrored = TradeTriState.No,
+                    Corrupted = TradeTriState.No,
+                    Identified = TradeTriState.Yes,
+                },
+            };
+            var validation = TradeSearchValidationResult.FromDiagnostics([]);
+            var window = new PriceCheckerWindow
+            {
+                Width = PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+                Height = 720,
+            };
+            PriceCheckerItemStateChangedEventArgs? changed = null;
+            window.ItemStateChanged += (_, e) => changed = e;
+            window.UpdateContent(new PriceCheckerWindowState(draft, validation));
+            window.Show();
+            window.UpdateLayout();
+
+            var mirrored = Assert.IsType<Button>(window.FindName("MirroredStateButton"));
+            var corrupted = Assert.IsType<Button>(window.FindName("CorruptedStateButton"));
+            var identified = Assert.IsType<Button>(window.FindName("IdentifiedStateButton"));
+            var buttons = new[] { mirrored, corrupted, identified };
+            var widths = buttons.Select(button => button.ActualWidth).ToArray();
+            var tops = buttons.Select(button => button.TranslatePoint(new Point(0, 0), window).Y).ToArray();
+            Assert.All(buttons, button => Assert.Equal(Visibility.Visible, button.Visibility));
+            Assert.Equal([78d, 82d, 82d], widths);
+            Assert.All(tops, top => Assert.Equal(tops[0], top, 3));
+            Assert.All(buttons, button => Assert.True(
+                button.TranslatePoint(new Point(button.ActualWidth, 0), window).X <= window.ActualWidth));
+
+            mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
+            Assert.NotNull(changed);
+            Assert.Equal(TradeItemStateKind.Mirrored, changed!.Kind);
+            Assert.Equal(TradeTriState.Yes, changed.State);
+
+            window.UpdateContent(new PriceCheckerWindowState(
+                draft with
+                {
+                    ItemStateCriteria = new TradeItemStateCriteria
+                    {
+                        Mirrored = TradeTriState.Any,
+                        Corrupted = TradeTriState.Any,
+                        Identified = TradeTriState.Any,
+                    },
+                },
+                validation));
+            window.UpdateLayout();
+            Assert.Equal(widths, buttons.Select(button => button.ActualWidth));
+            Assert.Equal(["Mirrored: Any", "Corrupted: Any", "Identified: Any"],
+                buttons.Select(button => button.Content?.ToString()));
+            Assert.Equal(Visibility.Collapsed,
+                Assert.IsType<ToggleButton>(window.FindName("AdvancedToggle")).Visibility);
+            Assert.Equal(Visibility.Visible,
+                Assert.IsType<Button>(window.FindName("TradeButton")).Visibility);
+            window.Close();
+        });
     }
 
     [Fact]
@@ -370,6 +486,233 @@ Item Level: 82
         Assert.DoesNotContain("Text=\"{Binding Description}\"", modifiers);
         Assert.DoesNotContain("StatId", modifiers, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ProviderStat", modifiers, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CanonicalImplicitModType_IsFixedAndNonImplicitVariantsRemainSelectable()
+    {
+        var implicitVariant = new PriceCheckerModifierFilterVariantViewModel
+        {
+            Identity = "implicit.example",
+            Label = "Pseudo",
+            Description = "Provider label must not control the canonical field.",
+        };
+        var explicitVariant = implicitVariant with
+        {
+            Identity = "explicit.example",
+            Label = "Explicit",
+        };
+
+        foreach (var origin in new[] { "ordinary", "Eldritch", "synthesis", "corrupted" })
+        {
+            var modifier = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 0,
+                Text = $"{origin} implicit",
+                IsSelected = true,
+                IsCanonicalImplicit = true,
+                FilterVariants = [implicitVariant, explicitVariant],
+                SelectedFilterVariant = implicitVariant,
+            };
+
+            Assert.Equal("Implicit", modifier.ModTypeLabel);
+            Assert.False(modifier.CanSelectFilterVariant);
+        }
+
+        var nonImplicit = new PriceCheckerModifierViewModel
+        {
+            SourceIndex = 1,
+            Text = "Explicit modifier",
+            IsSelected = true,
+            FilterVariants = [explicitVariant, implicitVariant],
+            SelectedFilterVariant = explicitVariant,
+        };
+        Assert.Equal("Explicit", nonImplicit.ModTypeLabel);
+        Assert.True(nonImplicit.CanSelectFilterVariant);
+
+        var xaml = LoadWindowXaml();
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        Assert.Contains("Text=\"{Binding ModTypeLabel}\"", modifiers);
+        Assert.Contains("Binding=\"{Binding IsCanonicalImplicit}\"", modifiers);
+        Assert.Contains("Value=\"Collapsed\"", modifiers);
+        Assert.Contains("IsHitTestVisible=\"False\"", modifiers);
+        Assert.Contains(
+            "IsCanonicalImplicit = IsImplicitPresentationModifier(modifier)",
+            LoadSearchControllerCode());
+    }
+
+    [Fact]
+    public void ModifierNameHover_OnlyTruncatedNamesWrapAndRestoreCompactPresentation()
+    {
+        RunOnSta(() =>
+        {
+            var longName = new TextBlock
+            {
+                Width = 80,
+                FontSize = 12,
+                Text = "A very long modifier name that needs more than one line",
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+            };
+            var shortName = new TextBlock
+            {
+                Width = 200,
+                FontSize = 12,
+                Text = "Short modifier",
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+            };
+            var panel = new StackPanel { Children = { longName, shortName } };
+            var window = new Window { Content = panel };
+            window.Show();
+            window.UpdateLayout();
+
+            Assert.True(PriceCheckerWindow.IsModifierNameTruncated(longName));
+            Assert.False(PriceCheckerWindow.IsModifierNameTruncated(shortName));
+
+            PriceCheckerWindow.SetModifierNameHoverState(longName, isExpanded: true);
+            Assert.Equal(TextWrapping.Wrap, longName.TextWrapping);
+            Assert.Equal(TextTrimming.None, longName.TextTrimming);
+
+            PriceCheckerWindow.SetModifierNameHoverState(longName, isExpanded: false);
+            Assert.Equal(TextWrapping.NoWrap, longName.TextWrapping);
+            Assert.Equal(TextTrimming.CharacterEllipsis, longName.TextTrimming);
+
+            var xaml = LoadWindowXaml();
+            Assert.Contains("x:Key=\"ModifierNameAreaStyle\"", xaml);
+            Assert.Contains("Handler=\"OnModifierNameAreaMouseEnter\"", xaml);
+            Assert.Contains("Handler=\"OnModifierNameAreaMouseLeave\"", xaml);
+            Assert.Contains("Tag=\"ModifierNameText\"", xaml);
+            Assert.DoesNotContain("ToolTip=\"{Binding Text}\"", xaml);
+            Assert.Contains("VerticalAlignment=\"Top\"", xaml);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void CanonicalImplicitModType_RuntimeHidesTheSelectorWithoutChangingRowSelection()
+    {
+        RunOnSta(() =>
+        {
+            var implicitVariant = new PriceCheckerModifierFilterVariantViewModel
+            {
+                Identity = "implicit.example",
+                Label = "Pseudo",
+                Description = "Provider variant",
+            };
+            var explicitVariant = implicitVariant with { Identity = "explicit.example", Label = "Explicit" };
+            var implicitModifier = new PriceCheckerModifierViewModel
+            {
+                SourceIndex = 0,
+                Text = "Implicit modifier",
+                IsSelected = true,
+                IsCanonicalImplicit = true,
+                FilterVariants = [implicitVariant, explicitVariant],
+                SelectedFilterVariant = implicitVariant,
+            };
+            var explicitModifier = implicitModifier with
+            {
+                SourceIndex = 1,
+                Text = "Explicit modifier",
+                IsCanonicalImplicit = false,
+                SelectedFilterVariant = explicitVariant,
+            };
+            var window = new PriceCheckerWindow();
+            var selectionChanges = new List<PriceCheckerModifierSelectionChangedEventArgs>();
+            window.ModifierSelectionChanged += (_, change) => selectionChanges.Add(change);
+            window.UpdateSearch(new PriceCheckerSearchViewState
+            {
+                Modifiers = [implicitModifier, explicitModifier],
+            });
+            window.Show();
+            window.UpdateLayout();
+
+            var stats = Assert.IsType<ListBox>(window.FindName("StatsListBox"));
+            var implicitContainer = Assert.IsType<ListBoxItem>(stats.ItemContainerGenerator.ContainerFromIndex(0));
+            var explicitContainer = Assert.IsType<ListBoxItem>(stats.ItemContainerGenerator.ContainerFromIndex(1));
+            var implicitSelector = FindDescendants<ComboBox>(implicitContainer)
+                .Single(control => ReferenceEquals(control.DataContext, implicitModifier));
+            var explicitSelector = FindDescendants<ComboBox>(explicitContainer)
+                .Single(control => ReferenceEquals(control.DataContext, explicitModifier));
+
+            Assert.Equal(Visibility.Collapsed, implicitSelector.Visibility);
+            Assert.False(implicitSelector.IsVisible);
+            Assert.Equal(Visibility.Visible, explicitSelector.Visibility);
+            Assert.True(explicitSelector.IsEnabled);
+            Assert.Contains(FindDescendants<TextBlock>(implicitContainer), text => text.Text == "Implicit");
+
+            RaisePreviewLeftClick(FindText(implicitContainer, "Implicit"));
+            Assert.Single(selectionChanges);
+            Assert.Equal(implicitModifier.SourceIndex, selectionChanges[0].ModifierIndex);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void MinimumWidth_KeepsHeaderFiltersAndItemStateControlsOnOneLine()
+    {
+        RunOnSta(() =>
+        {
+            var filters = new[]
+            {
+                RequestedFilter(TradeSearchRequestedItemFilterKind.ItemLevel, "Item Level", "84"),
+                RequestedFilter(TradeSearchRequestedItemFilterKind.Quality, "Quality", "20"),
+                RequestedFilter(TradeSearchRequestedItemFilterKind.Links, "Links", "6"),
+                RequestedFilter(TradeSearchRequestedItemFilterKind.Sockets, "Sockets", "6"),
+            };
+            var draft = new TradeSearchDraft
+            {
+                ItemClass = "Body Armours",
+                Rarity = "Rare",
+                DisplayName = "Header Test",
+                ParsedBaseType = "Astral Plate",
+                SocketText = "R-R-G-R-B-G",
+                BaseRollPercentile = 100m,
+                RequestedItemFilters = filters.ToImmutableArray(),
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Mirrored = TradeTriState.No,
+                    Corrupted = TradeTriState.No,
+                    Identified = TradeTriState.Yes,
+                },
+            };
+            var window = new PriceCheckerWindow
+            {
+                Width = PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+                Height = 720,
+            };
+            window.UpdateContent(new PriceCheckerWindowState(
+                draft,
+                TradeSearchValidationResult.FromDiagnostics([])));
+            window.Show();
+            window.UpdateLayout();
+
+            var header = Assert.IsType<StackPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            var itemLevel = Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder"));
+            var baseRoll = Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText"));
+            var stateButtons = new[]
+            {
+                Assert.IsType<Button>(window.FindName("MirroredStateButton")),
+                Assert.IsType<Button>(window.FindName("CorruptedStateButton")),
+                Assert.IsType<Button>(window.FindName("IdentifiedStateButton")),
+            };
+            Assert.Equal(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, window.MinWidth);
+            Assert.True(header.ActualWidth >= header.DesiredSize.Width - 0.5d);
+            Assert.InRange(
+                Math.Abs(itemLevel.TranslatePoint(new Point(0, 0), header).Y -
+                    baseRoll.TranslatePoint(new Point(0, 0), header).Y),
+                0d,
+                3d);
+            Assert.True(baseRoll.TranslatePoint(new Point(baseRoll.ActualWidth, 0), window).X <=
+                window.ActualWidth - 12d);
+            Assert.All(stateButtons, button => Assert.True(
+                button.TranslatePoint(new Point(button.ActualWidth, 0), window).X <= window.ActualWidth));
+            Assert.All(stateButtons, button => Assert.Equal(
+                stateButtons[0].TranslatePoint(new Point(0, 0), window).Y,
+                button.TranslatePoint(new Point(0, 0), window).Y,
+                3));
+            window.Close();
+        });
     }
 
     [Fact]
@@ -1051,7 +1394,7 @@ Item Level: 82
     }
 
     [Fact]
-    public void WindowXaml_AddsTheCompactTradeButtonBesideTheDisabledAdvancedPlaceholder()
+    public void WindowXaml_KeepsCompactTradeButtonAlignedAndHidesAdvancedPlaceholder()
     {
         var xaml = LoadWindowXaml();
         var actionRow = ExtractElement(xaml, "<Grid Grid.Row=\"6\"", "</Grid>");
@@ -1059,6 +1402,8 @@ Item Level: 82
         var advanced = ExtractElement(actionRow, "<ToggleButton Grid.Column=\"2\"", "/>");
 
         Assert.Contains("<ToggleButton Grid.Column=\"2\"", actionRow);
+        Assert.Contains("x:Name=\"AdvancedToggle\"", advanced);
+        Assert.Contains("Visibility=\"Collapsed\"", advanced);
         Assert.Contains("Grid.Column=\"3\"", trade);
         Assert.Contains("Width=\"22\"", trade);
         Assert.Contains("Height=\"22\"", trade);
@@ -1372,6 +1717,24 @@ Item Level: 82
             "PriceCheckerWindow.xaml"));
     }
 
+    private static TradeSearchRequestedItemFilter RequestedFilter(
+        TradeSearchRequestedItemFilterKind kind,
+        string label,
+        string value)
+    {
+        return new TradeSearchRequestedItemFilter
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = int.Parse(value, CultureInfo.InvariantCulture),
+            CurrentText = value,
+            RequestedMinimum = int.Parse(value, CultureInfo.InvariantCulture),
+            IsActive = true,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+        };
+    }
+
     private static string LoadWindowCodeBehind()
     {
         return File.ReadAllText(Path.Combine(
@@ -1380,6 +1743,16 @@ Item Level: 82
             "Features",
             "PriceChecking",
             "PriceCheckerWindow.xaml.cs"));
+    }
+
+    private static string LoadSearchControllerCode()
+    {
+        return File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "PoEnhance.App",
+            "Features",
+            "PriceChecking",
+            "PriceCheckerSearchController.cs"));
     }
 
     private static void RunOnSta(Action action)

@@ -85,4 +85,50 @@ public sealed class PathOfExileTradeFiltersResponseParserTests
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Code == PathOfExileTradeFiltersDiagnosticCodes.MalformedNumericFilter);
     }
+
+    [Fact]
+    public void Parse_OfficialItemStateOptionDefinitionsRetainExactYesAndNoIdentities()
+    {
+        var result = new PathOfExileTradeFiltersResponseParser().ParseFiltersResponse("""
+{
+  "result": [
+    {
+      "id": "type_filters",
+      "title": "Type Filters",
+      "filters": [
+        {
+          "id": "category",
+          "text": "Item Category",
+          "option": { "options": [{ "id": "accessory.ring", "text": "Ring" }] }
+        }
+      ]
+    },
+    {
+      "id": "misc_filters",
+      "title": "Miscellaneous",
+      "filters": [
+        { "id": "identified", "text": "Identified", "option": { "options": [
+          { "id": null, "text": "Any" }, { "id": "true", "text": "Yes" }, { "id": "false", "text": "No" }
+        ] } },
+        { "id": "corrupted", "text": "Corrupted", "option": { "options": [
+          { "id": null, "text": "Any" }, { "id": "true", "text": "Yes" }, { "id": "false", "text": "No" }
+        ] } },
+        { "id": "mirrored", "text": "Mirrored", "option": { "options": [
+          { "id": null, "text": "Any" }, { "id": "true", "text": "Yes" }, { "id": "false", "text": "No" }
+        ] } }
+      ]
+    }
+  ]
+}
+""");
+
+        Assert.True(result.IsSuccess);
+        var definitions = result.Catalog!.OptionFilterDefinitions
+            .Where(definition => definition.GroupId == "misc_filters")
+            .ToArray();
+        Assert.Equal(["identified", "corrupted", "mirrored"], definitions.Select(definition => definition.FilterId));
+        Assert.All(definitions, definition => Assert.Equal(
+            [(null, "Any"), ("true", "Yes"), ("false", "No")],
+            definition.Options.Select(option => (option.Id, option.Text))));
+    }
 }

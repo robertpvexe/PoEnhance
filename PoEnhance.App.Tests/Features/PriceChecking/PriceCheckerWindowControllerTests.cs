@@ -423,7 +423,11 @@ public sealed class PriceCheckerWindowControllerTests
 
         var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
         var correction = fixture.PlacementStore.LoadHorizontalCorrection(key);
-        Assert.Equal(-25, correction);
+        Assert.Equal(
+            window.CurrentPlacement?.Left - fixture.Calculator.CalculateAutomaticLeft(
+                fixture.Bounds,
+                window.CurrentPlacement?.Width ?? 0),
+            correction);
     }
 
     [Fact]
@@ -438,9 +442,9 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizeCompleted();
 
         var key = PriceCheckerPlacementKey.FromClientBounds(fixture.Bounds);
-        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(originalRight, window.CurrentPlacement?.Right);
-        Assert.Equal(410, fixture.PlacementStore.LoadPanelWidth(key));
+        Assert.Equal(508, fixture.PlacementStore.LoadPanelWidth(key));
         Assert.Equal(0, fixture.PriceCheckService.CallCount);
     }
 
@@ -487,8 +491,8 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizeDelta(0);
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(180, window.CurrentPlacement?.Left);
-        Assert.Equal(430, window.CurrentPlacement?.Width);
+        Assert.Equal(100, window.CurrentPlacement?.Left);
+        Assert.Equal(510, window.CurrentPlacement?.Width);
         Assert.Equal(610, window.CurrentPlacement?.Right);
     }
 
@@ -510,8 +514,8 @@ public sealed class PriceCheckerWindowControllerTests
 
         Assert.Equal(originalRight, afterFirstDelta?.Right);
         Assert.Equal(originalRight, afterSecondDelta?.Right);
-        Assert.Equal(410, afterFirstDelta?.Width);
-        Assert.Equal(390, afterSecondDelta?.Width);
+        Assert.Equal(508, afterFirstDelta?.Width);
+        Assert.Equal(508, afterSecondDelta?.Width);
         Assert.Equal(fixture.Bounds.Top, afterSecondDelta?.Top);
         Assert.Equal(fixture.Bounds.Height, afterSecondDelta?.Height);
     }
@@ -536,7 +540,7 @@ public sealed class PriceCheckerWindowControllerTests
         largeDeltaFixture.DeferredActionScheduler.RunPending();
 
         Assert.Equal(largeDeltaWindow.CurrentPlacement, smallDeltaWindow.CurrentPlacement);
-        Assert.Equal(380, smallDeltaWindow.CurrentPlacement?.Width);
+        Assert.Equal(508, smallDeltaWindow.CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -556,7 +560,7 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.DeferredActionScheduler.RunPending();
 
         Assert.Equal(1, window.NativeBoundsApplyCount);
-        Assert.Equal(390, window.CurrentPlacement?.Width);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(originalRight, window.CurrentPlacement?.Right);
     }
 
@@ -575,8 +579,8 @@ public sealed class PriceCheckerWindowControllerTests
 
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(340, window.CurrentPlacement?.Width);
-        Assert.Equal(originalLeft + 20, window.CurrentPlacement?.Left);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
+        Assert.Equal(fixture.Bounds.Left, window.CurrentPlacement?.Left);
         Assert.Equal(originalRight, window.CurrentPlacement?.Right);
         Assert.Equal(1, window.NativeBoundsApplyCount);
     }
@@ -613,8 +617,8 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizePointerToOffset(12);
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(originalLeft, window.CurrentPlacement?.Left);
-        Assert.Equal(360, window.CurrentPlacement?.Width);
+        Assert.Equal(fixture.Bounds.Left, window.CurrentPlacement?.Left);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(originalRight, window.CurrentPlacement?.Right);
     }
 
@@ -631,7 +635,7 @@ public sealed class PriceCheckerWindowControllerTests
         var applyCountAfterCompletion = window.NativeBoundsApplyCount;
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(430, window.CurrentPlacement?.Width);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(applyCountAfterCompletion, window.NativeBoundsApplyCount);
         Assert.Equal(1, applyCountAfterCompletion);
     }
@@ -649,7 +653,7 @@ public sealed class PriceCheckerWindowControllerTests
         var applyCountAfterLostCapture = window.NativeBoundsApplyCount;
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(applyCountAfterLostCapture, window.NativeBoundsApplyCount);
         Assert.Equal(1, applyCountAfterLostCapture);
     }
@@ -678,7 +682,7 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizeDelta(-50);
         fixture.DeferredActionScheduler.RunPending();
 
-        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(508, window.CurrentPlacement?.Width);
         Assert.Equal(originalRight, window.CurrentPlacement?.Right);
     }
 
@@ -732,7 +736,7 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizeCompleted();
 
         Assert.Equal(-20, fixture.PlacementStore.LoadHorizontalCorrection(key));
-        Assert.Equal(440, fixture.PlacementStore.LoadPanelWidth(key));
+        Assert.Equal(540, fixture.PlacementStore.LoadPanelWidth(key));
     }
 
     [Fact]
@@ -750,7 +754,7 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
         Assert.Equal(2, fixture.WindowFactory.CreatedWindows.Count);
-        Assert.Equal(410, fixture.WindowFactory.CreatedWindows[1].CurrentPlacement?.Width);
+        Assert.Equal(500, fixture.WindowFactory.CreatedWindows[1].CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -781,7 +785,7 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
         Assert.Single(fixture.WindowFactory.CreatedWindows);
-        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(500, window.CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -812,7 +816,7 @@ public sealed class PriceCheckerWindowControllerTests
         window.RaiseHorizontalResizeCompleted();
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
-        Assert.Equal(410, window.CurrentPlacement?.Width);
+        Assert.Equal(500, window.CurrentPlacement?.Width);
     }
 
     [Fact]
@@ -852,7 +856,7 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.BoundsProvider.Bounds = secondBounds;
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
-        Assert.Equal(420, window.CurrentPlacement?.Width);
+        Assert.Equal(576, window.CurrentPlacement?.Width);
         Assert.Equal(
             fixture.Calculator.CalculatePlacement(secondBounds, 0, 420).Left,
             window.CurrentPlacement?.Left);
@@ -872,7 +876,7 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.BoundsProvider.Bounds = secondBounds;
         fixture.Controller.ShowOrUpdate(Item("Second Loop", "Two-Stone Ring"), null, []);
 
-        Assert.Equal(fixture.Calculator.CalculatePanelWidth(secondBounds), window.CurrentPlacement?.Width);
+        Assert.Equal(576, window.CurrentPlacement?.Width);
     }
 
     [Fact]

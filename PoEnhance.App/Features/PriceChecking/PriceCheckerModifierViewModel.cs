@@ -30,11 +30,17 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public PriceCheckerModifierFilterVariantViewModel? SelectedFilterVariant { get; init; }
 
+    public bool IsCanonicalImplicit { get; init; }
+
+    public string ModTypeLabel => IsCanonicalImplicit
+        ? "Implicit"
+        : SelectedFilterVariant?.Label ?? string.Empty;
+
     public bool HasSingleFilterVariant => FilterVariants.Count == 1;
 
     public bool HasMultipleFilterVariants => FilterVariants.Count > 1;
 
-    public bool CanSelectFilterVariant => IsSelected && HasMultipleFilterVariants;
+    public bool CanSelectFilterVariant => !IsCanonicalImplicit && IsSelected && HasMultipleFilterVariants;
 
     public IReadOnlyList<PriceCheckerModifierContributorViewModel> Contributors { get; init; } = [];
 

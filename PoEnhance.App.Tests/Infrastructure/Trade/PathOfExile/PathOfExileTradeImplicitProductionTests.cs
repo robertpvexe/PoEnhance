@@ -330,6 +330,142 @@ public sealed class PathOfExileTradeImplicitProductionTests
         Assert.Empty(fixture.SearchClient.Calls);
     }
 
+    [Fact]
+    public async Task GaleWrapDualEldritchImplicitsResolveBoundsAndSerializeExactOfficialStats()
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "implicit.stat_1871056256", "#% of Physical Damage from Hits taken as Cold Damage", "implicit"),
+            Stat(1, "implicit.stat_3714003708", "+#% to Critical Strike Multiplier for Attack Damage", "implicit")));
+        var draft = fixture.OpenText(CorpusItem(11));
+
+        var eater = Assert.Single(draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("Physical Damage from Hits taken as Cold Damage", StringComparison.Ordinal));
+        var exarch = Assert.Single(draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("Critical Strike Multiplier for Attack Damage", StringComparison.Ordinal));
+        Assert.Equal("PhysicalDamageTakenAsColdBodyUberEldritchImplicit1", eater.ResolvedModifierId);
+        Assert.Equal("AttackCriticalStrikeMultiplierEldritchImplicit2", exarch.ResolvedModifierId);
+        Assert.Equal(ParsedModifierKind.Implicit, eater.ParsedKind);
+        Assert.Equal(ParsedModifierKind.Implicit, exarch.ParsedKind);
+        Assert.Equal(ParsedImplicitModifierOrigin.EaterOfWorlds, eater.ImplicitOrigin);
+        Assert.Equal(ParsedImplicitModifierOrigin.SearingExarch, exarch.ImplicitOrigin);
+        Assert.Equal(ModifierLocality.Global, eater.Locality);
+        Assert.Equal(ModifierLocality.Global, exarch.Locality);
+        Assert.Single(eater.ResolvedStatIds);
+        Assert.Single(exarch.ResolvedStatIds);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, eater.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, exarch.ProviderResolutionStatus);
+        Assert.Equal("implicit.stat_1871056256", eater.ProviderStatId);
+        Assert.Equal("implicit.stat_3714003708", exarch.ProviderStatId);
+        Assert.True(eater.SupportsValueBounds);
+        Assert.True(exarch.SupportsValueBounds);
+        Assert.Equal(10m, eater.RequestedMinimum);
+        Assert.Equal(23m, exarch.RequestedMinimum);
+        Assert.Empty(fixture.SearchClient.Calls);
+
+        fixture.SelectRow("Physical Damage from Hits taken as Cold Damage");
+        fixture.SelectRow("Critical Strike Multiplier for Attack Damage");
+        await fixture.SearchAsync();
+
+        using var document = JsonDocument.Parse(fixture.SingleSearchJson());
+        var query = document.RootElement.GetProperty("query");
+        var filters = query.GetProperty("stats")[0].GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["implicit.stat_1871056256", "implicit.stat_3714003708"],
+            filters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(10m, filters[0].GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.Equal(23m, filters[1].GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.DoesNotContain("Searing Exarch Item", fixture.SingleSearchJson(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Eater of Worlds Item", fixture.SingleSearchJson(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UnresolvedEldritchImplicitDoesNotBlockSelectedResolvedImplicit()
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "implicit.stat_1871056256", "#% of Physical Damage from Hits taken as Cold Damage", "implicit"),
+            Stat(1, "implicit.stat_3714003708", "+#% to Critical Strike Multiplier for Attack Damage", "implicit")));
+        var draft = fixture.OpenText(CorpusItem(11).Replace(
+            "10% of Physical Damage from Hits taken as Cold Damage",
+            "999% of Physical Damage from Hits taken as Cold Damage",
+            StringComparison.Ordinal));
+
+        var unresolved = Assert.Single(draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("999% of Physical Damage", StringComparison.Ordinal));
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, unresolved.ResolutionStatus);
+        fixture.SelectRow("Critical Strike Multiplier for Attack Damage");
+
+        await fixture.SearchAsync();
+
+        using var document = JsonDocument.Parse(fixture.SingleSearchJson());
+        Assert.Equal(["implicit.stat_3714003708"], StatIds(document.RootElement.GetProperty("query")));
+    }
+
+    [Fact]
+    public async Task SynthesisedHelmetResolvedImplicitAppearsFirstAndSerializesWithoutStateFilter()
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "implicit.stat_4052037485", "+# to maximum Energy Shield (Local)", "implicit"),
+            Stat(1, "explicit.stat_3299347043", "+# to maximum Life", "explicit")));
+        var draft = fixture.OpenText(SynthesisedHelmetText);
+
+        Assert.Contains("Synthesised Item", draft.ItemStates);
+        var synthesisImplicit = Assert.Single(draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("maximum Energy Shield", StringComparison.Ordinal));
+        Assert.Equal("SynthesisImplicitFlatEnergyShield5_", synthesisImplicit.ResolvedModifierId);
+        Assert.Equal(ParsedModifierKind.Implicit, synthesisImplicit.ParsedKind);
+        Assert.Equal(ModifierLocality.Local, synthesisImplicit.Locality);
+        Assert.True(synthesisImplicit.SupportsValueBounds);
+        Assert.Equal(24m, synthesisImplicit.RequestedMinimum);
+        Assert.Equal(
+            synthesisImplicit.SourceModifierIndex,
+            fixture.Window.CurrentSearchState!.Modifiers[0].SourceIndex);
+        Assert.Empty(fixture.SearchClient.Calls);
+
+        fixture.SelectRow("maximum Energy Shield");
+        await fixture.SearchAsync();
+
+        var json = fixture.SingleSearchJson();
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal(["implicit.stat_4052037485"], StatIds(query));
+        Assert.DoesNotContain("Synthesised Item", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UnresolvedSynthesisImplicitBlocksOnlyWhenSelectedAndExactBaseOrdinarySearchStillWorks()
+    {
+        var fixture = Fixture.Create(Catalog(
+            Stat(0, "implicit.stat_4052037485", "+# to maximum Energy Shield (Local)", "implicit"),
+            Stat(1, "explicit.stat_3299347043", "+# to maximum Life", "explicit")));
+        var draft = fixture.OpenText(SynthesisedHelmetText.Replace(
+            "+24(22-25) to maximum Energy Shield",
+            "+999(999-999) to maximum Energy Shield",
+            StringComparison.Ordinal));
+        var unresolved = Assert.Single(draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("999(999-999)", StringComparison.Ordinal));
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, unresolved.ResolutionStatus);
+
+        var unresolvedRow = fixture.SelectRow("999(999-999)");
+        await fixture.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState!.Status);
+        Assert.Empty(fixture.SearchClient.Calls);
+
+        fixture.Window.RaiseModifierSelectionChanged(unresolvedRow.SourceIndex, isSelected: false);
+        fixture.SelectRow("maximum Life");
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+        Assert.Empty(fixture.SearchClient.Calls);
+
+        await fixture.SearchAsync();
+
+        var json = fixture.SingleSearchJson();
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("Reaver Helmet", query.GetProperty("type").GetString());
+        Assert.Equal(["explicit.stat_3299347043"], StatIds(query));
+        Assert.DoesNotContain("Synthesised Item", json, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static PathOfExileTradeStatCatalog OrganicCatalog()
     {
         return Catalog(
@@ -557,7 +693,15 @@ Item Level: 84
 
         public string SingleSearchJson()
         {
-            Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, Window.CurrentSearchState!.Status);
+            Assert.True(
+                Window.CurrentSearchState!.Status == PriceCheckerSearchViewStatus.ZeroResults,
+                string.Join(
+                    Environment.NewLine,
+                    [
+                        Window.CurrentSearchState.Message,
+                        .. Controller.CurrentDeveloperDiagnostics.Diagnostics.Select(diagnostic =>
+                            $"{diagnostic.Code}: {diagnostic.Message}"),
+                    ]));
             var call = Assert.Single(SearchClient.Calls);
             return PathOfExileTradeJson.SerializeSearchRequest(call.Request!);
         }
@@ -571,7 +715,10 @@ Item Level: 84
                 Category(2, "accessory.ring", "Ring"),
                 Category(3, "accessory.belt", "Belt"),
                 Category(4, "armour.boots", "Boots"),
-            ]);
+                Category(5, "armour.helmet", "Helmet"),
+                Category(6, "armour.chest", "Body Armour"),
+            ], optionFilterDefinitions:
+                PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog().OptionFilterDefinitions);
         }
 
         private static PathOfExileTradeFilterOption Category(
@@ -801,6 +948,11 @@ Item Level: 84
                     minimumText,
                     maximumText));
         }
+
+        public void RaiseBaseCriterionToggleRequested()
+        {
+            BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
+        }
     }
 #pragma warning restore CS0067
 
@@ -830,5 +982,29 @@ Regenerate 46.8(32.1-48) Life per second
 +6(6-11)% to Fire Resistance
 { Suffix Modifier "of Steel Skin" (Tier: 3) }
 22(20-22)% increased Stun and Block Recovery
+""";
+
+    private const string SynthesisedHelmetText = """
+Item Class: Helmets
+Rarity: Rare
+Synthesised Item
+Gale Dome
+Synthesised Reaver Helmet
+--------
+Energy Shield: 98 (augmented)
+--------
+Requirements:
+Level: 62
+Int: 114
+--------
+Sockets: B-B-B-B
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++24(22-25) to maximum Energy Shield
+--------
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++50(50-59) to maximum Life
 """;
 }

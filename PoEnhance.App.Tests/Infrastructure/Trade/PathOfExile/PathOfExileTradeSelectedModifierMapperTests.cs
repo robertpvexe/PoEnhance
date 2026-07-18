@@ -561,6 +561,29 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_SelectedImplicitWithoutExactGameDataProvenanceFailsBeforeProviderSerialization()
+    {
+        var result = mapper.Map(
+            Draft([
+                Modifier(
+                    "+24 to maximum Energy Shield",
+                    kind: ParsedModifierKind.Implicit,
+                    hasGameDataProvenance: false,
+                    providerResolutionStatus: SearchComponentProviderResolutionStatus.Exact,
+                    providerStatId: "implicit.synthesis.energy-shield") with
+                {
+                    ImplicitOrigin = ParsedImplicitModifierOrigin.Synthesis,
+                },
+            ]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Map_SelectedModifierWithoutProviderResolutionFailsWholeMapping()
     {
         var result = mapper.Map(

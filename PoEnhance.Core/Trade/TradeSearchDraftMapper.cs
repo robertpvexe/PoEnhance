@@ -55,6 +55,12 @@ public sealed class TradeSearchDraftMapper
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
             ItemStates = parsedItem.ItemStates.ToArray(),
             IsCorrupted = parsedItem.IsCorrupted,
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = parsedItem.IsMirrored ? TradeTriState.Yes : TradeTriState.No,
+                Corrupted = parsedItem.IsCorrupted ? TradeTriState.Yes : TradeTriState.No,
+                Identified = parsedItem.IsIdentified ? TradeTriState.Yes : TradeTriState.No,
+            },
             Base = CreateBaseDraft(parsedItem, itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             SocketText = ReadSocketText(parsedItem),
@@ -832,6 +838,7 @@ public sealed class TradeSearchDraftMapper
             OriginalText = string.Join(Environment.NewLine, componentLines),
             CanonicalSignature = NormalizeComponentSignature(componentLines),
             ParsedKind = modifier.Kind,
+            ImplicitOrigin = modifier.ImplicitOrigin,
             GenerationType = resolution?.GenerationType,
             Locality = exactCandidate is null
                 ? ModifierLocality.Unknown

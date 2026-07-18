@@ -24,6 +24,8 @@
                       LogicalName="PoEnhance.App.Infrastructure.Trade.PathOfExile.Data.item-property-filter-mappings.json" />
     <EmbeddedResource Include="Infrastructure\Trade\PathOfExile\Data\requested-item-filter-mappings.json"
                       LogicalName="PoEnhance.App.Infrastructure.Trade.PathOfExile.Data.requested-item-filter-mappings.json" />
+    <EmbeddedResource Include="Infrastructure\Trade\PathOfExile\Data\item-state-filter-mappings.json"
+                      LogicalName="PoEnhance.App.Infrastructure.Trade.PathOfExile.Data.item-state-filter-mappings.json" />
   </ItemGroup>
 
 </Project>

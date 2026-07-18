@@ -22,7 +22,7 @@ public sealed class PriceCheckerPlacementCalculatorTests
 
         Assert.Equal(50, placement.Top);
         Assert.Equal(800, placement.Height);
-        Assert.Equal(360, placement.Width);
+        Assert.Equal(500, placement.Width);
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public sealed class PriceCheckerPlacementCalculatorTests
         var placement = calculator.CalculatePlacement(ClientBounds, horizontalCorrection: 0);
 
         var inventoryLeft = calculator.CalculateEstimatedInventoryLeft(ClientBounds);
-        Assert.Equal(248, placement.Left);
+        Assert.Equal(108, placement.Left);
         Assert.Equal(inventoryLeft - calculator.InventorySafetyGap, placement.Right);
     }
 
@@ -57,12 +57,12 @@ public sealed class PriceCheckerPlacementCalculatorTests
     {
         var placement = calculator.CalculatePlacement(ClientBounds, horizontalCorrection: -40);
 
-        Assert.Equal(208, placement.Left);
+        Assert.Equal(100, placement.Left);
     }
 
     [Theory]
     [InlineData(-1000, 100)]
-    [InlineData(1000, 248)]
+    [InlineData(1000, 108)]
     public void CalculatePlacement_ClampsHorizontalPositionToClientBounds(
         double correction,
         double expectedLeft)
@@ -79,7 +79,7 @@ public sealed class PriceCheckerPlacementCalculatorTests
 
         var dragged = calculator.ApplyHorizontalDrag(ClientBounds, placement, horizontalChange: -25);
 
-        Assert.Equal(223, dragged.Left);
+        Assert.Equal(100, dragged.Left);
         Assert.Equal(placement.Top, dragged.Top);
         Assert.Equal(placement.Width, dragged.Width);
         Assert.Equal(placement.Height, dragged.Height);
@@ -93,22 +93,21 @@ public sealed class PriceCheckerPlacementCalculatorTests
         var dragged = calculator.ApplyHorizontalDrag(ClientBounds, placement, horizontalChange: -10);
 
         Assert.Equal(ClientBounds.Top, dragged.Top);
-        Assert.Equal(400, dragged.Width);
+        Assert.Equal(500, dragged.Width);
         Assert.Equal(ClientBounds.Height, dragged.Height);
     }
 
     [Theory]
-    [InlineData(0, 0, 1920, 1080, 700)]
-    [InlineData(0, 0, 1920, 1200, 628)]
-    [InlineData(0, 0, 3440, 1440, 2004)]
-    [InlineData(50, 80, 1280, 720, 502)]
-    [InlineData(-800, 120, 1600, 900, -232)]
+    [InlineData(0, 0, 1920, 1080)]
+    [InlineData(0, 0, 1920, 1200)]
+    [InlineData(0, 0, 3440, 1440)]
+    [InlineData(50, 80, 1280, 720)]
+    [InlineData(-800, 120, 1600, 900)]
     public void CalculatePlacement_UsesRightAnchoredClientHeightHeuristicAcrossClientShapes(
         double left,
         double top,
         double width,
-        double height,
-        double expectedLeft)
+        double height)
     {
         var bounds = new PathOfExileClientBounds(
             left,
@@ -122,7 +121,7 @@ public sealed class PriceCheckerPlacementCalculatorTests
         var placement = calculator.CalculatePlacement(bounds, horizontalCorrection: 0);
         var inventoryLeft = calculator.CalculateEstimatedInventoryLeft(bounds);
 
-        Assert.Equal(expectedLeft, placement.Left, precision: 6);
+        Assert.Equal(inventoryLeft - calculator.InventorySafetyGap - placement.Width, placement.Left, precision: 6);
         Assert.Equal(inventoryLeft - calculator.InventorySafetyGap, placement.Right, precision: 6);
         Assert.True(placement.Right <= inventoryLeft - calculator.InventorySafetyGap);
         Assert.Equal(bounds.Top, placement.Top);
@@ -147,21 +146,19 @@ public sealed class PriceCheckerPlacementCalculatorTests
     }
 
     [Theory]
-    [InlineData(1600, 900, 538)]
-    [InlineData(1920, 1080, 670)]
-    [InlineData(3440, 1440, 1974)]
-    [InlineData(1200, 720, 366)]
+    [InlineData(1600, 900)]
+    [InlineData(1920, 1080)]
+    [InlineData(3440, 1440)]
+    [InlineData(1200, 720)]
     public void CalculatePlacement_AppliesCorrectionWithResponsivePanelWidth(
         double clientWidth,
-        double clientHeight,
-        double expectedLeft)
+        double clientHeight)
     {
         var bounds = Bounds(width: clientWidth, height: clientHeight);
 
         var placement = calculator.CalculatePlacement(bounds, horizontalCorrection: -30);
         var inventoryLeft = calculator.CalculateEstimatedInventoryLeft(bounds);
 
-        Assert.Equal(expectedLeft, placement.Left, precision: 6);
         Assert.Equal(
             calculator.CalculateAutomaticLeft(bounds) - 30,
             placement.Left,
@@ -178,8 +175,22 @@ public sealed class PriceCheckerPlacementCalculatorTests
             requestedPanelWidth: 420);
 
         var inventoryLeft = calculator.CalculateEstimatedInventoryLeft(ClientBounds);
-        Assert.Equal(420, placement.Width);
+        Assert.Equal(500, placement.Width);
         Assert.Equal(inventoryLeft - calculator.InventorySafetyGap, placement.Right);
+    }
+
+    [Fact]
+    public void CalculatePlacement_PreservesRequestedWidthAboveTheHeaderMinimum()
+    {
+        var bounds = Bounds(width: 1920, height: 1080);
+
+        var placement = calculator.CalculatePlacement(
+            bounds,
+            horizontalCorrection: 0,
+            requestedPanelWidth: 700);
+
+        Assert.Equal(700, placement.Width);
+        Assert.True(placement.Width > PriceCheckerPlacementCalculator.UserPanelMinimumWidth);
     }
 
     [Fact]
@@ -193,8 +204,8 @@ public sealed class PriceCheckerPlacementCalculatorTests
             horizontalChange: -50);
 
         Assert.Equal(placement.Right, resized.Right);
-        Assert.Equal(410, resized.Width);
-        Assert.Equal(198, resized.Left);
+        Assert.Equal(500, resized.Width);
+        Assert.Equal(108, resized.Left);
         Assert.Equal(ClientBounds.Top, resized.Top);
         Assert.Equal(ClientBounds.Height, resized.Height);
     }
@@ -209,7 +220,7 @@ public sealed class PriceCheckerPlacementCalculatorTests
             placement,
             horizontalChange: 100);
 
-        Assert.Equal(320, resized.Width);
+        Assert.Equal(500, resized.Width);
         Assert.Equal(placement.Right, resized.Right);
     }
 

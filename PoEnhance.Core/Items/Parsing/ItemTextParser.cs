@@ -213,6 +213,8 @@ public sealed partial class ItemTextParser
                 unclassifiedLines);
         }
 
+        ApplyImplicitSourceContext(modifiers, itemStates);
+
         var implicitModifiers = modifiers
             .Where(modifier => modifier.Kind == ParsedModifierKind.Implicit)
             .ToArray();
@@ -661,6 +663,8 @@ public sealed partial class ItemTextParser
                 metadata.IsFractured,
                 metadata.IsVeiled)
             {
+                ImplicitOrigin = metadata.ImplicitOrigin,
+                EldritchTier = metadata.EldritchTier,
                 Effects = effects,
             };
         }
@@ -971,6 +975,8 @@ public sealed partial class ItemTextParser
     {
         var metadataText = line.Trim()[1..^1].Trim();
         var kind = ReadModifierKind(metadataText);
+        var implicitOrigin = ReadImplicitOrigin(metadataText, kind);
+        var eldritchTier = ReadEldritchTier(metadataText, implicitOrigin);
         var name = ReadQuotedValue(metadataText);
         var tier = ReadTier(metadataText);
         var rank = ReadRank(metadataText);
@@ -979,7 +985,95 @@ public sealed partial class ItemTextParser
         var isFractured = IsFracturedModifier(metadataText);
         var isVeiled = IsVeiledModifier(metadataText);
 
-        return new PendingModifierMetadata(line, kind, name, tier, rank, categoryText, isCrafted, isFractured, isVeiled);
+        return new PendingModifierMetadata(
+            line,
+            kind,
+            implicitOrigin,
+            eldritchTier,
+            name,
+            tier,
+            rank,
+            categoryText,
+            isCrafted,
+            isFractured,
+            isVeiled);
+    }
+
+    private static ParsedImplicitModifierOrigin ReadImplicitOrigin(
+        string metadataText,
+        ParsedModifierKind kind)
+    {
+        if (kind != ParsedModifierKind.Implicit)
+        {
+            return ParsedImplicitModifierOrigin.Unspecified;
+        }
+
+        if (metadataText.Contains("Searing Exarch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ParsedImplicitModifierOrigin.SearingExarch;
+        }
+
+        if (metadataText.Contains("Eater of Worlds", StringComparison.OrdinalIgnoreCase))
+        {
+            return ParsedImplicitModifierOrigin.EaterOfWorlds;
+        }
+
+        if (metadataText.Contains("Synthesised", StringComparison.OrdinalIgnoreCase) ||
+            metadataText.Contains("Synthesis", StringComparison.OrdinalIgnoreCase))
+        {
+            return ParsedImplicitModifierOrigin.Synthesis;
+        }
+
+        return metadataText.Contains("Corrupted", StringComparison.OrdinalIgnoreCase)
+            ? ParsedImplicitModifierOrigin.Corrupted
+            : ParsedImplicitModifierOrigin.Unspecified;
+    }
+
+    private static ParsedEldritchImplicitTier? ReadEldritchTier(
+        string metadataText,
+        ParsedImplicitModifierOrigin origin)
+    {
+        if (origin is not (
+            ParsedImplicitModifierOrigin.SearingExarch or
+            ParsedImplicitModifierOrigin.EaterOfWorlds))
+        {
+            return null;
+        }
+
+        foreach (var tier in Enum.GetValues<ParsedEldritchImplicitTier>())
+        {
+            if (metadataText.Contains($"({tier})", StringComparison.OrdinalIgnoreCase))
+            {
+                return tier;
+            }
+        }
+
+        return null;
+    }
+
+    private static void ApplyImplicitSourceContext(
+        IList<ParsedModifier> modifiers,
+        IReadOnlyList<string> itemStates)
+    {
+        var isSynthesised = itemStates.Contains("Synthesised Item", StringComparer.OrdinalIgnoreCase);
+        var isCorrupted = itemStates.Contains("Corrupted", StringComparer.OrdinalIgnoreCase);
+        if (!isSynthesised || isCorrupted)
+        {
+            return;
+        }
+
+        for (var index = 0; index < modifiers.Count; index++)
+        {
+            var modifier = modifiers[index];
+            if (modifier.Kind == ParsedModifierKind.Implicit &&
+                modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified)
+            {
+                modifiers[index] = modifier with
+                {
+                    ImplicitOrigin = ParsedImplicitModifierOrigin.Synthesis,
+                };
+            }
+        }
     }
 
     private static ParsedModifierKind ReadModifierKind(string metadataText)
@@ -1190,6 +1284,8 @@ public sealed partial class ItemTextParser
     private sealed record PendingModifierMetadata(
         string RawLine,
         ParsedModifierKind Kind,
+        ParsedImplicitModifierOrigin ImplicitOrigin,
+        ParsedEldritchImplicitTier? EldritchTier,
         string? Name,
         int? Tier,
         int? Rank,

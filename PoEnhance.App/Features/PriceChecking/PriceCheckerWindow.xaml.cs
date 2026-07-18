@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
+using System.Globalization;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
@@ -18,9 +19,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private const string NotDetectedText = "Not detected";
     private const string ModifierContributorRowTag = "ModifierContributorRow";
     private const string GroupedModifierRowTag = "GroupedModifierRow";
+    private const string ModifierNameTextTag = "ModifierNameText";
     private bool isClosed;
     private bool isHorizontalResizeActive;
     private bool isOfferCapacityReportScheduled;
+    private TextBlock? hoverExpandedModifierNameText;
 
     public PriceCheckerWindow()
     {
@@ -96,6 +99,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler? BaseCriterionToggleRequested;
 
+    public event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged;
+
     public event EventHandler<bool>? PinStateChanged;
 
     public event EventHandler? HorizontalDragCompleted;
@@ -162,6 +167,18 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         BaseCriterionButton.Tag = draft.Base.ActiveCriterion?.Mode == BaseSearchMode.ExactBase
             ? "ExactBase"
             : "Category";
+        UpdateItemStateButton(
+            MirroredStateButton,
+            TradeItemStateKind.Mirrored,
+            draft.ItemStateCriteria.Mirrored);
+        UpdateItemStateButton(
+            CorruptedStateButton,
+            TradeItemStateKind.Corrupted,
+            draft.ItemStateCriteria.Corrupted);
+        UpdateItemStateButton(
+            IdentifiedStateButton,
+            TradeItemStateKind.Identified,
+            draft.ItemStateCriteria.Identified);
         SocketMetadataText.Text = draft.SocketText is null ? string.Empty : $"· {draft.SocketText}";
         SocketMetadataText.Visibility = draft.SocketText is null
             ? Visibility.Collapsed
@@ -346,6 +363,47 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    private void OnItemStateButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: TradeItemStateKind kind } || CurrentState is null)
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        ItemStateChanged?.Invoke(
+            this,
+            new PriceCheckerItemStateChangedEventArgs(
+                kind,
+                CycleItemState(CurrentState.Draft.ItemStateCriteria.Get(kind))));
+    }
+
+    private static void UpdateItemStateButton(
+        Button button,
+        TradeItemStateKind kind,
+        TradeTriState state)
+    {
+        button.Content = FormatItemState(kind, state);
+        button.Tag = kind;
+        button.DataContext = state;
+    }
+
+    internal static TradeTriState CycleItemState(TradeTriState state) => state switch
+    {
+        TradeTriState.No => TradeTriState.Yes,
+        TradeTriState.Yes => TradeTriState.Any,
+        TradeTriState.Any or TradeTriState.Auto => TradeTriState.No,
+        _ => TradeTriState.No,
+    };
+
+    internal static string FormatItemState(TradeItemStateKind kind, TradeTriState state) =>
+        $"{kind}: {state switch
+        {
+            TradeTriState.Yes => "Yes",
+            TradeTriState.No => "No",
+            _ => "Any",
+        }}";
 
     private void OnSearchButtonClick(object sender, RoutedEventArgs e)
     {
@@ -679,7 +737,93 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             this,
             new PriceCheckerModifierExpansionChangedEventArgs(
                 modifier.SourceIndex,
-                !modifier.IsExpanded));
+            !modifier.IsExpanded));
+    }
+
+    private void OnModifierNameAreaMouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is not Border area ||
+            FindModifierNameText(area) is not { } textBlock ||
+            !IsModifierNameTruncated(textBlock))
+        {
+            return;
+        }
+
+        CollapseHoverExpandedModifierName();
+        SetModifierNameHoverState(textBlock, isExpanded: true);
+        hoverExpandedModifierNameText = textBlock;
+        area.InvalidateMeasure();
+    }
+
+    private void OnModifierNameAreaMouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is Border area &&
+            ReferenceEquals(hoverExpandedModifierNameText, FindModifierNameText(area)))
+        {
+            CollapseHoverExpandedModifierName();
+            area.InvalidateMeasure();
+        }
+    }
+
+    private void CollapseHoverExpandedModifierName()
+    {
+        if (hoverExpandedModifierNameText is not { } textBlock)
+        {
+            return;
+        }
+
+        SetModifierNameHoverState(textBlock, isExpanded: false);
+        hoverExpandedModifierNameText = null;
+    }
+
+    internal static void SetModifierNameHoverState(TextBlock textBlock, bool isExpanded)
+    {
+        ArgumentNullException.ThrowIfNull(textBlock);
+        textBlock.TextWrapping = isExpanded ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        textBlock.TextTrimming = isExpanded ? TextTrimming.None : TextTrimming.CharacterEllipsis;
+    }
+
+    internal static bool IsModifierNameTruncated(TextBlock textBlock)
+    {
+        ArgumentNullException.ThrowIfNull(textBlock);
+        if (textBlock.ActualWidth <= 0 || string.IsNullOrWhiteSpace(textBlock.Text))
+        {
+            return false;
+        }
+
+        var typeface = new Typeface(
+            textBlock.FontFamily,
+            textBlock.FontStyle,
+            textBlock.FontWeight,
+            textBlock.FontStretch);
+        var text = new FormattedText(
+            textBlock.Text,
+            CultureInfo.CurrentUICulture,
+            textBlock.FlowDirection,
+            typeface,
+            textBlock.FontSize,
+            Brushes.Transparent,
+            VisualTreeHelper.GetDpi(textBlock).PixelsPerDip);
+        return text.WidthIncludingTrailingWhitespace > textBlock.ActualWidth + 0.5d;
+    }
+
+    private static TextBlock? FindModifierNameText(DependencyObject root)
+    {
+        if (root is TextBlock { Tag: ModifierNameTextTag } textBlock)
+        {
+            return textBlock;
+        }
+
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var result = FindModifierNameText(VisualTreeHelper.GetChild(root, index));
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        return null;
     }
 
     private void OnStatsRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

@@ -3,6 +3,7 @@ using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
@@ -97,6 +98,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierFilterVariantChanged += OnModifierFilterVariantChanged;
         priceCheckerWindow.ModifierExpansionChanged += OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
+        priceCheckerWindow.ItemStateChanged += OnItemStateChanged;
         priceCheckerWindow.ResetItemRequested += OnResetItemRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
     }
@@ -123,6 +125,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierFilterVariantChanged -= OnModifierFilterVariantChanged;
         priceCheckerWindow.ModifierExpansionChanged -= OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
+        priceCheckerWindow.ItemStateChanged -= OnItemStateChanged;
         priceCheckerWindow.ResetItemRequested -= OnResetItemRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
         window = null;
@@ -889,6 +892,27 @@ internal sealed class PriceCheckerSearchController
         ApplyState(CreateIdleOrValidationState());
     }
 
+    public void UpdateItemStateCriterion(TradeItemStateKind kind, TradeTriState state)
+    {
+        if (currentDraft is null ||
+            state is TradeTriState.Auto ||
+            currentDraft.ItemStateCriteria.Get(kind) == state)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            ItemStateCriteria = currentDraft.ItemStateCriteria.With(kind, state),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
     private void OnSearchRequested(object? sender, EventArgs e)
     {
         _ = SearchAsync();
@@ -1027,6 +1051,11 @@ internal sealed class PriceCheckerSearchController
     private void OnBaseCriterionToggleRequested(object? sender, EventArgs e)
     {
         ToggleBaseCriterion();
+    }
+
+    private void OnItemStateChanged(object? sender, PriceCheckerItemStateChangedEventArgs e)
+    {
+        UpdateItemStateCriterion(e.Kind, e.State);
     }
 
     private void OnResetItemRequested(object? sender, EventArgs e)
@@ -1517,9 +1546,16 @@ internal sealed class PriceCheckerSearchController
         return draft.ModifierFilters
             .Select((_, index) => index)
             .Where(index => !groupedIndexes.Contains(index))
+            .OrderBy(index => IsImplicitPresentationModifier(draft.ModifierFilters[index]) ? 0 : 1)
+            .ThenBy(index => index)
             .Select(index => CreateModifierRow(draft, index, showsExpansionControl: true))
             .ToArray();
     }
+
+    private static bool IsImplicitPresentationModifier(ResolvedSearchComponent component) =>
+        component.IsBaseImplicit ||
+        component.ParsedKind == ParsedModifierKind.Implicit ||
+        component.GenerationType == ModifierGenerationType.Implicit;
 
     private PriceCheckerModifierViewModel CreateModifierRow(
         TradeSearchDraft draft,
@@ -1576,6 +1612,7 @@ internal sealed class PriceCheckerSearchController
                 option.Identity,
                 modifier.SelectedFilterVariantIdentity,
                 StringComparison.Ordinal)),
+            IsCanonicalImplicit = IsImplicitPresentationModifier(modifier),
             MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
             MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
             Contributors = contributors,
