@@ -3,6 +3,7 @@ using System.Reflection;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
 
@@ -11,6 +12,160 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradePriceCheckServiceTests
 {
     private const string League = "Mercenaries";
+
+    [Fact]
+    public void ResolveProviderComponents_OrdinaryUniqueScalar_UsesExplicitProviderOwnedProofAndCopiedBound()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = UniqueDraft() with
+        {
+            ModifierFilters = [UniqueComponent("+69 to maximum Life", "+<number> to maximum Life") with
+            {
+                SupportsValueBounds = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                ObservedNumericValues = [69m],
+                CanonicalNumericValues = [69m],
+                RequestedMinimum = 69m,
+            }],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.No));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"{component.ProviderResolutionStatus}: {component.ProviderDiagnosticCode} {component.ProviderDiagnosticMessage}");
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+        Assert.Equal("explicit.stat_life", component.ProviderStatId);
+        Assert.True(component.IsSearchable);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(69m, component.RequestedMinimum);
+        Assert.False(component.IsSelected);
+        Assert.DoesNotContain(component.FilterVariants, variant =>
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FoulbornPresence_RequiresFoulbornIdentityAndNeverBorrowsOrdinaryProof()
+    {
+        var fixture = ServiceFixture.Create();
+        var component = UniqueComponent(
+            "Test Foulborn presence",
+            "Test Foulborn presence",
+            ParsedUniqueModifierOrigin.Foulborn) with
+        {
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+        var draft = UniqueDraft("Foulborn Moonbender's Wing") with
+        {
+            ModifierFilters = [component],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.foulborn_presence", "Test Foulborn presence", "explicit"),
+        ]);
+
+        var ordinaryIdentity = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.No));
+        var foulbornIdentity = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.Yes));
+
+        var unsupported = Assert.Single(ordinaryIdentity.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, unsupported.ProviderResolutionStatus);
+        Assert.False(unsupported.IsSearchable);
+        Assert.False(unsupported.IsSelected);
+
+        var exact = Assert.Single(foulbornIdentity.ModifierFilters);
+        Assert.True(
+            exact.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"{exact.ProviderResolutionStatus}: {exact.ProviderDiagnosticCode} {exact.ProviderDiagnosticMessage}");
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, exact.StatMappingProof);
+        Assert.Equal("explicit.foulborn_presence", exact.ProviderStatId);
+        Assert.False(exact.SupportsValueBounds);
+        Assert.Null(exact.RequestedMinimum);
+        Assert.Null(exact.RequestedMaximum);
+        Assert.False(exact.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_MultiLineUniqueBlockRejectsEveryLineInsteadOfPartialQuery()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = UniqueDraft("Foulborn Midnight Bargain", "Calling Wand") with
+        {
+            ModifierFilters =
+            [
+                UniqueComponent("+1 to maximum number of Raised Zombies", "+<number> to maximum number of Raised Zombies") with
+                {
+                    SourceModifierIndex = 0,
+                    SourceLineIndex = 0,
+                },
+                UniqueComponent("+1 to maximum number of Spectres", "+<number> to maximum number of Spectres") with
+                {
+                    SourceModifierIndex = 0,
+                    SourceLineIndex = 1,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.zombies", "+# to maximum number of Raised Zombies", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.Yes));
+
+        Assert.Equal(2, resolved.ModifierFilters.Count);
+        Assert.All(resolved.ModifierFilters, component =>
+        {
+            Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+            Assert.Equal(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
+                component.ProviderDiagnosticCode);
+            Assert.False(component.IsSearchable);
+            Assert.False(component.IsSelected);
+            Assert.Null(component.ProviderStatId);
+        });
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_UniqueWithOnlyBroadPseudoCandidateRemainsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = UniqueDraft() with
+        {
+            ModifierFilters = [UniqueComponent("+69 to maximum Life", "+<number> to maximum Life")],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.No));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.NotFound, component.ProviderResolutionStatus);
+        Assert.False(component.IsSearchable);
+        Assert.False(component.IsSelected);
+        Assert.Null(component.ProviderStatId);
+    }
 
     [Fact]
     public async Task CheckAsync_ValidDraftBuildsSearchFetchesFirstBatchAndReturnsOrderedOffers()
@@ -1180,6 +1335,49 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                 ResolvedBaseId = "base.tomahawk",
                 ResolvedBaseName = baseType,
             },
+        };
+    }
+
+    private static ResolvedSearchComponent UniqueComponent(
+        string originalText,
+        string canonicalSignature,
+        ParsedUniqueModifierOrigin origin = ParsedUniqueModifierOrigin.Ordinary)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            SourceComponentIndex = 0,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = origin,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            IsSelected = false,
+        };
+    }
+
+    private static PathOfExileTradeStatEntry Stat(string id, string text, string type)
+    {
+        return new PathOfExileTradeStatEntry
+        {
+            ProviderOrder = 0,
+            GroupId = type,
+            GroupLabel = type,
+            Id = id,
+            Text = text,
+            Type = type,
+        };
+    }
+
+    private static PathOfExileTradeItemIdentity UniqueIdentity(TradeTriState foulborn)
+    {
+        return new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = "Moonbender's Wing",
+            CanonicalType = "Tomahawk",
+            Foulborn = foulborn,
         };
     }
 

@@ -55,6 +55,59 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_ProviderOwnedUniqueExact_SerializesOneExactExplicitFilterWithoutGameDataProvenance()
+    {
+        var unique = Modifier(
+            "+69 to maximum Life",
+            kind: ParsedModifierKind.Unique,
+            providerStatId: "explicit.stat_life",
+            canonicalSignature: "+<number> to maximum Life",
+            hasGameDataProvenance: false) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            IsSearchable = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 69m,
+        };
+        var catalog = Catalog("explicit.stat_life", "+# to maximum Life", "Explicit");
+
+        var result = mapper.Map(Draft([unique, unique with { ComponentId = "modifier:1:0" }]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_life", filter.StatId);
+        Assert.Equal(69m, filter.Minimum);
+        Assert.Equal([0, 1], filter.SourceIndexes);
+    }
+
+    [Fact]
+    public void Map_UniqueProviderStatWithoutProviderOwnedProof_IsRejected()
+    {
+        var unique = Modifier(
+            "+69 to maximum Life",
+            kind: ParsedModifierKind.Unique,
+            providerStatId: "explicit.stat_life",
+            canonicalSignature: "+<number> to maximum Life",
+            hasGameDataProvenance: false) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            IsSearchable = true,
+        };
+
+        var result = mapper.Map(
+            Draft([unique]),
+            Catalog("explicit.stat_life", "+# to maximum Life", "Explicit"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Map_ForgedBroadPseudoForReviewedLocalDisplayedPropertyIsRejected()
     {
         var component = Modifier(

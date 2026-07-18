@@ -752,6 +752,98 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task ProviderExactUniqueRow_IsStaticEnabledInitiallyUncheckedAndDoesNotSearchWhenEdited()
+    {
+        var fixture = SearchFixture.Create();
+        var unique = Modifier(
+            "+69 to maximum Life",
+            ParsedModifierKind.Unique,
+            isSelected: true,
+            resolvedModifierId: null,
+            supportsValueBounds: true,
+            minimum: 69m) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            IsSearchable = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "explicit.stat_life",
+            ProviderStatText = "+# to maximum Life",
+            ValueBoundShape = ModifierBoundShape.Scalar,
+        };
+        var draft = Draft("Ahn's Contempt", modifiers: [unique]) with { Rarity = "Unique" };
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var initial = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(initial.IsInteractionEnabled);
+        Assert.False(initial.IsSelected);
+        Assert.True(initial.IsUniqueModifier);
+        Assert.Equal("Unique", initial.ModTypeLabel);
+        Assert.True(initial.HasStaticModType);
+        Assert.False(initial.CanSelectFilterVariant);
+        Assert.False(initial.CanEditBounds);
+        Assert.Equal("69", initial.MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(0, "65", "70");
+
+        var edited = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(edited.IsSelected);
+        Assert.True(edited.CanEditBounds);
+        Assert.Equal("65", edited.MinimumText);
+        Assert.Equal("70", edited.MaximumText);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.True(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
+
+        await fixture.Controller.SearchAsync();
+
+        var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        Assert.Equal(65m, searched.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(70m, searched.ModifierFilters[0].RequestedMaximum);
+    }
+
+    [Fact]
+    public void UnsupportedFoulbornUniqueRow_RemainsVisibleDisabledUnselectedAndResetKeepsSafeSnapshot()
+    {
+        var fixture = SearchFixture.Create();
+        var unsupported = Modifier(
+            "Lose 0.5% Life and Energy Shield per Second per Minion",
+            ParsedModifierKind.Unique,
+            isSelected: true,
+            resolvedModifierId: null) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Foulborn,
+            NotSearchableReason = "No exact provider representation is available.",
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+        };
+        var draft = Draft("Foulborn Midnight Bargain", modifiers: [unsupported]) with
+        {
+            Rarity = "Unique",
+            ParsedBaseType = "Calling Wand",
+        };
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.False(row.IsSelected);
+        Assert.True(row.IsFoulbornUniqueModifier);
+        Assert.Equal("Foulborn", row.ModTypeLabel);
+        Assert.Contains("Unsupported", row.SectionLabel, StringComparison.Ordinal);
+        Assert.Contains("No exact provider representation", row.SourceBreakdown, StringComparison.Ordinal);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.False(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseResetItemRequested();
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).IsSelected);
+        Assert.False(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
     public void SelectedUnsupportedModifier_PublishesItsBoundReasonToDeveloperDiagnostics()
     {
         var fixture = SearchFixture.Create();

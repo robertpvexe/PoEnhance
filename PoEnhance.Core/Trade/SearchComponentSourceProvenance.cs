@@ -22,6 +22,8 @@ public sealed record SearchComponentSourceProvenance
 
     public ParsedImplicitModifierOrigin ImplicitOrigin { get; init; }
 
+    public ParsedUniqueModifierOrigin UniqueOrigin { get; init; }
+
     public ModifierGenerationType? GenerationType { get; init; }
 
     public ModifierLocality Locality { get; init; } = ModifierLocality.Unknown;

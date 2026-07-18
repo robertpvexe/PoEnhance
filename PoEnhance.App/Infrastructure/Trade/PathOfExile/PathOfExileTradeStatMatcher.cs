@@ -431,6 +431,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         {
             ParsedModifierKind.Implicit => "implicit",
             ParsedModifierKind.Prefix or ParsedModifierKind.Suffix => "explicit",
+            ParsedModifierKind.Unique => "explicit",
             _ => null,
         };
     }

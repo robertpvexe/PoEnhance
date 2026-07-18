@@ -139,6 +139,7 @@ internal static partial class CanonicalModifierEffectAggregator
             CanonicalSignature = component.CanonicalSignature,
             ParsedKind = component.ParsedKind,
             ImplicitOrigin = component.ImplicitOrigin,
+            UniqueOrigin = component.UniqueOrigin,
             GenerationType = component.GenerationType,
             Locality = component.Locality,
             StatMappingProof = component.StatMappingProof,

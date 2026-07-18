@@ -1,4 +1,5 @@
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -93,11 +94,23 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return effectiveDraft;
         }
 
+        PathOfExileTradeItemIdentity? uniqueIdentity = null;
+        if (IsUnique(effectiveDraft))
+        {
+            var itemCatalogResult = await itemCatalogProvider
+                .GetCatalogAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (itemCatalogResult.IsSuccess && itemCatalogResult.Catalog is not null)
+            {
+                uniqueIdentity = itemIdentityMapper.Map(effectiveDraft, itemCatalogResult.Catalog).Identity;
+            }
+        }
+
         var catalogResult = await statCatalogProvider
             .GetCatalogAsync(cancellationToken)
             .ConfigureAwait(false);
         return catalogResult.IsSuccess && catalogResult.Catalog is not null
-            ? ResolveProviderComponents(effectiveDraft, catalogResult.Catalog)
+            ? ResolveProviderComponents(effectiveDraft, catalogResult.Catalog, uniqueIdentity)
             : effectiveDraft;
     }
 
@@ -233,7 +246,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 return CatalogFailure(catalogResult);
             }
 
-            draft = ResolveProviderComponents(draft!, catalogResult.Catalog);
+            draft = ResolveProviderComponents(draft!, catalogResult.Catalog, providerItemIdentity);
             effectiveDraft = draft;
             providerStatCatalog = catalogResult.Catalog;
         }
@@ -699,15 +712,25 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     internal TradeSearchDraft ResolveProviderComponents(
         TradeSearchDraft draft,
-        PathOfExileTradeStatCatalog catalog)
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeItemIdentity? uniqueIdentity = null)
     {
         if (draft.ModifierFilters.Count == 0)
         {
             return draft;
         }
 
+        var multiLineUniqueSourceIndexes = draft.ModifierFilters
+            .Where(component => component.ParsedKind == ParsedModifierKind.Unique &&
+                component.SourceModifierIndex >= 0)
+            .GroupBy(component => component.SourceModifierIndex)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet();
         var resolvedComponents = draft.ModifierFilters
-            .Select(component => ResolveProviderComponent(draft, component, catalog))
+            .Select(component => multiLineUniqueSourceIndexes.Contains(component.SourceModifierIndex)
+                ? MarkUnsafeMultiLineUnique(component)
+                : ResolveProviderComponent(draft, component, catalog, uniqueIdentity))
             .ToArray();
         var resolvedDraft = draft with
         {
@@ -725,9 +748,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private ResolvedSearchComponent ResolveProviderComponent(
         TradeSearchDraft draft,
         ResolvedSearchComponent component,
-        PathOfExileTradeStatCatalog catalog)
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeItemIdentity? uniqueIdentity)
     {
-        if (component.Sources.Count > 0)
+        if (component.Sources.Count > 0 && component.ParsedKind != ParsedModifierKind.Unique)
         {
             component = component with
             {
@@ -740,6 +764,14 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry))
         {
+            if (component.ParsedKind == ParsedModifierKind.Unique &&
+                component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact)
+            {
+                return PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
+                    component,
+                    PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry));
+            }
+
             var discoverySource = component.Sources
                 .Where(source =>
                     source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact)
@@ -792,7 +824,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 : component;
         }
 
-        if (!CanResolveProviderComponent(component))
+        var hasProviderOwnedUniqueProof = CanResolveProviderOwnedUnique(
+            draft,
+            component,
+            uniqueIdentity);
+        if (!CanResolveProviderComponent(component) && !hasProviderOwnedUniqueProof)
         {
             return component with
             {
@@ -829,15 +865,37 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             PathOfExileTradeStatMatchStatus.NotFound => SearchComponentProviderResolutionStatus.NotFound,
             _ => SearchComponentProviderResolutionStatus.Unsupported,
         };
+        if (hasProviderOwnedUniqueProof &&
+            providerStatus == SearchComponentProviderResolutionStatus.Exact &&
+            !string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(match.ExactCandidate!),
+                "explicit",
+                StringComparison.Ordinal))
+        {
+            providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
+        }
         var candidates = match.Candidates.Count > 0
             ? match.Candidates
             : match.InitialCandidates;
 
         var resolved = component with
         {
+            StatMappingProof = hasProviderOwnedUniqueProof && providerStatus == SearchComponentProviderResolutionStatus.Exact
+                ? ModifierStatMappingProofStatus.ProviderExact
+                : component.StatMappingProof,
+            IsSearchable = component.IsSearchable ||
+                hasProviderOwnedUniqueProof && providerStatus == SearchComponentProviderResolutionStatus.Exact,
+            NotSearchableReason = hasProviderOwnedUniqueProof &&
+                providerStatus == SearchComponentProviderResolutionStatus.Exact
+                    ? null
+                    : component.NotSearchableReason,
             ProviderResolutionStatus = providerStatus,
-            ProviderStatId = match.ExactCandidate?.StatId,
-            ProviderStatText = match.ExactCandidate?.Text,
+            ProviderStatId = providerStatus == SearchComponentProviderResolutionStatus.Exact
+                ? match.ExactCandidate?.StatId
+                : null,
+            ProviderStatText = providerStatus == SearchComponentProviderResolutionStatus.Exact
+                ? match.ExactCandidate?.Text
+                : null,
             ProviderCandidateStatIds = candidates
                 .Select(candidate => candidate.StatId)
                 .Where(statId => !string.IsNullOrWhiteSpace(statId))
@@ -847,12 +905,78 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
             ProviderDiagnosticMessage = null,
         };
-        return providerStatus == SearchComponentProviderResolutionStatus.Exact
-            ? PathOfExileTradeModifierVariantResolver.Apply(
+        if (providerStatus != SearchComponentProviderResolutionStatus.Exact)
+        {
+            return resolved;
+        }
+
+        var applied = hasProviderOwnedUniqueProof
+            ? PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
+                resolved,
+                match.ExactCandidate!)
+            : PathOfExileTradeModifierVariantResolver.Apply(
                 resolved,
                 catalog,
-                match.ExactCandidate!)
-            : resolved;
+                match.ExactCandidate!);
+        return hasProviderOwnedUniqueProof
+            ? applied with
+            {
+                Sources = applied.Sources.Select(source => source with
+                {
+                    StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+                    ProviderIdentity = PathOfExileTradeProviderIdentity.Create(match.ExactCandidate!.StatId),
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                }).ToArray(),
+            }
+            : applied;
+    }
+
+    private static bool CanResolveProviderOwnedUnique(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component,
+        PathOfExileTradeItemIdentity? uniqueIdentity)
+    {
+        return IsUnique(draft) &&
+            uniqueIdentity is not null &&
+            !string.IsNullOrWhiteSpace(uniqueIdentity.CanonicalName) &&
+            !string.IsNullOrWhiteSpace(uniqueIdentity.CanonicalType) &&
+            component.ParsedKind == ParsedModifierKind.Unique &&
+            component.UniqueOrigin is ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
+            component.SourceLineIndex >= 0 &&
+            !component.OriginalText.Contains(Environment.NewLine, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
+            (component.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn ||
+                uniqueIdentity.Foulborn == TradeTriState.Yes);
+    }
+
+    private static ResolvedSearchComponent MarkUnsafeMultiLineUnique(ResolvedSearchComponent component)
+    {
+        const string reason =
+            "Multi-line Unique modifier blocks remain unsupported unless the complete block has one proven provider representation.";
+        return component with
+        {
+            IsSelected = false,
+            IsSearchable = false,
+            NotSearchableReason = reason,
+            SupportsValueBounds = false,
+            ValueBoundsUnsupportedReason = reason,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            FilterVariants = [],
+            SelectedFilterVariantIdentity = null,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderCandidateStatIds = [],
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
+            ProviderDiagnosticMessage = reason,
+            Sources = component.Sources.Select(source => source with
+            {
+                ProviderIdentity = null,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            }).ToArray(),
+        };
     }
 
     private static bool CanResolveProviderComponent(ResolvedSearchComponent component)
@@ -868,6 +992,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
             component.ResolvedStatIds.Count > 0;
+    }
+
+    private static bool IsUnique(TradeSearchDraft draft)
+    {
+        return string.Equals(draft.Rarity?.Trim(), "Unique", StringComparison.OrdinalIgnoreCase);
     }
 
     private static PathOfExileTradeStatMatchContext CreateMatchContext(
@@ -943,8 +1072,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             CanonicalSignature = source.CanonicalSignature,
             ParsedKind = source.ParsedKind,
             ImplicitOrigin = source.ImplicitOrigin,
+            UniqueOrigin = source.UniqueOrigin,
             GenerationType = source.GenerationType,
             Locality = source.Locality,
+            StatMappingProof = source.StatMappingProof,
             ParsedModifierName = source.ParsedModifierName,
             CategoryText = source.CategoryText,
             IsCrafted = source.IsCrafted,

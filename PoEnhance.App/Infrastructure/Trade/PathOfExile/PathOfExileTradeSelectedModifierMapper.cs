@@ -347,11 +347,17 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
 
     private static bool CanSerializeSelectedComponent(ResolvedSearchComponent modifier)
     {
+        var hasExactProviderOwnedUniqueProvenance =
+            modifier.ParsedKind == ParsedModifierKind.Unique &&
+            modifier.UniqueOrigin is ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
+            modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+            modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
         var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
             modifier.ResolvedStatIds.Count > 0;
-        return hasExactGameDataProvenance ||
+        return hasExactGameDataProvenance || hasExactProviderOwnedUniqueProvenance ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&
             modifier.ImplicitOrigin is
                 ParsedImplicitModifierOrigin.Unspecified or

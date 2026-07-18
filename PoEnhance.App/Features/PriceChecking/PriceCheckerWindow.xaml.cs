@@ -511,7 +511,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
         switch (checkBox.DataContext)
         {
-            case PriceCheckerModifierViewModel modifier:
+            case PriceCheckerModifierViewModel modifier when modifier.IsInteractionEnabled:
                 ModifierSelectionChanged?.Invoke(
                     this,
                     new PriceCheckerModifierSelectionChangedEventArgs(
@@ -726,7 +726,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         switch (textBox.DataContext)
         {
-            case PriceCheckerModifierViewModel modifier:
+            case PriceCheckerModifierViewModel modifier when modifier.IsInteractionEnabled:
                 ModifierBoundsChanged?.Invoke(
                     this,
                     new PriceCheckerModifierBoundsChangedEventArgs(

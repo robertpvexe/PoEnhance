@@ -20,6 +20,10 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool IsSelected { get; init; }
 
+    public bool IsInteractionEnabled { get; init; } = true;
+
+    public string? AvailabilityReason { get; init; }
+
     public bool SupportsValueBounds { get; init; }
 
     public string? ValueBoundsUnsupportedReason { get; init; }
@@ -32,15 +36,25 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool IsCanonicalImplicit { get; init; }
 
+    public bool IsUniqueModifier { get; init; }
+
+    public bool IsFoulbornUniqueModifier { get; init; }
+
+    public bool HasStaticModType => IsCanonicalImplicit || IsUniqueModifier;
+
     public string ModTypeLabel => IsCanonicalImplicit
         ? "Implicit"
-        : SelectedFilterVariant?.Label ?? string.Empty;
+        : IsFoulbornUniqueModifier
+            ? "Foulborn"
+            : IsUniqueModifier
+                ? "Unique"
+                : SelectedFilterVariant?.Label ?? string.Empty;
 
     public bool HasSingleFilterVariant => FilterVariants.Count == 1;
 
     public bool HasMultipleFilterVariants => FilterVariants.Count > 1;
 
-    public bool CanSelectFilterVariant => !IsCanonicalImplicit && IsSelected && HasMultipleFilterVariants;
+    public bool CanSelectFilterVariant => !HasStaticModType && IsSelected && HasMultipleFilterVariants;
 
     public IReadOnlyList<PriceCheckerModifierContributorViewModel> Contributors { get; init; } = [];
 

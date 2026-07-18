@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
@@ -564,6 +565,14 @@ internal sealed class PriceCheckerSearchController
         if (currentDraft is null ||
             modifierIndex < 0 ||
             modifierIndex >= currentDraft.ModifierFilters.Count)
+        {
+            return;
+        }
+
+        var requestedModifier = currentDraft.ModifierFilters[modifierIndex];
+        if (isSelected &&
+            requestedModifier.ParsedKind == ParsedModifierKind.Unique &&
+            !IsExactlySearchableUniqueModifier(requestedModifier))
         {
             return;
         }
@@ -1593,8 +1602,17 @@ internal sealed class PriceCheckerSearchController
         string? sectionLabelOverride = null)
     {
         var modifier = draft.ModifierFilters[index];
+        var isUniqueModifier = modifier.ParsedKind == ParsedModifierKind.Unique;
+        var isFoulbornUniqueModifier =
+            modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn;
+        var isInteractionEnabled = !isUniqueModifier || IsExactlySearchableUniqueModifier(modifier);
+        var availabilityReason = isInteractionEnabled
+            ? null
+            : modifier.ProviderDiagnosticMessage ?? modifier.NotSearchableReason ??
+                "Unsupported Unique modifier: no exact Trade stat identity is available.";
         var variants = CreateVariantViewModels(modifier.FilterVariants);
-        var contributorsEnabled = SearchComponentContributorActivation.SupportsComposition(modifier);
+        var contributorsEnabled = isInteractionEnabled &&
+            SearchComponentContributorActivation.SupportsComposition(modifier);
         var contributors = modifier.Contributors
             .Select((contributor, contributorIndex) =>
             {
@@ -1630,10 +1648,15 @@ internal sealed class PriceCheckerSearchController
         {
             SourceIndex = index,
             Text = SafeModifierText(modifier.OriginalText),
-            SectionLabel = sectionLabelOverride ?? SectionLabelWithSources(modifier),
+            SectionLabel = FormatModifierSectionLabel(
+                sectionLabelOverride ?? SectionLabelWithSources(modifier),
+                isUniqueModifier,
+                isInteractionEnabled),
             SourceCount = modifier.SourceCount,
-            SourceBreakdown = SourceBreakdown(modifier),
+            SourceBreakdown = CombineSourceBreakdown(SourceBreakdown(modifier), availabilityReason),
             IsSelected = modifier.IsSelected,
+            IsInteractionEnabled = isInteractionEnabled,
+            AvailabilityReason = availabilityReason,
             SupportsValueBounds = modifier.SupportsValueBounds,
             ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
             FilterVariants = variants,
@@ -1642,6 +1665,8 @@ internal sealed class PriceCheckerSearchController
                 modifier.SelectedFilterVariantIdentity,
                 StringComparison.Ordinal)),
             IsCanonicalImplicit = IsImplicitPresentationModifier(modifier),
+            IsUniqueModifier = isUniqueModifier,
+            IsFoulbornUniqueModifier = isFoulbornUniqueModifier,
             MinimumText = ModifierBoundText(index, modifier.RequestedMinimum, minimum: true),
             MaximumText = ModifierBoundText(index, modifier.RequestedMaximum, minimum: false),
             Contributors = contributors,
@@ -1651,6 +1676,41 @@ internal sealed class PriceCheckerSearchController
                 expandedModifierIndexes.Contains(index),
             ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier),
         };
+    }
+
+    private static bool IsExactlySearchableUniqueModifier(ResolvedSearchComponent modifier)
+    {
+        var hasExactGameDataProof =
+            modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+            modifier.ResolvedStatIds.Count > 0;
+        return modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            modifier.IsSearchable &&
+            !string.IsNullOrWhiteSpace(modifier.ProviderStatId) &&
+            (modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
+                hasExactGameDataProof);
+    }
+
+    private static string FormatModifierSectionLabel(
+        string sectionLabel,
+        bool isUniqueModifier,
+        bool isInteractionEnabled)
+    {
+        return isUniqueModifier && !isInteractionEnabled
+            ? $"{sectionLabel} · Unsupported"
+            : sectionLabel;
+    }
+
+    private static string? CombineSourceBreakdown(string? sourceBreakdown, string? availabilityReason)
+    {
+        if (string.IsNullOrWhiteSpace(availabilityReason))
+        {
+            return sourceBreakdown;
+        }
+
+        return string.IsNullOrWhiteSpace(sourceBreakdown)
+            ? availabilityReason
+            : $"{availabilityReason}{Environment.NewLine}{sourceBreakdown}";
     }
 
     private static IReadOnlySet<int> GroupedModifierIndexes(TradeSearchDraft draft)
@@ -2042,6 +2102,8 @@ internal sealed class PriceCheckerSearchController
             ParsedModifierKind.Implicit => "Implicit",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
+            ParsedModifierKind.Unique when modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
+                "Foulborn",
             ParsedModifierKind.Unique => "Unique",
             _ => string.Empty,
         };
@@ -2066,6 +2128,8 @@ internal sealed class PriceCheckerSearchController
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
             ParsedModifierKind.Implicit => "Implicit",
+            ParsedModifierKind.Unique when source.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
+                "Foulborn",
             ParsedModifierKind.Unique => "Unique",
             _ => string.Empty,
         };

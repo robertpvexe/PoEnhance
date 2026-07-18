@@ -1200,6 +1200,7 @@
                                                               VerticalAlignment="Top"
                                                               Click="OnModifierSelectionClick"
                                                               FocusVisualStyle="{x:Null}"
+                                                              IsEnabled="{Binding IsInteractionEnabled}"
                                                               IsChecked="{Binding IsSelected, Mode=OneWay}" />
                                                     <Border Grid.Column="3"
                                                             VerticalAlignment="Top"
@@ -1231,7 +1232,7 @@
                                                                     <Setter Property="Visibility"
                                                                             Value="Collapsed" />
                                                                     <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsCanonicalImplicit}"
+                                                                        <DataTrigger Binding="{Binding HasStaticModType}"
                                                                                      Value="True">
                                                                             <Setter Property="Visibility"
                                                                                     Value="Visible" />
@@ -1258,7 +1259,7 @@
                                                                     <Style.Triggers>
                                                                         <MultiDataTrigger>
                                                                             <MultiDataTrigger.Conditions>
-                                                                                <Condition Binding="{Binding IsCanonicalImplicit}"
+                                                                                <Condition Binding="{Binding HasStaticModType}"
                                                                                            Value="False" />
                                                                                 <Condition Binding="{Binding HasSingleFilterVariant}"
                                                                                            Value="True" />
@@ -1284,7 +1285,7 @@
                                                                 <Style TargetType="{x:Type ComboBox}"
                                                                        BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
                                                                     <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsCanonicalImplicit}"
+                                                                        <DataTrigger Binding="{Binding HasStaticModType}"
                                                                                      Value="True">
                                                                             <Setter Property="Visibility"
                                                                                     Value="Collapsed" />
@@ -1504,6 +1505,7 @@
                                           VerticalAlignment="Top"
                                           Click="OnModifierSelectionClick"
                                           FocusVisualStyle="{x:Null}"
+                                          IsEnabled="{Binding IsInteractionEnabled}"
                                           IsChecked="{Binding IsSelected, Mode=OneWay}" />
                                 <Border Grid.Column="2"
                                         VerticalAlignment="Top"
@@ -1536,7 +1538,7 @@
                                                 <Setter Property="Visibility"
                                                         Value="Collapsed" />
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsCanonicalImplicit}"
+                                                    <DataTrigger Binding="{Binding HasStaticModType}"
                                                                  Value="True">
                                                         <Setter Property="Visibility"
                                                                 Value="Visible" />
@@ -1563,7 +1565,7 @@
                                                 <Style.Triggers>
                                                     <MultiDataTrigger>
                                                         <MultiDataTrigger.Conditions>
-                                                            <Condition Binding="{Binding IsCanonicalImplicit}"
+                                                            <Condition Binding="{Binding HasStaticModType}"
                                                                        Value="False" />
                                                             <Condition Binding="{Binding HasSingleFilterVariant}"
                                                                        Value="True" />
@@ -1589,7 +1591,7 @@
                                             <Style TargetType="{x:Type ComboBox}"
                                                    BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsCanonicalImplicit}"
+                                                    <DataTrigger Binding="{Binding HasStaticModType}"
                                                                  Value="True">
                                                         <Setter Property="Visibility"
                                                                 Value="Collapsed" />

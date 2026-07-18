@@ -851,6 +851,7 @@ the aurora evokes both awe and power.
         var uniqueModifier = Assert.Single(result.UniqueModifiers);
         Assert.Equal("Storm Song", uniqueModifier.Name);
         Assert.Equal(ParsedModifierKind.Unique, uniqueModifier.Kind);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, uniqueModifier.UniqueOrigin);
         Assert.Equal("{ Unique Modifier \"Storm Song\" - Elemental, Lightning }", uniqueModifier.RawMetadataLine);
         Assert.Equal("Elemental, Lightning", uniqueModifier.CategoryText);
         Assert.Equal(
@@ -868,6 +869,42 @@ the aurora evokes both awe and power.
             result.FlavourTextLines);
         Assert.Empty(result.DescriptionLines);
         Assert.Empty(result.UnclassifiedLines);
+    }
+
+    [Fact]
+    public void Parse_FoulbornMidnightBargain_PreservesOrdinaryAndFoulbornUniqueOriginsAndGrouping()
+    {
+        const string rawText = """
+Item Class: Wands
+Rarity: Unique
+Foulborn Midnight Bargain
+Calling Wand
+--------
+Item Level: 83
+--------
+{ Unique Modifier — Minion }
++1 to maximum number of Raised Zombies
++1 to maximum number of Spectres
++1 to maximum number of Skeletons
+{ Foulborn Unique Modifier — Life, Defences, Energy Shield, Minion }
+Lose 0.5% Life and Energy Shield per Second per Minion
+""";
+
+        var result = _parser.Parse(rawText);
+
+        Assert.Equal(2, result.UniqueModifiers.Count);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, result.UniqueModifiers[0].UniqueOrigin);
+        Assert.Equal(
+            [
+                "+1 to maximum number of Raised Zombies",
+                "+1 to maximum number of Spectres",
+                "+1 to maximum number of Skeletons",
+            ],
+            result.UniqueModifiers[0].ValueLines);
+        Assert.Equal(ParsedUniqueModifierOrigin.Foulborn, result.UniqueModifiers[1].UniqueOrigin);
+        Assert.Equal(
+            "Lose 0.5% Life and Energy Shield per Second per Minion",
+            Assert.Single(result.UniqueModifiers[1].ValueLines));
     }
 
     [Fact]

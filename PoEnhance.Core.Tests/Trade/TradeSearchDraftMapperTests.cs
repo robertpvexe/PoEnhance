@@ -233,6 +233,90 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
+    public void CreateDraft_UniqueModifierWithoutGameDataResolution_RetainsProviderEvidenceButStartsUnselected()
+    {
+        const string rawText = """
+Item Class: Helmets
+Rarity: Unique
+Ahn's Contempt
+Praetor Crown
+--------
+Item Level: 83
+--------
+{ Unique Modifier — Life }
++69(60-70) to maximum Life
+{ Unique Modifier }
+Misty Footprints — Unscalable Value
+{ Unique Modifier }
+-1 to Maximum Power Charges
+""";
+        var item = parser.Parse(rawText);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.Equal(3, draft.ModifierFilters.Count);
+        var rollable = draft.ModifierFilters[0];
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, rollable.UniqueOrigin);
+        Assert.Equal("+<number> to maximum Life", rollable.CanonicalSignature);
+        Assert.Equal(ModifierBoundShape.Scalar, rollable.ValueBoundShape);
+        Assert.True(rollable.SupportsValueBounds);
+        Assert.Equal(69m, rollable.RequestedMinimum);
+        Assert.False(rollable.IsSearchable);
+        Assert.False(rollable.IsSelected);
+
+        var presence = draft.ModifierFilters[1];
+        Assert.Equal(ModifierBoundShape.PresenceOnly, presence.ValueBoundShape);
+        Assert.False(presence.SupportsValueBounds);
+        Assert.Null(presence.RequestedMinimum);
+        Assert.Null(presence.RequestedMaximum);
+        Assert.False(presence.IsSelected);
+
+        var negative = draft.ModifierFilters[2];
+        Assert.Equal(ModifierBoundShape.Scalar, negative.ValueBoundShape);
+        Assert.Equal(ModifierBoundDirection.Minimum, negative.DefaultBoundDirection);
+        Assert.Equal(-1m, negative.RequestedMinimum);
+        Assert.Null(negative.RequestedMaximum);
+        Assert.False(negative.IsSelected);
+    }
+
+    [Fact]
+    public void CreateDraft_MultiLineUniqueModifier_PreservesOneSourceGroupAndEveryLine()
+    {
+        const string rawText = """
+Item Class: Wands
+Rarity: Unique
+Foulborn Midnight Bargain
+Calling Wand
+--------
+Item Level: 83
+--------
+{ Unique Modifier — Minion }
++1 to maximum number of Raised Zombies
++1 to maximum number of Spectres
++1 to maximum number of Skeletons
+""";
+        var item = parser.Parse(rawText);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.Equal(3, draft.ModifierFilters.Count);
+        Assert.All(draft.ModifierFilters, component =>
+        {
+            Assert.Equal(0, component.SourceModifierIndex);
+            Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, component.UniqueOrigin);
+            Assert.False(component.IsSelected);
+        });
+        Assert.Equal([0, 1, 2], draft.ModifierFilters.Select(component => component.SourceLineIndex));
+        Assert.Equal(
+            [
+                "+1 to maximum number of Raised Zombies",
+                "+1 to maximum number of Spectres",
+                "+1 to maximum number of Skeletons",
+            ],
+            draft.ModifierFilters.Select(component => component.OriginalText));
+    }
+
+    [Fact]
     public void CreateDraft_ExactModifierResolutionPreservesCatalogIdentity()
     {
         var item = ParseSample("advanced-rare-ring-with-implicit.txt");

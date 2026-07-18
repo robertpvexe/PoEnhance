@@ -824,10 +824,39 @@ public sealed class TradeSearchDraftMapper
         var boundDefault = ModifierBoundDefaults.Create(exactCandidate, stats, componentLines, catalog);
         var hasUnscalableValue = sourceLineIndex >= 0 &&
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.HasUnscalableValue == true;
-        var supportsValueBounds = !hasUnscalableValue && boundDefault.IsSupported;
+        var providerOnlyUniqueValues = exactCandidate is null &&
+            modifier.Kind == ParsedModifierKind.Unique &&
+            componentLines.Count == 1
+                ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
+                : [];
+        var hasProviderOnlyUniqueScalar = !hasUnscalableValue && providerOnlyUniqueValues.Count == 1;
+        var supportsValueBounds = !hasUnscalableValue &&
+            (boundDefault.IsSupported || hasProviderOnlyUniqueScalar);
+        var providerOnlyUniqueDirection = ModifierBoundDirection.Minimum;
         var valueBoundShape = hasUnscalableValue
             ? ModifierBoundShape.PresenceOnly
+            : hasProviderOnlyUniqueScalar
+                ? ModifierBoundShape.Scalar
+                : exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique && providerOnlyUniqueValues.Count == 0
+                    ? ModifierBoundShape.PresenceOnly
             : boundDefault.Shape;
+        var observedNumericValues = exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique
+            ? providerOnlyUniqueValues
+            : boundDefault.ObservedValues;
+        var canonicalNumericValues = hasProviderOnlyUniqueScalar
+            ? providerOnlyUniqueValues
+            : valueBoundShape switch
+            {
+                ModifierBoundShape.Scalar => [boundDefault.ObservedCanonicalValue],
+                ModifierBoundShape.ArithmeticMeanRange => boundDefault.ObservedValues,
+                _ => [],
+            };
+        var defaultBoundDirection = hasProviderOnlyUniqueScalar
+            ? providerOnlyUniqueDirection
+            : boundDefault.Direction;
+        var observedCanonicalValue = hasProviderOnlyUniqueScalar
+            ? providerOnlyUniqueValues[0]
+            : boundDefault.ObservedCanonicalValue;
 
         var component = new ResolvedSearchComponent
         {
@@ -839,6 +868,7 @@ public sealed class TradeSearchDraftMapper
             CanonicalSignature = NormalizeComponentSignature(componentLines),
             ParsedKind = modifier.Kind,
             ImplicitOrigin = modifier.ImplicitOrigin,
+            UniqueOrigin = modifier.UniqueOrigin,
             GenerationType = resolution?.GenerationType,
             Locality = exactCandidate is null
                 ? ModifierLocality.Unknown
@@ -873,23 +903,23 @@ public sealed class TradeSearchDraftMapper
             SupportsValueBounds = supportsValueBounds,
             ValueBoundsUnsupportedReason = hasUnscalableValue
                 ? "The copied modifier is a presence-only value and has no numeric Trade bound."
+                : exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique &&
+                    !hasProviderOnlyUniqueScalar
+                    ? providerOnlyUniqueValues.Count > 1
+                        ? "The provider-owned Unique modifier has multiple numeric values without a proven scalar projection."
+                        : "Official Trade must prove whether this Unique modifier is presence-only."
                 : boundDefault.UnsupportedReason,
             ValueBoundShape = valueBoundShape,
-            ObservedNumericValues = hasUnscalableValue ? [] : boundDefault.ObservedValues,
-            CanonicalNumericValues = valueBoundShape switch
-            {
-                ModifierBoundShape.Scalar => [boundDefault.ObservedCanonicalValue],
-                ModifierBoundShape.ArithmeticMeanRange => boundDefault.ObservedValues,
-                _ => [],
-            },
+            ObservedNumericValues = hasUnscalableValue ? [] : observedNumericValues,
+            CanonicalNumericValues = hasUnscalableValue ? [] : canonicalNumericValues,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,
-            DefaultBoundDirection = boundDefault.Direction,
-            RequestedMinimum = supportsValueBounds && boundDefault.Direction == ModifierBoundDirection.Minimum
-                ? boundDefault.ObservedCanonicalValue
+            DefaultBoundDirection = defaultBoundDirection,
+            RequestedMinimum = supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Minimum
+                ? observedCanonicalValue
                 : null,
-            RequestedMaximum = supportsValueBounds && boundDefault.Direction == ModifierBoundDirection.Maximum
-                ? boundDefault.ObservedCanonicalValue
+            RequestedMaximum = supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Maximum
+                ? observedCanonicalValue
                 : null,
             IsSelected = false,
         };

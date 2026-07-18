@@ -1,4 +1,5 @@
 using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -14,6 +15,28 @@ internal static class PathOfExileTradeModifierVariantResolver
         PathOfExileTradeStatMatchCandidate sourceExactCandidate)
     {
         return Apply(component, catalog, sourceExactCandidate, includePseudo: true);
+    }
+
+    public static ResolvedSearchComponent ApplyProviderOwnedUniqueExact(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate exactCandidate)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(exactCandidate);
+
+        var option = CreateOption(component, exactCandidate, exactCandidate);
+        var resolved = component with
+        {
+            FilterVariants = [option],
+            SelectedFilterVariantIdentity = option.Identity,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = exactCandidate.StatId,
+            ProviderStatText = exactCandidate.Text,
+            ProviderDiagnosticCode = null,
+            ProviderDiagnosticMessage = null,
+            Contributors = [],
+        };
+        return ApplyBounds(resolved, option, exactCandidate);
     }
 
     private static ResolvedSearchComponent Apply(
@@ -35,6 +58,8 @@ internal static class PathOfExileTradeModifierVariantResolver
                 PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 "pseudo",
                 StringComparison.Ordinal))
+            .Where(candidate => component.ParsedKind != ParsedModifierKind.Unique ||
+                string.Equals(candidate.StatId, sourceExactCandidate.StatId, StringComparison.Ordinal))
             .ToArray();
 
         var contributors = ResolveContributors(component, component.Sources);

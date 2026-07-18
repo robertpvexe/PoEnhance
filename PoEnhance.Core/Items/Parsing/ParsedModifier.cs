@@ -14,6 +14,8 @@ public sealed record ParsedModifier(
 {
     public ParsedImplicitModifierOrigin ImplicitOrigin { get; init; }
 
+    public ParsedUniqueModifierOrigin UniqueOrigin { get; init; }
+
     public ParsedEldritchImplicitTier? EldritchTier { get; init; }
 
     public IReadOnlyList<ParsedModifierEffect> Effects { get; init; } = ValueLines

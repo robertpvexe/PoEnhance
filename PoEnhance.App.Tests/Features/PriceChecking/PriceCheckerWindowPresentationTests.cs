@@ -636,15 +636,34 @@ Item Level: 82
         Assert.Equal("Explicit", nonImplicit.ModTypeLabel);
         Assert.True(nonImplicit.CanSelectFilterVariant);
 
+        var unique = nonImplicit with
+        {
+            SourceIndex = 2,
+            Text = "Unique modifier",
+            IsUniqueModifier = true,
+        };
+        var foulborn = unique with
+        {
+            SourceIndex = 3,
+            IsFoulbornUniqueModifier = true,
+        };
+        Assert.Equal("Unique", unique.ModTypeLabel);
+        Assert.Equal("Foulborn", foulborn.ModTypeLabel);
+        Assert.False(unique.CanSelectFilterVariant);
+        Assert.False(foulborn.CanSelectFilterVariant);
+
         var xaml = LoadWindowXaml();
         var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
         Assert.Contains("Text=\"{Binding ModTypeLabel}\"", modifiers);
-        Assert.Contains("Binding=\"{Binding IsCanonicalImplicit}\"", modifiers);
+        Assert.Contains("Binding=\"{Binding HasStaticModType}\"", modifiers);
+        Assert.Contains("IsEnabled=\"{Binding IsInteractionEnabled}\"", modifiers);
         Assert.Contains("Value=\"Collapsed\"", modifiers);
         Assert.Contains("IsHitTestVisible=\"False\"", modifiers);
         Assert.Contains(
             "IsCanonicalImplicit = IsImplicitPresentationModifier(modifier)",
             LoadSearchControllerCode());
+        Assert.Contains("IsUniqueModifier = isUniqueModifier", LoadSearchControllerCode());
+        Assert.Contains("IsInteractionEnabled = isInteractionEnabled", LoadSearchControllerCode());
     }
 
     [Fact]

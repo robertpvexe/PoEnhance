@@ -6,4 +6,5 @@ public enum ModifierStatMappingProofStatus
     ProvenExact = 1,
     WholeVector = 2,
     PositionalFallback = 3,
+    ProviderExact = 4,
 }

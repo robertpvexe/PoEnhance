@@ -664,6 +664,7 @@ public sealed partial class ItemTextParser
                 metadata.IsVeiled)
             {
                 ImplicitOrigin = metadata.ImplicitOrigin,
+                UniqueOrigin = metadata.UniqueOrigin,
                 EldritchTier = metadata.EldritchTier,
                 Effects = effects,
             };
@@ -976,6 +977,7 @@ public sealed partial class ItemTextParser
         var metadataText = line.Trim()[1..^1].Trim();
         var kind = ReadModifierKind(metadataText);
         var implicitOrigin = ReadImplicitOrigin(metadataText, kind);
+        var uniqueOrigin = ReadUniqueOrigin(metadataText, kind);
         var eldritchTier = ReadEldritchTier(metadataText, implicitOrigin);
         var name = ReadQuotedValue(metadataText);
         var tier = ReadTier(metadataText);
@@ -989,6 +991,7 @@ public sealed partial class ItemTextParser
             line,
             kind,
             implicitOrigin,
+            uniqueOrigin,
             eldritchTier,
             name,
             tier,
@@ -1027,6 +1030,20 @@ public sealed partial class ItemTextParser
         return metadataText.Contains("Corrupted", StringComparison.OrdinalIgnoreCase)
             ? ParsedImplicitModifierOrigin.Corrupted
             : ParsedImplicitModifierOrigin.Unspecified;
+    }
+
+    private static ParsedUniqueModifierOrigin ReadUniqueOrigin(
+        string metadataText,
+        ParsedModifierKind kind)
+    {
+        if (kind != ParsedModifierKind.Unique)
+        {
+            return ParsedUniqueModifierOrigin.Unspecified;
+        }
+
+        return metadataText.Contains("Foulborn Unique Modifier", StringComparison.OrdinalIgnoreCase)
+            ? ParsedUniqueModifierOrigin.Foulborn
+            : ParsedUniqueModifierOrigin.Ordinary;
     }
 
     private static ParsedEldritchImplicitTier? ReadEldritchTier(
@@ -1285,6 +1302,7 @@ public sealed partial class ItemTextParser
         string RawLine,
         ParsedModifierKind Kind,
         ParsedImplicitModifierOrigin ImplicitOrigin,
+        ParsedUniqueModifierOrigin UniqueOrigin,
         ParsedEldritchImplicitTier? EldritchTier,
         string? Name,
         int? Tier,
