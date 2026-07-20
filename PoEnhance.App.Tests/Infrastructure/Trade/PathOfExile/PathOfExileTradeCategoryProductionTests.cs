@@ -1048,6 +1048,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             var urlLauncher = new FakeExternalUrlLauncher();
             var controller = new PriceCheckerSearchController(
                 service,
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"),
                 externalUrlLauncher: urlLauncher);
             controller.AttachWindow(window);
 

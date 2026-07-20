@@ -4,7 +4,7 @@ public sealed record PriceCheckerSearchViewState
 {
     public PriceCheckerSearchViewStatus Status { get; init; } = PriceCheckerSearchViewStatus.Idle;
 
-    public string LeagueIdentifier { get; init; } = PriceCheckerSearchController.DefaultLeagueIdentifier;
+    public string? LeagueIdentifier { get; init; }
 
     public bool CanSearch { get; init; }
 

@@ -1,6 +1,7 @@
 using System.Net.Http;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.GameData;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 namespace PoEnhance.App;
@@ -23,7 +24,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         IPathOfExileTradeSelectedModifierMapper tradeSelectedModifierMapper,
         IPathOfExileTradeItemIdentityMapper tradeItemIdentityMapper,
         IPathOfExileTradePriceCheckService priceCheckService,
-        PriceCheckerWindowController priceCheckerWindowController)
+        PriceCheckerWindowController priceCheckerWindowController,
+        ApplicationLeagueSetting leagueSetting)
     {
         PathOfExileTradeHttpClient = pathOfExileTradeHttpClient;
         RuntimeGameDataService = runtimeGameDataService;
@@ -41,6 +43,7 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         TradeItemIdentityMapper = tradeItemIdentityMapper;
         PriceCheckService = priceCheckService;
         PriceCheckerWindowController = priceCheckerWindowController;
+        LeagueSetting = leagueSetting;
     }
 
     public HttpClient PathOfExileTradeHttpClient { get; }
@@ -75,6 +78,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public PriceCheckerWindowController PriceCheckerWindowController { get; }
 
+    public ApplicationLeagueSetting LeagueSetting { get; }
+
     public static PoEnhanceApplicationComposition CreateDefault()
     {
         var tradeHttpClient = CreatePathOfExileTradeHttpClient();
@@ -99,9 +104,11 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             searchClient,
             fetchClient,
             filterCatalogProvider);
+        var leagueSetting = ApplicationLeagueSetting.CreateDefault();
         var priceCheckerWindowController = new PriceCheckerWindowController(
             new PriceCheckerWindowFactory(),
-            priceCheckService);
+            priceCheckService,
+            leagueSetting);
 
         return new PoEnhanceApplicationComposition(
             tradeHttpClient,
@@ -121,7 +128,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             selectedModifierMapper,
             itemIdentityMapper,
             priceCheckService,
-            priceCheckerWindowController);
+            priceCheckerWindowController,
+            leagueSetting);
     }
 
     public void Dispose()

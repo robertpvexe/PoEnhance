@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Windows;
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using PoEnhance.App.Shell;
 
@@ -89,7 +90,8 @@ public sealed class MultitoolMenuShellTests
     {
         RunOnSta(() =>
         {
-            var window = new MultitoolMenuWindow();
+            var window = new MultitoolMenuWindow(
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient());
             var closed = false;
             window.Closed += (_, _) => closed = true;
 
@@ -155,6 +157,159 @@ public sealed class MultitoolMenuShellTests
         Assert.DoesNotContain("MultitoolMenuWindow", appCode, StringComparison.Ordinal);
         Assert.DoesNotContain("multitoolMenuWindow.Show()", hostCode, StringComparison.Ordinal);
         Assert.Contains("trayIcon.Show()", hostCode, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StartAndSettingsNavigation_SwitchContentAndActiveState()
+    {
+        RunOnSta(() =>
+        {
+            var window = new MultitoolMenuWindow(ApplicationLeagueSetting.CreateTransient());
+
+            Assert.True(window.IsStartViewVisible);
+            Assert.False(window.IsSettingsViewVisible);
+            Assert.True(window.IsStartNavigationActive);
+            Assert.False(window.IsSettingsNavigationActive);
+
+            window.ShowSettingsView();
+
+            Assert.False(window.IsStartViewVisible);
+            Assert.True(window.IsSettingsViewVisible);
+            Assert.False(window.IsStartNavigationActive);
+            Assert.True(window.IsSettingsNavigationActive);
+
+            window.ShowStartView();
+
+            Assert.True(window.IsStartViewVisible);
+            Assert.False(window.IsSettingsViewVisible);
+            Assert.True(window.IsStartNavigationActive);
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void BuiltInLeagueSelections_SaveTheirEffectiveValueAndDisableCustomInput()
+    {
+        RunOnSta(() =>
+        {
+            using var directory = new TemporaryDirectory();
+            var setting = new ApplicationLeagueSetting(Path.Combine(directory.Path, "settings.json"));
+            var window = new MultitoolMenuWindow(setting);
+
+            Assert.Equal(
+                ["Standard", "Hardcore", "Ruthless", "Hardcore Ruthless", "Other"],
+                window.LeagueChoices);
+
+            foreach (var league in MultitoolMenuWindow.BuiltInLeagueChoices)
+            {
+                window.SelectPendingLeague(league);
+
+                Assert.False(window.IsCustomLeagueEnabled);
+                Assert.True(window.ApplyPendingLeague());
+                Assert.Equal(league, setting.EffectiveLeague);
+            }
+
+            Assert.Equal("League saved successfully.", window.LeagueFeedback);
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void OtherLeague_EnablesCustomInputPreservesTextAndSavesTrimmedValue()
+    {
+        RunOnSta(() =>
+        {
+            using var directory = new TemporaryDirectory();
+            var setting = new ApplicationLeagueSetting(Path.Combine(directory.Path, "settings.json"));
+            var window = new MultitoolMenuWindow(setting);
+
+            window.SelectPendingLeague("Other");
+            Assert.True(window.IsCustomLeagueEnabled);
+            window.SetPendingCustomLeague("  Keepers of the Flame  ");
+
+            window.SelectPendingLeague("Standard");
+            Assert.False(window.IsCustomLeagueEnabled);
+            Assert.Equal("  Keepers of the Flame  ", window.PendingCustomLeague);
+            Assert.Null(setting.EffectiveLeague);
+
+            window.SelectPendingLeague("Other");
+            Assert.True(window.ApplyPendingLeague());
+
+            Assert.Equal("Keepers of the Flame", setting.EffectiveLeague);
+            Assert.Equal(
+                "Keepers of the Flame",
+                new ApplicationLeagueSetting(setting.FilePath!).EffectiveLeague);
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void EmptyOtherLeague_IsRejectedWithoutPersistence()
+    {
+        RunOnSta(() =>
+        {
+            using var directory = new TemporaryDirectory();
+            var path = Path.Combine(directory.Path, "settings.json");
+            var setting = new ApplicationLeagueSetting(path);
+            var window = new MultitoolMenuWindow(setting);
+            window.SelectPendingLeague("Other");
+            window.SetPendingCustomLeague("   ");
+
+            Assert.False(window.ApplyPendingLeague());
+
+            Assert.Equal("Enter a league name before applying.", window.LeagueFeedback);
+            Assert.Null(setting.EffectiveLeague);
+            Assert.False(File.Exists(path));
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void SavedLeague_RestoresBuiltInCustomAndUnselectedStates()
+    {
+        RunOnSta(() =>
+        {
+            using var directory = new TemporaryDirectory();
+
+            var builtInPath = Path.Combine(directory.Path, "built-in.json");
+            var builtInSetting = new ApplicationLeagueSetting(builtInPath);
+            Assert.True(builtInSetting.TrySave("Hardcore"));
+            var builtInWindow = new MultitoolMenuWindow(new ApplicationLeagueSetting(builtInPath));
+            Assert.Equal("Hardcore", builtInWindow.PendingLeagueChoice);
+            Assert.False(builtInWindow.IsCustomLeagueEnabled);
+            builtInWindow.CloseForApplicationExit();
+
+            var customPath = Path.Combine(directory.Path, "custom.json");
+            var customSetting = new ApplicationLeagueSetting(customPath);
+            Assert.True(customSetting.TrySave("Legacy of Phrecia"));
+            var customWindow = new MultitoolMenuWindow(new ApplicationLeagueSetting(customPath));
+            Assert.Equal("Other", customWindow.PendingLeagueChoice);
+            Assert.True(customWindow.IsCustomLeagueEnabled);
+            Assert.Equal("Legacy of Phrecia", customWindow.PendingCustomLeague);
+            customWindow.CloseForApplicationExit();
+
+            var emptyWindow = new MultitoolMenuWindow(
+                new ApplicationLeagueSetting(Path.Combine(directory.Path, "missing.json")));
+            Assert.Equal("Select league", emptyWindow.PendingLeagueChoice);
+            Assert.False(emptyWindow.IsCustomLeagueEnabled);
+            emptyWindow.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void PendingLeagueChanges_DoNotChangeActiveLeagueBeforeApply()
+    {
+        RunOnSta(() =>
+        {
+            var setting = ApplicationLeagueSetting.CreateTransient("Standard");
+            var window = new MultitoolMenuWindow(setting);
+
+            window.SelectPendingLeague("Other");
+            window.SetPendingCustomLeague("Settlers");
+
+            Assert.Equal("Standard", setting.EffectiveLeague);
+            window.CloseForApplicationExit();
+        });
     }
 
     [Fact]
@@ -337,6 +492,27 @@ public sealed class MultitoolMenuShellTests
         public void RaiseExitRequested()
         {
             ExitRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"PoEnhance.MultitoolMenuShellTests.{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
         }
     }
 }

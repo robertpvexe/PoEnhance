@@ -1206,7 +1206,9 @@ Item Level: 80
                 validator,
                 foregroundWindowDetector,
                 deferredActionScheduler,
-                new PriceCheckerSearchController(priceCheckService));
+                new PriceCheckerSearchController(
+                    priceCheckService,
+                    global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage")));
 
             return new ControllerFixture(
                 tempDirectory,

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -10,11 +11,11 @@ namespace PoEnhance.App.Features.PriceChecking;
 
 internal sealed class PriceCheckerSearchController
 {
-    public const string DefaultLeagueIdentifier = "Mirage";
     private const int MaximumSafeProviderMessageLength = 160;
     private const int MaximumModifierTextLength = 120;
 
     private readonly IPathOfExileTradePriceCheckService priceCheckService;
+    private readonly ApplicationLeagueSetting leagueSetting;
     private readonly ITradeSearchDraftValidator draftValidator;
     private readonly IExternalUrlLauncher externalUrlLauncher;
     private readonly PathOfExileTradeSearchUrlBuilder tradeSearchUrlBuilder;
@@ -41,26 +42,29 @@ internal sealed class PriceCheckerSearchController
     private int? paginationProviderTotal;
     private bool? paginationInexact;
     private int visibleOfferCapacity = PathOfExileTradeEndpointBuilder.MaximumFetchResultIds;
-    private string leagueIdentifier;
     private int generation;
     private bool isLoading;
     private bool isLoadingMore;
 
     public PriceCheckerSearchController(
         IPathOfExileTradePriceCheckService priceCheckService,
+        ApplicationLeagueSetting leagueSetting,
         ITradeSearchDraftValidator? draftValidator = null,
         IExternalUrlLauncher? externalUrlLauncher = null,
         PathOfExileTradeSearchUrlBuilder? tradeSearchUrlBuilder = null)
     {
         this.priceCheckService = priceCheckService ?? throw new ArgumentNullException(nameof(priceCheckService));
+        this.leagueSetting = leagueSetting ?? throw new ArgumentNullException(nameof(leagueSetting));
         this.draftValidator = draftValidator ?? new CoreTradeSearchDraftValidatorAdapter();
         this.externalUrlLauncher = externalUrlLauncher ?? new SystemExternalUrlLauncher();
         this.tradeSearchUrlBuilder = tradeSearchUrlBuilder ?? new PathOfExileTradeSearchUrlBuilder();
-        leagueIdentifier = DefaultLeagueIdentifier;
+        leagueSetting.Changed += OnLeagueSettingChanged;
         CurrentViewState = CreateIdleOrValidationState();
     }
 
     public PriceCheckerSearchViewState CurrentViewState { get; private set; }
+
+    private string? LeagueIdentifier => leagueSetting.EffectiveLeague;
 
     public PriceCheckerDeveloperDiagnosticsSnapshot CurrentDeveloperDiagnostics { get; private set; } =
         PriceCheckerDeveloperDiagnosticsSnapshot.Idle;
@@ -251,7 +255,7 @@ internal sealed class PriceCheckerSearchController
 
         var draft = currentDraft;
         var validationResult = currentValidationResult;
-        var trimmedLeague = TrimLeague(leagueIdentifier);
+        var trimmedLeague = TrimLeague(LeagueIdentifier);
         if (draft is null || validationResult is null || trimmedLeague is null)
         {
             ApplyState(CreateIdleOrValidationState());
@@ -1149,7 +1153,7 @@ internal sealed class PriceCheckerSearchController
         return CreateLocalValidationState() ?? new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Idle,
-            LeagueIdentifier = leagueIdentifier,
+            LeagueIdentifier = LeagueIdentifier,
             CanSearch = true,
             Message = "Ready to search.",
             ItemProperties = CreateItemPropertyRows(),
@@ -1173,9 +1177,9 @@ internal sealed class PriceCheckerSearchController
 
     private PriceCheckerSearchViewState? CreateLocalValidationState()
     {
-        if (TrimLeague(leagueIdentifier) is null)
+        if (TrimLeague(LeagueIdentifier) is null)
         {
-            return ValidationState("League is required.");
+            return ValidationState("Select a league in Settings before searching.");
         }
 
         if (currentDraft is null || currentValidationResult is null)
@@ -1219,7 +1223,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.ValidationError,
-            LeagueIdentifier = leagueIdentifier,
+            LeagueIdentifier = LeagueIdentifier,
             CanSearch = false,
             Message = message,
             ItemProperties = CreateItemPropertyRows(),
@@ -1237,7 +1241,7 @@ internal sealed class PriceCheckerSearchController
             return new PriceCheckerSearchViewState
             {
                 Status = PriceCheckerSearchViewStatus.Cancelled,
-                LeagueIdentifier = leagueIdentifier,
+                LeagueIdentifier = LeagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = "Search cancelled.",
                 ItemProperties = CreateItemPropertyRows(effectiveDraft),
@@ -1255,7 +1259,7 @@ internal sealed class PriceCheckerSearchController
             return new PriceCheckerSearchViewState
             {
                 Status = status,
-                LeagueIdentifier = leagueIdentifier,
+                LeagueIdentifier = LeagueIdentifier,
                 CanSearch = CanStartSearch(),
                 Message = FailureMessage(result),
                 ItemProperties = CreateItemPropertyRows(effectiveDraft),
@@ -1269,7 +1273,7 @@ internal sealed class PriceCheckerSearchController
             return new PriceCheckerSearchViewState
             {
                 Status = PriceCheckerSearchViewStatus.ZeroResults,
-                LeagueIdentifier = leagueIdentifier,
+                LeagueIdentifier = LeagueIdentifier,
                 CanSearch = CanStartSearch(),
                 CanOpenTrade = successfulSearch is not null,
                 Message = "No offers found.",
@@ -1282,7 +1286,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Success,
-            LeagueIdentifier = leagueIdentifier,
+            LeagueIdentifier = LeagueIdentifier,
             CanSearch = CanStartSearch(),
             CanLoadMore = CanFetchMore(),
             CanOpenTrade = successfulSearch is not null,
@@ -1304,7 +1308,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = isLoading ? PriceCheckerSearchViewStatus.Loading : PriceCheckerSearchViewStatus.Success,
-            LeagueIdentifier = leagueIdentifier,
+            LeagueIdentifier = LeagueIdentifier,
             CanSearch = !isLoading && CanStartSearch(),
             CanLoadMore = canLoadMore ?? (!isLoading && CanFetchMore()),
             CanOpenTrade = successfulSearch is not null,
@@ -2386,6 +2390,14 @@ internal sealed class PriceCheckerSearchController
     private static string? TrimLeague(string? value)
     {
         return TrimToNull(value);
+    }
+
+    private void OnLeagueSettingChanged(object? sender, string effectiveLeague)
+    {
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        ApplyState(CreateIdleOrValidationState());
     }
 
     private static string? TrimToNull(string? value)

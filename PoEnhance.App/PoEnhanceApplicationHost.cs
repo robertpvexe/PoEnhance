@@ -68,7 +68,7 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         Action requestApplicationShutdown)
     {
         var developerWindow = new MainWindow(composition);
-        var multitoolMenuWindow = new MultitoolMenuWindow();
+        var multitoolMenuWindow = new MultitoolMenuWindow(composition.LeagueSetting);
         var statusTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1),

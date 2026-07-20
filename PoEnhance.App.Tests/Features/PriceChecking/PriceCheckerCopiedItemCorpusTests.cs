@@ -193,7 +193,9 @@ public sealed class PriceCheckerCopiedItemCorpusTests
         public static SearchFixture Create()
         {
             var window = new FakeWindow();
-            var controller = new PriceCheckerSearchController(new FakePriceCheckService());
+            var controller = new PriceCheckerSearchController(
+                new FakePriceCheckService(),
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
             controller.AttachWindow(window);
             return new SearchFixture(window, controller);
         }

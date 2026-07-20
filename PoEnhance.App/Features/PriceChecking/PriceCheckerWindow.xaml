@@ -1822,16 +1822,25 @@
                     <Grid Grid.Column="1"
                           Margin="10,0,8,0">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="LeagueStatusText"
+                                   VerticalAlignment="Center"
+                                   Foreground="#AFAFAF"
+                                   Text="League: Not selected"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" />
                         <TextBlock x:Name="SearchStatusText"
+                                   Grid.Column="1"
+                                   Margin="8,0,0,0"
                                    VerticalAlignment="Center"
                                    Foreground="#EEEEEE"
                                    TextTrimming="CharacterEllipsis"
                                    TextWrapping="NoWrap" />
                         <TextBlock x:Name="SearchSummaryText"
-                                   Grid.Column="1"
+                                   Grid.Column="2"
                                    Margin="8,0,0,0"
                                    VerticalAlignment="Center"
                                    Foreground="#CFCFCF"

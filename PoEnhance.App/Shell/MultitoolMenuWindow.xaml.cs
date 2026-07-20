@@ -2,9 +2,12 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using DrawingPoint = System.Drawing.Point;
 using FormsScreen = System.Windows.Forms.Screen;
@@ -17,15 +20,53 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private const uint MonitorDefaultToNearest = 2;
     private const double PreferredMinimumWidth = 1200d;
     private const double PreferredMinimumHeight = 680d;
-    private bool allowApplicationClose;
+    private const string SelectLeaguePlaceholder = "Select league";
+    private const string OtherLeagueChoice = "Other";
+    internal static IReadOnlyList<string> BuiltInLeagueChoices { get; } =
+    [
+        "Standard",
+        "Hardcore",
+        "Ruthless",
+        "Hardcore Ruthless",
+    ];
 
-    public MultitoolMenuWindow()
+    private readonly ApplicationLeagueSetting leagueSetting;
+    private bool allowApplicationClose;
+    private bool isRestoringLeagueSelection;
+
+    public MultitoolMenuWindow(ApplicationLeagueSetting leagueSetting)
     {
+        this.leagueSetting = leagueSetting ?? throw new ArgumentNullException(nameof(leagueSetting));
         InitializeComponent();
         VersionText.Text = $"Version {GetApplicationVersion()}";
+        RestoreLeagueSelection();
+        ShowStartView();
     }
 
     public event EventHandler? ExitRequested;
+
+    internal bool IsStartViewVisible => StartContent.Visibility == Visibility.Visible;
+
+    internal bool IsSettingsViewVisible => SettingsContent.Visibility == Visibility.Visible;
+
+    internal string? PendingLeagueChoice => SelectedLeagueChoice();
+
+    internal IReadOnlyList<string> LeagueChoices => LeagueComboBox.Items
+        .OfType<ComboBoxItem>()
+        .Select(item => item.Content as string)
+        .Where(choice => choice is not null && choice != SelectLeaguePlaceholder)
+        .Select(choice => choice!)
+        .ToArray();
+
+    internal string PendingCustomLeague => CustomLeagueTextBox.Text;
+
+    internal bool IsCustomLeagueEnabled => CustomLeagueTextBox.IsEnabled;
+
+    internal string LeagueFeedback => LeagueFeedbackText.Text;
+
+    internal bool IsStartNavigationActive => Equals(StartNavigationButton.Tag, "Active");
+
+    internal bool IsSettingsNavigationActive => Equals(SettingsNavigationButton.Tag, "Active");
 
     IntPtr IMultitoolMenuWindow.EnsureHandle()
     {
@@ -80,6 +121,72 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         HideForReuse();
     }
 
+    internal void ShowStartView()
+    {
+        StartContent.Visibility = Visibility.Visible;
+        SettingsContent.Visibility = Visibility.Collapsed;
+        StartNavigationButton.Tag = "Active";
+        SettingsNavigationButton.Tag = null;
+    }
+
+    internal void ShowSettingsView()
+    {
+        StartContent.Visibility = Visibility.Collapsed;
+        SettingsContent.Visibility = Visibility.Visible;
+        StartNavigationButton.Tag = null;
+        SettingsNavigationButton.Tag = "Active";
+    }
+
+    internal void SelectPendingLeague(string choice)
+    {
+        var item = LeagueComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.Content as string,
+                choice,
+                StringComparison.Ordinal));
+        if (item is null)
+        {
+            throw new ArgumentOutOfRangeException(nameof(choice));
+        }
+
+        LeagueComboBox.SelectedItem = item;
+    }
+
+    internal void SetPendingCustomLeague(string value)
+    {
+        CustomLeagueTextBox.Text = value;
+    }
+
+    internal bool ApplyPendingLeague()
+    {
+        var selectedChoice = SelectedLeagueChoice();
+        if (selectedChoice is null || selectedChoice == SelectLeaguePlaceholder)
+        {
+            ShowLeagueError("Select a league before applying.");
+            return false;
+        }
+
+        var effectiveLeague = selectedChoice == OtherLeagueChoice
+            ? CustomLeagueTextBox.Text.Trim()
+            : selectedChoice;
+        if (string.IsNullOrWhiteSpace(effectiveLeague))
+        {
+            ShowLeagueError("Enter a league name before applying.");
+            return false;
+        }
+
+        if (!leagueSetting.TrySave(effectiveLeague))
+        {
+            ShowLeagueError("League could not be saved. Try again.");
+            return false;
+        }
+
+        LeagueFeedbackText.Text = "League saved successfully.";
+        LeagueFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(99, 212, 113));
+        return true;
+    }
+
     internal void CloseForApplicationExit()
     {
         allowApplicationClose = true;
@@ -127,6 +234,79 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private void ExitButton_OnClick(object sender, RoutedEventArgs e)
     {
         ExitRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void StartNavigationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowStartView();
+    }
+
+    private void SettingsNavigationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowSettingsView();
+    }
+
+    private void LeagueComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        CustomLeagueTextBox.IsEnabled = SelectedLeagueChoice() == OtherLeagueChoice;
+        ClearLeagueFeedback();
+    }
+
+    private void CustomLeagueTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        ClearLeagueFeedback();
+    }
+
+    private void ApplyLeagueButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = ApplyPendingLeague();
+    }
+
+    private void RestoreLeagueSelection()
+    {
+        isRestoringLeagueSelection = true;
+        try
+        {
+            var effectiveLeague = leagueSetting.EffectiveLeague;
+            if (effectiveLeague is null)
+            {
+                SelectPendingLeague(SelectLeaguePlaceholder);
+                return;
+            }
+
+            if (BuiltInLeagueChoices.Contains(effectiveLeague, StringComparer.Ordinal))
+            {
+                SelectPendingLeague(effectiveLeague);
+                return;
+            }
+
+            SelectPendingLeague(OtherLeagueChoice);
+            CustomLeagueTextBox.Text = effectiveLeague;
+        }
+        finally
+        {
+            isRestoringLeagueSelection = false;
+            ClearLeagueFeedback();
+        }
+    }
+
+    private string? SelectedLeagueChoice()
+    {
+        return (LeagueComboBox.SelectedItem as ComboBoxItem)?.Content as string;
+    }
+
+    private void ClearLeagueFeedback()
+    {
+        if (!isRestoringLeagueSelection)
+        {
+            LeagueFeedbackText.Text = string.Empty;
+        }
+    }
+
+    private void ShowLeagueError(string message)
+    {
+        LeagueFeedbackText.Text = message;
+        LeagueFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 107));
     }
 
     private void HideForReuse()

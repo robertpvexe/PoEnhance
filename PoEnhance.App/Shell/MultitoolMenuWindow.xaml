@@ -46,6 +46,10 @@
                                 <Setter Property="Opacity" Value="0.48" />
                                 <Setter Property="Cursor" Value="Arrow" />
                             </Trigger>
+                            <Trigger Property="Tag" Value="Active">
+                                <Setter TargetName="Border" Property="Background" Value="#342A50" />
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#8D67F5" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -115,8 +119,23 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Border Grid.Row="1"
+                <Button x:Name="StartNavigationButton"
+                        Grid.Row="1"
                         Margin="0,24,0,0"
+                        Style="{StaticResource SidebarButtonStyle}"
+                        Tag="Active"
+                        Click="StartNavigationButton_OnClick">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Width="28"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="16"
+                                   Text="&#xE80F;" />
+                        <TextBlock Text="Start" />
+                    </StackPanel>
+                </Button>
+
+                <Border Grid.Row="2"
+                        Margin="0,14,0,0"
                         Padding="12"
                         Background="#1C202B"
                         BorderBrush="#2B3140"
@@ -135,20 +154,16 @@
                     </StackPanel>
                 </Border>
 
-                <Button Grid.Row="4"
+                <Button x:Name="SettingsNavigationButton"
+                        Grid.Row="4"
                         Style="{StaticResource SidebarButtonStyle}"
-                        IsEnabled="False"
-                        ToolTip="Coming later">
+                        Click="SettingsNavigationButton_OnClick">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Width="28"
                                    FontFamily="Segoe MDL2 Assets"
                                    FontSize="16"
                                    Text="&#xE713;" />
                         <TextBlock Text="Settings" />
-                        <TextBlock Margin="8,0,0,0"
-                                   Foreground="#929AAD"
-                                   FontSize="10"
-                                   Text="COMING LATER" />
                     </StackPanel>
                 </Button>
 
@@ -166,7 +181,8 @@
             </Grid>
         </Border>
 
-        <ScrollViewer Grid.Column="1"
+        <ScrollViewer x:Name="StartContent"
+                      Grid.Column="1"
                       Padding="28,24,16,24"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
@@ -293,6 +309,116 @@
                         </StackPanel>
                     </Border>
                 </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <ScrollViewer x:Name="SettingsContent"
+                      Grid.Column="1"
+                      Padding="28,24,28,24"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock FontSize="26"
+                           FontWeight="Bold"
+                           Text="Settings" />
+                <TextBlock Margin="0,5,0,20"
+                           Foreground="#969FB2"
+                           FontSize="13"
+                           Text="Configure PoEnhance application behavior." />
+
+                <Border MaxWidth="760"
+                        Padding="24"
+                        HorizontalAlignment="Left"
+                        Background="#181B25"
+                        BorderBrush="#2A2F3F"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <TextBlock FontSize="20"
+                                   FontWeight="SemiBold"
+                                   Text="Game" />
+
+                        <Grid Margin="0,22,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="280" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0"
+                                       Grid.Column="0"
+                                       VerticalAlignment="Center"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="League" />
+
+                            <ComboBox x:Name="LeagueComboBox"
+                                      Grid.Row="0"
+                                      Grid.Column="1"
+                                      Width="260"
+                                      Height="36"
+                                      HorizontalAlignment="Left"
+                                      Padding="8,4"
+                                      Background="#242836"
+                                      BorderBrush="#3B4255"
+                                      Foreground="#F4F4F6"
+                                      SelectionChanged="LeagueComboBox_OnSelectionChanged">
+                                <ComboBoxItem Content="Select league" IsEnabled="False" />
+                                <ComboBoxItem Content="Standard" />
+                                <ComboBoxItem Content="Hardcore" />
+                                <ComboBoxItem Content="Ruthless" />
+                                <ComboBoxItem Content="Hardcore Ruthless" />
+                                <ComboBoxItem Content="Other" />
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="1"
+                                       Grid.Column="0"
+                                       Margin="0,16,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#C7CBD5"
+                                       Text="Custom league" />
+
+                            <TextBox x:Name="CustomLeagueTextBox"
+                                     Grid.Row="1"
+                                     Grid.Column="1"
+                                     Width="260"
+                                     Height="36"
+                                     Margin="0,16,0,0"
+                                     Padding="9,6"
+                                     HorizontalAlignment="Left"
+                                     VerticalContentAlignment="Center"
+                                     IsEnabled="False"
+                                     Background="#242836"
+                                     BorderBrush="#3B4255"
+                                     Foreground="#F4F4F6"
+                                     TextChanged="CustomLeagueTextBox_OnTextChanged" />
+
+                            <Button Grid.Row="2"
+                                    Grid.Column="1"
+                                    Width="96"
+                                    Height="38"
+                                    Margin="0,20,0,0"
+                                    HorizontalAlignment="Left"
+                                    Click="ApplyLeagueButton_OnClick"
+                                    Content="Apply" />
+
+                            <TextBlock x:Name="LeagueFeedbackText"
+                                       Grid.Row="2"
+                                       Grid.Column="2"
+                                       Margin="16,20,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

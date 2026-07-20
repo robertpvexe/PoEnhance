@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -785,11 +786,62 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void AttachWindow_CleanProfileDefaultsLeagueToMirage()
+    public void AttachWindow_UsesConfiguredGlobalLeague()
     {
         var fixture = SearchFixture.Create();
 
         Assert.Equal("Mirage", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+    }
+
+    [Fact]
+    public async Task NoSelectedLeague_BlocksSearchBeforePriceCheckServiceRequest()
+    {
+        var fixture = SearchFixture.Create(leagueIdentifier: null);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.False(fixture.Window.CurrentSearchState?.CanSearch);
+        Assert.Equal(
+            "Select a league in Settings before searching.",
+            fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public async Task PersistedGlobalLeague_IsUsedForPriceCheckRequest()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var savedSetting = new ApplicationLeagueSetting(path);
+        Assert.True(savedSetting.TrySave("Hardcore Ruthless"));
+        var fixture = SearchFixture.Create(new ApplicationLeagueSetting(path));
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(
+            "Hardcore Ruthless",
+            Assert.Single(fixture.PriceCheckService.Calls).LeagueIdentifier);
+    }
+
+    [Fact]
+    public async Task ApplyingNewGlobalLeague_InvalidatesResultsWithoutAutomaticSearch()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+        await fixture.Controller.SearchAsync();
+        Assert.True(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        Assert.True(fixture.LeagueSetting.TrySave("Hardcore"));
+
+        Assert.Equal("Hardcore", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
+        Assert.False(fixture.Window.CurrentSearchState?.CanOpenTrade);
+        Assert.False(fixture.Window.CurrentSearchState?.CanLoadMore);
+        Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.Single(fixture.PriceCheckService.Calls);
     }
 
     [Fact]
@@ -3931,17 +3983,40 @@ public sealed class PriceCheckerSearchControllerTests
         TradeSearchDraft Draft,
         CancellationToken CancellationToken);
 
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"PoEnhance.PriceCheckerSearchControllerTests.{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+    }
+
     private sealed class SearchFixture
     {
         private SearchFixture(
             FakeWindow window,
             FakePriceCheckService priceCheckService,
             FakeExternalUrlLauncher externalUrlLauncher,
+            ApplicationLeagueSetting leagueSetting,
             PriceCheckerSearchController controller)
         {
             Window = window;
             PriceCheckService = priceCheckService;
             ExternalUrlLauncher = externalUrlLauncher;
+            LeagueSetting = leagueSetting;
             Controller = controller;
         }
 
@@ -3951,9 +4026,16 @@ public sealed class PriceCheckerSearchControllerTests
 
         public FakeExternalUrlLauncher ExternalUrlLauncher { get; }
 
+        public ApplicationLeagueSetting LeagueSetting { get; }
+
         public PriceCheckerSearchController Controller { get; }
 
-        public static SearchFixture Create()
+        public static SearchFixture Create(string? leagueIdentifier = "Mirage")
+        {
+            return Create(ApplicationLeagueSetting.CreateTransient(leagueIdentifier));
+        }
+
+        public static SearchFixture Create(ApplicationLeagueSetting leagueSetting)
         {
             var window = new FakeWindow
             {
@@ -3963,9 +4045,15 @@ public sealed class PriceCheckerSearchControllerTests
             var externalUrlLauncher = new FakeExternalUrlLauncher();
             var controller = new PriceCheckerSearchController(
                 priceCheckService,
+                leagueSetting,
                 externalUrlLauncher: externalUrlLauncher);
             controller.AttachWindow(window);
-            return new SearchFixture(window, priceCheckService, externalUrlLauncher, controller);
+            return new SearchFixture(
+                window,
+                priceCheckService,
+                externalUrlLauncher,
+                leagueSetting,
+                controller);
         }
     }
 

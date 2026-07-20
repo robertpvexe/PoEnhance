@@ -1,11 +1,25 @@
 using System.Reflection;
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 namespace PoEnhance.App.Tests;
 
 public sealed class PoEnhanceApplicationCompositionTests
 {
+    [Fact]
+    public void CreateDefault_SharesOneLeagueSettingWithPriceChecker()
+    {
+        using var composition = PoEnhanceApplicationComposition.CreateDefault();
+        var searchController = PrivateField<PriceCheckerSearchController>(
+            composition.PriceCheckerWindowController,
+            "searchController");
+
+        Assert.Same(
+            composition.LeagueSetting,
+            PrivateField<ApplicationLeagueSetting>(searchController, "leagueSetting"));
+    }
+
     [Fact]
     public void CreateDefault_UsesOneSharedHttpClientForTradeClients()
     {

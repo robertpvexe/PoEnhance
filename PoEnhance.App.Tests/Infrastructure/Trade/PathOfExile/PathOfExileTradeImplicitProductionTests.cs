@@ -647,7 +647,9 @@ Item Level: 84
                 new FakeFetchClient(),
                 new FakeFilterCatalogProvider(FilterCatalog()));
             var window = new FakeWindow();
-            var controller = new PriceCheckerSearchController(service);
+            var controller = new PriceCheckerSearchController(
+                service,
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
             controller.AttachWindow(window);
             return new Fixture(statCatalog, window, searchClient, controller);
         }

@@ -1117,7 +1117,9 @@ Item Level: 84
             var tempDirectory = TempDirectory.Create();
             var windowFactory = new FakeWindowFactory();
             var priceCheckService = new FakePriceCheckService();
-            var searchController = new PriceCheckerSearchController(priceCheckService);
+            var searchController = new PriceCheckerSearchController(
+                priceCheckService,
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
             var controller = new PriceCheckerWindowController(
                 new FakeBoundsProvider(),
                 new PriceCheckerPlacementCalculator(),

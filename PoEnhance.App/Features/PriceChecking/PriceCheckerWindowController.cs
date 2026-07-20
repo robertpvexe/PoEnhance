@@ -1,4 +1,5 @@
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -34,7 +35,8 @@ internal sealed class PriceCheckerWindowController
 
     public PriceCheckerWindowController(
         IPriceCheckerWindowFactory windowFactory,
-        IPathOfExileTradePriceCheckService priceCheckService)
+        IPathOfExileTradePriceCheckService priceCheckService,
+        ApplicationLeagueSetting leagueSetting)
         : this(
             new PathOfExileClientBoundsProvider(),
             new PriceCheckerPlacementCalculator(),
@@ -45,7 +47,7 @@ internal sealed class PriceCheckerWindowController
             new CoreTradeSearchDraftValidatorAdapter(),
             new PathOfExileForegroundWindowDetector(),
             new WpfPriceCheckerDeferredActionScheduler(),
-            new PriceCheckerSearchController(priceCheckService),
+            new PriceCheckerSearchController(priceCheckService, leagueSetting),
             PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild())
     {
     }

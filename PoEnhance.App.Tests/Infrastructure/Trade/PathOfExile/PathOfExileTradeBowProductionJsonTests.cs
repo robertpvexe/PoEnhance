@@ -273,7 +273,9 @@ public sealed class PathOfExileTradeBowProductionJsonTests
                 new FakeFetchClient(),
                 new FakeFilterCatalogProvider(BowFilterCatalog()));
             var window = new FakeWindow();
-            var controller = new PriceCheckerSearchController(service);
+            var controller = new PriceCheckerSearchController(
+                service,
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
             controller.AttachWindow(window);
 
             return new ProductionTradeFixture(

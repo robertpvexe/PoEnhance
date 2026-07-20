@@ -216,6 +216,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ? Visibility.Visible
             : Visibility.Hidden;
         TradeButton.IsEnabled = state.CanOpenTrade;
+        LeagueStatusText.Text = string.IsNullOrWhiteSpace(state.LeagueIdentifier)
+            ? "League: Not selected"
+            : $"League: {state.LeagueIdentifier}";
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
         StatsCountText.Text = FormatStatsCount(state.SelectedStatsCount, state.StatsCount);
