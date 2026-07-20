@@ -328,7 +328,9 @@ public sealed class MultitoolMenuShellTests
             "PoEnhance.App",
             "Shell",
             "MultitoolMenuWindow.xaml.cs");
-        var moduleGrid = menuXaml[menuXaml.IndexOf("<Grid x:Name=\"ModuleGrid\">", StringComparison.Ordinal)..];
+        var moduleGridStart = menuXaml.IndexOf("<Grid x:Name=\"ModuleGrid\">", StringComparison.Ordinal);
+        var moduleGridEnd = menuXaml.IndexOf("<ScrollViewer x:Name=\"SettingsContent\"", StringComparison.Ordinal);
+        var moduleGrid = menuXaml[moduleGridStart..moduleGridEnd];
 
         Assert.Contains("Width=\"1500\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("Height=\"820\"", menuXaml, StringComparison.Ordinal);

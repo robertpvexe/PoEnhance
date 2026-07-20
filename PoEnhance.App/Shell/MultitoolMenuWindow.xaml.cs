@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -31,19 +32,26 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     ];
 
     private readonly ApplicationLeagueSetting leagueSetting;
+    private readonly ObservableCollection<QuickUseCommandRow> quickUseRows = [];
     private bool allowApplicationClose;
     private bool isRestoringLeagueSelection;
+    private QuickUseCommandRow? capturingQuickUseRow;
+    private ShortcutBinding? hotkeyBeforeCapture;
 
     public MultitoolMenuWindow(ApplicationLeagueSetting leagueSetting)
     {
         this.leagueSetting = leagueSetting ?? throw new ArgumentNullException(nameof(leagueSetting));
         InitializeComponent();
+        QuickUseCommandsItemsControl.ItemsSource = quickUseRows;
         VersionText.Text = $"Version {GetApplicationVersion()}";
         RestoreLeagueSelection();
+        RestoreQuickUseCommands();
         ShowStartView();
     }
 
     public event EventHandler? ExitRequested;
+
+    internal event EventHandler<bool>? HotkeyCaptureStateChanged;
 
     internal bool IsStartViewVisible => StartContent.Visibility == Visibility.Visible;
 
@@ -67,6 +75,11 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     internal bool IsStartNavigationActive => Equals(StartNavigationButton.Tag, "Active");
 
     internal bool IsSettingsNavigationActive => Equals(SettingsNavigationButton.Tag, "Active");
+
+    internal IReadOnlyList<QuickUseCommandSetting> PendingQuickUseCommands =>
+        quickUseRows.Select(row => row.ToSetting()).ToArray();
+
+    internal string QuickUseFeedback => QuickUseFeedbackText.Text;
 
     IntPtr IMultitoolMenuWindow.EnsureHandle()
     {
@@ -123,6 +136,7 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
 
     internal void ShowStartView()
     {
+        CancelHotkeyCapture();
         StartContent.Visibility = Visibility.Visible;
         SettingsContent.Visibility = Visibility.Collapsed;
         StartNavigationButton.Tag = "Active";
@@ -187,6 +201,112 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         return true;
     }
 
+    internal void AddPendingQuickUseCommand()
+    {
+        quickUseRows.Add(new QuickUseCommandRow(
+            new QuickUseCommandSetting(string.Empty, true, null, true)));
+        ClearQuickUseFeedback();
+    }
+
+    internal bool RemovePendingQuickUseCommand(int index)
+    {
+        if (index < 0 || index >= quickUseRows.Count || !quickUseRows[index].IsCustom)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(capturingQuickUseRow, quickUseRows[index]))
+        {
+            CancelHotkeyCapture();
+        }
+
+        quickUseRows.RemoveAt(index);
+        ClearQuickUseFeedback();
+        return true;
+    }
+
+    internal void BeginHotkeyCapture(int index)
+    {
+        if (index < 0 || index >= quickUseRows.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        CancelHotkeyCapture();
+        capturingQuickUseRow = quickUseRows[index];
+        hotkeyBeforeCapture = capturingQuickUseRow.Hotkey;
+        capturingQuickUseRow.IsCapturing = true;
+        HotkeyCaptureStateChanged?.Invoke(this, true);
+        ClearQuickUseFeedback();
+    }
+
+    internal bool CapturePendingHotkey(Key key, ModifierKeys modifiers)
+    {
+        if (capturingQuickUseRow is null)
+        {
+            return false;
+        }
+
+        if (key == Key.Escape)
+        {
+            CancelHotkeyCapture();
+            return true;
+        }
+
+        if (key == Key.Back)
+        {
+            capturingQuickUseRow.Hotkey = null;
+            FinishHotkeyCapture();
+            ClearQuickUseFeedback();
+            return true;
+        }
+
+        if (IsModifierKey(key))
+        {
+            ShowQuickUseError("Press a non-modifier key with optional Ctrl, Alt, or Shift.");
+            return false;
+        }
+
+        if ((modifiers & ModifierKeys.Windows) != 0 ||
+            !TryCreateShortcutBinding(key, modifiers, out var binding))
+        {
+            ShowQuickUseError("That key cannot be used for a Quick Use hotkey.");
+            return false;
+        }
+
+        var pending = quickUseRows
+            .Select(row => ReferenceEquals(row, capturingQuickUseRow)
+                ? row.ToSetting() with { Hotkey = binding }
+                : row.ToSetting())
+            .ToArray();
+        if (!QuickUseSettingsValidator.TryValidate(pending, out var validationError))
+        {
+            ShowQuickUseError(validationError);
+            return false;
+        }
+
+        capturingQuickUseRow.Hotkey = binding;
+        FinishHotkeyCapture();
+        ClearQuickUseFeedback();
+        return true;
+    }
+
+    internal bool SavePendingQuickUseCommands()
+    {
+        FinishHotkeyCapture();
+        var pending = quickUseRows.Select(row => row.ToSetting()).ToArray();
+        if (!leagueSetting.TrySaveQuickUseCommands(pending, out var validationError))
+        {
+            ShowQuickUseError(validationError);
+            return false;
+        }
+
+        RestoreQuickUseCommands();
+        QuickUseFeedbackText.Text = "Quick Use settings saved.";
+        QuickUseFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(99, 212, 113));
+        return true;
+    }
+
     internal void CloseForApplicationExit()
     {
         allowApplicationClose = true;
@@ -195,6 +315,14 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (capturingQuickUseRow is not null)
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            _ = CapturePendingHotkey(key, Keyboard.Modifiers);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             e.Handled = true;
@@ -262,6 +390,42 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         _ = ApplyPendingLeague();
     }
 
+    private void AddQuickUseCommandButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        AddPendingQuickUseCommand();
+    }
+
+    private void RemoveQuickUseCommandButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: QuickUseCommandRow row })
+        {
+            _ = RemovePendingQuickUseCommand(quickUseRows.IndexOf(row));
+        }
+    }
+
+    private void QuickUseHotkeyButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: QuickUseCommandRow row })
+        {
+            BeginHotkeyCapture(quickUseRows.IndexOf(row));
+        }
+    }
+
+    private void QuickUsePendingValue_OnChanged(object sender, RoutedEventArgs e)
+    {
+        ClearQuickUseFeedback();
+    }
+
+    private void QuickUseCommandTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        ClearQuickUseFeedback();
+    }
+
+    private void SaveQuickUseButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = SavePendingQuickUseCommands();
+    }
+
     private void RestoreLeagueSelection()
     {
         isRestoringLeagueSelection = true;
@@ -290,6 +454,16 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         }
     }
 
+    private void RestoreQuickUseCommands()
+    {
+        CancelHotkeyCapture();
+        quickUseRows.Clear();
+        foreach (var command in leagueSetting.QuickUseCommands)
+        {
+            quickUseRows.Add(new QuickUseCommandRow(command));
+        }
+    }
+
     private string? SelectedLeagueChoice()
     {
         return (LeagueComboBox.SelectedItem as ComboBoxItem)?.Content as string;
@@ -309,8 +483,85 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         LeagueFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 107));
     }
 
+    private void ClearQuickUseFeedback()
+    {
+        if (QuickUseFeedbackText is not null)
+        {
+            QuickUseFeedbackText.Text = string.Empty;
+        }
+    }
+
+    private void ShowQuickUseError(string message)
+    {
+        QuickUseFeedbackText.Text = message;
+        QuickUseFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 107));
+    }
+
+    private void CancelHotkeyCapture()
+    {
+        if (capturingQuickUseRow is null)
+        {
+            return;
+        }
+
+        capturingQuickUseRow.Hotkey = hotkeyBeforeCapture;
+        FinishHotkeyCapture();
+    }
+
+    private void FinishHotkeyCapture()
+    {
+        if (capturingQuickUseRow is null)
+        {
+            return;
+        }
+
+        capturingQuickUseRow.IsCapturing = false;
+        capturingQuickUseRow = null;
+        hotkeyBeforeCapture = null;
+        HotkeyCaptureStateChanged?.Invoke(this, false);
+    }
+
+    private static bool TryCreateShortcutBinding(
+        Key key,
+        ModifierKeys modifiers,
+        out ShortcutBinding binding)
+    {
+        var virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (!Enum.IsDefined(typeof(ShortcutKey), virtualKey))
+        {
+            binding = null!;
+            return false;
+        }
+
+        var shortcutModifiers = ShortcutModifiers.None;
+        if (modifiers.HasFlag(ModifierKeys.Control))
+        {
+            shortcutModifiers |= ShortcutModifiers.Control;
+        }
+
+        if (modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            shortcutModifiers |= ShortcutModifiers.Alt;
+        }
+
+        if (modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            shortcutModifiers |= ShortcutModifiers.Shift;
+        }
+
+        binding = new ShortcutBinding((ShortcutKey)virtualKey, shortcutModifiers);
+        return true;
+    }
+
+    private static bool IsModifierKey(Key key)
+    {
+        return key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin;
+    }
+
     private void HideForReuse()
     {
+        CancelHotkeyCapture();
         Hide();
         ShowInTaskbar = false;
     }

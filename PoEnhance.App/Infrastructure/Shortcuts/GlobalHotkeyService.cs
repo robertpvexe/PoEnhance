@@ -10,16 +10,20 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
     internal const int PriceCheckerHotkeyId = 0x5045;
     internal const int DeveloperWindowHotkeyId = 0x5046;
     internal const int MultitoolMenuHotkeyId = 0x5047;
-    private const int WmHotkey = 0x0312;
+    internal const int FirstQuickUseHotkeyId = 0x5100;
+    internal const int WmHotkey = 0x0312;
     private const uint ModNoRepeat = 0x4000;
 
     private readonly int hotkeyId;
     private readonly bool requiresPathOfExileForeground;
+    private readonly Func<IntPtr, int, uint, uint, bool> registerHotKey;
+    private readonly Func<IntPtr, int, bool> unregisterHotKey;
     private HwndSource? hwndSource;
     private IntPtr windowHandle;
     private bool isDisposed;
     private bool isPathOfExileForeground;
     private bool isRegistered;
+    private bool isSuspended;
 
     public event EventHandler? Triggered;
 
@@ -29,9 +33,24 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
     }
 
     internal GlobalHotkeyService(int hotkeyId, bool requiresPathOfExileForeground)
+        : this(
+            hotkeyId,
+            requiresPathOfExileForeground,
+            RegisterHotKeyNative,
+            UnregisterHotKeyNative)
+    {
+    }
+
+    internal GlobalHotkeyService(
+        int hotkeyId,
+        bool requiresPathOfExileForeground,
+        Func<IntPtr, int, uint, uint, bool> registerHotKey,
+        Func<IntPtr, int, bool> unregisterHotKey)
     {
         this.hotkeyId = hotkeyId;
         this.requiresPathOfExileForeground = requiresPathOfExileForeground;
+        this.registerHotKey = registerHotKey ?? throw new ArgumentNullException(nameof(registerHotKey));
+        this.unregisterHotKey = unregisterHotKey ?? throw new ArgumentNullException(nameof(unregisterHotKey));
     }
 
     public static GlobalHotkeyService CreateDeveloperWindowService()
@@ -52,6 +71,19 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
         return service;
     }
 
+    public static GlobalHotkeyService CreateQuickUseService(
+        int commandIndex,
+        ShortcutBinding shortcut)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(commandIndex);
+        ArgumentNullException.ThrowIfNull(shortcut);
+        var service = new GlobalHotkeyService(
+            FirstQuickUseHotkeyId + commandIndex,
+            requiresPathOfExileForeground: true);
+        service.SetShortcut(shortcut);
+        return service;
+    }
+
     public ShortcutBinding SelectedShortcut { get; private set; } = ShortcutBinding.DefaultPriceChecker;
 
     public ShortcutRegistrationState RegistrationState { get; private set; }
@@ -60,6 +92,10 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
     public bool RequiresPathOfExileForeground => requiresPathOfExileForeground;
 
     public bool SuppressesKeyRepeat => true;
+
+    internal int HotkeyId => hotkeyId;
+
+    internal int LastRegistrationErrorCode { get; private set; }
 
     public void Attach(Window window)
     {
@@ -87,6 +123,18 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
 
         UnregisterHotkey();
         SelectedShortcut = shortcut;
+        UpdateRegistrationForForegroundState();
+    }
+
+    public void SetSuspended(bool suspended)
+    {
+        ObjectDisposedException.ThrowIf(isDisposed, this);
+        if (isSuspended == suspended)
+        {
+            return;
+        }
+
+        isSuspended = suspended;
         UpdateRegistrationForForegroundState();
     }
 
@@ -129,6 +177,13 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
             return;
         }
 
+        if (isSuspended)
+        {
+            UnregisterHotkey();
+            RegistrationState = ShortcutRegistrationState.NotAttached;
+            return;
+        }
+
         if (requiresPathOfExileForeground && !isPathOfExileForeground)
         {
             UnregisterHotkey();
@@ -154,19 +209,31 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
         }
 
         var modifiers = ModNoRepeat | (uint)SelectedShortcut.Modifiers;
-        if (RegisterHotKey(windowHandle, hotkeyId, modifiers, (uint)SelectedShortcut.PrimaryKey))
+        Log.Information(
+            "Hotkey registration attempted. HotkeyId={HotkeyId}; Shortcut={Shortcut}",
+            hotkeyId,
+            SelectedShortcut);
+        if (registerHotKey(windowHandle, hotkeyId, modifiers, (uint)SelectedShortcut.PrimaryKey))
         {
             isRegistered = true;
+            LastRegistrationErrorCode = 0;
             RegistrationState = ShortcutRegistrationState.Active;
+            Log.Information(
+                "Hotkey registration succeeded. HotkeyId={HotkeyId}; Shortcut={Shortcut}",
+                hotkeyId,
+                SelectedShortcut);
             return;
         }
 
         int errorCode = Marshal.GetLastWin32Error();
+        LastRegistrationErrorCode = errorCode;
         RegistrationState = ShortcutRegistrationState.RegistrationFailed;
         Log.Warning(
-            "Shortcut registration failed for {ShortcutKey}. Win32 error: {Win32ErrorCode}",
+            "Hotkey registration failed. HotkeyId={HotkeyId}; Shortcut={Shortcut}; Win32Error={Win32ErrorCode}; Reason={FailureReason}",
+            hotkeyId,
             SelectedShortcut,
-            errorCode);
+            errorCode,
+            errorCode == 1409 ? "AlreadyRegistered" : "Win32Error");
     }
 
     private void UnregisterHotkey()
@@ -176,10 +243,21 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
             return;
         }
 
-        if (!UnregisterHotKey(windowHandle, hotkeyId))
+        if (!unregisterHotKey(windowHandle, hotkeyId))
         {
             int errorCode = Marshal.GetLastWin32Error();
-            Log.Warning("Shortcut unregistration failed. Win32 error: {Win32ErrorCode}", errorCode);
+            Log.Warning(
+                "Hotkey unregistration failed. HotkeyId={HotkeyId}; Shortcut={Shortcut}; Win32Error={Win32ErrorCode}",
+                hotkeyId,
+                SelectedShortcut,
+                errorCode);
+        }
+        else
+        {
+            Log.Information(
+                "Hotkey unregistration succeeded. HotkeyId={HotkeyId}; Shortcut={Shortcut}",
+                hotkeyId,
+                SelectedShortcut);
         }
 
         isRegistered = false;
@@ -187,18 +265,32 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
 
     private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (message == WmHotkey && wParam.ToInt32() == hotkeyId)
+        if (TryDispatchWindowMessage(message, wParam.ToInt32()))
         {
             handled = true;
-            Triggered?.Invoke(this, EventArgs.Empty);
         }
 
         return IntPtr.Zero;
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+    internal bool TryDispatchWindowMessage(int message, int receivedHotkeyId)
+    {
+        if (message != WmHotkey || receivedHotkeyId != hotkeyId)
+        {
+            return false;
+        }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        Log.Information(
+            "WM_HOTKEY received. HotkeyId={HotkeyId}; Shortcut={Shortcut}",
+            hotkeyId,
+            SelectedShortcut);
+        Triggered?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "RegisterHotKey", SetLastError = true)]
+    private static extern bool RegisterHotKeyNative(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", EntryPoint = "UnregisterHotKey", SetLastError = true)]
+    private static extern bool UnregisterHotKeyNative(IntPtr hWnd, int id);
 }

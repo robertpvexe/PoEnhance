@@ -50,8 +50,34 @@ internal sealed record ShortcutBinding(ShortcutKey PrimaryKey, ShortcutModifiers
             parts.Add("Win");
         }
 
-        parts.Add(PrimaryKey == ShortcutKey.OemBackslash ? "\\" : PrimaryKey.ToString());
+        parts.Add(PrimaryKeyLabel());
 
         return string.Join(" + ", parts);
+    }
+
+    public string ToCompactString()
+    {
+        return ToString().Replace(" + ", "+", StringComparison.Ordinal);
+    }
+
+    private string PrimaryKeyLabel()
+    {
+        return PrimaryKey switch
+        {
+            >= ShortcutKey.D0 and <= ShortcutKey.D9 =>
+                ((int)PrimaryKey - (int)ShortcutKey.D0).ToString(),
+            ShortcutKey.OemBackslash => "\\",
+            ShortcutKey.OemSemicolon => ";",
+            ShortcutKey.OemPlus => "+",
+            ShortcutKey.OemComma => ",",
+            ShortcutKey.OemMinus => "-",
+            ShortcutKey.OemPeriod => ".",
+            ShortcutKey.OemQuestion => "/",
+            ShortcutKey.OemTilde => "`",
+            ShortcutKey.OemOpenBrackets => "[",
+            ShortcutKey.OemCloseBrackets => "]",
+            ShortcutKey.OemQuotes => "'",
+            _ => PrimaryKey.ToString(),
+        };
     }
 }

@@ -18,5 +18,7 @@ internal interface IGlobalHotkeyService : IDisposable
 
     void SetShortcut(ShortcutBinding shortcut);
 
+    void SetSuspended(bool isSuspended);
+
     void UpdatePathOfExileForegroundState(bool isForeground);
 }

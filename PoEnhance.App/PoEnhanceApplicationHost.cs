@@ -1,5 +1,7 @@
 using System.Windows.Threading;
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Features.QuickUse;
+using PoEnhance.App.Infrastructure.Input;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -14,10 +16,12 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     private readonly SingleInstanceGuard singleInstanceGuard;
     private readonly MainWindow developerWindow;
     private readonly DeveloperWindowController developerWindowController;
+    private readonly MultitoolMenuWindow multitoolMenuWindow;
     private readonly MultitoolMenuWindowController multitoolMenuWindowController;
     private readonly IGlobalHotkeyService priceCheckerHotkeyService;
     private readonly IGlobalHotkeyService developerWindowHotkeyService;
     private readonly IGlobalHotkeyService multitoolMenuHotkeyService;
+    private readonly QuickUseHotkeyRuntime quickUseHotkeyRuntime;
     private readonly IPoEnhanceTrayIcon trayIcon;
     private readonly IPathOfExileProcessDetector processDetector;
     private readonly IPathOfExileForegroundWindowDetector foregroundWindowDetector;
@@ -35,10 +39,12 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         SingleInstanceGuard singleInstanceGuard,
         MainWindow developerWindow,
         DeveloperWindowController developerWindowController,
+        MultitoolMenuWindow multitoolMenuWindow,
         MultitoolMenuWindowController multitoolMenuWindowController,
         IGlobalHotkeyService priceCheckerHotkeyService,
         IGlobalHotkeyService developerWindowHotkeyService,
         IGlobalHotkeyService multitoolMenuHotkeyService,
+        QuickUseHotkeyRuntime quickUseHotkeyRuntime,
         IPoEnhanceTrayIcon trayIcon,
         IPathOfExileProcessDetector processDetector,
         IPathOfExileForegroundWindowDetector foregroundWindowDetector,
@@ -49,10 +55,12 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         this.singleInstanceGuard = singleInstanceGuard;
         this.developerWindow = developerWindow;
         this.developerWindowController = developerWindowController;
+        this.multitoolMenuWindow = multitoolMenuWindow;
         this.multitoolMenuWindowController = multitoolMenuWindowController;
         this.priceCheckerHotkeyService = priceCheckerHotkeyService;
         this.developerWindowHotkeyService = developerWindowHotkeyService;
         this.multitoolMenuHotkeyService = multitoolMenuHotkeyService;
+        this.quickUseHotkeyRuntime = quickUseHotkeyRuntime;
         this.trayIcon = trayIcon;
         this.processDetector = processDetector;
         this.foregroundWindowDetector = foregroundWindowDetector;
@@ -69,6 +77,10 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     {
         var developerWindow = new MainWindow(composition);
         var multitoolMenuWindow = new MultitoolMenuWindow(composition.LeagueSetting);
+        var multitoolMenuWindowController = new MultitoolMenuWindowController(
+            multitoolMenuWindow,
+            new PathOfExileClientBoundsProvider());
+        var foregroundWindowDetector = new PathOfExileForegroundWindowDetector();
         var statusTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -79,15 +91,19 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
             singleInstanceGuard,
             developerWindow,
             new DeveloperWindowController(developerWindow),
-            new MultitoolMenuWindowController(
-                multitoolMenuWindow,
-                new PathOfExileClientBoundsProvider()),
+            multitoolMenuWindow,
+            multitoolMenuWindowController,
             new GlobalHotkeyService(),
             GlobalHotkeyService.CreateDeveloperWindowService(),
             GlobalHotkeyService.CreateMultitoolMenuService(),
+            new QuickUseHotkeyRuntime(
+                composition.LeagueSetting,
+                new KeyboardInputSender(),
+                foregroundWindowDetector.IsPathOfExileForegroundWindow,
+                () => multitoolMenuWindowController.IsVisible),
             new PoEnhanceTrayIcon(),
             new PathOfExileProcessDetector(),
-            new PathOfExileForegroundWindowDetector(),
+            foregroundWindowDetector,
             statusTimer,
             requestApplicationShutdown);
     }
@@ -107,6 +123,7 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         developerWindowHotkeyService.Triggered += OnDeveloperWindowHotkeyTriggered;
         multitoolMenuHotkeyService.Triggered += OnMultitoolMenuHotkeyTriggered;
         multitoolMenuWindowController.ConfirmedExitRequested += OnConfirmedExitRequested;
+        multitoolMenuWindow.HotkeyCaptureStateChanged += OnHotkeyCaptureStateChanged;
         trayIcon.OpenDeveloperWindowRequested += OnOpenDeveloperWindowRequested;
         trayIcon.OpenMultitoolMenuRequested += OnOpenMultitoolMenuRequested;
         trayIcon.ExitRequested += OnExitRequested;
@@ -116,6 +133,7 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         priceCheckerHotkeyService.Attach(developerWindow);
         developerWindowHotkeyService.Attach(developerWindow);
         multitoolMenuHotkeyService.Attach(developerWindow);
+        quickUseHotkeyRuntime.Attach(developerWindow);
 
         RefreshPathOfExileState();
         trayIcon.Show();
@@ -192,6 +210,7 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         priceCheckerHotkeyService.UpdatePathOfExileForegroundState(isForeground);
         multitoolMenuHotkeyService.UpdatePathOfExileForegroundState(
             isForeground || multitoolMenuWindowController.IsVisible);
+        quickUseHotkeyRuntime.UpdatePathOfExileForegroundState(isForeground);
         developerWindow.UpdatePathOfExileStatus(
             isRunning,
             isForeground,
@@ -244,6 +263,18 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     {
         priceCheckerHotkeyService.SetShortcut(shortcut);
         RefreshPathOfExileState();
+    }
+
+    private void OnHotkeyCaptureStateChanged(object? sender, bool isCapturing)
+    {
+        priceCheckerHotkeyService.SetSuspended(isCapturing);
+        developerWindowHotkeyService.SetSuspended(isCapturing);
+        multitoolMenuHotkeyService.SetSuspended(isCapturing);
+        quickUseHotkeyRuntime.SetSuspended(isCapturing);
+        if (!isCapturing)
+        {
+            RefreshPathOfExileState();
+        }
     }
 
     private async void OnPriceCheckerHotkeyTriggered(object? sender, EventArgs e)
@@ -313,12 +344,14 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         developerWindowHotkeyService.Triggered -= OnDeveloperWindowHotkeyTriggered;
         multitoolMenuHotkeyService.Triggered -= OnMultitoolMenuHotkeyTriggered;
         multitoolMenuWindowController.ConfirmedExitRequested -= OnConfirmedExitRequested;
+        multitoolMenuWindow.HotkeyCaptureStateChanged -= OnHotkeyCaptureStateChanged;
         trayIcon.OpenDeveloperWindowRequested -= OnOpenDeveloperWindowRequested;
         trayIcon.OpenMultitoolMenuRequested -= OnOpenMultitoolMenuRequested;
         trayIcon.ExitRequested -= OnExitRequested;
         priceCheckerHotkeyService.Dispose();
         developerWindowHotkeyService.Dispose();
         multitoolMenuHotkeyService.Dispose();
+        quickUseHotkeyRuntime.Dispose();
         trayIcon.Dispose();
         composition.PriceCheckerWindowController.Close();
         multitoolMenuWindowController.CloseForApplicationExit();

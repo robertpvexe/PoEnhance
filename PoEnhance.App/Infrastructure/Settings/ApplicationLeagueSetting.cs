@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using PoEnhance.App.Infrastructure.Shortcuts;
 using Serilog;
 
 namespace PoEnhance.App.Infrastructure.Settings;
@@ -17,7 +18,14 @@ internal sealed class ApplicationLeagueSetting
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         this.filePath = filePath;
-        EffectiveLeague = LoadEffectiveLeague(filePath);
+        var settings = Load(filePath);
+        EffectiveLeague = settings.League;
+        QuickUseCommands = settings.QuickUseCommands;
+        Log.Information(
+            "Application settings loaded. LeagueConfigured={LeagueConfigured}; QuickUseRows={QuickUseRows}; QuickUseBindings={QuickUseBindings}",
+            EffectiveLeague is not null,
+            QuickUseCommands.Count,
+            QuickUseCommands.Count(command => command.Hotkey is not null && !string.IsNullOrWhiteSpace(command.Command)));
     }
 
     private ApplicationLeagueSetting()
@@ -26,7 +34,12 @@ internal sealed class ApplicationLeagueSetting
 
     public event EventHandler<string>? Changed;
 
+    public event EventHandler? QuickUseCommandsChanged;
+
     public string? EffectiveLeague { get; private set; }
+
+    public IReadOnlyList<QuickUseCommandSetting> QuickUseCommands { get; private set; }
+        = QuickUseCommandSetting.CreateDefaults();
 
     public string? FilePath => filePath;
 
@@ -43,6 +56,7 @@ internal sealed class ApplicationLeagueSetting
         return new ApplicationLeagueSetting
         {
             EffectiveLeague = TrimToNull(effectiveLeague),
+            QuickUseCommands = QuickUseCommandSetting.CreateDefaults(),
         };
     }
 
@@ -54,7 +68,7 @@ internal sealed class ApplicationLeagueSetting
             return false;
         }
 
-        if (filePath is not null && !TryWrite(filePath, trimmedLeague))
+        if (filePath is not null && !TryWrite(filePath, trimmedLeague, QuickUseCommands))
         {
             return false;
         }
@@ -69,28 +83,68 @@ internal sealed class ApplicationLeagueSetting
         return true;
     }
 
-    private static string? LoadEffectiveLeague(string filePath)
+    public bool TrySaveQuickUseCommands(
+        IReadOnlyList<QuickUseCommandSetting> commands,
+        out string validationError)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        var normalized = commands
+            .Select(command => command with { Command = command.Command.Trim() })
+            .ToArray();
+
+        if (!QuickUseSettingsValidator.TryValidate(normalized, out validationError))
+        {
+            return false;
+        }
+
+        if (filePath is not null && !TryWrite(filePath, EffectiveLeague, normalized))
+        {
+            validationError = "Quick Use settings could not be saved. Try again.";
+            return false;
+        }
+
+        QuickUseCommands = normalized;
+        Log.Information(
+            "Quick Use settings saved. Rows={QuickUseRows}; ActiveBindings={QuickUseBindings}",
+            QuickUseCommands.Count,
+            QuickUseCommands.Count(command => command.Hotkey is not null && !string.IsNullOrWhiteSpace(command.Command)));
+        QuickUseCommandsChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    private static LoadedSettings Load(string filePath)
     {
         try
         {
             if (!File.Exists(filePath))
             {
-                return null;
+                return new LoadedSettings(null, QuickUseCommandSetting.CreateDefaults());
             }
 
             var json = File.ReadAllText(filePath);
             var settings = JsonSerializer.Deserialize<ApplicationSettingsFile>(json, JsonOptions);
-            return TrimToNull(settings?.League);
+            var quickUseCommands = settings?.QuickUse is null
+                ? QuickUseCommandSetting.CreateDefaults()
+                : settings.QuickUse.Select(ToSetting).ToArray();
+            if (!QuickUseSettingsValidator.TryValidate(quickUseCommands, out _))
+            {
+                quickUseCommands = QuickUseCommandSetting.CreateDefaults();
+            }
+
+            return new LoadedSettings(TrimToNull(settings?.League), quickUseCommands);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
             Log.Warning(exception, "Application settings could not be loaded from {FilePath}", filePath);
-            return null;
+            return new LoadedSettings(null, QuickUseCommandSetting.CreateDefaults());
         }
     }
 
-    private static bool TryWrite(string filePath, string effectiveLeague)
+    private static bool TryWrite(
+        string filePath,
+        string? effectiveLeague,
+        IReadOnlyList<QuickUseCommandSetting> quickUseCommands)
     {
         string? temporaryPath = null;
         try
@@ -105,7 +159,11 @@ internal sealed class ApplicationLeagueSetting
             File.WriteAllText(
                 temporaryPath,
                 JsonSerializer.Serialize(
-                    new ApplicationSettingsFile { League = effectiveLeague },
+                    new ApplicationSettingsFile
+                    {
+                        League = effectiveLeague,
+                        QuickUse = quickUseCommands.Select(ToFile).ToArray(),
+                    },
                     JsonOptions));
 
             if (File.Exists(filePath))
@@ -150,5 +208,45 @@ internal sealed class ApplicationLeagueSetting
     private sealed class ApplicationSettingsFile
     {
         public string? League { get; init; }
+
+        public QuickUseCommandFile[]? QuickUse { get; init; }
     }
+
+    private sealed class QuickUseCommandFile
+    {
+        public string? Command { get; init; }
+
+        public bool PressEnter { get; init; }
+
+        public ShortcutKey? Key { get; init; }
+
+        public ShortcutModifiers Modifiers { get; init; }
+
+        public bool IsCustom { get; init; }
+    }
+
+    private static QuickUseCommandSetting ToSetting(QuickUseCommandFile command)
+    {
+        return new QuickUseCommandSetting(
+            command.Command ?? string.Empty,
+            command.PressEnter,
+            command.Key is null ? null : new ShortcutBinding(command.Key.Value, command.Modifiers),
+            command.IsCustom);
+    }
+
+    private static QuickUseCommandFile ToFile(QuickUseCommandSetting command)
+    {
+        return new QuickUseCommandFile
+        {
+            Command = command.Command,
+            PressEnter = command.PressEnter,
+            Key = command.Hotkey?.PrimaryKey,
+            Modifiers = command.Hotkey?.Modifiers ?? ShortcutModifiers.None,
+            IsCustom = command.IsCustom,
+        };
+    }
+
+    private sealed record LoadedSettings(
+        string? League,
+        IReadOnlyList<QuickUseCommandSetting> QuickUseCommands);
 }
