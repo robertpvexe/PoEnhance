@@ -10,6 +10,9 @@ internal sealed record ShortcutBinding(ShortcutKey PrimaryKey, ShortcutModifiers
             ShortcutKey.OemBackslash,
             ShortcutModifiers.Control | ShortcutModifiers.Shift);
 
+    public static ShortcutBinding MultitoolMenu { get; } =
+        new(ShortcutKey.OemBackslash, ShortcutModifiers.None);
+
     public static IReadOnlyList<ShortcutBinding> DevelopmentChoices { get; } =
     [
         DefaultPriceChecker,

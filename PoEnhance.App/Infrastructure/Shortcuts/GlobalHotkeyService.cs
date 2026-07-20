@@ -9,6 +9,7 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
 {
     internal const int PriceCheckerHotkeyId = 0x5045;
     internal const int DeveloperWindowHotkeyId = 0x5046;
+    internal const int MultitoolMenuHotkeyId = 0x5047;
     private const int WmHotkey = 0x0312;
     private const uint ModNoRepeat = 0x4000;
 
@@ -39,6 +40,15 @@ internal sealed class GlobalHotkeyService : IGlobalHotkeyService
             DeveloperWindowHotkeyId,
             requiresPathOfExileForeground: false);
         service.SetShortcut(ShortcutBinding.DeveloperWindow);
+        return service;
+    }
+
+    public static GlobalHotkeyService CreateMultitoolMenuService()
+    {
+        var service = new GlobalHotkeyService(
+            MultitoolMenuHotkeyId,
+            requiresPathOfExileForeground: true);
+        service.SetShortcut(ShortcutBinding.MultitoolMenu);
         return service;
     }
 

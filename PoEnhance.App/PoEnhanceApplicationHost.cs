@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -13,8 +14,10 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     private readonly SingleInstanceGuard singleInstanceGuard;
     private readonly MainWindow developerWindow;
     private readonly DeveloperWindowController developerWindowController;
+    private readonly MultitoolMenuWindowController multitoolMenuWindowController;
     private readonly IGlobalHotkeyService priceCheckerHotkeyService;
     private readonly IGlobalHotkeyService developerWindowHotkeyService;
+    private readonly IGlobalHotkeyService multitoolMenuHotkeyService;
     private readonly IPoEnhanceTrayIcon trayIcon;
     private readonly IPathOfExileProcessDetector processDetector;
     private readonly IPathOfExileForegroundWindowDetector foregroundWindowDetector;
@@ -32,8 +35,10 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         SingleInstanceGuard singleInstanceGuard,
         MainWindow developerWindow,
         DeveloperWindowController developerWindowController,
+        MultitoolMenuWindowController multitoolMenuWindowController,
         IGlobalHotkeyService priceCheckerHotkeyService,
         IGlobalHotkeyService developerWindowHotkeyService,
+        IGlobalHotkeyService multitoolMenuHotkeyService,
         IPoEnhanceTrayIcon trayIcon,
         IPathOfExileProcessDetector processDetector,
         IPathOfExileForegroundWindowDetector foregroundWindowDetector,
@@ -44,8 +49,10 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         this.singleInstanceGuard = singleInstanceGuard;
         this.developerWindow = developerWindow;
         this.developerWindowController = developerWindowController;
+        this.multitoolMenuWindowController = multitoolMenuWindowController;
         this.priceCheckerHotkeyService = priceCheckerHotkeyService;
         this.developerWindowHotkeyService = developerWindowHotkeyService;
+        this.multitoolMenuHotkeyService = multitoolMenuHotkeyService;
         this.trayIcon = trayIcon;
         this.processDetector = processDetector;
         this.foregroundWindowDetector = foregroundWindowDetector;
@@ -61,6 +68,7 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         Action requestApplicationShutdown)
     {
         var developerWindow = new MainWindow(composition);
+        var multitoolMenuWindow = new MultitoolMenuWindow();
         var statusTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -71,8 +79,12 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
             singleInstanceGuard,
             developerWindow,
             new DeveloperWindowController(developerWindow),
+            new MultitoolMenuWindowController(
+                multitoolMenuWindow,
+                new PathOfExileClientBoundsProvider()),
             new GlobalHotkeyService(),
             GlobalHotkeyService.CreateDeveloperWindowService(),
+            GlobalHotkeyService.CreateMultitoolMenuService(),
             new PoEnhanceTrayIcon(),
             new PathOfExileProcessDetector(),
             new PathOfExileForegroundWindowDetector(),
@@ -93,13 +105,17 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         developerWindow.PriceCheckerShortcutChanged += OnPriceCheckerShortcutChanged;
         priceCheckerHotkeyService.Triggered += OnPriceCheckerHotkeyTriggered;
         developerWindowHotkeyService.Triggered += OnDeveloperWindowHotkeyTriggered;
+        multitoolMenuHotkeyService.Triggered += OnMultitoolMenuHotkeyTriggered;
+        multitoolMenuWindowController.ConfirmedExitRequested += OnConfirmedExitRequested;
         trayIcon.OpenDeveloperWindowRequested += OnOpenDeveloperWindowRequested;
+        trayIcon.OpenMultitoolMenuRequested += OnOpenMultitoolMenuRequested;
         trayIcon.ExitRequested += OnExitRequested;
         statusTimer.Tick += OnStatusTimerTick;
 
         priceCheckerHotkeyService.SetShortcut(developerWindow.SelectedPriceCheckerShortcut);
         priceCheckerHotkeyService.Attach(developerWindow);
         developerWindowHotkeyService.Attach(developerWindow);
+        multitoolMenuHotkeyService.Attach(developerWindow);
 
         RefreshPathOfExileState();
         trayIcon.Show();
@@ -174,9 +190,14 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         LogPathOfExileRunningChange(isRunning);
         LogPathOfExileForegroundChange(isForeground);
         priceCheckerHotkeyService.UpdatePathOfExileForegroundState(isForeground);
+        multitoolMenuHotkeyService.UpdatePathOfExileForegroundState(
+            isForeground || multitoolMenuWindowController.IsVisible);
         developerWindow.UpdatePathOfExileStatus(
             isRunning,
             isForeground,
+            priceCheckerHotkeyService.RegistrationState);
+        multitoolMenuWindowController.UpdateRuntimeState(
+            isRunning,
             priceCheckerHotkeyService.RegistrationState);
         trayIcon.UpdatePathOfExileState(isRunning);
     }
@@ -236,12 +257,41 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         developerWindowController.Toggle();
     }
 
+    private void OnMultitoolMenuHotkeyTriggered(object? sender, EventArgs e)
+    {
+        var isPathOfExileForeground = foregroundWindowDetector.IsPathOfExileForegroundWindow();
+        if (!multitoolMenuWindowController.IsVisible && !isPathOfExileForeground)
+        {
+            multitoolMenuHotkeyService.UpdatePathOfExileForegroundState(isForeground: false);
+            return;
+        }
+
+        multitoolMenuWindowController.Toggle();
+        multitoolMenuHotkeyService.UpdatePathOfExileForegroundState(
+            isPathOfExileForeground || multitoolMenuWindowController.IsVisible);
+    }
+
     private void OnOpenDeveloperWindowRequested(object? sender, EventArgs e)
     {
         developerWindowController.ShowAndActivate();
     }
 
+    private void OnOpenMultitoolMenuRequested(object? sender, EventArgs e)
+    {
+        multitoolMenuWindowController.ShowAndActivate();
+    }
+
+    private void OnConfirmedExitRequested(object? sender, EventArgs e)
+    {
+        RequestApplicationShutdown();
+    }
+
     private void OnExitRequested(object? sender, EventArgs e)
+    {
+        RequestApplicationShutdown();
+    }
+
+    private void RequestApplicationShutdown()
     {
         PrepareForShutdown();
         requestApplicationShutdown();
@@ -261,12 +311,17 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         developerWindow.PriceCheckerShortcutChanged -= OnPriceCheckerShortcutChanged;
         priceCheckerHotkeyService.Triggered -= OnPriceCheckerHotkeyTriggered;
         developerWindowHotkeyService.Triggered -= OnDeveloperWindowHotkeyTriggered;
+        multitoolMenuHotkeyService.Triggered -= OnMultitoolMenuHotkeyTriggered;
+        multitoolMenuWindowController.ConfirmedExitRequested -= OnConfirmedExitRequested;
         trayIcon.OpenDeveloperWindowRequested -= OnOpenDeveloperWindowRequested;
+        trayIcon.OpenMultitoolMenuRequested -= OnOpenMultitoolMenuRequested;
         trayIcon.ExitRequested -= OnExitRequested;
         priceCheckerHotkeyService.Dispose();
         developerWindowHotkeyService.Dispose();
+        multitoolMenuHotkeyService.Dispose();
         trayIcon.Dispose();
         composition.PriceCheckerWindowController.Close();
+        multitoolMenuWindowController.CloseForApplicationExit();
         developerWindowController.CloseForApplicationExit();
         composition.Dispose();
         singleInstanceGuard.Dispose();

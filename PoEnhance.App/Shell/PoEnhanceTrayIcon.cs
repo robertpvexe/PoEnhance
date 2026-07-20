@@ -38,15 +38,12 @@ internal sealed class PoEnhanceTrayIcon : IPoEnhanceTrayIcon
             Visible = false,
         };
         notifyIcon.MouseDoubleClick += (_, args) =>
-        {
-            if (args.Button == MouseButtons.Left)
-            {
-                OpenDeveloperWindowRequested?.Invoke(this, EventArgs.Empty);
-            }
-        };
+            HandleMouseDoubleClick(args.Button);
     }
 
     public event EventHandler? OpenDeveloperWindowRequested;
+
+    public event EventHandler? OpenMultitoolMenuRequested;
 
     public event EventHandler? ExitRequested;
 
@@ -73,6 +70,19 @@ internal sealed class PoEnhanceTrayIcon : IPoEnhanceTrayIcon
     {
         ObjectDisposedException.ThrowIf(isDisposed, this);
         notifyIcon.Text = CreateToolTipText(isRunning);
+    }
+
+    internal void HandleMouseDoubleClick(MouseButtons button)
+    {
+        if (button == MouseButtons.Left)
+        {
+            HandleLeftDoubleClick();
+        }
+    }
+
+    internal void HandleLeftDoubleClick()
+    {
+        OpenMultitoolMenuRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()

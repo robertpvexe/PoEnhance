@@ -4,6 +4,8 @@ internal interface IPoEnhanceTrayIcon : IDisposable
 {
     event EventHandler? OpenDeveloperWindowRequested;
 
+    event EventHandler? OpenMultitoolMenuRequested;
+
     event EventHandler? ExitRequested;
 
     bool IsVisible { get; }
