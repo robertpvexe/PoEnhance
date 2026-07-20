@@ -10,6 +10,14 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\poenhance.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <Product>PoEnhance</Product>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,6 +39,15 @@
     <Resource Include="Assets\poenhance.ico" />
     <None Update="Assets\poenhance-gem-source.png" CopyToOutputDirectory="Never" />
     <None Update="Assets\poenhance-gem.png" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\artifacts\poenhance-game-data.json"
+             Link="poenhance-game-data.json"
+             Condition="Exists('..\artifacts\poenhance-game-data.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

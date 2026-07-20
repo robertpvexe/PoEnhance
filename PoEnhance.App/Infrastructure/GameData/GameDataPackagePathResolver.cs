@@ -6,29 +6,42 @@ internal class GameDataPackagePathResolver
 {
     public const string CommandLineOption = "--game-data";
     public const string EnvironmentVariableName = "POENHANCE_GAMEDATA_PATH";
+    public const string PackagedFileName = "poenhance-game-data.json";
     public const string DevelopmentFallbackRelativePath = "artifacts/poenhance-game-data.json";
 
     private readonly Func<string, string?> getEnvironmentVariable;
-    private readonly Func<string> getCurrentDirectory;
+    private readonly Func<string> getBaseDirectory;
     private readonly Func<string, bool> fileExists;
 
     public GameDataPackagePathResolver()
-        : this(Environment.GetEnvironmentVariable, Directory.GetCurrentDirectory, File.Exists)
+        : this(Environment.GetEnvironmentVariable, () => AppContext.BaseDirectory, File.Exists)
     {
     }
 
     public GameDataPackagePathResolver(
         Func<string, string?> getEnvironmentVariable,
-        Func<string> getCurrentDirectory,
+        Func<string> getBaseDirectory,
         Func<string, bool> fileExists)
     {
         this.getEnvironmentVariable = getEnvironmentVariable;
-        this.getCurrentDirectory = getCurrentDirectory;
+        this.getBaseDirectory = getBaseDirectory;
         this.fileExists = fileExists;
     }
 
     public virtual GameDataPackagePathResolution Resolve(IReadOnlyList<string> commandLineArgs)
     {
+        var baseDirectory = GetFullPathOrNull(getBaseDirectory());
+        if (baseDirectory is not null)
+        {
+            var packagedPath = System.IO.Path.Combine(baseDirectory, PackagedFileName);
+            if (fileExists(packagedPath))
+            {
+                return new GameDataPackagePathResolution(
+                    System.IO.Path.GetFullPath(packagedPath),
+                    GameDataPackagePathSource.Packaged);
+            }
+        }
+
         var commandLinePath = ReadCommandLinePath(commandLineArgs);
         if (!string.IsNullOrWhiteSpace(commandLinePath))
         {
@@ -41,7 +54,7 @@ internal class GameDataPackagePathResolver
             return new GameDataPackagePathResolution(environmentPath, GameDataPackagePathSource.Environment);
         }
 
-        var fallbackPath = FindDevelopmentFallback();
+        var fallbackPath = FindDevelopmentFallback(baseDirectory);
         return string.IsNullOrWhiteSpace(fallbackPath)
             ? new GameDataPackagePathResolution(null, GameDataPackagePathSource.None)
             : new GameDataPackagePathResolution(fallbackPath, GameDataPackagePathSource.DevelopmentFallback);
@@ -67,15 +80,14 @@ internal class GameDataPackagePathResolver
         return null;
     }
 
-    private string? FindDevelopmentFallback()
+    private string? FindDevelopmentFallback(string? baseDirectory)
     {
-        var currentDirectory = GetFullPathOrNull(getCurrentDirectory());
-        if (currentDirectory is null)
+        if (baseDirectory is null)
         {
             return null;
         }
 
-        var directory = new DirectoryInfo(currentDirectory);
+        var directory = new DirectoryInfo(baseDirectory);
         while (directory is not null)
         {
             var candidatePath = System.IO.Path.Combine(

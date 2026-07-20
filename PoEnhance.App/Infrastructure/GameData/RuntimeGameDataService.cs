@@ -55,7 +55,8 @@ internal sealed class RuntimeGameDataService
             return SetCurrent(new RuntimeGameDataStatus
             {
                 State = RuntimeGameDataState.NotConfigured,
-                FailureMessage = "No local game-data package path is configured.",
+                FailureMessage =
+                    "No game-data package was found beside PoEnhance.exe or in the development artifacts directory.",
             });
         }
 

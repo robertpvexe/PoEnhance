@@ -5,12 +5,30 @@ namespace PoEnhance.App.Tests.Infrastructure.GameData;
 public sealed class GameDataPackagePathResolverTests
 {
     [Fact]
-    public void Resolve_CommandLinePathTakesPriority()
+    public void Resolve_PackagedFileBesideExecutableTakesPriority()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var baseDirectory = Path.Combine(root, "release");
+        var packagedPath = Path.Combine(baseDirectory, GameDataPackagePathResolver.PackagedFileName);
+        var developmentPath = Path.Combine(root, "artifacts", "poenhance-game-data.json");
+        var resolver = CreateResolver(
+            environmentPath: "environment-package.json",
+            baseDirectory,
+            existingFiles: [packagedPath, developmentPath]);
+
+        var result = resolver.Resolve(["--game-data", "command-line-package.json"]);
+
+        Assert.Equal(GameDataPackagePathSource.Packaged, result.Source);
+        Assert.Equal(Path.GetFullPath(packagedPath), result.Path);
+    }
+
+    [Fact]
+    public void Resolve_CommandLinePathIsAvailableWhenPackagedFileIsMissing()
     {
         var resolver = CreateResolver(
             environmentPath: "env-package.json",
-            currentDirectory: @"C:\repo",
-            existingFiles: [@"C:\repo\artifacts\poenhance-game-data.json"]);
+            baseDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+            existingFiles: []);
 
         var result = resolver.Resolve(["--game-data", "cli-package.json"]);
 
@@ -19,12 +37,12 @@ public sealed class GameDataPackagePathResolverTests
     }
 
     [Fact]
-    public void Resolve_CommandLineEqualsSyntaxTakesPriority()
+    public void Resolve_CommandLineEqualsSyntaxIsAvailableWhenPackagedFileIsMissing()
     {
         var resolver = CreateResolver(
             environmentPath: "env-package.json",
-            currentDirectory: @"C:\repo",
-            existingFiles: [@"C:\repo\artifacts\poenhance-game-data.json"]);
+            baseDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+            existingFiles: []);
 
         var result = resolver.Resolve(["--game-data=cli-package.json"]);
 
@@ -33,12 +51,12 @@ public sealed class GameDataPackagePathResolverTests
     }
 
     [Fact]
-    public void Resolve_EnvironmentPathIsUsedWhenCommandLinePathIsMissing()
+    public void Resolve_EnvironmentPathIsAvailableWhenPackagedAndCommandLinePathsAreMissing()
     {
         var resolver = CreateResolver(
             environmentPath: "env-package.json",
-            currentDirectory: @"C:\repo",
-            existingFiles: [@"C:\repo\artifacts\poenhance-game-data.json"]);
+            baseDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+            existingFiles: []);
 
         var result = resolver.Resolve([]);
 
@@ -47,28 +65,49 @@ public sealed class GameDataPackagePathResolverTests
     }
 
     [Fact]
-    public void Resolve_DevelopmentFallbackIsUsedWhenAvailable()
+    public void Resolve_DevelopmentFallbackWalksFromApplicationBaseDirectory()
     {
-        var currentDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "src", "PoEnhance.App");
-        var repoRoot = Directory.GetParent(currentDirectory)!.Parent!.FullName;
+        var repoRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "repo");
+        var baseDirectory = Path.Combine(repoRoot, "PoEnhance.App", "bin", "Debug", "net10.0-windows");
         var fallbackPath = Path.Combine(repoRoot, "artifacts", "poenhance-game-data.json");
         var resolver = CreateResolver(
             environmentPath: null,
-            currentDirectory: currentDirectory,
+            baseDirectory,
             existingFiles: [fallbackPath]);
 
         var result = resolver.Resolve([]);
 
         Assert.Equal(GameDataPackagePathSource.DevelopmentFallback, result.Source);
-        Assert.Equal(fallbackPath, result.Path);
+        Assert.Equal(Path.GetFullPath(fallbackPath), result.Path);
     }
 
     [Fact]
-    public void Resolve_MissingPackageProducesNotConfigured()
+    public void Resolve_UnrelatedWorkingDirectoryCannotRedirectPackagedResolution()
+    {
+        var releaseRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "release");
+        var packagedPath = Path.Combine(releaseRoot, GameDataPackagePathResolver.PackagedFileName);
+        var unrelatedDevelopmentPath = Path.Combine(
+            Path.GetTempPath(),
+            Guid.NewGuid().ToString("N"),
+            "artifacts",
+            "poenhance-game-data.json");
+        var resolver = CreateResolver(
+            environmentPath: null,
+            baseDirectory: releaseRoot,
+            existingFiles: [packagedPath, unrelatedDevelopmentPath]);
+
+        var result = resolver.Resolve([]);
+
+        Assert.Equal(GameDataPackagePathSource.Packaged, result.Source);
+        Assert.Equal(Path.GetFullPath(packagedPath), result.Path);
+    }
+
+    [Fact]
+    public void Resolve_MissingPackagedAndDevelopmentFilesProducesNotConfigured()
     {
         var resolver = CreateResolver(
             environmentPath: null,
-            currentDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
+            baseDirectory: Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")),
             existingFiles: []);
 
         var result = resolver.Resolve([]);
@@ -80,7 +119,7 @@ public sealed class GameDataPackagePathResolverTests
 
     private static GameDataPackagePathResolver CreateResolver(
         string? environmentPath,
-        string currentDirectory,
+        string baseDirectory,
         IReadOnlyCollection<string> existingFiles)
     {
         var normalizedFiles = new HashSet<string>(
@@ -89,7 +128,7 @@ public sealed class GameDataPackagePathResolverTests
 
         return new GameDataPackagePathResolver(
             name => name == GameDataPackagePathResolver.EnvironmentVariableName ? environmentPath : null,
-            () => currentDirectory,
+            () => baseDirectory,
             path => normalizedFiles.Contains(Path.GetFullPath(path)));
     }
 }

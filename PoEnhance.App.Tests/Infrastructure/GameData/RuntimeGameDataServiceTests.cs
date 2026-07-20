@@ -73,6 +73,8 @@ public sealed class RuntimeGameDataServiceTests
         Assert.Equal(RuntimeGameDataState.NotConfigured, result.State);
         Assert.Null(result.Catalog);
         Assert.Equal(0, loadCount);
+        Assert.Contains("beside PoEnhance.exe", result.FailureMessage, StringComparison.Ordinal);
+        Assert.Contains("development artifacts", result.FailureMessage, StringComparison.Ordinal);
     }
 
     [Fact]
