@@ -1833,6 +1833,10 @@ Item Level: 82
                     ListedText = "now",
                     ItemLevelText = "82",
                     PriceText = "1 divine",
+                    CardSnapshot = new OfferCardSnapshot
+                    {
+                        OfferId = "offer-before-edit",
+                    },
                 },
             ],
         };

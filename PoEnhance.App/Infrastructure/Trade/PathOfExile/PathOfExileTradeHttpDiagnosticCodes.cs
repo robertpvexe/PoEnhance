@@ -16,4 +16,10 @@ internal static class PathOfExileTradeHttpDiagnosticCodes
     public const string MalformedOffer = "POE_TRADE_HTTP_MALFORMED_OFFER";
     public const string MalformedPrice = "POE_TRADE_HTTP_MALFORMED_PRICE";
     public const string MalformedIndexedTimestamp = "POE_TRADE_HTTP_MALFORMED_INDEXED_TIMESTAMP";
+    public const string MalformedItemProperties = "POE_TRADE_HTTP_MALFORMED_ITEM_PROPERTIES";
+    public const string MalformedItemRequirements = "POE_TRADE_HTTP_MALFORMED_ITEM_REQUIREMENTS";
+    public const string MalformedItemSockets = "POE_TRADE_HTTP_MALFORMED_ITEM_SOCKETS";
+    public const string MalformedItemInfluences = "POE_TRADE_HTTP_MALFORMED_ITEM_INFLUENCES";
+    public const string MalformedItemModifierSection = "POE_TRADE_HTTP_MALFORMED_ITEM_MODIFIER_SECTION";
+    public const string MalformedItemFlavourText = "POE_TRADE_HTTP_MALFORMED_ITEM_FLAVOUR_TEXT";
 }

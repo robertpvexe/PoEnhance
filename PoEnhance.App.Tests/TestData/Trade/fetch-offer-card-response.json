@@ -1,0 +1,126 @@
+{
+  "result": [
+    {
+      "id": "result-rare-armour",
+      "item": {
+        "id": "item-rare-armour",
+        "frameType": 2,
+        "rarity": "Rare",
+        "name": "Dusk Shell",
+        "typeLine": "Titan Plate",
+        "baseType": "Titan Plate",
+        "icon": "https://img.test/titan.png",
+        "ilvl": 84,
+        "identified": true,
+        "corrupted": false,
+        "mirrored": false,
+        "split": true,
+        "synthesised": true,
+        "fractured": true,
+        "duplicated": true,
+        "replica": true,
+        "veiled": true,
+        "isRelic": true,
+        "ruthless": true,
+        "influences": {
+          "shaper": true,
+          "elder": false,
+          "crusader": true,
+          "hunter": true,
+          "redeemer": true,
+          "warlord": true
+        },
+        "searing": true,
+        "tangled": true,
+        "properties": [
+          {
+            "name": "Armour",
+            "values": [["1,234", 1]],
+            "displayMode": 0,
+            "progress": 0.75,
+            "type": 16,
+            "suffix": "%",
+            "icon": "https://img.test/armour-property.png"
+          },
+          {
+            "name": "Quality",
+            "values": [["+20%", 1]],
+            "displayMode": 0
+          }
+        ],
+        "requirements": [
+          {
+            "name": "Level",
+            "values": [["68", 0]],
+            "displayMode": 0
+          },
+          {
+            "name": "Str",
+            "values": [["191", 1]],
+            "displayMode": 1
+          }
+        ],
+        "sockets": [
+          { "group": 0, "attr": "S", "sColour": "R" },
+          { "group": 0, "attr": "D", "sColour": "G" },
+          { "group": 1, "attr": "I", "sColour": "B" },
+          { "group": 1, "attr": "G", "sColour": "W" }
+        ],
+        "enchantMods": ["Enchanted Test Mod 1", "Enchanted Test Mod 2"],
+        "implicitMods": ["+12% to Fire Resistance"],
+        "explicitMods": ["+55 to maximum Life", "+30% to Cold Resistance"],
+        "craftedMods": ["Can have up to 3 Crafted Modifiers"],
+        "fracturedMods": ["Fractured +30 to Strength"],
+        "utilityMods": ["Utility display line"],
+        "cosmeticMods": ["Cosmetic display line"],
+        "descrText": "A sanitised item description.",
+        "secDescrText": "A sanitised secondary description.",
+        "flavourText": ["First flavour line.", "Second flavour line."]
+      },
+      "listing": {
+        "method": "psapi",
+        "indexed": "2026-07-14T10:15:30Z",
+        "whisper": "@sanitised whisper",
+        "account": {
+          "name": "SanitisedAccount",
+          "lastCharacterName": "SanitisedCharacter",
+          "online": {
+            "league": "Sanitised League",
+            "status": "online"
+          }
+        },
+        "price": {
+          "type": "~price",
+          "amount": 1.25,
+          "currency": "divine"
+        }
+      }
+    },
+    {
+      "id": "result-weapon",
+      "item": {
+        "id": "item-weapon",
+        "frameType": 1,
+        "rarity": "Magic",
+        "name": "",
+        "typeLine": "Sanitised Reaver Sword",
+        "baseType": "Reaver Sword",
+        "ilvl": 82,
+        "identified": true,
+        "properties": [
+          {
+            "name": "Elemental Damage",
+            "values": [["10-20", 4], ["30-40", 5], ["50-60", 6]],
+            "displayMode": 0
+          },
+          {
+            "name": "Attacks per Second",
+            "values": [["1.50", 1]],
+            "displayMode": 0
+          }
+        ]
+      },
+      "listing": {}
+    }
+  ]
+}

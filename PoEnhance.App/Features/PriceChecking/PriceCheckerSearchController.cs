@@ -1536,6 +1536,7 @@ internal sealed class PriceCheckerSearchController
             ItemLevelText = offer.Item.ItemLevel?.ToString(CultureInfo.InvariantCulture) ??
                 PriceCheckerRelativeTimeFormatter.UnavailableText,
             PriceText = FormatPrice(offer.Listing.Price),
+            CardSnapshot = OfferCardSnapshotMapper.Create(offer),
         };
     }
 

@@ -2500,6 +2500,11 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal("1 min ago", offer.ListedText);
         Assert.Equal("72", offer.ItemLevelText);
         Assert.Equal("3 chaos", offer.PriceText);
+        Assert.Equal("id-1", offer.CardSnapshot.OfferId);
+        Assert.Equal("Armageddon Thirst", offer.CardSnapshot.Name);
+        Assert.Equal(72, offer.CardSnapshot.ItemLevel);
+        Assert.Equal(3m, offer.CardSnapshot.Price?.Amount);
+        Assert.Equal("Seller Account", offer.CardSnapshot.Seller.AccountName);
     }
 
     [Fact]
@@ -2808,6 +2813,7 @@ public sealed class PriceCheckerSearchControllerTests
         fixture.Controller.UpdateCurrentDraft(Draft("Old Loop"), ValidationSuccess());
         await fixture.Controller.SearchAsync();
         Assert.NotEmpty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        var retainedSnapshot = Assert.Single(fixture.Window.CurrentSearchState?.Offers ?? []).CardSnapshot;
 
         var completion = new TaskCompletionSource<PathOfExileTradePriceCheckResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2826,6 +2832,8 @@ public sealed class PriceCheckerSearchControllerTests
 
         Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState?.Status);
         Assert.Empty(fixture.Window.CurrentSearchState?.Offers ?? []);
+        Assert.Equal("old", retainedSnapshot.OfferId);
+        Assert.Equal("Armoured Shell", retainedSnapshot.Name);
     }
 
     [Fact]

@@ -15,4 +15,6 @@ public sealed record PriceCheckerOfferViewModel
     public required string ItemLevelText { get; init; }
 
     public required string PriceText { get; init; }
+
+    public required OfferCardSnapshot CardSnapshot { get; init; }
 }
