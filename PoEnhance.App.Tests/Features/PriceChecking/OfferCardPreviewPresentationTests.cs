@@ -162,10 +162,44 @@ public sealed class OfferCardPreviewPresentationTests
         Assert.Contains("Grid.Row=\"0\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Grid.Row=\"2\"", xaml, StringComparison.Ordinal);
         Assert.Contains("TradeFooterBackgroundBrush", xaml, StringComparison.Ordinal);
+        Assert.Contains("HeaderBackgroundBrush", xaml, StringComparison.Ordinal);
+        Assert.Contains("BodyBackgroundBrush", xaml, StringComparison.Ordinal);
+        Assert.Contains("ScrollBarThumbBrush", xaml, StringComparison.Ordinal);
+        Assert.Contains("CardScrollBarStyle", xaml, StringComparison.Ordinal);
         Assert.Contains("ModifierCraftedBrush", xaml, StringComparison.Ordinal);
         Assert.Contains("ModifierFracturedBrush", xaml, StringComparison.Ordinal);
+        Assert.Contains("Color=\"#C9A5FF\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Color=\"#D8B36A\"", xaml, StringComparison.Ordinal);
         Assert.Contains("HasModifierSections", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"HeaderBorder\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ItemContentPanel\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"TradeFooterBorder\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PinButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"HeaderDragThumb\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Cursor=\"SizeAll\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PinFeedbackText\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("<Image", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Background=\"White\"", xaml, StringComparison.OrdinalIgnoreCase);
+        var contentAfterResources = xaml[(xaml.IndexOf("</Window.Resources>", StringComparison.Ordinal) +
+            "</Window.Resources>".Length)..];
+        Assert.DoesNotContain("=\"#", contentAfterResources, StringComparison.Ordinal);
+
+        var code = File.ReadAllText(Path.Combine(
+            RepositoryRoot(),
+            "PoEnhance.App",
+            "Features",
+            "PriceChecking",
+            "ItemCardPreviewWindow.xaml.cs"));
+        Assert.Contains(
+            "mode != OfferCardWindowMode.Pinned",
+            code,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HeaderDragThumb.Visibility = isPinned",
+            code,
+            StringComparison.Ordinal);
+        Assert.Contains("ItemContentPanel.Measure", code, StringComparison.Ordinal);
+        Assert.Contains("OfferCardWindowSizeCalculator", code, StringComparison.Ordinal);
     }
 
     private static OfferCardProperty Property(

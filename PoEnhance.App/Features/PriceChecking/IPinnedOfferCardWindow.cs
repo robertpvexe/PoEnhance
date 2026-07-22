@@ -1,10 +1,12 @@
 namespace PoEnhance.App.Features.PriceChecking;
 
-internal interface IOfferCardPreviewWindow
+internal interface IPinnedOfferCardWindow
 {
     event EventHandler? CloseRequested;
 
-    event EventHandler? PinRequested;
+    event EventHandler? UnpinRequested;
+
+    event EventHandler<OfferCardDragDeltaEventArgs>? DragDelta;
 
     bool IsClosed { get; }
 
@@ -17,10 +19,6 @@ internal interface IOfferCardPreviewWindow
     void ApplyPlacement(PriceCheckerPlacement placement);
 
     void ShowInactive();
-
-    void HideAndClear();
-
-    void SetPinFeedback(string? message);
 
     void Close();
 }

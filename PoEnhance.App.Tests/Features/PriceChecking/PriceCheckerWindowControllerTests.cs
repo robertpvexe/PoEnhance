@@ -13,6 +13,8 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 
 public sealed class PriceCheckerWindowControllerTests
 {
+    private static long visibilitySequence;
+
     [Fact]
     public async Task ShowOrUpdateAsync_EmptyCatalogCachePublishesFirstAxePresentationOnlyAfterOfficialLabelLoads()
     {
@@ -267,6 +269,273 @@ public sealed class PriceCheckerWindowControllerTests
 
         Assert.True(preview.IsClosed);
         Assert.True(priceCheckerWindow.IsClosed);
+    }
+
+    [Fact]
+    public void PinningCreatesIndependentCardClearsPreviewAndLaterOfferReusesPreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = true;
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var first = new OfferCardSnapshot { OfferId = "first" };
+        var second = new OfferCardSnapshot { OfferId = "second" };
+
+        priceCheckerWindow.RaiseOfferClicked(first);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        var previewPlacement = Assert.IsType<PriceCheckerPlacement>(preview.CurrentPlacement);
+        preview.RaisePinRequested();
+
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+        Assert.Same(first, pinned.CurrentSnapshot);
+        Assert.Equal(previewPlacement, pinned.CurrentPlacement);
+        Assert.True(pinned.IsVisible);
+        Assert.True(pinned.LastShowSequence > 0);
+        Assert.True(pinned.LastShowSequence < preview.LastHideSequence);
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.Equal(1, preview.HideCount);
+
+        priceCheckerWindow.RaiseOfferClicked(second);
+
+        Assert.Same(second, preview.CurrentSnapshot);
+        Assert.Same(first, pinned.CurrentSnapshot);
+        Assert.Single(fixture.PinnedWindowFactory.Windows);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void UnpinMovesExactPinnedSnapshotBackIntoReusablePreviewAtItsCurrentPlacement()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = true;
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot { OfferId = "pinned", Name = "Dusk Shell" };
+        var mapperCalls = fixture.Mapper.CallCount;
+        var validatorCalls = fixture.Validator.CallCount;
+
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        preview.RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+        pinned.RaiseDragDelta(35, 20);
+        var pinnedPlacement = Assert.IsType<PriceCheckerPlacement>(pinned.CurrentPlacement);
+
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "other" });
+        Assert.Same(preview, Assert.Single(fixture.PreviewWindowFactory.Windows));
+        pinned.RaiseUnpinRequested();
+
+        Assert.True(pinned.IsClosed);
+        Assert.Equal(0, fixture.PinnedController.Count);
+        Assert.Same(snapshot, preview.CurrentSnapshot);
+        Assert.Equal(pinnedPlacement, preview.CurrentPlacement);
+        Assert.Equal(mapperCalls, fixture.Mapper.CallCount);
+        Assert.Equal(validatorCalls, fixture.Validator.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.FetchCallCount);
+
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "next" });
+        Assert.Equal("next", preview.CurrentSnapshot?.OfferId);
+    }
+
+    [Fact]
+    public void UnpinAfterPriceCheckerClosesUsesPinnedSessionBoundsForReusablePreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot { OfferId = "pinned" };
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        preview.RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+
+        priceCheckerWindow.Close();
+        pinned.RaiseUnpinRequested();
+
+        Assert.Same(snapshot, preview.CurrentSnapshot);
+        Assert.True(pinned.IsClosed);
+        Assert.Equal(0, fixture.PinnedController.Count);
+    }
+
+    [Fact]
+    public void PinningSameOfferIdAgainBringsExistingCardForwardAndClearsDuplicatePreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = true;
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot { OfferId = "listing-1", Name = "Dusk Shell" };
+
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        preview.RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+        var initialShowCount = pinned.ShowCount;
+
+        priceCheckerWindow.RaiseOfferClicked(snapshot with { Name = "Rendered differently" });
+        preview.RaisePinRequested();
+
+        Assert.Single(fixture.PinnedWindowFactory.Windows);
+        Assert.Equal(1, fixture.PinnedController.Count);
+        Assert.True(pinned.ShowCount > initialShowCount);
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.False(pinned.IsClosed);
+    }
+
+    [Fact]
+    public void SearchResetLeagueAndNewCaptureDoNotCloseOrMutatePinnedCard()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot { OfferId = "pinned" };
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+        Assert.Single(fixture.PreviewWindowFactory.Windows).RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+
+        priceCheckerWindow.RaiseSearchRequested();
+        priceCheckerWindow.RaiseResetItemRequested();
+        Assert.True(fixture.LeagueSetting.TrySave("Standard"));
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Iron Ring"), null, []);
+
+        Assert.Same(snapshot, pinned.CurrentSnapshot);
+        Assert.False(pinned.IsClosed);
+        Assert.Equal(1, fixture.PinnedController.Count);
+        Assert.Equal(1, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void ClosingPriceCheckerDoesNotClosePinnedCard()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "pinned" });
+        Assert.Single(fixture.PreviewWindowFactory.Windows).RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+
+        priceCheckerWindow.Close();
+
+        Assert.True(priceCheckerWindow.IsClosed);
+        Assert.False(pinned.IsClosed);
+        Assert.NotNull(pinned.CurrentSnapshot);
+    }
+
+    [Fact]
+    public void ApplicationShutdownClosesPinnedAndUnpinnedWindowsExactlyOnce()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "pinned" });
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        preview.RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "preview" });
+
+        fixture.Controller.Close();
+        fixture.Controller.Close();
+
+        Assert.True(preview.IsClosed);
+        Assert.True(pinned.IsClosed);
+        Assert.Equal(1, pinned.CloseCount);
+        Assert.True(priceCheckerWindow.IsClosed);
+    }
+
+    [Fact]
+    public void FifthPinAttemptKeepsPreviewOpenShowsFeedbackAndDoesNotReplacePinnedCards()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+
+        for (var index = 1; index <= 4; index++)
+        {
+            priceCheckerWindow.RaiseOfferClicked(
+                new OfferCardSnapshot { OfferId = index.ToString() });
+            Assert.Single(fixture.PreviewWindowFactory.Windows).RaisePinRequested();
+        }
+
+        var fifth = new OfferCardSnapshot { OfferId = "fifth" };
+        priceCheckerWindow.RaiseOfferClicked(fifth);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        preview.RaisePinRequested();
+
+        Assert.Same(fifth, preview.CurrentSnapshot);
+        Assert.Equal(
+            PinnedOfferCardSessionController.MaximumPinnedCardsFeedback,
+            preview.PinFeedback);
+        Assert.Equal(4, fixture.PinnedWindowFactory.Windows.Count);
+        Assert.All(fixture.PinnedWindowFactory.Windows, pinned => Assert.False(pinned.IsClosed));
+
+        fixture.PinnedWindowFactory.Windows[0].RaiseCloseRequested();
+        preview.RaisePinRequested();
+
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.Equal(5, fixture.PinnedWindowFactory.Windows.Count);
+        Assert.Same(fifth, fixture.PinnedWindowFactory.Windows[^1].CurrentSnapshot);
+    }
+
+    [Fact]
+    public void PinningAndDraggingPerformNoSearchFetchOrDraftWork()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var mapperCalls = fixture.Mapper.CallCount;
+        var validatorCalls = fixture.Validator.CallCount;
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "pinned" });
+
+        Assert.Single(fixture.PreviewWindowFactory.Windows).RaisePinRequested();
+        Assert.Single(fixture.PinnedWindowFactory.Windows).RaiseDragDelta(35, 20);
+
+        Assert.Equal(mapperCalls, fixture.Mapper.CallCount);
+        Assert.Equal(validatorCalls, fixture.Validator.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.FetchCallCount);
+    }
+
+    [Fact]
+    public void PinnedOfferCardForegroundChangesPerformNoSearchFetchOrDraftWork()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = true;
+        fixture.Controller.UpdateGameOverlayContext(true);
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot { OfferId = "pinned" };
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+        Assert.Single(fixture.PreviewWindowFactory.Windows).RaisePinRequested();
+        var pinned = Assert.Single(fixture.PinnedWindowFactory.Windows);
+        var placement = pinned.CurrentPlacement;
+        var showCount = pinned.ShowCount;
+        var mapperCalls = fixture.Mapper.CallCount;
+        var validatorCalls = fixture.Validator.CallCount;
+
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = false;
+        fixture.Controller.UpdateGameOverlayContext(false);
+        fixture.Controller.UpdateGameOverlayContext(false);
+        fixture.ForegroundWindowDetector.IsOverlayContextActive = true;
+        fixture.Controller.UpdateGameOverlayContext(true);
+
+        Assert.Equal(0, pinned.HideCount);
+        Assert.Equal(showCount, pinned.ShowCount);
+        Assert.Same(snapshot, pinned.CurrentSnapshot);
+        Assert.Equal(placement, pinned.CurrentPlacement);
+        Assert.Equal(mapperCalls, fixture.Mapper.CallCount);
+        Assert.Equal(validatorCalls, fixture.Validator.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+        Assert.Equal(0, fixture.PriceCheckService.FetchCallCount);
     }
 
     [Fact]
@@ -1245,7 +1514,9 @@ Item Level: 80
             FakeDeferredActionScheduler deferredActionScheduler,
             ApplicationLeagueSetting leagueSetting,
             FakePreviewWindowFactory previewWindowFactory,
-            OfferCardPreviewController previewController)
+            OfferCardPreviewController previewController,
+            FakePinnedWindowFactory pinnedWindowFactory,
+            PinnedOfferCardSessionController pinnedController)
         {
             this.tempDirectory = tempDirectory;
             Controller = controller;
@@ -1262,6 +1533,8 @@ Item Level: 80
             LeagueSetting = leagueSetting;
             PreviewWindowFactory = previewWindowFactory;
             PreviewController = previewController;
+            PinnedWindowFactory = pinnedWindowFactory;
+            PinnedController = pinnedController;
         }
 
         public PriceCheckerWindowController Controller { get; }
@@ -1292,6 +1565,10 @@ Item Level: 80
 
         public OfferCardPreviewController PreviewController { get; }
 
+        public FakePinnedWindowFactory PinnedWindowFactory { get; }
+
+        public PinnedOfferCardSessionController PinnedController { get; }
+
         public static ControllerFixture Create(
             bool boundsAvailable = true,
             PathOfExileClientBounds? bounds = null)
@@ -1309,7 +1586,7 @@ Item Level: 80
             var calculator = new PriceCheckerPlacementCalculator();
             var placementStore = new PriceCheckerPlacementStore(
                 Path.Combine(tempDirectory.Path, "placement.json"));
-        var windowFactory = new FakeWindowFactory(clientBounds.DpiScaleX, clientBounds.DpiScaleY);
+            var windowFactory = new FakeWindowFactory(clientBounds.DpiScaleX, clientBounds.DpiScaleY);
             var mapper = new CountingMapper();
             var validator = new CountingValidator();
             var priceCheckService = new FakePriceCheckService();
@@ -1320,6 +1597,10 @@ Item Level: 80
             var previewController = new OfferCardPreviewController(
                 previewWindowFactory,
                 new OfferCardPreviewPlacementCalculator());
+            var pinnedWindowFactory = new FakePinnedWindowFactory();
+            var pinnedController = new PinnedOfferCardSessionController(
+                pinnedWindowFactory,
+                new PinnedOfferCardPlacementCalculator());
             var controller = new PriceCheckerWindowController(
                 boundsProvider,
                 calculator,
@@ -1332,7 +1613,8 @@ Item Level: 80
                 new PriceCheckerSearchController(
                     priceCheckService,
                     leagueSetting),
-                offerCardPreviewController: previewController);
+                offerCardPreviewController: previewController,
+                pinnedOfferCardSessionController: pinnedController);
 
             return new ControllerFixture(
                 tempDirectory,
@@ -1349,7 +1631,9 @@ Item Level: 80
                 deferredActionScheduler,
                 leagueSetting,
                 previewWindowFactory,
-                previewController);
+                previewController,
+                pinnedWindowFactory,
+                pinnedController);
         }
 
         public void Dispose()
@@ -1381,9 +1665,16 @@ Item Level: 80
     {
         public bool IsPathOfExileForeground { get; set; }
 
+        public bool IsOverlayContextActive { get; set; }
+
         public bool IsPathOfExileForegroundWindow()
         {
             return IsPathOfExileForeground;
+        }
+
+        public bool IsPathOfExileOverlayContextActive()
+        {
+            return IsOverlayContextActive || IsPathOfExileForeground;
         }
     }
 
@@ -1423,13 +1714,23 @@ Item Level: 80
     {
         public event EventHandler? CloseRequested;
 
+        public event EventHandler? PinRequested;
+
         public bool IsClosed { get; private set; }
 
         public OfferCardSnapshot? CurrentSnapshot { get; private set; }
 
+        public PriceCheckerPlacement? CurrentPlacement { get; private set; }
+
+        public string? PinFeedback { get; private set; }
+
         public int ShowCount { get; private set; }
 
         public int HideCount { get; private set; }
+
+        public bool IsVisible { get; private set; }
+
+        public long LastHideSequence { get; private set; }
 
         public List<PriceCheckerPlacement> Placements { get; } = [];
 
@@ -1442,17 +1743,27 @@ Item Level: 80
         public void ApplyPlacement(PriceCheckerPlacement placement)
         {
             Placements.Add(placement);
+            CurrentPlacement = placement;
         }
 
         public void ShowInactive()
         {
             ShowCount++;
+            IsVisible = true;
         }
 
         public void HideAndClear()
         {
             CurrentSnapshot = null;
+            CurrentPlacement = null;
             HideCount++;
+            IsVisible = false;
+            LastHideSequence = Interlocked.Increment(ref visibilitySequence);
+        }
+
+        public void SetPinFeedback(string? message)
+        {
+            PinFeedback = message;
         }
 
         public void Close()
@@ -1464,6 +1775,94 @@ Item Level: 80
         public void RaiseCloseRequested()
         {
             CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaisePinRequested()
+        {
+            PinRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    internal sealed class FakePinnedWindowFactory : IPinnedOfferCardWindowFactory
+    {
+        public List<FakePinnedWindow> Windows { get; } = [];
+
+        public IPinnedOfferCardWindow CreateWindow()
+        {
+            var window = new FakePinnedWindow();
+            Windows.Add(window);
+            return window;
+        }
+    }
+
+    internal sealed class FakePinnedWindow : IPinnedOfferCardWindow
+    {
+        public event EventHandler? CloseRequested;
+
+        public event EventHandler? UnpinRequested;
+
+        public event EventHandler<OfferCardDragDeltaEventArgs>? DragDelta;
+
+        public bool IsClosed { get; private set; }
+
+        public OfferCardSnapshot? CurrentSnapshot { get; private set; }
+
+        public PriceCheckerPlacement? CurrentPlacement { get; private set; }
+
+        public int ShowCount { get; private set; }
+
+        public int HideCount { get; private set; }
+
+        public int CloseCount { get; private set; }
+
+        public bool IsVisible { get; private set; }
+
+        public long LastShowSequence { get; private set; }
+
+        public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+        {
+            CurrentSnapshot = snapshot;
+            return new OfferCardPreviewSize(460, Math.Min(600, maximumHeight));
+        }
+
+        public void ApplyPlacement(PriceCheckerPlacement placement)
+        {
+            CurrentPlacement = placement;
+        }
+
+        public void ShowInactive()
+        {
+            ShowCount++;
+            IsVisible = true;
+            LastShowSequence = Interlocked.Increment(ref visibilitySequence);
+        }
+
+        public void Close()
+        {
+            if (IsClosed)
+            {
+                return;
+            }
+
+            IsClosed = true;
+            CloseCount++;
+        }
+
+        public void RaiseCloseRequested()
+        {
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseUnpinRequested()
+        {
+            UnpinRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseDragDelta(double horizontalChange, double verticalChange)
+        {
+            DragDelta?.Invoke(
+                this,
+                new OfferCardDragDeltaEventArgs(horizontalChange, verticalChange));
         }
     }
 
@@ -1887,6 +2286,8 @@ Item Level: 80
 
         public int CategoryLabelLoadCount { get; private set; }
 
+        public int FetchCallCount { get; private set; }
+
         public Func<TradeSearchDraft, string?>? CategoryDisplayLabelResolver { get; set; }
 
         public Func<TradeSearchDraft, CancellationToken, Task<string?>>? CategoryLabelLoader { get; set; }
@@ -1929,8 +2330,11 @@ Item Level: 80
         public Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
             string? searchQueryId,
             IReadOnlyList<string?>? resultIds,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default)
+        {
+            FetchCallCount++;
             throw new InvalidOperationException("Load More is not expected in window lifecycle tests.");
+        }
     }
 
     private sealed class TempDirectory : IDisposable

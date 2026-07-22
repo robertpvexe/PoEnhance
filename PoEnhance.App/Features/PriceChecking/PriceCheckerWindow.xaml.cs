@@ -8,6 +8,7 @@ using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Globalization;
+using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
@@ -24,6 +25,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     private bool isHorizontalResizeActive;
     private bool isOfferCapacityReportScheduled;
     private bool isUpdatingContent;
+    private IntPtr registeredOverlayWindowHandle;
     private TextBlock? hoverExpandedModifierNameText;
 
     public PriceCheckerWindow()
@@ -58,8 +60,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ResetItemButton.Click += OnResetItemButtonClick;
         CloseButton.Click += (_, _) => Close();
         KeyDown += OnKeyDown;
-        SourceInitialized += (_, _) => PriceCheckerWindowChrome.ApplyToolWindowExtendedStyle(this);
-        Closed += (_, _) => isClosed = true;
+        SourceInitialized += OnSourceInitialized;
+        Closed += OnClosed;
     }
 
     public event EventHandler<PriceCheckerHorizontalDragEventArgs>? HorizontalDragDelta;
@@ -1031,6 +1033,20 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 "PriceCheckerTitleNormalForegroundBrush",
             _ => "PriceCheckerTitleAnyForegroundBrush",
         };
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        PriceCheckerWindowChrome.ApplyToolWindowExtendedStyle(this);
+        registeredOverlayWindowHandle = new WindowInteropHelper(this).Handle;
+        PathOfExileOverlayWindowRegistry.Shared.Register(registeredOverlayWindowHandle);
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        PathOfExileOverlayWindowRegistry.Shared.Unregister(registeredOverlayWindowHandle);
+        registeredOverlayWindowHandle = IntPtr.Zero;
+        isClosed = true;
     }
 
     private static double? SelectRenderedDimension(double actualValue, double requestedValue)

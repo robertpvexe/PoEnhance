@@ -47,6 +47,31 @@ internal sealed class OfferCardPreviewPlacementCalculator
         return new PriceCheckerPlacement(clampedLeft, top, width, height);
     }
 
+    public PriceCheckerPlacement Clamp(
+        PriceCheckerPlacement placement,
+        PathOfExileClientBounds clientBounds)
+    {
+        ArgumentNullException.ThrowIfNull(placement);
+        ArgumentNullException.ThrowIfNull(clientBounds);
+
+        if (!clientBounds.IsUsable ||
+            !double.IsFinite(placement.Width) ||
+            !double.IsFinite(placement.Height) ||
+            placement.Width <= 0d ||
+            placement.Height <= 0d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(placement));
+        }
+
+        var width = Math.Min(placement.Width, clientBounds.Width);
+        var height = Math.Min(placement.Height, clientBounds.Height);
+        return new PriceCheckerPlacement(
+            Clamp(placement.Left, clientBounds.Left, clientBounds.Right - width),
+            Clamp(placement.Top, clientBounds.Top, clientBounds.Bottom - height),
+            width,
+            height);
+    }
+
     private static double Clamp(double value, double minimum, double maximum)
     {
         return Math.Clamp(value, minimum, Math.Max(minimum, maximum));

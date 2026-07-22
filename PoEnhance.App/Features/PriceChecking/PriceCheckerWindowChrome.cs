@@ -13,6 +13,7 @@ internal static class PriceCheckerWindowChrome
     public const WindowStyle WindowStyle = System.Windows.WindowStyle.None;
     public const int ExtendedToolWindowStyle = 0x00000080;
     public const int ExtendedAppWindowStyle = 0x00040000;
+    public const long ExtendedNoActivateStyle = 0x08000000L;
 
     private const int ExtendedWindowStyleIndex = -20;
 
@@ -37,6 +38,22 @@ internal static class PriceCheckerWindowChrome
         style |= ExtendedToolWindowStyle;
         style &= ~ExtendedAppWindowStyle;
         _ = SetWindowLongPtr(handle, ExtendedWindowStyleIndex, new IntPtr(style));
+    }
+
+    public static void ApplyNonActivatingToolWindowExtendedStyle(Window window)
+    {
+        ApplyToolWindowExtendedStyle(window);
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var style = GetWindowLongPtr(handle, ExtendedWindowStyleIndex).ToInt64();
+        _ = SetWindowLongPtr(
+            handle,
+            ExtendedWindowStyleIndex,
+            new IntPtr(style | ExtendedNoActivateStyle));
     }
 
     private static IntPtr GetWindowLongPtr(IntPtr windowHandle, int index)

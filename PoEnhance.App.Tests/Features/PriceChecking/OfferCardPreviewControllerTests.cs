@@ -71,6 +71,26 @@ public sealed class OfferCardPreviewControllerTests
         Assert.Equal(1, window.CloseCount);
     }
 
+    [Fact]
+    public void PinRequest_ExposesExactSnapshotAndCurrentPlacementWithoutClearingPreview()
+    {
+        var factory = new FakeWindowFactory();
+        using var controller = CreateController(factory);
+        var snapshot = Snapshot("pin");
+        OfferCardPinRequestedEventArgs? request = null;
+        controller.PinRequested += (_, e) => request = e;
+        controller.Show(snapshot, PriceCheckerBounds(), ClientBounds());
+        var window = Assert.Single(factory.Windows);
+
+        window.RaisePinRequested();
+
+        Assert.NotNull(request);
+        Assert.Same(snapshot, request.Snapshot);
+        Assert.Equal(window.CurrentPlacement, request.Placement);
+        Assert.Same(snapshot, window.CurrentSnapshot);
+        Assert.Equal(0, window.HideCount);
+    }
+
     private static OfferCardPreviewController CreateController(FakeWindowFactory factory)
     {
         return new OfferCardPreviewController(
@@ -111,9 +131,15 @@ public sealed class OfferCardPreviewControllerTests
     {
         public event EventHandler? CloseRequested;
 
+        public event EventHandler? PinRequested;
+
         public bool IsClosed { get; private set; }
 
         public OfferCardSnapshot? CurrentSnapshot { get; private set; }
+
+        public PriceCheckerPlacement? CurrentPlacement { get; private set; }
+
+        public string? PinFeedback { get; private set; }
 
         public int UpdateCount { get; private set; }
 
@@ -135,6 +161,7 @@ public sealed class OfferCardPreviewControllerTests
         public void ApplyPlacement(PriceCheckerPlacement placement)
         {
             Placements.Add(placement);
+            CurrentPlacement = placement;
         }
 
         public void ShowInactive()
@@ -145,7 +172,13 @@ public sealed class OfferCardPreviewControllerTests
         public void HideAndClear()
         {
             CurrentSnapshot = null;
+            CurrentPlacement = null;
             HideCount++;
+        }
+
+        public void SetPinFeedback(string? message)
+        {
+            PinFeedback = message;
         }
 
         public void Close()
@@ -158,6 +191,11 @@ public sealed class OfferCardPreviewControllerTests
         public void RaiseCloseRequested()
         {
             CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaisePinRequested()
+        {
+            PinRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 }

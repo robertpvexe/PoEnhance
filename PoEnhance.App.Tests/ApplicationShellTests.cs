@@ -22,6 +22,10 @@ public sealed class ApplicationShellTests
         Assert.Contains("developerWindow.LoadGameDataAsync", hostCode, StringComparison.Ordinal);
         Assert.Contains("trayIcon.Show()", hostCode, StringComparison.Ordinal);
         Assert.Contains("statusTimer.Start()", hostCode, StringComparison.Ordinal);
+        Assert.Contains(
+            "PriceCheckerWindowController.UpdateGameOverlayContext",
+            hostCode,
+            StringComparison.Ordinal);
     }
 
     [Fact]

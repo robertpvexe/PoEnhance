@@ -4,6 +4,6 @@ internal sealed class OfferCardPreviewWindowFactory : IOfferCardPreviewWindowFac
 {
     public IOfferCardPreviewWindow CreateWindow()
     {
-        return new ItemCardPreviewWindow();
+        return new ItemCardPreviewWindow(OfferCardWindowMode.Preview);
     }
 }

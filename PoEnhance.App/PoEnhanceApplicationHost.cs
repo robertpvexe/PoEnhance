@@ -204,6 +204,8 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     {
         var isRunning = processDetector.IsPathOfExileRunning();
         var isForeground = foregroundWindowDetector.IsPathOfExileForegroundWindow();
+        var isOverlayContextActive =
+            foregroundWindowDetector.IsPathOfExileOverlayContextActive();
 
         LogPathOfExileRunningChange(isRunning);
         LogPathOfExileForegroundChange(isForeground);
@@ -211,6 +213,8 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         multitoolMenuHotkeyService.UpdatePathOfExileForegroundState(
             isForeground || multitoolMenuWindowController.IsVisible);
         quickUseHotkeyRuntime.UpdatePathOfExileForegroundState(isForeground);
+        composition.PriceCheckerWindowController.UpdateGameOverlayContext(
+            isOverlayContextActive);
         developerWindow.UpdatePathOfExileStatus(
             isRunning,
             isForeground,

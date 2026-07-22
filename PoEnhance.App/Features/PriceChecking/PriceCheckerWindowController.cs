@@ -22,6 +22,7 @@ internal sealed class PriceCheckerWindowController
     private readonly PriceCheckerSearchController searchController;
     private readonly IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter;
     private readonly OfferCardPreviewController offerCardPreviewController;
+    private readonly PinnedOfferCardSessionController pinnedOfferCardSessionController;
     private IPriceCheckerWindow? window;
     private PathOfExileClientBounds? currentClientBounds;
     private PriceCheckerPlacementKey? currentPlacementKey;
@@ -52,7 +53,10 @@ internal sealed class PriceCheckerWindowController
             PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild(),
             new OfferCardPreviewController(
                 new OfferCardPreviewWindowFactory(),
-                new OfferCardPreviewPlacementCalculator()))
+                new OfferCardPreviewPlacementCalculator()),
+            new PinnedOfferCardSessionController(
+                new PinnedOfferCardWindowFactory(),
+                new PinnedOfferCardPlacementCalculator()))
     {
     }
 
@@ -67,7 +71,8 @@ internal sealed class PriceCheckerWindowController
         IPriceCheckerDeferredActionScheduler deferredActionScheduler,
         PriceCheckerSearchController searchController,
         IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter = null,
-        OfferCardPreviewController? offerCardPreviewController = null)
+        OfferCardPreviewController? offerCardPreviewController = null,
+        PinnedOfferCardSessionController? pinnedOfferCardSessionController = null)
     {
         this.clientBoundsProvider = clientBoundsProvider;
         this.placementCalculator = placementCalculator;
@@ -83,6 +88,12 @@ internal sealed class PriceCheckerWindowController
             new OfferCardPreviewController(
                 new OfferCardPreviewWindowFactory(),
                 new OfferCardPreviewPlacementCalculator());
+        this.pinnedOfferCardSessionController = pinnedOfferCardSessionController ??
+            new PinnedOfferCardSessionController(
+                new PinnedOfferCardWindowFactory(),
+                new PinnedOfferCardPlacementCalculator());
+        this.offerCardPreviewController.PinRequested += OnOfferCardPinRequested;
+        this.pinnedOfferCardSessionController.Unpinned += OnPinnedOfferCardUnpinned;
         searchController.DeveloperDiagnosticsChanged += OnDeveloperDiagnosticsChanged;
         searchController.OfferResultsInvalidated += OnOfferResultsInvalidated;
     }
@@ -137,7 +148,23 @@ internal sealed class PriceCheckerWindowController
             window.Close();
         }
 
+        offerCardPreviewController.PinRequested -= OnOfferCardPinRequested;
+        pinnedOfferCardSessionController.Unpinned -= OnPinnedOfferCardUnpinned;
         offerCardPreviewController.Dispose();
+        pinnedOfferCardSessionController.Dispose();
+    }
+
+    public void UpdateGameOverlayContext(bool isActive)
+    {
+        PathOfExileClientBounds? clientBounds = null;
+        if (clientBoundsProvider.TryGetClientBounds(out var currentBounds))
+        {
+            clientBounds = currentBounds;
+        }
+
+        pinnedOfferCardSessionController.UpdateGameOverlayContext(
+            isActive,
+            clientBounds);
     }
 
     private bool TryPrepareUpdate(
@@ -320,6 +347,52 @@ internal sealed class PriceCheckerWindowController
     private void OnOfferResultsInvalidated(object? sender, EventArgs e)
     {
         offerCardPreviewController.Clear();
+    }
+
+    private void OnOfferCardPinRequested(
+        object? sender,
+        OfferCardPinRequestedEventArgs e)
+    {
+        var clientBounds = currentClientBounds;
+        if (clientBoundsProvider.TryGetClientBounds(out var latestClientBounds))
+        {
+            clientBounds = latestClientBounds;
+        }
+
+        if (clientBounds is null)
+        {
+            offerCardPreviewController.SetPinFeedback(
+                "Path of Exile client bounds are unavailable.");
+            return;
+        }
+
+        pinnedOfferCardSessionController.UpdateGameOverlayContext(
+            foregroundWindowDetector.IsPathOfExileOverlayContextActive(),
+            clientBounds);
+        var result = pinnedOfferCardSessionController.TryPin(
+            e.Snapshot,
+            e.Placement,
+            clientBounds);
+        if (result.IsSuccess || result.IsAlreadyPinned)
+        {
+            offerCardPreviewController.Clear();
+            return;
+        }
+
+        offerCardPreviewController.SetPinFeedback(result.Feedback);
+    }
+
+    private void OnPinnedOfferCardUnpinned(
+        object? sender,
+        PinnedOfferCardUnpinnedEventArgs e)
+    {
+        var clientBounds = pinnedOfferCardSessionController.CurrentClientBounds ?? currentClientBounds;
+        if (clientBounds is null)
+        {
+            return;
+        }
+
+        offerCardPreviewController.ShowAt(e.Snapshot, e.Placement, clientBounds);
     }
 
     private void OnDeveloperDiagnosticsChanged(

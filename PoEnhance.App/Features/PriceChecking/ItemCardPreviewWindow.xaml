@@ -12,48 +12,145 @@
         WindowStartupLocation="Manual"
         WindowStyle="None">
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="PriceCheckerTitleBarControlResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
         <SolidColorBrush x:Key="CardBackgroundBrush"
-                         Color="#F0121212" />
+                         Color="#F20D0F12" />
+        <SolidColorBrush x:Key="TransparentBrush"
+                         Color="Transparent" />
+        <SolidColorBrush x:Key="HeaderBackgroundBrush"
+                         Color="#FA171A1F" />
+        <SolidColorBrush x:Key="BodyBackgroundBrush"
+                         Color="#F2111418" />
         <SolidColorBrush x:Key="CardBorderBrush"
-                         Color="#8B7650" />
+                         Color="#9C8260" />
+        <SolidColorBrush x:Key="HeaderDividerBrush"
+                         Color="#66543A" />
         <SolidColorBrush x:Key="HeaderNormalBrush"
-                         Color="#C8C8C8" />
+                         Color="#E2E5E9" />
         <SolidColorBrush x:Key="HeaderMagicBrush"
-                         Color="#8888FF" />
+                         Color="#9D9DFF" />
         <SolidColorBrush x:Key="HeaderRareBrush"
-                         Color="#FFFF77" />
+                         Color="#FFF27A" />
         <SolidColorBrush x:Key="HeaderUniqueBrush"
-                         Color="#AF6025" />
+                         Color="#D27A3E" />
         <SolidColorBrush x:Key="HeaderGemBrush"
                          Color="#1BA29B" />
         <SolidColorBrush x:Key="HeaderCurrencyBrush"
                          Color="#AA9E82" />
         <SolidColorBrush x:Key="PrimaryTextBrush"
-                         Color="#D7D7D7" />
+                         Color="#E2E5E9" />
         <SolidColorBrush x:Key="MutedTextBrush"
-                         Color="#9B9B9B" />
+                         Color="#A7ADB7" />
+        <SolidColorBrush x:Key="SectionHeadingBrush"
+                         Color="#D8BD78" />
         <SolidColorBrush x:Key="InfluenceTextBrush"
-                         Color="#AFA4D8" />
+                         Color="#C2B6EC" />
+        <SolidColorBrush x:Key="InfluenceBackgroundBrush"
+                         Color="#292333" />
+        <SolidColorBrush x:Key="InfluenceBorderBrush"
+                         Color="#65597A" />
         <SolidColorBrush x:Key="ModifierDefaultBrush"
-                         Color="#B7B7B7" />
+                         Color="#D0D2D6" />
         <SolidColorBrush x:Key="ModifierEnchantBrush"
-                         Color="#B4B4FF" />
+                         Color="#C0C0FF" />
         <SolidColorBrush x:Key="ModifierImplicitBrush"
-                         Color="#A8A8FF" />
+                         Color="#8FC7FF" />
         <SolidColorBrush x:Key="ModifierCraftedBrush"
-                         Color="#B4B4FF" />
+                         Color="#C9A5FF" />
         <SolidColorBrush x:Key="ModifierFracturedBrush"
-                         Color="#A29162" />
+                         Color="#D8B36A" />
+        <SolidColorBrush x:Key="ModifierDividerBrush"
+                         Color="#40454D" />
         <SolidColorBrush x:Key="FlavourTextBrush"
-                         Color="#AF6025" />
+                         Color="#D27A3E" />
         <SolidColorBrush x:Key="TradeFooterBackgroundBrush"
-                         Color="#1C2328" />
+                         Color="#1B242B" />
         <SolidColorBrush x:Key="TradeFooterAccentBrush"
-                         Color="#D7BE72" />
+                         Color="#E1C979" />
+        <SolidColorBrush x:Key="TradeFooterBorderBrush"
+                         Color="#58666F" />
         <SolidColorBrush x:Key="PropertyProgressBrush"
-                         Color="#8B7650" />
+                         Color="#A68A55" />
+        <SolidColorBrush x:Key="ProgressTrackBrush"
+                         Color="#292D32" />
+        <SolidColorBrush x:Key="FlagBackgroundBrush"
+                         Color="#272B30" />
+        <SolidColorBrush x:Key="FlagBorderBrush"
+                         Color="#5A616B" />
+        <SolidColorBrush x:Key="ControlBorderBrush"
+                         Color="#736348" />
+        <SolidColorBrush x:Key="PinFeedbackBrush"
+                         Color="#E5B36A" />
+        <SolidColorBrush x:Key="PinnedControlBackgroundBrush"
+                         Color="#4D4126" />
+        <SolidColorBrush x:Key="PinnedControlForegroundBrush"
+                         Color="#D7BE72" />
+        <SolidColorBrush x:Key="ScrollBarTrackBrush"
+                         Color="#171A1E" />
+        <SolidColorBrush x:Key="ScrollBarThumbBrush"
+                         Color="#66707C" />
+        <SolidColorBrush x:Key="ScrollBarThumbHoverBrush"
+                         Color="#8793A1" />
+
+        <Style x:Key="CardScrollBarThumbStyle"
+               TargetType="Thumb">
+            <Setter Property="MinHeight"
+                    Value="24" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbBorder"
+                                Margin="2,1"
+                                Background="{StaticResource ScrollBarThumbBrush}"
+                                CornerRadius="3" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter TargetName="ThumbBorder"
+                                        Property="Background"
+                                        Value="{StaticResource ScrollBarThumbHoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CardScrollBarStyle"
+               TargetType="ScrollBar">
+            <Setter Property="Width"
+                    Value="10" />
+            <Setter Property="Background"
+                    Value="{StaticResource ScrollBarTrackBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="True"
+                                   Orientation="{TemplateBinding Orientation}">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                  Opacity="0" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource CardScrollBarThumbStyle}" />
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                  Opacity="0" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <Style x:Key="HeaderTitleStyle"
                TargetType="TextBlock">
@@ -97,10 +194,11 @@
             <Setter Property="FontWeight"
                     Value="SemiBold" />
             <Setter Property="Foreground"
-                    Value="{StaticResource MutedTextBrush}" />
+                    Value="{StaticResource SectionHeadingBrush}" />
             <Setter Property="TextOptions.TextFormattingMode"
                     Value="Display" />
         </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Border x:Name="PreviewRoot"
@@ -116,16 +214,24 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0"
+            <Border x:Name="HeaderBorder"
+                    Grid.Row="0"
                     Padding="14,10,10,9"
-                    BorderBrush="#554832"
+                    Background="{StaticResource HeaderBackgroundBrush}"
+                    BorderBrush="{StaticResource HeaderDividerBrush}"
                     BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel>
+                    <Thumb x:Name="HeaderDragThumb"
+                           Grid.ColumnSpan="3"
+                           Background="Transparent"
+                           Cursor="SizeAll"
+                           ToolTip="Drag pinned item card" />
+                    <StackPanel IsHitTestVisible="False">
                         <TextBlock HorizontalAlignment="Center"
                                    FontSize="17"
                                    FontWeight="SemiBold"
@@ -166,8 +272,8 @@
                                 <DataTemplate>
                                     <Border Margin="2,1"
                                             Padding="5,1"
-                                            Background="#292333"
-                                            BorderBrush="#65597A"
+                                            Background="{StaticResource InfluenceBackgroundBrush}"
+                                            BorderBrush="{StaticResource InfluenceBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="2">
                                         <TextBlock FontSize="9"
@@ -178,29 +284,65 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
-                    <Button x:Name="CloseButton"
-                            Grid.Column="1"
-                            Width="24"
-                            Height="24"
-                            Margin="8,-3,-3,0"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Top"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Content="×"
-                            Cursor="Hand"
-                            FontSize="16"
-                            Foreground="{StaticResource MutedTextBrush}"
-                            ToolTip="Close offer preview" />
+                    <StackPanel Grid.Column="1"
+                                Grid.ColumnSpan="2"
+                                HorizontalAlignment="Right">
+                        <StackPanel HorizontalAlignment="Right"
+                                    Orientation="Horizontal">
+                            <ToggleButton x:Name="PinButton"
+                                          Width="28"
+                                          Height="28"
+                                          Margin="4"
+                                          Padding="0"
+                                          Content="{StaticResource TitleBarPinGlyph}"
+                                          FontSize="14"
+                                          ToolTip="Pin offer"
+                                          Style="{StaticResource TitleBarPinStyle}" />
+                            <Button x:Name="CloseButton"
+                                    Grid.Column="1"
+                                    Width="28"
+                                    Height="28"
+                                    Margin="0,4,4,4"
+                                    Padding="0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    ToolTip="Close"
+                                    Style="{StaticResource TitleBarButtonStyle}">
+                                <Canvas Width="20"
+                                        Height="20"
+                                        UseLayoutRounding="True">
+                                    <Path Data="{StaticResource TitleBarCloseGeometry}"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="2"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round" />
+                                </Canvas>
+                            </Button>
+                        </StackPanel>
+                        <TextBlock x:Name="PinFeedbackText"
+                                   MaxWidth="210"
+                                   Margin="8,3,0,0"
+                                   FontSize="9"
+                                   Foreground="{StaticResource PinFeedbackBrush}"
+                                   IsHitTestVisible="False"
+                                   TextAlignment="Right"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
             <ScrollViewer x:Name="ContentScrollViewer"
                           Grid.Row="1"
                           Padding="14,6,14,10"
+                          Background="{StaticResource BodyBackgroundBrush}"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
-                <StackPanel>
+                <ScrollViewer.Resources>
+                    <Style BasedOn="{StaticResource CardScrollBarStyle}"
+                           TargetType="ScrollBar" />
+                </ScrollViewer.Resources>
+                <StackPanel x:Name="ItemContentPanel">
                     <StackPanel Visibility="{Binding HasProperties, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <TextBlock Style="{StaticResource SectionLabelStyle}"
                                    Text="PROPERTIES" />
@@ -230,7 +372,7 @@
                                                      Grid.ColumnSpan="2"
                                                      Height="3"
                                                      Margin="0,2,0,1"
-                                                     Background="#292929"
+                                                     Background="{StaticResource ProgressTrackBrush}"
                                                      BorderThickness="0"
                                                      Foreground="{StaticResource PropertyProgressBrush}"
                                                      Maximum="1"
@@ -279,7 +421,7 @@
                                                      Grid.ColumnSpan="2"
                                                      Height="3"
                                                      Margin="0,2,0,1"
-                                                     Background="#292929"
+                                                     Background="{StaticResource ProgressTrackBrush}"
                                                      BorderThickness="0"
                                                      Foreground="{StaticResource PropertyProgressBrush}"
                                                      Maximum="1"
@@ -313,8 +455,8 @@
                             <DataTemplate>
                                 <Border Margin="0,0,5,4"
                                         Padding="5,2"
-                                        Background="#272727"
-                                        BorderBrush="#525252"
+                                        Background="{StaticResource FlagBackgroundBrush}"
+                                        BorderBrush="{StaticResource FlagBorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="2">
                                     <TextBlock FontSize="10"
@@ -331,7 +473,7 @@
                             <DataTemplate>
                                 <Border Margin="0,6,0,0"
                                         Padding="0,6,0,0"
-                                        BorderBrush="#3C3C3C"
+                                        BorderBrush="{StaticResource ModifierDividerBrush}"
                                         BorderThickness="0,1,0,0">
                                     <Border.Style>
                                         <Style TargetType="Border">
@@ -410,10 +552,11 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <Border Grid.Row="2"
+            <Border x:Name="TradeFooterBorder"
+                    Grid.Row="2"
                     Padding="12,8"
                     Background="{StaticResource TradeFooterBackgroundBrush}"
-                    BorderBrush="#4E5960"
+                    BorderBrush="{StaticResource TradeFooterBorderBrush}"
                     BorderThickness="0,1,0,0"
                     Visibility="{Binding HasTradeFooter, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
