@@ -27,6 +27,7 @@
     <None Include="..\PoEnhance.Core.Tests\TestData\Items\advanced-real-items-corpus.txt" Link="TestData\Items\advanced-real-items-corpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Items\ordinary-item-price-checker-corpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Trade\fetch-offer-card-response.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="TestData\Trade\fetch-offer-card-live-modifier-response.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -60,7 +60,10 @@ internal sealed class PinnedOfferCardSessionController : IDisposable
 
         currentClientBounds = clientBounds;
         var pinnedWindow = windowFactory.CreateWindow();
-        var size = pinnedWindow.UpdateContent(snapshot, clientBounds.Height);
+        var size = pinnedWindow.UpdateContent(
+            snapshot,
+            clientBounds.Width,
+            clientBounds.Height);
         var requestedPlacement = previewPlacement with
         {
             Width = IsPositiveFinite(previewPlacement.Width)

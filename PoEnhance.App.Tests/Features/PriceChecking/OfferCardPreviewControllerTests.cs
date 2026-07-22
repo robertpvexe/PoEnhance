@@ -1,4 +1,6 @@
 using PoEnhance.App.Features.PriceChecking;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 namespace PoEnhance.App.Tests.Features.PriceChecking;
 
@@ -32,6 +34,45 @@ public sealed class OfferCardPreviewControllerTests
         Assert.Equal(3, window.ShowCount);
         Assert.Equal(3, window.Placements.Count);
         Assert.False(window.IsClosed);
+    }
+
+    [Fact]
+    public void Show_RecalculatesPlacementFromEachNewMeasuredPreviewSize()
+    {
+        var factory = new FakeWindowFactory
+        {
+            SizeForSnapshot = snapshot => snapshot.OfferId == "short"
+                ? new OfferCardPreviewSize(400, 260)
+                : new OfferCardPreviewSize(700, 480),
+        };
+        using var controller = CreateController(factory);
+
+        controller.Show(Snapshot("short"), PriceCheckerBounds(), ClientBounds());
+        controller.Show(Snapshot("long"), PriceCheckerBounds(), ClientBounds());
+
+        var window = Assert.Single(factory.Windows);
+        Assert.Equal([400d, 700d], window.Placements.Select(placement => placement.Width));
+        Assert.Equal([260d, 480d], window.Placements.Select(placement => placement.Height));
+        Assert.Equal(2, window.UpdateCount);
+    }
+
+    [Fact]
+    public void Show_LiveFetchModifierSnapshotReachesTheWindowUnchangedWithoutProviderWork()
+    {
+        var parseResult = new PathOfExileTradeFetchResponseParser()
+            .ParseFetchResponse(PathOfExileTradeFetchFixtures.LiveModifierObjectResponse());
+        var offer = Assert.Single(Assert.IsType<PathOfExileTradeFetchResponse>(parseResult.Response).Result);
+        var snapshot = OfferCardSnapshotMapper.Create(offer);
+        var factory = new FakeWindowFactory();
+        using var controller = CreateController(factory);
+
+        controller.Show(snapshot, PriceCheckerBounds(), ClientBounds());
+
+        var window = Assert.Single(factory.Windows);
+        Assert.Same(snapshot, window.CurrentSnapshot);
+        Assert.Equal(8, snapshot.ModifierSections.Sum(section => section.Lines.Length));
+        Assert.Equal(1, window.UpdateCount);
+        Assert.Equal(1, window.ShowCount);
     }
 
     [Fact]
@@ -119,9 +160,11 @@ public sealed class OfferCardPreviewControllerTests
     {
         public List<FakeWindow> Windows { get; } = [];
 
+        public Func<OfferCardSnapshot, OfferCardPreviewSize>? SizeForSnapshot { get; init; }
+
         public IOfferCardPreviewWindow CreateWindow()
         {
-            var window = new FakeWindow();
+            var window = new FakeWindow(SizeForSnapshot);
             Windows.Add(window);
             return window;
         }
@@ -129,6 +172,13 @@ public sealed class OfferCardPreviewControllerTests
 
     private sealed class FakeWindow : IOfferCardPreviewWindow
     {
+        private readonly Func<OfferCardSnapshot, OfferCardPreviewSize>? sizeForSnapshot;
+
+        public FakeWindow(Func<OfferCardSnapshot, OfferCardPreviewSize>? sizeForSnapshot)
+        {
+            this.sizeForSnapshot = sizeForSnapshot;
+        }
+
         public event EventHandler? CloseRequested;
 
         public event EventHandler? PinRequested;
@@ -151,11 +201,16 @@ public sealed class OfferCardPreviewControllerTests
 
         public List<PriceCheckerPlacement> Placements { get; } = [];
 
-        public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+        public OfferCardPreviewSize UpdateContent(
+            OfferCardSnapshot snapshot,
+            double maximumWidth,
+            double maximumHeight)
         {
             CurrentSnapshot = snapshot;
             UpdateCount++;
-            return new OfferCardPreviewSize(460, Math.Min(600, maximumHeight));
+            return sizeForSnapshot?.Invoke(snapshot) ?? new OfferCardPreviewSize(
+                Math.Min(600, maximumWidth),
+                Math.Min(600, maximumHeight));
         }
 
         public void ApplyPlacement(PriceCheckerPlacement placement)

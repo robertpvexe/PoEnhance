@@ -6,20 +6,25 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerDeveloperDiagnosticsTests
 {
     [Fact]
-    public void UserFacingDiagnosticsHideOnlyTechnicalAggregationSkipInformation()
+    public void UserFacingDiagnosticsHideNonBlockingTechnicalInformationButKeepBlockingErrors()
     {
         var snapshot = new PriceCheckerDeveloperDiagnosticsSnapshot(
             "Success",
             [
                 new PriceCheckerDeveloperDiagnostic(
                     TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped,
-                    "Internal aggregation explanation."),
+                    "Internal aggregation explanation.",
+                    IsUserFacing: false),
+                new PriceCheckerDeveloperDiagnostic(
+                    TradeSearchValidationDiagnosticCodes.UnresolvedBase,
+                    "Parsed base fallback was used.",
+                    IsUserFacing: false),
                 new PriceCheckerDeveloperDiagnostic(
                     TradeSearchDraftDiagnosticCodes.UnsupportedInput,
                     "Actionable aggregation error."),
             ]);
 
-        Assert.Equal(2, snapshot.Diagnostics.Count);
+        Assert.Equal(3, snapshot.Diagnostics.Count);
         var userFacing = Assert.Single(snapshot.UserFacingDiagnostics);
         Assert.Equal(TradeSearchDraftDiagnosticCodes.UnsupportedInput, userFacing.Code);
         Assert.Equal(userFacing, snapshot.LatestUserFacingDiagnostic);

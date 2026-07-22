@@ -97,6 +97,45 @@ public sealed class PathOfExileTradeFetchResponseParserTests
     }
 
     [Fact]
+    public void ParseFetchResponse_LiveModifierObjectShapeUsesDescriptionsAndPreservesCountsAndOrder()
+    {
+        var result = ParseSuccessful(PathOfExileTradeFetchFixtures.LiveModifierObjectResponse());
+
+        Assert.Empty(result.Diagnostics);
+        var offer = Assert.Single(result.Response?.Result ?? []);
+        Assert.Equal("result-live-rare-armour", offer.Id);
+        Assert.Equal(["Sanitised enchant line"], offer.Item.EnchantMods);
+        Assert.Equal(["+12% to Fire Resistance"], offer.Item.ImplicitMods);
+        Assert.Equal(
+            ["+196 to Evasion Rating", "+43% to Fire Resistance"],
+            offer.Item.ExplicitMods);
+        Assert.Equal(["+30% to Lightning Resistance"], offer.Item.CraftedMods);
+        Assert.Equal(["+30 to Strength"], offer.Item.FracturedMods);
+        Assert.Equal(["Sanitised utility line"], offer.Item.UtilityMods);
+        Assert.Equal(["Sanitised cosmetic line"], offer.Item.CosmeticMods);
+
+        Assert.True(offer.Item.ModifierDiagnostics.RawFetchOfferPresent);
+        AssertModifierCounts(
+            offer.Item.ModifierDiagnostics.RawJsonCounts,
+            enchant: 1,
+            implicitCount: 1,
+            explicitCount: 2,
+            crafted: 1,
+            fractured: 1,
+            utility: 1,
+            cosmetic: 1);
+        AssertModifierCounts(
+            offer.Item.ModifierDiagnostics.ParsedDtoCounts,
+            enchant: 1,
+            implicitCount: 1,
+            explicitCount: 2,
+            crafted: 1,
+            fractured: 1,
+            utility: 1,
+            cosmetic: 1);
+    }
+
+    [Fact]
     public void ParseFetchResponse_MissingOptionalModifierArraysBecomeEmptyAndMissingPriceRemainsNull()
     {
         var result = ParseSuccessful("""
@@ -348,6 +387,28 @@ public sealed class PathOfExileTradeFetchResponseParserTests
         Assert.Null(result.Response);
         Assert.Null(result.ProviderError);
         Assert.Equal(expectedCode, Assert.Single(result.Diagnostics).Code);
+    }
+
+    private static void AssertModifierCounts(
+        PathOfExileTradeFetchedModifierCounts counts,
+        int enchant,
+        int implicitCount,
+        int explicitCount,
+        int crafted,
+        int fractured,
+        int utility,
+        int cosmetic)
+    {
+        Assert.Equal(enchant, counts.Enchant);
+        Assert.Equal(implicitCount, counts.Implicit);
+        Assert.Equal(explicitCount, counts.Explicit);
+        Assert.Equal(crafted, counts.Crafted);
+        Assert.Equal(fractured, counts.Fractured);
+        Assert.Equal(utility, counts.Utility);
+        Assert.Equal(cosmetic, counts.Cosmetic);
+        Assert.Equal(
+            enchant + implicitCount + explicitCount + crafted + fractured + utility + cosmetic,
+            counts.Total);
     }
 
     private static string StandardTwoOfferResponse()

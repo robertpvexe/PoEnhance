@@ -80,11 +80,41 @@ internal sealed record PathOfExileTradeFetchedItem
 
     public IReadOnlyList<string> CosmeticMods { get; init; } = [];
 
+    public PathOfExileTradeFetchedModifierDiagnostics ModifierDiagnostics { get; init; } = new();
+
     public string? Description { get; init; }
 
     public string? SecondaryDescription { get; init; }
 
     public IReadOnlyList<string> FlavourText { get; init; } = [];
+}
+
+internal sealed record PathOfExileTradeFetchedModifierDiagnostics
+{
+    public bool RawFetchOfferPresent { get; init; }
+
+    public PathOfExileTradeFetchedModifierCounts RawJsonCounts { get; init; } = new();
+
+    public PathOfExileTradeFetchedModifierCounts ParsedDtoCounts { get; init; } = new();
+}
+
+internal sealed record PathOfExileTradeFetchedModifierCounts
+{
+    public int Enchant { get; init; }
+
+    public int Implicit { get; init; }
+
+    public int Explicit { get; init; }
+
+    public int Crafted { get; init; }
+
+    public int Fractured { get; init; }
+
+    public int Utility { get; init; }
+
+    public int Cosmetic { get; init; }
+
+    public int Total => Enchant + Implicit + Explicit + Crafted + Fractured + Utility + Cosmetic;
 }
 
 internal sealed record PathOfExileTradeItemProperty

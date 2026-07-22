@@ -113,6 +113,35 @@ public sealed class OfferCardSnapshotMapperTests
     }
 
     [Fact]
+    public void Create_LiveModifierObjectShapePreservesEverySectionAndPipelineCounts()
+    {
+        var parseResult = new PathOfExileTradeFetchResponseParser()
+            .ParseFetchResponse(PathOfExileTradeFetchFixtures.LiveModifierObjectResponse());
+        var source = Assert.Single(Assert.IsType<PathOfExileTradeFetchResponse>(parseResult.Response).Result);
+
+        var snapshot = OfferCardSnapshotMapper.Create(source);
+
+        Assert.Equal(
+            [
+                OfferCardModifierProvenance.Enchant,
+                OfferCardModifierProvenance.Implicit,
+                OfferCardModifierProvenance.Explicit,
+                OfferCardModifierProvenance.Crafted,
+                OfferCardModifierProvenance.Fractured,
+                OfferCardModifierProvenance.Utility,
+                OfferCardModifierProvenance.Cosmetic,
+            ],
+            snapshot.ModifierSections.Select(section => section.Provenance));
+        Assert.Equal(
+            ["+196 to Evasion Rating", "+43% to Fire Resistance"],
+            snapshot.ModifierSections[2].Lines.ToArray());
+        Assert.True(snapshot.ModifierPipelineSource.RawFetchOfferPresent);
+        Assert.Equal(8, snapshot.ModifierPipelineSource.RawJson.Total);
+        Assert.Equal(8, snapshot.ModifierPipelineSource.ParsedDto.Total);
+        Assert.Equal(8, OfferCardModifierCounts.FromSnapshot(snapshot).Total);
+    }
+
+    [Fact]
     public void Create_AbsentOptionalFactsBecomeNullOrEmpty()
     {
         var snapshot = OfferCardSnapshotMapper.Create(new PathOfExileTradeFetchedOffer

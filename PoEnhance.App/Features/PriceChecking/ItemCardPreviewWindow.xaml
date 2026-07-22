@@ -3,7 +3,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:PoEnhance.App.Features.PriceChecking"
-        Width="460"
+        Width="400"
         Background="Transparent"
         ShowActivated="False"
         ShowInTaskbar="False"
@@ -16,197 +16,293 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="PriceCheckerTitleBarControlResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
-        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
-        <SolidColorBrush x:Key="CardBackgroundBrush"
-                         Color="#F20D0F12" />
-        <SolidColorBrush x:Key="TransparentBrush"
-                         Color="Transparent" />
-        <SolidColorBrush x:Key="HeaderBackgroundBrush"
-                         Color="#FA171A1F" />
-        <SolidColorBrush x:Key="BodyBackgroundBrush"
-                         Color="#F2111418" />
-        <SolidColorBrush x:Key="CardBorderBrush"
-                         Color="#9C8260" />
-        <SolidColorBrush x:Key="HeaderDividerBrush"
-                         Color="#66543A" />
-        <SolidColorBrush x:Key="HeaderNormalBrush"
-                         Color="#E2E5E9" />
-        <SolidColorBrush x:Key="HeaderMagicBrush"
-                         Color="#9D9DFF" />
-        <SolidColorBrush x:Key="HeaderRareBrush"
-                         Color="#FFF27A" />
-        <SolidColorBrush x:Key="HeaderUniqueBrush"
-                         Color="#D27A3E" />
-        <SolidColorBrush x:Key="HeaderGemBrush"
-                         Color="#1BA29B" />
-        <SolidColorBrush x:Key="HeaderCurrencyBrush"
-                         Color="#AA9E82" />
-        <SolidColorBrush x:Key="PrimaryTextBrush"
-                         Color="#E2E5E9" />
-        <SolidColorBrush x:Key="MutedTextBrush"
-                         Color="#A7ADB7" />
-        <SolidColorBrush x:Key="SectionHeadingBrush"
-                         Color="#D8BD78" />
-        <SolidColorBrush x:Key="InfluenceTextBrush"
-                         Color="#C2B6EC" />
-        <SolidColorBrush x:Key="InfluenceBackgroundBrush"
-                         Color="#292333" />
-        <SolidColorBrush x:Key="InfluenceBorderBrush"
-                         Color="#65597A" />
-        <SolidColorBrush x:Key="ModifierDefaultBrush"
-                         Color="#D0D2D6" />
-        <SolidColorBrush x:Key="ModifierEnchantBrush"
-                         Color="#C0C0FF" />
-        <SolidColorBrush x:Key="ModifierImplicitBrush"
-                         Color="#8FC7FF" />
-        <SolidColorBrush x:Key="ModifierCraftedBrush"
-                         Color="#C9A5FF" />
-        <SolidColorBrush x:Key="ModifierFracturedBrush"
-                         Color="#D8B36A" />
-        <SolidColorBrush x:Key="ModifierDividerBrush"
-                         Color="#40454D" />
-        <SolidColorBrush x:Key="FlavourTextBrush"
-                         Color="#D27A3E" />
-        <SolidColorBrush x:Key="TradeFooterBackgroundBrush"
-                         Color="#1B242B" />
-        <SolidColorBrush x:Key="TradeFooterAccentBrush"
-                         Color="#E1C979" />
-        <SolidColorBrush x:Key="TradeFooterBorderBrush"
-                         Color="#58666F" />
-        <SolidColorBrush x:Key="PropertyProgressBrush"
-                         Color="#A68A55" />
-        <SolidColorBrush x:Key="ProgressTrackBrush"
-                         Color="#292D32" />
-        <SolidColorBrush x:Key="FlagBackgroundBrush"
-                         Color="#272B30" />
-        <SolidColorBrush x:Key="FlagBorderBrush"
-                         Color="#5A616B" />
-        <SolidColorBrush x:Key="ControlBorderBrush"
-                         Color="#736348" />
-        <SolidColorBrush x:Key="PinFeedbackBrush"
-                         Color="#E5B36A" />
-        <SolidColorBrush x:Key="PinnedControlBackgroundBrush"
-                         Color="#4D4126" />
-        <SolidColorBrush x:Key="PinnedControlForegroundBrush"
-                         Color="#D7BE72" />
-        <SolidColorBrush x:Key="ScrollBarTrackBrush"
-                         Color="#171A1E" />
-        <SolidColorBrush x:Key="ScrollBarThumbBrush"
-                         Color="#66707C" />
-        <SolidColorBrush x:Key="ScrollBarThumbHoverBrush"
-                         Color="#8793A1" />
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
-        <Style x:Key="CardScrollBarThumbStyle"
-               TargetType="Thumb">
-            <Setter Property="MinHeight"
-                    Value="24" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Thumb">
-                        <Border x:Name="ThumbBorder"
-                                Margin="2,1"
-                                Background="{StaticResource ScrollBarThumbBrush}"
-                                CornerRadius="3" />
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver"
-                                     Value="True">
-                                <Setter TargetName="ThumbBorder"
-                                        Property="Background"
-                                        Value="{StaticResource ScrollBarThumbHoverBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <FontFamily x:Key="ItemTooltipTitleFontFamily">Fontin SmallCaps, Fontin, Georgia</FontFamily>
+            <FontFamily x:Key="ItemTooltipBodyFontFamily">Fontin, Georgia, Segoe UI</FontFamily>
 
-        <Style x:Key="CardScrollBarStyle"
-               TargetType="ScrollBar">
-            <Setter Property="Width"
-                    Value="10" />
-            <Setter Property="Background"
-                    Value="{StaticResource ScrollBarTrackBrush}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Grid Background="{TemplateBinding Background}">
-                            <Track x:Name="PART_Track"
-                                   IsDirectionReversed="True"
-                                   Orientation="{TemplateBinding Orientation}">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageUpCommand"
-                                                  Opacity="0" />
-                                </Track.DecreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb Style="{StaticResource CardScrollBarThumbStyle}" />
-                                </Track.Thumb>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageDownCommand"
-                                                  Opacity="0" />
-                                </Track.IncreaseRepeatButton>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <SolidColorBrush x:Key="CardBackgroundBrush"
+                             Color="#FA101216" />
+            <SolidColorBrush x:Key="CardBorderBrush"
+                             Color="#9C8260" />
+            <SolidColorBrush x:Key="CardMagicBorderBrush"
+                             Color="#6868AA" />
+            <SolidColorBrush x:Key="CardRareBorderBrush"
+                             Color="#9F8A35" />
+            <SolidColorBrush x:Key="CardUniqueBorderBrush"
+                             Color="#8B522D" />
+            <SolidColorBrush x:Key="CardSpecialBorderBrush"
+                             Color="#66547D" />
+            <SolidColorBrush x:Key="SectionDividerBrush"
+                             Color="#5A554A" />
+            <SolidColorBrush x:Key="HeaderNormalBrush"
+                             Color="#E2E5E9" />
+            <SolidColorBrush x:Key="HeaderMagicBrush"
+                             Color="#9D9DFF" />
+            <SolidColorBrush x:Key="HeaderRareBrush"
+                             Color="#FFF27A" />
+            <SolidColorBrush x:Key="HeaderUniqueBrush"
+                             Color="#D27A3E" />
+            <SolidColorBrush x:Key="HeaderGemBrush"
+                             Color="#1BA29B" />
+            <SolidColorBrush x:Key="HeaderCurrencyBrush"
+                             Color="#AA9E82" />
+            <SolidColorBrush x:Key="HeaderSpecialBrush"
+                             Color="#C3A7D9" />
+            <SolidColorBrush x:Key="HeaderRelicBrush"
+                             Color="#62C7B7" />
+            <SolidColorBrush x:Key="PrimaryTextBrush"
+                             Color="#E2E5E9" />
+            <SolidColorBrush x:Key="MutedTextBrush"
+                             Color="#A7ADB7" />
+            <SolidColorBrush x:Key="AugmentedValueBrush"
+                             Color="#8EBBFF" />
+            <SolidColorBrush x:Key="InfluenceTextBrush"
+                             Color="#C2B6EC" />
+            <SolidColorBrush x:Key="ModifierDefaultBrush"
+                             Color="#D6DCE6" />
+            <SolidColorBrush x:Key="ModifierEnchantBrush"
+                             Color="#A5CFFF" />
+            <SolidColorBrush x:Key="ModifierImplicitBrush"
+                             Color="#B19AF2" />
+            <SolidColorBrush x:Key="ModifierExplicitBrush"
+                             Color="#D6DCE6" />
+            <SolidColorBrush x:Key="ModifierCraftedBrush"
+                             Color="#8ED4FF" />
+            <SolidColorBrush x:Key="ModifierFracturedBrush"
+                             Color="#D8B36A" />
+            <SolidColorBrush x:Key="ModifierUtilityBrush"
+                             Color="#B5B7C9" />
+            <SolidColorBrush x:Key="ModifierCosmeticBrush"
+                             Color="#C4A5CC" />
+            <SolidColorBrush x:Key="FlavourTextBrush"
+                             Color="#D27A3E" />
+            <SolidColorBrush x:Key="TradeFooterAccentBrush"
+                             Color="#E1C979" />
+            <SolidColorBrush x:Key="PropertyProgressBrush"
+                             Color="#A68A55" />
+            <SolidColorBrush x:Key="ProgressTrackBrush"
+                             Color="#292D32" />
+            <SolidColorBrush x:Key="FlagCorruptedBrush"
+                             Color="#FF6B6B" />
+            <SolidColorBrush x:Key="FlagMirroredBrush"
+                             Color="#B9D8F2" />
+            <SolidColorBrush x:Key="FlagFracturedBrush"
+                             Color="#D8B36A" />
+            <SolidColorBrush x:Key="FlagSpecialBrush"
+                             Color="#C2B6EC" />
+            <SolidColorBrush x:Key="FlagRelicBrush"
+                             Color="#62C7B7" />
+            <SolidColorBrush x:Key="PinFeedbackBrush"
+                             Color="#E5B36A" />
+            <SolidColorBrush x:Key="ScrollBarTrackBrush"
+                             Color="#171A1E" />
+            <SolidColorBrush x:Key="ScrollBarThumbBrush"
+                             Color="#66707C" />
+            <SolidColorBrush x:Key="ScrollBarThumbHoverBrush"
+                             Color="#8793A1" />
 
-        <Style x:Key="HeaderTitleStyle"
-               TargetType="TextBlock">
-            <Setter Property="Foreground"
-                    Value="{StaticResource HeaderNormalBrush}" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Frame}"
-                             Value="{x:Static local:OfferCardFrameKind.Magic}">
-                    <Setter Property="Foreground"
-                            Value="{StaticResource HeaderMagicBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Frame}"
-                             Value="{x:Static local:OfferCardFrameKind.Rare}">
-                    <Setter Property="Foreground"
-                            Value="{StaticResource HeaderRareBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Frame}"
-                             Value="{x:Static local:OfferCardFrameKind.Unique}">
-                    <Setter Property="Foreground"
-                            Value="{StaticResource HeaderUniqueBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Frame}"
-                             Value="{x:Static local:OfferCardFrameKind.Gem}">
-                    <Setter Property="Foreground"
-                            Value="{StaticResource HeaderGemBrush}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Frame}"
-                             Value="{x:Static local:OfferCardFrameKind.Currency}">
-                    <Setter Property="Foreground"
-                            Value="{StaticResource HeaderCurrencyBrush}" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+            <Thickness x:Key="NormalModifierContentMargin">96,0,28,0</Thickness>
+            <Thickness x:Key="ImplicitModifierContentMargin">5,0,5,0</Thickness>
+            <Thickness x:Key="CenteredImplicitSeparatorMargin">62,5,62,5</Thickness>
 
-        <Style x:Key="SectionLabelStyle"
-               TargetType="TextBlock">
-            <Setter Property="Margin"
-                    Value="0,7,0,3" />
-            <Setter Property="FontSize"
-                    Value="10" />
-            <Setter Property="FontWeight"
-                    Value="SemiBold" />
-            <Setter Property="Foreground"
-                    Value="{StaticResource SectionHeadingBrush}" />
-            <Setter Property="TextOptions.TextFormattingMode"
-                    Value="Display" />
-        </Style>
+            <Style x:Key="CardScrollBarThumbStyle"
+                   TargetType="Thumb">
+                <Setter Property="MinHeight"
+                        Value="24" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Thumb">
+                            <Border x:Name="ThumbBorder"
+                                    Margin="2,1"
+                                    Background="{StaticResource ScrollBarThumbBrush}"
+                                    CornerRadius="3" />
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver"
+                                         Value="True">
+                                    <Setter TargetName="ThumbBorder"
+                                            Property="Background"
+                                            Value="{StaticResource ScrollBarThumbHoverBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="CardScrollBarStyle"
+                   TargetType="ScrollBar">
+                <Setter Property="Width"
+                        Value="10" />
+                <Setter Property="Background"
+                        Value="{StaticResource ScrollBarTrackBrush}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="{TemplateBinding Background}">
+                                <Track x:Name="PART_Track"
+                                       IsDirectionReversed="True"
+                                       Orientation="{TemplateBinding Orientation}">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                      Opacity="0" />
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource CardScrollBarThumbStyle}" />
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                      Opacity="0" />
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="CardProgressBarStyle"
+                   TargetType="ProgressBar">
+                <Setter Property="Height"
+                        Value="3" />
+                <Setter Property="Background"
+                        Value="{StaticResource ProgressTrackBrush}" />
+                <Setter Property="Foreground"
+                        Value="{StaticResource PropertyProgressBrush}" />
+                <Setter Property="BorderThickness"
+                        Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ProgressBar">
+                            <Grid ClipToBounds="True">
+                                <Border Background="{TemplateBinding Background}" />
+                                <Border x:Name="PART_Indicator"
+                                        HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="OfferCardHeaderDragThumbStyle"
+                   TargetType="Thumb">
+                <Setter Property="Background"
+                        Value="Transparent" />
+                <Setter Property="BorderThickness"
+                        Value="0" />
+                <Setter Property="FocusVisualStyle"
+                        Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Thumb">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="HeaderTitleStyle"
+                   TargetType="TextBlock">
+                <Setter Property="Foreground"
+                        Value="{StaticResource HeaderNormalBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Magic}">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderMagicBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Rare}">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderRareBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Unique}">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderUniqueBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Gem}">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderGemBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Currency}">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderCurrencyBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding UsesSpecialFrameAccent}"
+                                 Value="True">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderSpecialBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding UsesRelicAccent}"
+                                 Value="True">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource HeaderRelicBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="FactValueStyle"
+                   TargetType="TextBlock">
+                <Setter Property="Foreground"
+                        Value="{StaticResource PrimaryTextBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsAugmented}"
+                                 Value="True">
+                        <Setter Property="Foreground"
+                                Value="{StaticResource AugmentedValueBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
     <Border x:Name="PreviewRoot"
             Background="{StaticResource CardBackgroundBrush}"
-            BorderBrush="{StaticResource CardBorderBrush}"
             BorderThickness="1"
             CornerRadius="3"
+            TextElement.FontFamily="{StaticResource ItemTooltipBodyFontFamily}"
             SnapsToDevicePixels="True">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="BorderBrush"
+                        Value="{StaticResource CardBorderBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Magic}">
+                        <Setter Property="BorderBrush"
+                                Value="{StaticResource CardMagicBorderBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Rare}">
+                        <Setter Property="BorderBrush"
+                                Value="{StaticResource CardRareBorderBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Frame}"
+                                 Value="{x:Static local:OfferCardFrameKind.Unique}">
+                        <Setter Property="BorderBrush"
+                                Value="{StaticResource CardUniqueBorderBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding UsesSpecialFrameAccent}"
+                                 Value="True">
+                        <Setter Property="BorderBrush"
+                                Value="{StaticResource CardSpecialBorderBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding UsesRelicAccent}"
+                                 Value="True">
+                        <Setter Property="BorderBrush"
+                                Value="{StaticResource CardSpecialBorderBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -216,24 +312,31 @@
 
             <Border x:Name="HeaderBorder"
                     Grid.Row="0"
-                    Padding="14,10,10,9"
-                    Background="{StaticResource HeaderBackgroundBrush}"
-                    BorderBrush="{StaticResource HeaderDividerBrush}"
+                    Padding="18,8,12,7"
+                    Background="Transparent"
+                    BorderBrush="{StaticResource SectionDividerBrush}"
                     BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="76" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="76" />
                     </Grid.ColumnDefinitions>
+
                     <Thumb x:Name="HeaderDragThumb"
                            Grid.ColumnSpan="3"
                            Background="Transparent"
                            Cursor="SizeAll"
+                           Focusable="False"
+                           Style="{StaticResource OfferCardHeaderDragThumbStyle}"
                            ToolTip="Drag pinned item card" />
-                    <StackPanel IsHitTestVisible="False">
+
+                    <StackPanel Grid.Column="1"
+                                HorizontalAlignment="Center"
+                                IsHitTestVisible="False">
                         <TextBlock HorizontalAlignment="Center"
-                                   FontSize="17"
+                                   FontFamily="{StaticResource ItemTooltipTitleFontFamily}"
+                                   FontSize="21"
                                    FontWeight="SemiBold"
                                    Style="{StaticResource HeaderTitleStyle}"
                                    Text="{Binding ItemName}"
@@ -241,7 +344,8 @@
                                    TextWrapping="Wrap"
                                    Visibility="{Binding HasItemName, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock HorizontalAlignment="Center"
-                                   FontSize="15"
+                                   FontFamily="{StaticResource ItemTooltipTitleFontFamily}"
+                                   FontSize="18"
                                    FontWeight="SemiBold"
                                    Style="{StaticResource HeaderTitleStyle}"
                                    Text="{Binding TypeLine}"
@@ -249,17 +353,20 @@
                                    TextWrapping="Wrap"
                                    Visibility="{Binding HasTypeLine, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock HorizontalAlignment="Center"
-                                   FontSize="11"
+                                   FontFamily="{StaticResource ItemTooltipTitleFontFamily}"
+                                   FontSize="14"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Text="{Binding BaseType}"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
                                    Visibility="{Binding HasBaseType, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock HorizontalAlignment="Center"
                                    Margin="0,2,0,0"
-                                   FontSize="10"
+                                   FontSize="11"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Text="{Binding Rarity}"
                                    Visibility="{Binding HasRarity, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <ItemsControl Margin="0,5,0,0"
+                        <ItemsControl Margin="0,3,0,0"
                                       HorizontalAlignment="Center"
                                       ItemsSource="{Binding Influences}"
                                       Visibility="{Binding HasInfluences, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -270,22 +377,17 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Margin="2,1"
-                                            Padding="5,1"
-                                            Background="{StaticResource InfluenceBackgroundBrush}"
-                                            BorderBrush="{StaticResource InfluenceBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="2">
-                                        <TextBlock FontSize="9"
-                                                   Foreground="{StaticResource InfluenceTextBrush}"
-                                                   Text="{Binding}" />
-                                    </Border>
+                                    <TextBlock Margin="5,0"
+                                               FontSize="11"
+                                               Foreground="{StaticResource InfluenceTextBrush}"
+                                               Text="{Binding}" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
-                    <StackPanel Grid.Column="1"
-                                Grid.ColumnSpan="2"
+
+                    <StackPanel Grid.Column="0"
+                                Grid.ColumnSpan="3"
                                 HorizontalAlignment="Right">
                         <StackPanel HorizontalAlignment="Right"
                                     Orientation="Horizontal">
@@ -299,7 +401,6 @@
                                           ToolTip="Pin offer"
                                           Style="{StaticResource TitleBarPinStyle}" />
                             <Button x:Name="CloseButton"
-                                    Grid.Column="1"
                                     Width="28"
                                     Height="28"
                                     Margin="0,4,4,4"
@@ -320,9 +421,9 @@
                             </Button>
                         </StackPanel>
                         <TextBlock x:Name="PinFeedbackText"
-                                   MaxWidth="210"
-                                   Margin="8,3,0,0"
-                                   FontSize="9"
+                                   MaxWidth="260"
+                                   Margin="8,2,0,0"
+                                   FontSize="10"
                                    Foreground="{StaticResource PinFeedbackBrush}"
                                    IsHitTestVisible="False"
                                    TextAlignment="Right"
@@ -334,229 +435,272 @@
 
             <ScrollViewer x:Name="ContentScrollViewer"
                           Grid.Row="1"
-                          Padding="14,6,14,10"
-                          Background="{StaticResource BodyBackgroundBrush}"
+                          Padding="20,6"
+                          Background="Transparent"
                           HorizontalScrollBarVisibility="Disabled"
-                          VerticalScrollBarVisibility="Auto">
+                          VerticalScrollBarVisibility="Hidden">
                 <ScrollViewer.Resources>
                     <Style BasedOn="{StaticResource CardScrollBarStyle}"
                            TargetType="ScrollBar" />
                 </ScrollViewer.Resources>
+
                 <StackPanel x:Name="ItemContentPanel">
-                    <StackPanel Visibility="{Binding HasProperties, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}"
-                                   Text="PROPERTIES" />
-                        <ItemsControl ItemsSource="{Binding Properties}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,1">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Margin="0,0,8,0"
+                    <ItemsControl ItemsSource="{Binding Properties}"
+                                  Visibility="{Binding HasProperties, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,1">
+                                    <StackPanel HorizontalAlignment="Center"
+                                                Orientation="Horizontal">
+                                        <TextBlock FontSize="15"
                                                    Foreground="{StaticResource MutedTextBrush}"
                                                    Text="{Binding Label}"
                                                    Visibility="{Binding HasLabel, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <TextBlock Grid.Column="1"
-                                                   HorizontalAlignment="Right"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                        <TextBlock FontSize="15"
+                                                   Foreground="{StaticResource MutedTextBrush}"
+                                                   Text=": "
+                                                   Visibility="{Binding HasLabel, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <TextBlock FontSize="15"
+                                                   Style="{StaticResource FactValueStyle}"
                                                    Text="{Binding Value}"
-                                                   TextWrapping="Wrap"
                                                    Visibility="{Binding HasValue, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <ProgressBar Grid.Row="1"
-                                                     Grid.ColumnSpan="2"
-                                                     Height="3"
-                                                     Margin="0,2,0,1"
-                                                     Background="{StaticResource ProgressTrackBrush}"
-                                                     BorderThickness="0"
-                                                     Foreground="{StaticResource PropertyProgressBrush}"
-                                                     Maximum="1"
-                                                     Value="{Binding Progress}"
-                                                     Visibility="{Binding HasProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
+                                    </StackPanel>
+                                    <ProgressBar Width="240"
+                                                 Margin="0,2,0,0"
+                                                 HorizontalAlignment="Center"
+                                                 Maximum="1"
+                                                 Style="{StaticResource CardProgressBarStyle}"
+                                                 Value="{Binding Progress}"
+                                                 Visibility="{Binding HasProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-                    <Grid Margin="0,5,0,0"
-                          Visibility="{Binding HasItemLevel, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}"
-                                   Text="Item Level" />
-                        <TextBlock HorizontalAlignment="Right"
+                    <StackPanel Margin="0,1"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal"
+                                Visibility="{Binding HasItemLevel, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock FontSize="15"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   Text="Item Level: " />
+                        <TextBlock FontSize="15"
                                    Foreground="{StaticResource PrimaryTextBrush}"
                                    Text="{Binding ItemLevel}" />
-                    </Grid>
+                    </StackPanel>
 
-                    <StackPanel Visibility="{Binding HasRequirements, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}"
-                                   Text="REQUIREMENTS" />
-                        <ItemsControl ItemsSource="{Binding Requirements}">
+                    <TextBlock Margin="0,1"
+                               HorizontalAlignment="Center"
+                               FontSize="15"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               Text="{Binding Sockets}"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding HasSockets, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                    <Border Margin="0,5,0,0"
+                            Padding="0,5,0,0"
+                            BorderBrush="{StaticResource SectionDividerBrush}"
+                            BorderThickness="0,1,0,0"
+                            Visibility="{Binding HasRequirementsLine, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock HorizontalAlignment="Center"
+                                   FontSize="15"
+                                   Foreground="{StaticResource PrimaryTextBrush}"
+                                   Text="{Binding RequirementsLine}"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap" />
+                    </Border>
+
+                    <StackPanel Visibility="{Binding HasModifierSections, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border x:Name="ModifierBlockBorder"
+                                Height="1"
+                                Margin="{StaticResource CenteredImplicitSeparatorMargin}"
+                                Background="{StaticResource SectionDividerBrush}" />
+                        <ItemsControl x:Name="ModifierSectionsControl"
+                                      HorizontalContentAlignment="Stretch"
+                                      ItemsSource="{Binding ModifierSections}">
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="HorizontalAlignment"
+                                            Value="Stretch" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="0,1">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Margin="0,0,8,0"
-                                                   Foreground="{StaticResource MutedTextBrush}"
-                                                   Text="{Binding Label}"
-                                                   Visibility="{Binding HasLabel, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <TextBlock Grid.Column="1"
-                                                   HorizontalAlignment="Right"
-                                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                                   Text="{Binding Value}"
-                                                   Visibility="{Binding HasValue, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <ProgressBar Grid.Row="1"
-                                                     Grid.ColumnSpan="2"
-                                                     Height="3"
-                                                     Margin="0,2,0,1"
-                                                     Background="{StaticResource ProgressTrackBrush}"
-                                                     BorderThickness="0"
-                                                     Foreground="{StaticResource PropertyProgressBrush}"
-                                                     Maximum="1"
-                                                     Value="{Binding Progress}"
-                                                     Visibility="{Binding HasProgress, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                    </Grid>
+                                    <StackPanel ToolTip="{Binding Label}">
+                                        <Border Height="1"
+                                                Margin="{StaticResource CenteredImplicitSeparatorMargin}"
+                                                Background="{StaticResource SectionDividerBrush}"
+                                                Visibility="{Binding HasSeparatorBefore, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <StackPanel>
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Margin"
+                                                            Value="{StaticResource NormalModifierContentMargin}" />
+                                                    <Setter Property="TextElement.Foreground"
+                                                            Value="{StaticResource ModifierDefaultBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Enchant}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierEnchantBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Implicit}">
+                                                            <Setter Property="Margin"
+                                                                    Value="{StaticResource ImplicitModifierContentMargin}" />
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierImplicitBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Explicit}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierExplicitBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Crafted}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierCraftedBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Fractured}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierFracturedBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Utility}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierUtilityBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Provenance}"
+                                                                     Value="{x:Static local:OfferCardModifierProvenance.Cosmetic}">
+                                                            <Setter Property="TextElement.Foreground"
+                                                                    Value="{StaticResource ModifierCosmeticBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <ItemsControl HorizontalContentAlignment="Stretch"
+                                                          ItemsSource="{Binding Lines}">
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style TargetType="ContentPresenter">
+                                                        <Setter Property="HorizontalAlignment"
+                                                                Value="Stretch" />
+                                                    </Style>
+                                                </ItemsControl.ItemContainerStyle>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Margin="0,1"
+                                                                   FontSize="15"
+                                                                   HorizontalAlignment="Stretch"
+                                                                   Text="{Binding}"
+                                                                   TextAlignment="Left"
+                                                                   TextWrapping="Wrap" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
 
-                    <Grid Margin="0,7,0,0"
-                          Visibility="{Binding HasSockets, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock Foreground="{StaticResource MutedTextBrush}"
-                                   Text="Sockets" />
-                        <TextBlock HorizontalAlignment="Right"
-                                   FontWeight="SemiBold"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   Text="{Binding Sockets}" />
-                    </Grid>
-
-                    <ItemsControl Margin="0,7,0,0"
+                    <ItemsControl Margin="0,4,0,0"
+                                  HorizontalAlignment="Center"
                                   ItemsSource="{Binding Flags}"
                                   Visibility="{Binding HasFlags, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <WrapPanel />
+                                <WrapPanel HorizontalAlignment="Center" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Margin="0,0,5,4"
-                                        Padding="5,2"
-                                        Background="{StaticResource FlagBackgroundBrush}"
-                                        BorderBrush="{StaticResource FlagBorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="2">
-                                    <TextBlock FontSize="10"
-                                               Foreground="{StaticResource PrimaryTextBrush}"
-                                               Text="{Binding}" />
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <ItemsControl ItemsSource="{Binding ModifierSections}"
-                                  Visibility="{Binding HasModifierSections, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,6,0,0"
-                                        Padding="0,6,0,0"
-                                        BorderBrush="{StaticResource ModifierDividerBrush}"
-                                        BorderThickness="0,1,0,0">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="TextElement.Foreground"
-                                                    Value="{StaticResource ModifierDefaultBrush}" />
+                                <TextBlock Margin="5,0"
+                                           FontSize="14"
+                                           Text="{Binding Label}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground"
+                                                    Value="{StaticResource PrimaryTextBrush}" />
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Provenance}"
-                                                             Value="{x:Static local:OfferCardModifierProvenance.Enchant}">
-                                                    <Setter Property="TextElement.Foreground"
-                                                            Value="{StaticResource ModifierEnchantBrush}" />
+                                                <DataTrigger Binding="{Binding Kind}"
+                                                             Value="{x:Static local:OfferCardPreviewFlagKind.Corrupted}">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource FlagCorruptedBrush}" />
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding Provenance}"
-                                                             Value="{x:Static local:OfferCardModifierProvenance.Implicit}">
-                                                    <Setter Property="TextElement.Foreground"
-                                                            Value="{StaticResource ModifierImplicitBrush}" />
+                                                <DataTrigger Binding="{Binding Kind}"
+                                                             Value="{x:Static local:OfferCardPreviewFlagKind.Mirrored}">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource FlagMirroredBrush}" />
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding Provenance}"
-                                                             Value="{x:Static local:OfferCardModifierProvenance.Crafted}">
-                                                    <Setter Property="TextElement.Foreground"
-                                                            Value="{StaticResource ModifierCraftedBrush}" />
+                                                <DataTrigger Binding="{Binding Kind}"
+                                                             Value="{x:Static local:OfferCardPreviewFlagKind.Fractured}">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource FlagFracturedBrush}" />
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding Provenance}"
-                                                             Value="{x:Static local:OfferCardModifierProvenance.Fractured}">
-                                                    <Setter Property="TextElement.Foreground"
-                                                            Value="{StaticResource ModifierFracturedBrush}" />
+                                                <DataTrigger Binding="{Binding Kind}"
+                                                             Value="{x:Static local:OfferCardPreviewFlagKind.Special}">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource FlagSpecialBrush}" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Kind}"
+                                                             Value="{x:Static local:OfferCardPreviewFlagKind.Relic}">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource FlagRelicBrush}" />
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </Border.Style>
-                                    <StackPanel>
-                                        <TextBlock Margin="0,0,0,3"
-                                                   FontSize="10"
-                                                   FontWeight="SemiBold"
-                                                   Text="{Binding Label}" />
-                                        <ItemsControl ItemsSource="{Binding Lines}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Margin="0,1"
-                                                               Text="{Binding}"
-                                                               TextAlignment="Center"
-                                                               TextWrapping="Wrap" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock Margin="0,9,0,0"
-                               Foreground="{StaticResource PrimaryTextBrush}"
-                               Text="{Binding Description}"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"
-                               Visibility="{Binding HasDescription, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <TextBlock Margin="0,5,0,0"
-                               Foreground="{StaticResource MutedTextBrush}"
-                               Text="{Binding SecondaryDescription}"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"
-                               Visibility="{Binding HasSecondaryDescription, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <ItemsControl Margin="0,9,0,0"
-                                  ItemsSource="{Binding FlavourText}"
-                                  Visibility="{Binding HasFlavourText, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Foreground="{StaticResource FlavourTextBrush}"
-                                           FontStyle="Italic"
-                                           Text="{Binding}"
-                                           TextAlignment="Center"
-                                           TextWrapping="Wrap" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <Border Margin="0,5,0,0"
+                            Padding="0,5,0,0"
+                            BorderBrush="{StaticResource SectionDividerBrush}"
+                            BorderThickness="0,1,0,0"
+                            Visibility="{Binding HasDescriptionContent, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock FontSize="14"
+                                       Foreground="{StaticResource PrimaryTextBrush}"
+                                       Text="{Binding Description}"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding HasDescription, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Margin="0,2,0,0"
+                                       FontSize="13"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       Text="{Binding SecondaryDescription}"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding HasSecondaryDescription, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <ItemsControl Margin="0,4,0,0"
+                                          ItemsSource="{Binding FlavourText}"
+                                          Visibility="{Binding HasFlavourText, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock FontSize="13"
+                                                   Foreground="{StaticResource FlavourTextBrush}"
+                                                   FontStyle="Italic"
+                                                   Text="{Binding}"
+                                                   TextAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
 
             <Border x:Name="TradeFooterBorder"
                     Grid.Row="2"
-                    Padding="12,8"
-                    Background="{StaticResource TradeFooterBackgroundBrush}"
-                    BorderBrush="{StaticResource TradeFooterBorderBrush}"
+                    Padding="18,7"
+                    Background="Transparent"
+                    BorderBrush="{StaticResource SectionDividerBrush}"
                     BorderThickness="0,1,0,0"
                     Visibility="{Binding HasTradeFooter, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
@@ -565,27 +709,28 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock FontWeight="SemiBold"
+                        <TextBlock FontSize="15"
+                                   FontWeight="SemiBold"
                                    Foreground="{StaticResource TradeFooterAccentBrush}"
                                    Text="{Binding Price, StringFormat='Price: {0}'}"
                                    Visibility="{Binding HasPrice, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock Margin="0,2,0,0"
-                                   FontSize="10"
+                                   FontSize="12"
                                    Foreground="{StaticResource PrimaryTextBrush}"
                                    Text="{Binding Seller, StringFormat='Seller: {0}'}"
                                    Visibility="{Binding HasSeller, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1"
-                                Margin="12,0,0,0"
+                                Margin="18,0,0,0"
                                 HorizontalAlignment="Right">
                         <TextBlock HorizontalAlignment="Right"
-                                   FontSize="10"
+                                   FontSize="12"
                                    Foreground="{StaticResource PrimaryTextBrush}"
                                    Text="{Binding Online}"
                                    Visibility="{Binding HasOnline, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <TextBlock HorizontalAlignment="Right"
                                    Margin="0,2,0,0"
-                                   FontSize="10"
+                                   FontSize="12"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Text="{Binding Listed, StringFormat='Listed {0}'}"
                                    Visibility="{Binding HasListed, Converter={StaticResource BooleanToVisibilityConverter}}" />

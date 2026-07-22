@@ -293,6 +293,7 @@ These are not committed milestones. They may be promoted after validation.
 
 - Bulk Search / Bulk Buy (DEF-001).
 - Lowest-cost versus fewest-hideouts optimization (DEF-002).
+- Post-MVP Trade offer-card item icons: use the icon reference already returned by Trade Fetch; load independently of Search with memory and local-disk caching so an icon is not repeatedly downloaded; show a safe placeholder for missing or failed icons; never issue another Trade Fetch solely for an icon.
 - Cloud synchronization (DEF-005).
 - Path of Exile 2 support (DEF-006).
 - Full public release infrastructure (DEF-004).

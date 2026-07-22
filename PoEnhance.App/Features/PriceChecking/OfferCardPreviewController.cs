@@ -32,7 +32,10 @@ internal sealed class OfferCardPreviewController : IDisposable
 
         var previewWindow = EnsureWindow();
         previewWindow.SetPinFeedback(null);
-        var size = previewWindow.UpdateContent(snapshot, clientBounds.Height);
+        var size = previewWindow.UpdateContent(
+            snapshot,
+            clientBounds.Width,
+            clientBounds.Height);
         var placement = placementCalculator.Calculate(
             clientBounds,
             priceCheckerBounds,
@@ -53,7 +56,10 @@ internal sealed class OfferCardPreviewController : IDisposable
 
         var previewWindow = EnsureWindow();
         previewWindow.SetPinFeedback(null);
-        var measuredSize = previewWindow.UpdateContent(snapshot, clientBounds.Height);
+        var measuredSize = previewWindow.UpdateContent(
+            snapshot,
+            clientBounds.Width,
+            clientBounds.Height);
         var requestedPlacement = IsUsable(placement)
             ? placement
             : new PriceCheckerPlacement(

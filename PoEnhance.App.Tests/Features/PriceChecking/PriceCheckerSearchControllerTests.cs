@@ -700,6 +700,40 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task SearchAsync_SuccessKeepsUnresolvedBaseWarningInDeveloperDataWithoutRawUserToastCode()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Armoured Shell");
+        var validation = TradeSearchValidationResult.FromDiagnostics(
+        [
+            new TradeSearchValidationDiagnostic(
+                TradeSearchValidationDiagnosticCodes.UnresolvedBase,
+                TradeSearchValidationSeverity.Warning,
+                "The parsed base text is being used."),
+        ]);
+        fixture.PriceCheckService.Result = SuccessResult([Offer("id-1")], total: 1);
+        fixture.Controller.UpdateCurrentDraft(draft, validation);
+
+        Assert.Contains(
+            fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics,
+            diagnostic => diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnresolvedBase);
+        Assert.Empty(fixture.Controller.CurrentDeveloperDiagnostics.UserFacingDiagnostics);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.Success, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("Search complete.", fixture.Window.CurrentSearchState?.Message);
+        Assert.DoesNotContain(
+            TradeSearchValidationDiagnosticCodes.UnresolvedBase,
+            fixture.Window.CurrentSearchState?.Message ?? string.Empty,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics,
+            diagnostic => diagnostic.Code == TradeSearchValidationDiagnosticCodes.UnresolvedBase);
+        Assert.Empty(fixture.Controller.CurrentDeveloperDiagnostics.UserFacingDiagnostics);
+    }
+
+    [Fact]
     public async Task ResetItem_RestoresInitialEditableStateWithoutRequestsOrPresentationChanges()
     {
         var fixture = SearchFixture.Create();

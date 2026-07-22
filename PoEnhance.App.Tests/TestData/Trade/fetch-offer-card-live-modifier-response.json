@@ -1,0 +1,137 @@
+{
+  "result": [
+    {
+      "id": "result-live-rare-armour",
+      "listing": {
+        "method": "psapi",
+        "indexed": "2026-07-22T18:00:00Z",
+        "price": {
+          "type": "~price",
+          "amount": 1,
+          "currency": "divine"
+        },
+        "account": {
+          "name": "SanitisedAccount",
+          "online": {
+            "league": "Standard",
+            "status": "online"
+          }
+        }
+      },
+      "item": {
+        "id": "result-live-rare-armour",
+        "name": "Sanitised Shell",
+        "typeLine": "Syndicate's Garb",
+        "baseType": "Syndicate's Garb",
+        "rarity": "Rare",
+        "ilvl": 85,
+        "identified": true,
+        "properties": [
+          {
+            "name": "Quality",
+            "values": [["+20%", 1]],
+            "displayMode": 0,
+            "type": 6
+          },
+          {
+            "name": "Evasion Rating",
+            "values": [["1541", 1]],
+            "displayMode": 0,
+            "type": 17
+          }
+        ],
+        "requirements": [
+          {
+            "name": "Level",
+            "values": [["84", 0]],
+            "displayMode": 0,
+            "type": 62
+          },
+          {
+            "name": "Dex",
+            "values": [["293", 0]],
+            "displayMode": 1,
+            "type": 64
+          }
+        ],
+        "sockets": [
+          { "group": 0, "attr": "D", "sColour": "G" },
+          { "group": 0, "attr": "D", "sColour": "G" },
+          { "group": 1, "attr": "I", "sColour": "B" }
+        ],
+        "enchantMods": [
+          {
+            "description": "Sanitised enchant line",
+            "hash": "stat.enchant.test_1",
+            "mods": []
+          }
+        ],
+        "implicitMods": [
+          {
+            "description": "+12% to Fire Resistance",
+            "hash": "stat.implicit.test_1",
+            "mods": []
+          }
+        ],
+        "explicitMods": [
+          {
+            "description": "+196 to Evasion Rating",
+            "hash": "stat.explicit.test_1",
+            "mods": [
+              {
+                "name": "Sanitised Prefix",
+                "tier": "P4",
+                "level": 51,
+                "magnitudes": [{ "min": "151", "max": "200" }]
+              }
+            ]
+          },
+          {
+            "description": "+43% to Fire Resistance",
+            "hash": "stat.explicit.test_2",
+            "mods": []
+          }
+        ],
+        "craftedMods": [
+          {
+            "description": "+30% to Lightning Resistance",
+            "hash": "stat.crafted.test_1",
+            "mods": []
+          }
+        ],
+        "fracturedMods": [
+          {
+            "description": "+30 to Strength",
+            "hash": "stat.fractured.test_1",
+            "mods": []
+          }
+        ],
+        "utilityMods": [
+          {
+            "description": "Sanitised utility line",
+            "hash": "stat.utility.test_1",
+            "mods": []
+          }
+        ],
+        "cosmeticMods": [
+          {
+            "description": "Sanitised cosmetic line",
+            "hash": "stat.cosmetic.test_1",
+            "mods": []
+          }
+        ],
+        "frameType": 2,
+        "frameTypeId": "Rare",
+        "extended": {
+          "mods": {},
+          "hashes": {
+            "explicit": [
+              ["explicit.test_1", [0]],
+              ["explicit.test_2", [1]]
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

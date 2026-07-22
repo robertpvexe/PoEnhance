@@ -1,8 +1,12 @@
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using PoEnhance.App.Infrastructure.PathOfExile;
+using Serilog;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
@@ -11,9 +15,9 @@ internal partial class ItemCardPreviewWindow :
     IOfferCardPreviewWindow,
     IPinnedOfferCardWindow
 {
-    internal const double DefaultWidth = 460d;
-    private const double ContentHorizontalAllowance = 30d;
-    private const double ScrollViewerVerticalPadding = 16d;
+    internal const double DefaultWidth = OfferCardWindowSizeCalculator.MinimumUsefulWidth;
+    private const double ContentHorizontalAllowance = 40d;
+    private const double ScrollViewerVerticalPadding = 12d;
     private const double VerticalChromeHeight = ScrollViewerVerticalPadding + 2d;
     private const uint SetWindowPosNoActivate = 0x0010;
     private const uint SetWindowPosNoMove = 0x0002;
@@ -23,6 +27,7 @@ internal partial class ItemCardPreviewWindow :
     private readonly OfferCardWindowMode mode;
     private readonly OfferCardWindowSizeCalculator sizeCalculator = new();
     private IntPtr registeredOverlayWindowHandle;
+    private bool hasCompletedFirstLayoutPass;
     private bool isClosed;
 
     public ItemCardPreviewWindow(OfferCardWindowMode mode)
@@ -44,6 +49,7 @@ internal partial class ItemCardPreviewWindow :
         };
         HeaderDragThumb.DragDelta += OnHeaderDragDelta;
         ConfigureMode();
+        Loaded += (_, _) => hasCompletedFirstLayoutPass = true;
         SourceInitialized += OnSourceInitialized;
         Closed += OnClosed;
     }
@@ -62,34 +68,145 @@ internal partial class ItemCardPreviewWindow :
 
     public PriceCheckerPlacement? CurrentPlacement { get; private set; }
 
-    public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+    internal OfferCardWindowLayoutDiagnostic? LastLayoutDiagnostic { get; private set; }
+
+    public OfferCardPreviewSize UpdateContent(
+        OfferCardSnapshot snapshot,
+        double maximumWidth,
+        double maximumHeight)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        if (!double.IsFinite(maximumWidth) || maximumWidth <= 0d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumWidth));
+        }
+
         if (!double.IsFinite(maximumHeight) || maximumHeight <= 0d)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumHeight));
         }
 
         CurrentSnapshot = snapshot;
-        DataContext = OfferCardPreviewPresentation.FromSnapshot(snapshot, DateTimeOffset.UtcNow);
-        Width = DefaultWidth;
-        HeaderBorder.Measure(new Size(DefaultWidth, double.PositiveInfinity));
-        ItemContentPanel.Measure(new Size(
-            DefaultWidth - ContentHorizontalAllowance,
-            double.PositiveInfinity));
-        TradeFooterBorder.Measure(new Size(DefaultWidth, double.PositiveInfinity));
+        ContentScrollViewer.MaxHeight = double.PositiveInfinity;
+        MaxHeight = double.PositiveInfinity;
+        var presentation = OfferCardPreviewPresentation.FromSnapshot(snapshot, DateTimeOffset.UtcNow);
+        DataContext = presentation;
+        Log.Debug(
+            "Trade offer card modifier pipeline. {@ModifierPipeline}",
+            OfferCardModifierPipelineDiagnostic.Create(snapshot, presentation));
+        return MeasureAfterDataBinding(() => MeasureAndApplyContent(
+            snapshot,
+            presentation,
+            maximumWidth,
+            maximumHeight));
+    }
+
+    private OfferCardPreviewSize MeasureAndApplyContent(
+        OfferCardSnapshot snapshot,
+        OfferCardPreviewPresentation presentation,
+        double maximumWidth,
+        double maximumHeight)
+    {
+        var measuredContentWidth = MeasureNaturalContentWidth();
+        var cardWidth = sizeCalculator.CalculateWidth(measuredContentWidth, maximumWidth);
+        Width = cardWidth;
+        HeaderBorder.Measure(new Size(cardWidth, double.PositiveInfinity));
+        var bodySize = MeasureBodyAfterContainerGeneration(cardWidth);
+        TradeFooterBorder.Measure(new Size(cardWidth, double.PositiveInfinity));
         var size = sizeCalculator.Calculate(
             maximumHeight,
             HeaderBorder.DesiredSize.Height,
-            ItemContentPanel.DesiredSize.Height,
+            bodySize.Height,
             TradeFooterBorder.DesiredSize.Height,
             VerticalChromeHeight);
         MaxHeight = size.MaximumHeight;
         ContentScrollViewer.MaxHeight =
             size.ContentViewportHeight + ScrollViewerVerticalPadding;
+        ContentScrollViewer.VerticalScrollBarVisibility = size.IsContentScrollingRequired
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Hidden;
         Height = size.Height;
-        PreviewRoot.Measure(new Size(DefaultWidth, Height));
-        return new OfferCardPreviewSize(DefaultWidth, Height);
+        PreviewRoot.Measure(new Size(cardWidth, Height));
+        PreviewRoot.Arrange(new Rect(0d, 0d, cardWidth, Height));
+        PreviewRoot.UpdateLayout();
+        LastLayoutDiagnostic = OfferCardWindowLayoutDiagnostic.Create(
+            mode,
+            snapshot,
+            presentation,
+            maximumWidth,
+            maximumHeight,
+            cardWidth,
+            Height,
+            PreviewRoot,
+            HeaderBorder,
+            ItemContentPanel,
+            ContentScrollViewer,
+            TradeFooterBorder,
+            MaxHeight,
+            ContentScrollViewer.VerticalScrollBarVisibility == ScrollBarVisibility.Auto,
+            hasCompletedFirstLayoutPass);
+        Log.Debug("Trade offer card layout. {@OfferCardLayout}", LastLayoutDiagnostic);
+        return new OfferCardPreviewSize(cardWidth, Height);
+    }
+
+    private T MeasureAfterDataBinding<T>(Func<T> measure)
+    {
+        T? result = default;
+        Exception? failure = null;
+        var frame = new DispatcherFrame();
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            () =>
+            {
+                try
+                {
+                    result = measure();
+                }
+                catch (Exception exception)
+                {
+                    failure = exception;
+                }
+                finally
+                {
+                    frame.Continue = false;
+                }
+            });
+        Dispatcher.PushFrame(frame);
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        return result ?? throw new InvalidOperationException(
+            "Trade offer card layout measurement did not complete.");
+    }
+
+    private double MeasureNaturalContentWidth()
+    {
+        HeaderBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        ItemContentPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        TradeFooterBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return Math.Max(
+            HeaderBorder.DesiredSize.Width,
+            Math.Max(
+                ItemContentPanel.DesiredSize.Width + ContentHorizontalAllowance,
+                TradeFooterBorder.DesiredSize.Width));
+    }
+
+    private Size MeasureBodyAfterContainerGeneration(double cardWidth)
+    {
+        var availableWidth = Math.Max(1d, cardWidth - ContentHorizontalAllowance);
+        var constraint = new Size(availableWidth, double.PositiveInfinity);
+        ItemContentPanel.ApplyTemplate();
+        ItemContentPanel.Measure(constraint);
+        ItemContentPanel.Arrange(new Rect(
+            0d,
+            0d,
+            availableWidth,
+            ItemContentPanel.DesiredSize.Height));
+        ItemContentPanel.UpdateLayout();
+        ItemContentPanel.Measure(constraint);
+        return ItemContentPanel.DesiredSize;
     }
 
     public void ApplyPlacement(PriceCheckerPlacement placement)

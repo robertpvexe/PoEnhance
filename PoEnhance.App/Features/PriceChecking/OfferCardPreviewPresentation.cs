@@ -23,9 +23,11 @@ internal sealed record OfferCardPreviewPresentation
 
     public ImmutableArray<OfferCardPreviewFact> Requirements { get; init; } = [];
 
+    public string? RequirementsLine { get; init; }
+
     public string? Sockets { get; init; }
 
-    public ImmutableArray<string> Flags { get; init; } = [];
+    public ImmutableArray<OfferCardPreviewFlag> Flags { get; init; } = [];
 
     public ImmutableArray<OfferCardPreviewModifierSection> ModifierSections { get; init; } = [];
 
@@ -51,6 +53,19 @@ internal sealed record OfferCardPreviewPresentation
 
     public bool HasRarity => Rarity is not null;
 
+    public bool UsesSpecialFrameAccent => Frame is
+        OfferCardFrameKind.DivinationCard or
+        OfferCardFrameKind.Quest or
+        OfferCardFrameKind.Prophecy or
+        OfferCardFrameKind.Necropolis or
+        OfferCardFrameKind.Gold or
+        OfferCardFrameKind.BreachSkill;
+
+    public bool UsesRelicAccent => Frame is
+        OfferCardFrameKind.Foil or
+        OfferCardFrameKind.SupporterFoil ||
+        Flags.Any(flag => flag.Kind == OfferCardPreviewFlagKind.Relic);
+
     public bool HasInfluences => Influences.Length > 0;
 
     public bool HasProperties => Properties.Length > 0;
@@ -58,6 +73,8 @@ internal sealed record OfferCardPreviewPresentation
     public bool HasItemLevel => ItemLevel is not null;
 
     public bool HasRequirements => Requirements.Length > 0;
+
+    public bool HasRequirementsLine => RequirementsLine is not null;
 
     public bool HasSockets => Sockets is not null;
 
@@ -70,6 +87,10 @@ internal sealed record OfferCardPreviewPresentation
     public bool HasSecondaryDescription => SecondaryDescription is not null;
 
     public bool HasFlavourText => FlavourText.Length > 0;
+
+    public bool HasDescriptionContent => HasDescription ||
+        HasSecondaryDescription ||
+        HasFlavourText;
 
     public bool HasPrice => Price is not null;
 
@@ -97,12 +118,17 @@ internal sealed record OfferCardPreviewPresentation
             baseType = null;
         }
 
+        var requirements = snapshot.Requirements
+            .Select(CreateFact)
+            .Where(fact => fact.HasLabel || fact.HasValue || fact.HasProgress)
+            .ToImmutableArray();
+
         return new OfferCardPreviewPresentation
         {
             ItemName = DisplayText(snapshot.Name),
             TypeLine = typeLine,
             BaseType = baseType,
-            Rarity = DisplayText(snapshot.Rarity),
+            Rarity = UsefulRarity(snapshot.Rarity),
             Frame = snapshot.Frame,
             Influences = CreateInfluences(snapshot.Influences),
             Properties = snapshot.Properties
@@ -110,16 +136,11 @@ internal sealed record OfferCardPreviewPresentation
                 .Where(fact => fact.HasLabel || fact.HasValue || fact.HasProgress)
                 .ToImmutableArray(),
             ItemLevel = snapshot.ItemLevel?.ToString(CultureInfo.InvariantCulture),
-            Requirements = snapshot.Requirements
-                .Select(CreateFact)
-                .Where(fact => fact.HasLabel || fact.HasValue || fact.HasProgress)
-                .ToImmutableArray(),
+            Requirements = requirements,
+            RequirementsLine = FormatRequirements(requirements),
             Sockets = FormatSockets(snapshot.Sockets),
             Flags = CreateFlags(snapshot.Flags),
-            ModifierSections = snapshot.ModifierSections
-                .Select(CreateModifierSection)
-                .Where(section => section.Lines.Length > 0)
-                .ToImmutableArray(),
+            ModifierSections = CreateModifierSections(snapshot.ModifierSections),
             Description = DisplayText(snapshot.Description),
             SecondaryDescription = DisplayText(snapshot.SecondaryDescription),
             FlavourText = snapshot.FlavourText
@@ -151,18 +172,66 @@ internal sealed record OfferCardPreviewPresentation
             DisplayText(values),
             property.Progress is { } progress && double.IsFinite(progress)
                 ? progress
-                : null);
+                : null,
+            property.Values.Any(value => value.DisplayStyleCode == 1));
     }
 
-    private static OfferCardPreviewModifierSection CreateModifierSection(
-        OfferCardModifierSection section)
+    private static ImmutableArray<OfferCardPreviewModifierSection> CreateModifierSections(
+        ImmutableArray<OfferCardModifierSection> sourceSections)
     {
-        return new OfferCardPreviewModifierSection(
-            section.Provenance,
-            ModifierLabel(section.Provenance),
-            section.Lines
-                .Where(line => !string.IsNullOrWhiteSpace(line))
-                .ToImmutableArray());
+        var sections = sourceSections
+            .Select(section => new
+            {
+                section.Provenance,
+                Lines = section.Lines
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .ToImmutableArray(),
+            })
+            .Where(section => section.Lines.Length > 0)
+            .ToArray();
+        var result = ImmutableArray.CreateBuilder<OfferCardPreviewModifierSection>(sections.Length);
+        var sawImplicit = false;
+        var separatedRemainingModifiers = false;
+        foreach (var section in sections)
+        {
+            var separatesRemainingModifiers = sawImplicit &&
+                !separatedRemainingModifiers &&
+                section.Provenance != OfferCardModifierProvenance.Implicit;
+            result.Add(new OfferCardPreviewModifierSection(
+                section.Provenance,
+                ModifierLabel(section.Provenance),
+                section.Lines,
+                separatesRemainingModifiers));
+            sawImplicit |= section.Provenance == OfferCardModifierProvenance.Implicit;
+            separatedRemainingModifiers |= separatesRemainingModifiers;
+        }
+
+        return result.ToImmutable();
+    }
+
+    private static string? FormatRequirements(
+        ImmutableArray<OfferCardPreviewFact> requirements)
+    {
+        var parts = requirements
+            .Select(requirement =>
+            {
+                if (requirement.Label is null)
+                {
+                    return requirement.Value;
+                }
+
+                if (requirement.Value is null)
+                {
+                    return requirement.Label;
+                }
+
+                return requirement.Label.Equals("Level", StringComparison.OrdinalIgnoreCase)
+                    ? $"Level {requirement.Value}"
+                    : $"{requirement.Value} {requirement.Label}";
+            })
+            .Where(part => part is not null)
+            .ToArray();
+        return parts.Length == 0 ? null : $"Requires {string.Join(", ", parts)}";
     }
 
     private static ImmutableArray<string> CreateInfluences(OfferCardInfluenceFacts influences)
@@ -179,49 +248,68 @@ internal sealed record OfferCardPreviewPresentation
         return values.ToImmutable();
     }
 
-    private static ImmutableArray<string> CreateFlags(OfferCardItemFlags flags)
+    private static ImmutableArray<OfferCardPreviewFlag> CreateFlags(OfferCardItemFlags flags)
     {
-        var values = ImmutableArray.CreateBuilder<string>();
-        AddWhenTrue(values, flags.Corrupted, "Corrupted");
-        AddWhenTrue(values, flags.Mirrored, "Mirrored");
-        AddWhenTrue(values, flags.Synthesised, "Synthesised");
-        AddWhenTrue(values, flags.Fractured, "Fractured");
-        AddWhenTrue(values, flags.Split, "Split");
-        AddWhenTrue(values, flags.Duplicated, "Duplicated");
-        AddWhenTrue(values, flags.Replica, "Replica");
-        AddWhenTrue(values, flags.Veiled, "Veiled");
-        AddWhenTrue(values, flags.IsRelic, "Relic");
-        AddWhenTrue(values, flags.Ruthless, "Ruthless");
+        var values = ImmutableArray.CreateBuilder<OfferCardPreviewFlag>();
+        AddFlagWhenTrue(values, flags.Corrupted, "Corrupted", OfferCardPreviewFlagKind.Corrupted);
+        AddFlagWhenTrue(values, flags.Mirrored, "Mirrored", OfferCardPreviewFlagKind.Mirrored);
+        AddFlagWhenTrue(values, flags.Synthesised, "Synthesised", OfferCardPreviewFlagKind.Special);
+        AddFlagWhenTrue(values, flags.Fractured, "Fractured", OfferCardPreviewFlagKind.Fractured);
+        AddFlagWhenTrue(values, flags.Split, "Split", OfferCardPreviewFlagKind.Default);
+        AddFlagWhenTrue(values, flags.Duplicated, "Duplicated", OfferCardPreviewFlagKind.Default);
+        AddFlagWhenTrue(values, flags.Replica, "Replica", OfferCardPreviewFlagKind.Special);
+        AddFlagWhenTrue(values, flags.Veiled, "Veiled", OfferCardPreviewFlagKind.Special);
+        AddFlagWhenTrue(values, flags.IsRelic, "Relic", OfferCardPreviewFlagKind.Relic);
+        AddFlagWhenTrue(values, flags.Ruthless, "Ruthless", OfferCardPreviewFlagKind.Default);
         return values.ToImmutable();
     }
 
     private static string? FormatSockets(ImmutableArray<OfferCardSocket> sockets)
     {
-        var groupOrder = new List<int>();
-        var groups = new Dictionary<int, List<string>>();
-        foreach (var socket in sockets.OrderBy(socket => socket.Index))
+        if (sockets.Length == 0)
         {
-            if (!groups.TryGetValue(socket.Group, out var group))
-            {
-                group = [];
-                groups.Add(socket.Group, group);
-                groupOrder.Add(socket.Group);
-            }
+            return null;
+        }
 
-            var display = DisplayText(socket.Colour) ?? DisplayText(socket.Attribute);
-            if (display is not null)
+        var result = new System.Text.StringBuilder("Sockets: ");
+        for (var index = 0; index < sockets.Length; index++)
+        {
+            var socket = sockets[index];
+            result.Append(SocketText(socket.Colour, socket.Attribute));
+            if (index + 1 < sockets.Length)
             {
-                group.Add(display);
+                result.Append(socket.Group == sockets[index + 1].Group ? '-' : ' ');
             }
         }
 
-        var renderedGroups = groupOrder
-            .Select(group => string.Join("-", groups[group]))
-            .Where(group => group.Length > 0)
-            .ToArray();
-        return renderedGroups.Length == 0
-            ? null
-            : string.Join("  ", renderedGroups);
+        return result.ToString();
+    }
+
+    private static char SocketText(string? colour, string? attribute)
+    {
+        var providerColour = DisplayText(colour)?.ToUpperInvariant();
+        if (providerColour is not null)
+        {
+            return providerColour switch
+            {
+                "R" or "RED" => 'R',
+                "G" or "GREEN" => 'G',
+                "B" or "BLUE" => 'B',
+                "W" or "WHITE" => 'W',
+                "A" or "ABYSS" => 'A',
+                _ => '?',
+            };
+        }
+
+        return DisplayText(attribute)?.ToUpperInvariant() switch
+        {
+            "S" or "STRENGTH" => 'R',
+            "D" or "DEXTERITY" => 'G',
+            "I" or "INTELLIGENCE" => 'B',
+            "G" or "GENERIC" => 'W',
+            "A" or "ABYSS" => 'A',
+            _ => '?',
+        };
     }
 
     private static string? FormatPrice(OfferCardPrice? price)
@@ -288,6 +376,30 @@ internal sealed record OfferCardPreviewPresentation
         }
     }
 
+    private static void AddFlagWhenTrue(
+        ImmutableArray<OfferCardPreviewFlag>.Builder values,
+        bool? condition,
+        string label,
+        OfferCardPreviewFlagKind kind)
+    {
+        if (condition == true)
+        {
+            values.Add(new OfferCardPreviewFlag(label, kind));
+        }
+    }
+
+    private static string? UsefulRarity(string? rarity)
+    {
+        var value = DisplayText(rarity);
+        return value is not null &&
+            (value.Equals("Normal", StringComparison.OrdinalIgnoreCase) ||
+             value.Equals("Magic", StringComparison.OrdinalIgnoreCase) ||
+             value.Equals("Rare", StringComparison.OrdinalIgnoreCase) ||
+             value.Equals("Unique", StringComparison.OrdinalIgnoreCase))
+            ? null
+            : value;
+    }
+
     private static string? DisplayText(string? value)
     {
         var trimmed = value?.Trim();
@@ -295,7 +407,11 @@ internal sealed record OfferCardPreviewPresentation
     }
 }
 
-internal sealed record OfferCardPreviewFact(string? Label, string? Value, double? Progress)
+internal sealed record OfferCardPreviewFact(
+    string? Label,
+    string? Value,
+    double? Progress,
+    bool IsAugmented)
 {
     public bool HasLabel => Label is not null;
 
@@ -307,4 +423,17 @@ internal sealed record OfferCardPreviewFact(string? Label, string? Value, double
 internal sealed record OfferCardPreviewModifierSection(
     OfferCardModifierProvenance Provenance,
     string Label,
-    ImmutableArray<string> Lines);
+    ImmutableArray<string> Lines,
+    bool HasSeparatorBefore);
+
+internal sealed record OfferCardPreviewFlag(string Label, OfferCardPreviewFlagKind Kind);
+
+internal enum OfferCardPreviewFlagKind
+{
+    Default,
+    Corrupted,
+    Mirrored,
+    Fractured,
+    Special,
+    Relic,
+}

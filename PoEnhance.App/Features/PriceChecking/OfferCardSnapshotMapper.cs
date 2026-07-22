@@ -83,6 +83,36 @@ internal static class OfferCardSnapshotMapper
                     Status = listing.Account.Online.Status,
                 },
             IndexedAt = listing.Indexed,
+            ModifierPipelineSource = new OfferCardModifierPipelineSource
+            {
+                RawFetchOfferPresent = item.ModifierDiagnostics.RawFetchOfferPresent,
+                RawJson = MapModifierCounts(item.ModifierDiagnostics.RawJsonCounts),
+                ParsedDto = new OfferCardModifierCounts
+                {
+                    Enchant = item.EnchantMods.Count,
+                    Implicit = item.ImplicitMods.Count,
+                    Explicit = item.ExplicitMods.Count,
+                    Crafted = item.CraftedMods.Count,
+                    Fractured = item.FracturedMods.Count,
+                    Utility = item.UtilityMods.Count,
+                    Cosmetic = item.CosmeticMods.Count,
+                },
+            },
+        };
+    }
+
+    private static OfferCardModifierCounts MapModifierCounts(
+        PathOfExileTradeFetchedModifierCounts counts)
+    {
+        return new OfferCardModifierCounts
+        {
+            Enchant = counts.Enchant,
+            Implicit = counts.Implicit,
+            Explicit = counts.Explicit,
+            Crafted = counts.Crafted,
+            Fractured = counts.Fractured,
+            Utility = counts.Utility,
+            Cosmetic = counts.Cosmetic,
         };
     }
 

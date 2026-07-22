@@ -113,6 +113,49 @@ internal sealed class PathOfExileTradeFetchResponseParser
         int resultIndex,
         List<PathOfExileTradeHttpDiagnostic> diagnostics)
     {
+        var implicitMods = ReadOptionalModifierArray(
+            itemElement,
+            "implicitMods",
+            resultIndex,
+            diagnostics,
+            out var rawImplicitCount);
+        var explicitMods = ReadOptionalModifierArray(
+            itemElement,
+            "explicitMods",
+            resultIndex,
+            diagnostics,
+            out var rawExplicitCount);
+        var craftedMods = ReadOptionalModifierArray(
+            itemElement,
+            "craftedMods",
+            resultIndex,
+            diagnostics,
+            out var rawCraftedCount);
+        var fracturedMods = ReadOptionalModifierArray(
+            itemElement,
+            "fracturedMods",
+            resultIndex,
+            diagnostics,
+            out var rawFracturedCount);
+        var enchantMods = ReadOptionalModifierArray(
+            itemElement,
+            "enchantMods",
+            resultIndex,
+            diagnostics,
+            out var rawEnchantCount);
+        var utilityMods = ReadOptionalModifierArray(
+            itemElement,
+            "utilityMods",
+            resultIndex,
+            diagnostics,
+            out var rawUtilityCount);
+        var cosmeticMods = ReadOptionalModifierArray(
+            itemElement,
+            "cosmeticMods",
+            resultIndex,
+            diagnostics,
+            out var rawCosmeticCount);
+
         return new PathOfExileTradeFetchedItem
         {
             Id = ReadOptionalString(itemElement, "id"),
@@ -150,48 +193,37 @@ internal sealed class PathOfExileTradeFetchResponseParser
                 resultIndex,
                 diagnostics),
             Sockets = ParseSockets(itemElement, resultIndex, diagnostics),
-            ImplicitMods = ReadOptionalStringArray(
-                itemElement,
-                "implicitMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            ExplicitMods = ReadOptionalStringArray(
-                itemElement,
-                "explicitMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            CraftedMods = ReadOptionalStringArray(
-                itemElement,
-                "craftedMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            FracturedMods = ReadOptionalStringArray(
-                itemElement,
-                "fracturedMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            EnchantMods = ReadOptionalStringArray(
-                itemElement,
-                "enchantMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            UtilityMods = ReadOptionalStringArray(
-                itemElement,
-                "utilityMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
-            CosmeticMods = ReadOptionalStringArray(
-                itemElement,
-                "cosmeticMods",
-                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
-                resultIndex,
-                diagnostics),
+            ImplicitMods = implicitMods,
+            ExplicitMods = explicitMods,
+            CraftedMods = craftedMods,
+            FracturedMods = fracturedMods,
+            EnchantMods = enchantMods,
+            UtilityMods = utilityMods,
+            CosmeticMods = cosmeticMods,
+            ModifierDiagnostics = new PathOfExileTradeFetchedModifierDiagnostics
+            {
+                RawFetchOfferPresent = true,
+                RawJsonCounts = new PathOfExileTradeFetchedModifierCounts
+                {
+                    Enchant = rawEnchantCount,
+                    Implicit = rawImplicitCount,
+                    Explicit = rawExplicitCount,
+                    Crafted = rawCraftedCount,
+                    Fractured = rawFracturedCount,
+                    Utility = rawUtilityCount,
+                    Cosmetic = rawCosmeticCount,
+                },
+                ParsedDtoCounts = new PathOfExileTradeFetchedModifierCounts
+                {
+                    Enchant = enchantMods.Count,
+                    Implicit = implicitMods.Count,
+                    Explicit = explicitMods.Count,
+                    Crafted = craftedMods.Count,
+                    Fractured = fracturedMods.Count,
+                    Utility = utilityMods.Count,
+                    Cosmetic = cosmeticMods.Count,
+                },
+            },
             Description = ReadOptionalString(itemElement, "descrText"),
             SecondaryDescription = ReadOptionalString(itemElement, "secDescrText"),
             FlavourText = ReadOptionalStringArray(
@@ -201,6 +233,62 @@ internal sealed class PathOfExileTradeFetchResponseParser
                 resultIndex,
                 diagnostics),
         };
+    }
+
+    private static IReadOnlyList<string> ReadOptionalModifierArray(
+        JsonElement parent,
+        string propertyName,
+        int resultIndex,
+        List<PathOfExileTradeHttpDiagnostic> diagnostics,
+        out int rawCount)
+    {
+        rawCount = 0;
+        if (!parent.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return [];
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            diagnostics.Add(MalformedItemSection(
+                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
+                resultIndex,
+                $"Trade fetch item {propertyName} must be an array."));
+            return [];
+        }
+
+        rawCount = value.GetArrayLength();
+        var values = new List<string>(rawCount);
+        var containsMalformedValue = false;
+        foreach (var element in value.EnumerateArray())
+        {
+            if (element.ValueKind == JsonValueKind.String)
+            {
+                values.Add(element.GetString() ?? string.Empty);
+                continue;
+            }
+
+            if (element.ValueKind == JsonValueKind.Object &&
+                element.TryGetProperty("description", out var description) &&
+                description.ValueKind == JsonValueKind.String)
+            {
+                values.Add(description.GetString() ?? string.Empty);
+                continue;
+            }
+
+            containsMalformedValue = true;
+        }
+
+        if (containsMalformedValue)
+        {
+            diagnostics.Add(MalformedItemSection(
+                PathOfExileTradeHttpDiagnosticCodes.MalformedItemModifierSection,
+                resultIndex,
+                $"Trade fetch item {propertyName} contains a modifier without a string description; that value was ignored."));
+        }
+
+        return values.ToArray();
     }
 
     private static IReadOnlyList<PathOfExileTradeItemProperty> ParseItemProperties(

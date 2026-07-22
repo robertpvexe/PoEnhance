@@ -47,6 +47,8 @@ public sealed record OfferCardSnapshot
     public OfferCardOnlineState? Online { get; init; }
 
     public DateTimeOffset? IndexedAt { get; init; }
+
+    internal OfferCardModifierPipelineSource ModifierPipelineSource { get; init; } = new();
 }
 
 public enum OfferCardFrameKind

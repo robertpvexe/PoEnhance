@@ -1734,10 +1734,13 @@ Item Level: 80
 
         public List<PriceCheckerPlacement> Placements { get; } = [];
 
-        public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+        public OfferCardPreviewSize UpdateContent(
+            OfferCardSnapshot snapshot,
+            double maximumWidth,
+            double maximumHeight)
         {
             CurrentSnapshot = snapshot;
-            return new OfferCardPreviewSize(460, Math.Min(600, maximumHeight));
+            return new OfferCardPreviewSize(Math.Min(600, maximumWidth), Math.Min(600, maximumHeight));
         }
 
         public void ApplyPlacement(PriceCheckerPlacement placement)
@@ -1819,10 +1822,13 @@ Item Level: 80
 
         public long LastShowSequence { get; private set; }
 
-        public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+        public OfferCardPreviewSize UpdateContent(
+            OfferCardSnapshot snapshot,
+            double maximumWidth,
+            double maximumHeight)
         {
             CurrentSnapshot = snapshot;
-            return new OfferCardPreviewSize(460, Math.Min(600, maximumHeight));
+            return new OfferCardPreviewSize(Math.Min(600, maximumWidth), Math.Min(600, maximumHeight));
         }
 
         public void ApplyPlacement(PriceCheckerPlacement placement)

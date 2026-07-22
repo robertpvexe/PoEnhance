@@ -2,7 +2,10 @@ using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
 
-internal sealed record PriceCheckerDeveloperDiagnostic(string Code, string Message);
+internal sealed record PriceCheckerDeveloperDiagnostic(
+    string Code,
+    string Message,
+    bool IsUserFacing = true);
 
 internal sealed record PriceCheckerDeveloperDiagnosticsSnapshot(
     string State,
@@ -13,7 +16,8 @@ internal sealed record PriceCheckerDeveloperDiagnosticsSnapshot(
     public PriceCheckerDeveloperDiagnostic? LatestDiagnostic => Diagnostics.LastOrDefault();
 
     public IReadOnlyList<PriceCheckerDeveloperDiagnostic> UserFacingDiagnostics => Diagnostics
-        .Where(diagnostic => diagnostic.Code != TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped)
+        .Where(diagnostic => diagnostic.IsUserFacing &&
+            diagnostic.Code != TradeSearchDraftDiagnosticCodes.ModifierAggregationSkipped)
         .ToArray();
 
     public PriceCheckerDeveloperDiagnostic? LatestUserFacingDiagnostic =>

@@ -2,8 +2,19 @@ namespace PoEnhance.App.Features.PriceChecking;
 
 internal sealed class OfferCardWindowSizeCalculator
 {
+    public const double MinimumUsefulWidth = 400d;
+    public const double MaximumUsefulWidth = 700d;
     public const double MaximumClientHeightRatio = 0.86d;
-    public const double MinimumPracticalHeight = 180d;
+
+    public double CalculateWidth(double measuredContentWidth, double clientWidth)
+    {
+        ValidatePositiveFinite(measuredContentWidth, nameof(measuredContentWidth));
+        ValidatePositiveFinite(clientWidth, nameof(clientWidth));
+        var maximumAllowedWidth = Math.Min(MaximumUsefulWidth, clientWidth);
+        return Math.Min(
+            maximumAllowedWidth,
+            Math.Max(MinimumUsefulWidth, measuredContentWidth));
+    }
 
     public OfferCardWindowSize Calculate(
         double clientHeight,
@@ -19,10 +30,9 @@ internal sealed class OfferCardWindowSizeCalculator
         ValidateNonNegativeFinite(verticalChromeHeight, nameof(verticalChromeHeight));
 
         var maximumHeight = clientHeight * MaximumClientHeightRatio;
-        var minimumHeight = Math.Min(MinimumPracticalHeight, maximumHeight);
         var naturalHeight =
             headerHeight + contentHeight + footerHeight + verticalChromeHeight;
-        var height = Math.Clamp(naturalHeight, minimumHeight, maximumHeight);
+        var height = Math.Max(1d, Math.Min(naturalHeight, maximumHeight));
         var contentViewportHeight = Math.Max(
             1d,
             height - headerHeight - footerHeight - verticalChromeHeight);

@@ -2422,25 +2422,29 @@ internal sealed class PriceCheckerSearchController
         var diagnostics = currentValidationResult?.Diagnostics
             .Select(diagnostic => new PriceCheckerDeveloperDiagnostic(
                 diagnostic.Code,
-                diagnostic.Message))
+                diagnostic.Message,
+                diagnostic.Severity == TradeSearchValidationSeverity.Error))
             .ToList() ?? [];
         if (currentDraft is not null)
         {
             diagnostics.AddRange(currentDraft.ModifierAggregationDiagnostics
                 .Select(diagnostic => new PriceCheckerDeveloperDiagnostic(
                     diagnostic.Code,
-                    diagnostic.Message)));
+                    diagnostic.Message,
+                    IsUserFacing: false)));
             diagnostics.AddRange(currentDraft.ModifierFilters
                 .Where(modifier => !string.IsNullOrWhiteSpace(modifier.ProviderDiagnosticMessage))
                 .Select(modifier => new PriceCheckerDeveloperDiagnostic(
                     modifier.ProviderDiagnosticCode ?? "AGGREGATE_PROVIDER_COVERAGE",
-                    modifier.ProviderDiagnosticMessage!)));
+                    modifier.ProviderDiagnosticMessage!,
+                    IsUserFacing: false)));
             diagnostics.AddRange(currentDraft.ModifierFilters
                 .SelectMany(modifier => modifier.Contributors)
                 .Where(contributor => !string.IsNullOrWhiteSpace(contributor.ProviderDiagnosticMessage))
                 .Select(contributor => new PriceCheckerDeveloperDiagnostic(
                     contributor.ProviderDiagnosticCode ?? "CONTRIBUTOR_PROVIDER_COVERAGE",
-                    contributor.ProviderDiagnosticMessage!)));
+                    contributor.ProviderDiagnosticMessage!,
+                    IsUserFacing: false)));
             diagnostics.AddRange(currentDraft.ModifierFilters
                 .Where(modifier => modifier.IsSelected &&
                     !modifier.SupportsValueBounds &&
@@ -2448,7 +2452,8 @@ internal sealed class PriceCheckerSearchController
                 .Select(modifier => new PriceCheckerDeveloperDiagnostic(
                     "MODIFIER_BOUNDS_UNSUPPORTED",
                     modifier.ValueBoundsUnsupportedReason ??
-                        "The selected modifier does not expose a faithful scalar value bound.")));
+                        "The selected modifier does not expose a faithful scalar value bound.",
+                    IsUserFacing: false)));
         }
 
         CurrentDeveloperDiagnostics = new PriceCheckerDeveloperDiagnosticsSnapshot(

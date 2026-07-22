@@ -12,7 +12,10 @@ internal interface IOfferCardPreviewWindow
 
     PriceCheckerPlacement? CurrentPlacement { get; }
 
-    OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight);
+    OfferCardPreviewSize UpdateContent(
+        OfferCardSnapshot snapshot,
+        double maximumWidth,
+        double maximumHeight);
 
     void ApplyPlacement(PriceCheckerPlacement placement);
 
