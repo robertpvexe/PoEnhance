@@ -16,6 +16,12 @@ internal interface IPriceCheckerWindow
 
     event EventHandler? TradeRequested;
 
+    event EventHandler<PriceCheckerOfferClickedEventArgs>? OfferClicked
+    {
+        add { }
+        remove { }
+    }
+
     event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
 
     event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -161,6 +162,111 @@ public sealed class PriceCheckerWindowControllerTests
         fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
 
         Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void OfferClick_OpensPreviewWithExactSnapshotAndPerformsNoSearchOrFetch()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var snapshot = new OfferCardSnapshot
+        {
+            OfferId = "offer-1",
+            Name = "Dusk Shell",
+        };
+
+        priceCheckerWindow.RaiseOfferClicked(snapshot);
+
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        Assert.Same(snapshot, preview.CurrentSnapshot);
+        Assert.Equal(1, preview.ShowCount);
+        Assert.Equal(0, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void OfferClick_SecondAndRepeatedClicksReplaceContentInOneReusablePreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var first = new OfferCardSnapshot { OfferId = "first" };
+        var second = new OfferCardSnapshot { OfferId = "second" };
+
+        priceCheckerWindow.RaiseOfferClicked(first);
+        priceCheckerWindow.RaiseOfferClicked(second);
+        priceCheckerWindow.RaiseOfferClicked(second);
+
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        Assert.Same(second, preview.CurrentSnapshot);
+        Assert.Equal(3, preview.ShowCount);
+        Assert.Equal(3, preview.Placements.Count);
+    }
+
+    [Fact]
+    public void PriceCheckerCloseAndNewCaptureClearUnpinnedPreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "offer-1" });
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+
+        fixture.Controller.ShowOrUpdate(Item("Second Loop", "Iron Ring"), null, []);
+
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.True(preview.HideCount >= 1);
+
+        var currentWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        currentWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "offer-2" });
+        currentWindow.Close();
+
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.True(preview.HideCount >= 2);
+    }
+
+    [Fact]
+    public void ResetLeagueChangeAndNewSearchClearUnpinnedPreview()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        var previewSnapshot = new OfferCardSnapshot { OfferId = "offer" };
+
+        priceCheckerWindow.RaiseOfferClicked(previewSnapshot);
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+        priceCheckerWindow.RaiseResetItemRequested();
+        Assert.Null(preview.CurrentSnapshot);
+
+        priceCheckerWindow.RaiseOfferClicked(previewSnapshot);
+        Assert.True(fixture.LeagueSetting.TrySave("Standard"));
+        Assert.Null(preview.CurrentSnapshot);
+
+        priceCheckerWindow.RaiseOfferClicked(previewSnapshot);
+        priceCheckerWindow.RaiseSearchRequested();
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.Equal(1, fixture.PriceCheckService.CallCount);
+    }
+
+    [Fact]
+    public void ControllerCloseDisposesPreviewWithoutClosingApplicationFromPreviewX()
+    {
+        using var fixture = ControllerFixture.Create();
+        fixture.Controller.ShowOrUpdate(Item("First Loop", "Gold Ring"), null, []);
+        var priceCheckerWindow = Assert.Single(fixture.WindowFactory.CreatedWindows);
+        priceCheckerWindow.RaiseOfferClicked(new OfferCardSnapshot { OfferId = "offer" });
+        var preview = Assert.Single(fixture.PreviewWindowFactory.Windows);
+
+        preview.RaiseCloseRequested();
+
+        Assert.Null(preview.CurrentSnapshot);
+        Assert.False(preview.IsClosed);
+        Assert.False(priceCheckerWindow.IsClosed);
+
+        fixture.Controller.Close();
+
+        Assert.True(preview.IsClosed);
+        Assert.True(priceCheckerWindow.IsClosed);
     }
 
     [Fact]
@@ -1136,7 +1242,10 @@ Item Level: 80
             CountingValidator validator,
             FakePriceCheckService priceCheckService,
             FakeForegroundWindowDetector foregroundWindowDetector,
-            FakeDeferredActionScheduler deferredActionScheduler)
+            FakeDeferredActionScheduler deferredActionScheduler,
+            ApplicationLeagueSetting leagueSetting,
+            FakePreviewWindowFactory previewWindowFactory,
+            OfferCardPreviewController previewController)
         {
             this.tempDirectory = tempDirectory;
             Controller = controller;
@@ -1150,6 +1259,9 @@ Item Level: 80
             PriceCheckService = priceCheckService;
             ForegroundWindowDetector = foregroundWindowDetector;
             DeferredActionScheduler = deferredActionScheduler;
+            LeagueSetting = leagueSetting;
+            PreviewWindowFactory = previewWindowFactory;
+            PreviewController = previewController;
         }
 
         public PriceCheckerWindowController Controller { get; }
@@ -1174,6 +1286,12 @@ Item Level: 80
 
         public FakeDeferredActionScheduler DeferredActionScheduler { get; }
 
+        public ApplicationLeagueSetting LeagueSetting { get; }
+
+        public FakePreviewWindowFactory PreviewWindowFactory { get; }
+
+        public OfferCardPreviewController PreviewController { get; }
+
         public static ControllerFixture Create(
             bool boundsAvailable = true,
             PathOfExileClientBounds? bounds = null)
@@ -1197,6 +1315,11 @@ Item Level: 80
             var priceCheckService = new FakePriceCheckService();
             var foregroundWindowDetector = new FakeForegroundWindowDetector();
             var deferredActionScheduler = new FakeDeferredActionScheduler();
+            var leagueSetting = ApplicationLeagueSetting.CreateTransient("Mirage");
+            var previewWindowFactory = new FakePreviewWindowFactory();
+            var previewController = new OfferCardPreviewController(
+                previewWindowFactory,
+                new OfferCardPreviewPlacementCalculator());
             var controller = new PriceCheckerWindowController(
                 boundsProvider,
                 calculator,
@@ -1208,7 +1331,8 @@ Item Level: 80
                 deferredActionScheduler,
                 new PriceCheckerSearchController(
                     priceCheckService,
-                    global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage")));
+                    leagueSetting),
+                offerCardPreviewController: previewController);
 
             return new ControllerFixture(
                 tempDirectory,
@@ -1222,7 +1346,10 @@ Item Level: 80
                 validator,
                 priceCheckService,
                 foregroundWindowDetector,
-                deferredActionScheduler);
+                deferredActionScheduler,
+                leagueSetting,
+                previewWindowFactory,
+                previewController);
         }
 
         public void Dispose()
@@ -1280,6 +1407,66 @@ Item Level: 80
         }
     }
 
+    internal sealed class FakePreviewWindowFactory : IOfferCardPreviewWindowFactory
+    {
+        public List<FakePreviewWindow> Windows { get; } = [];
+
+        public IOfferCardPreviewWindow CreateWindow()
+        {
+            var window = new FakePreviewWindow();
+            Windows.Add(window);
+            return window;
+        }
+    }
+
+    internal sealed class FakePreviewWindow : IOfferCardPreviewWindow
+    {
+        public event EventHandler? CloseRequested;
+
+        public bool IsClosed { get; private set; }
+
+        public OfferCardSnapshot? CurrentSnapshot { get; private set; }
+
+        public int ShowCount { get; private set; }
+
+        public int HideCount { get; private set; }
+
+        public List<PriceCheckerPlacement> Placements { get; } = [];
+
+        public OfferCardPreviewSize UpdateContent(OfferCardSnapshot snapshot, double maximumHeight)
+        {
+            CurrentSnapshot = snapshot;
+            return new OfferCardPreviewSize(460, Math.Min(600, maximumHeight));
+        }
+
+        public void ApplyPlacement(PriceCheckerPlacement placement)
+        {
+            Placements.Add(placement);
+        }
+
+        public void ShowInactive()
+        {
+            ShowCount++;
+        }
+
+        public void HideAndClear()
+        {
+            CurrentSnapshot = null;
+            HideCount++;
+        }
+
+        public void Close()
+        {
+            CurrentSnapshot = null;
+            IsClosed = true;
+        }
+
+        public void RaiseCloseRequested()
+        {
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private sealed class FakeWindowFactory : IPriceCheckerWindowFactory
     {
         private readonly double dpiScaleX;
@@ -1333,6 +1520,8 @@ Item Level: 80
             add { }
             remove { }
         }
+
+        public event EventHandler<PriceCheckerOfferClickedEventArgs>? OfferClicked;
 
         public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged
         {
@@ -1582,6 +1771,12 @@ Item Level: 80
         {
             PanelInteraction?.Invoke(this, EventArgs.Empty);
             SearchRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseOfferClicked(OfferCardSnapshot snapshot)
+        {
+            PanelInteraction?.Invoke(this, EventArgs.Empty);
+            OfferClicked?.Invoke(this, new PriceCheckerOfferClickedEventArgs(snapshot));
         }
 
         public void RaiseModifierSelectionChanged(int modifierIndex, bool isSelected)

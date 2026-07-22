@@ -71,6 +71,8 @@ internal sealed class PriceCheckerSearchController
 
     public event EventHandler<PriceCheckerDeveloperDiagnosticsSnapshot>? DeveloperDiagnosticsChanged;
 
+    public event EventHandler? OfferResultsInvalidated;
+
     public void AttachWindow(IPriceCheckerWindow priceCheckerWindow)
     {
         ArgumentNullException.ThrowIfNull(priceCheckerWindow);
@@ -1374,6 +1376,7 @@ internal sealed class PriceCheckerSearchController
         displayedOffers.Clear();
         paginationProviderTotal = null;
         paginationInexact = null;
+        OfferResultsInvalidated?.Invoke(this, EventArgs.Empty);
     }
 
     private bool HasUnfetchedResultIds()

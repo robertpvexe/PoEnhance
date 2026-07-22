@@ -1631,6 +1631,9 @@ Item Level: 82
         Assert.DoesNotContain("BorderBrush", offers);
         Assert.DoesNotContain("BorderBrush", rowStyle);
         Assert.Contains("FocusVisualStyle", rowStyle);
+        Assert.Contains("Value=\"Hand\"", rowStyle);
+        Assert.Contains("Event=\"PreviewMouseLeftButtonDown\"", rowStyle);
+        Assert.Contains("Handler=\"OnOfferRowPreviewMouseLeftButtonDown\"", rowStyle);
         Assert.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Disabled\"", offers);
     }
 

@@ -76,6 +76,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler? TradeRequested;
 
+    public event EventHandler<PriceCheckerOfferClickedEventArgs>? OfferClicked;
+
     public event EventHandler<PriceCheckerOfferCapacityChangedEventArgs>? OfferCapacityChanged;
 
     public event EventHandler<PriceCheckerItemPropertySelectionChangedEventArgs>? ItemPropertySelectionChanged;
@@ -502,6 +504,20 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     {
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         TradeRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnOfferRowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBoxItem
+            {
+                DataContext: PriceCheckerOfferViewModel { CardSnapshot: { } snapshot },
+            })
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        OfferClicked?.Invoke(this, new PriceCheckerOfferClickedEventArgs(snapshot));
     }
 
     private void OnModifierSelectionClick(object sender, RoutedEventArgs e)

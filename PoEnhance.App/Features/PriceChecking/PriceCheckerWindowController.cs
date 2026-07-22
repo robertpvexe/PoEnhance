@@ -21,6 +21,7 @@ internal sealed class PriceCheckerWindowController
     private readonly IPriceCheckerDeferredActionScheduler deferredActionScheduler;
     private readonly PriceCheckerSearchController searchController;
     private readonly IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter;
+    private readonly OfferCardPreviewController offerCardPreviewController;
     private IPriceCheckerWindow? window;
     private PathOfExileClientBounds? currentClientBounds;
     private PriceCheckerPlacementKey? currentPlacementKey;
@@ -48,7 +49,10 @@ internal sealed class PriceCheckerWindowController
             new PathOfExileForegroundWindowDetector(),
             new WpfPriceCheckerDeferredActionScheduler(),
             new PriceCheckerSearchController(priceCheckService, leagueSetting),
-            PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild())
+            PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild(),
+            new OfferCardPreviewController(
+                new OfferCardPreviewWindowFactory(),
+                new OfferCardPreviewPlacementCalculator()))
     {
     }
 
@@ -62,7 +66,8 @@ internal sealed class PriceCheckerWindowController
         IPathOfExileForegroundWindowDetector foregroundWindowDetector,
         IPriceCheckerDeferredActionScheduler deferredActionScheduler,
         PriceCheckerSearchController searchController,
-        IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter = null)
+        IPriceCheckerDeveloperDiagnosticsPresenter? developerDiagnosticsPresenter = null,
+        OfferCardPreviewController? offerCardPreviewController = null)
     {
         this.clientBoundsProvider = clientBoundsProvider;
         this.placementCalculator = placementCalculator;
@@ -74,7 +79,12 @@ internal sealed class PriceCheckerWindowController
         this.deferredActionScheduler = deferredActionScheduler;
         this.searchController = searchController;
         this.developerDiagnosticsPresenter = developerDiagnosticsPresenter;
+        this.offerCardPreviewController = offerCardPreviewController ??
+            new OfferCardPreviewController(
+                new OfferCardPreviewWindowFactory(),
+                new OfferCardPreviewPlacementCalculator());
         searchController.DeveloperDiagnosticsChanged += OnDeveloperDiagnosticsChanged;
+        searchController.OfferResultsInvalidated += OnOfferResultsInvalidated;
     }
 
     public async Task<PriceCheckerWindowUpdateResult> ShowOrUpdateAsync(
@@ -84,6 +94,7 @@ internal sealed class PriceCheckerWindowController
         GameDataCatalog? gameDataCatalog = null,
         CancellationToken cancellationToken = default)
     {
+        offerCardPreviewController.Clear();
         var requestGeneration = ++contentGeneration;
         if (!TryPrepareUpdate(
                 parsedItem,
@@ -125,6 +136,8 @@ internal sealed class PriceCheckerWindowController
         {
             window.Close();
         }
+
+        offerCardPreviewController.Dispose();
     }
 
     private bool TryPrepareUpdate(
@@ -244,6 +257,7 @@ internal sealed class PriceCheckerWindowController
         window.HorizontalResizeStarted += OnWindowHorizontalResizeStarted;
         window.HorizontalResizeDelta += OnWindowHorizontalResizeDelta;
         window.HorizontalResizeCompleted += OnWindowHorizontalResizeCompleted;
+        window.OfferClicked += OnWindowOfferClicked;
         searchController.AttachWindow(window);
         isAutoCloseArmed = false;
         isPinned = window.IsPinned;
@@ -272,6 +286,8 @@ internal sealed class PriceCheckerWindowController
         closedWindow.HorizontalResizeStarted -= OnWindowHorizontalResizeStarted;
         closedWindow.HorizontalResizeDelta -= OnWindowHorizontalResizeDelta;
         closedWindow.HorizontalResizeCompleted -= OnWindowHorizontalResizeCompleted;
+        closedWindow.OfferClicked -= OnWindowOfferClicked;
+        offerCardPreviewController.Clear();
         window = null;
         currentClientBounds = null;
         currentPlacementKey = null;
@@ -280,6 +296,30 @@ internal sealed class PriceCheckerWindowController
         currentPanelWidth = null;
         isAutoCloseArmed = false;
         isPinned = false;
+    }
+
+    private void OnWindowOfferClicked(object? sender, PriceCheckerOfferClickedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, window) || currentClientBounds is null)
+        {
+            return;
+        }
+
+        var displayedPlacement = window?.GetDisplayedPlacement() ?? currentPlacement;
+        if (displayedPlacement is null)
+        {
+            return;
+        }
+
+        offerCardPreviewController.Show(
+            e.Snapshot,
+            displayedPlacement,
+            currentClientBounds);
+    }
+
+    private void OnOfferResultsInvalidated(object? sender, EventArgs e)
+    {
+        offerCardPreviewController.Clear();
     }
 
     private void OnDeveloperDiagnosticsChanged(
