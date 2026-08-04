@@ -852,6 +852,13 @@ public sealed class TradeSearchDraftMapper
                 ModifierBoundShape.ArithmeticMeanRange => boundDefault.ObservedValues,
                 _ => [],
             };
+        var providerFallbackNumericValues = valueBoundShape == ModifierBoundShape.PresenceOnly &&
+            stats.Count > 0 &&
+            stats.All(stat => stat.MinValue.HasValue &&
+                stat.MaxValue.HasValue &&
+                stat.MinValue == stat.MaxValue)
+                ? stats.Select(stat => stat.MinValue!.Value).ToArray()
+                : [];
         var defaultBoundDirection = hasProviderOnlyUniqueScalar
             ? providerOnlyUniqueDirection
             : boundDefault.Direction;
@@ -917,6 +924,7 @@ public sealed class TradeSearchDraftMapper
                 ? []
                 : ModifierBoundDefaults.ExtractOriginalSourceRollRanges(componentLines),
             CanonicalNumericValues = hasUnscalableValue ? [] : canonicalNumericValues,
+            ProviderFallbackNumericValues = hasUnscalableValue ? [] : providerFallbackNumericValues,
             ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,

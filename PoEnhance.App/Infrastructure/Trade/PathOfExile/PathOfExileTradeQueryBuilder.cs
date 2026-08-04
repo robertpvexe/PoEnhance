@@ -127,11 +127,17 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "Selected modifier provider mappings must cover exactly the selected modifiers.");
         }
 
-        if (providerFilters.Any(filter => TrimToNull(filter.StatId) is null))
+        if (providerFilters.Any(filter =>
+                TrimToNull(filter.StatId) is null ||
+                filter.Alternatives.Count == 1 ||
+                filter.Alternatives.Any(alternative => TrimToNull(alternative.StatId) is null) ||
+                filter.Alternatives.Select(alternative => alternative.StatId.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .Count() != filter.Alternatives.Count))
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedModifierMapping,
-                "Selected modifier provider mappings need non-empty Trade stat identifiers.");
+                "Selected modifier provider mappings need either one stat identifier or at least two distinct equivalent alternatives.");
         }
 
         var providerPropertyFilters = selectedItemPropertyFilters ?? [];
@@ -347,19 +353,58 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 itemNameResult.Name is not null);
         }
 
-        var statFilters = providerFilters
-            .Select(filter => new PathOfExileTradeSearchStatFilter
+        var statGroups = new List<PathOfExileTradeSearchStatsGroup>();
+        if (providerFilters.Count == 0)
+        {
+            statGroups.Add(new PathOfExileTradeSearchStatsGroup
             {
-                Id = filter.StatId.Trim(),
-                Value = filter.Minimum.HasValue || filter.Maximum.HasValue
-                    ? new PathOfExileTradeSearchStatValue
+                Filters = [],
+            });
+        }
+
+        foreach (var sourceGroup in providerFilters
+                     .Where(filter => filter.Alternatives.Count == 0)
+                     .GroupBy(LogicalSourceKey, StringComparer.Ordinal))
+        {
+            statGroups.Add(new PathOfExileTradeSearchStatsGroup
+            {
+                Filters = sourceGroup
+                    .Select(filter => new PathOfExileTradeSearchStatFilter
                     {
-                        Min = filter.Minimum,
-                        Max = filter.Maximum,
-                    }
-                    : null,
-            })
-            .ToArray();
+                        Id = filter.StatId.Trim(),
+                        Value = filter.Minimum.HasValue || filter.Maximum.HasValue
+                            ? new PathOfExileTradeSearchStatValue
+                            {
+                                Min = filter.Minimum,
+                                Max = filter.Maximum,
+                            }
+                            : null,
+                    })
+                    .ToArray(),
+            });
+        }
+
+        foreach (var filter in providerFilters.Where(filter => filter.Alternatives.Count > 0))
+        {
+            statGroups.Add(new PathOfExileTradeSearchStatsGroup
+            {
+                Type = "count",
+                Value = new PathOfExileTradeSearchStatValue { Min = 1m },
+                Filters = filter.Alternatives
+                    .Select(alternative => new PathOfExileTradeSearchStatFilter
+                    {
+                        Id = alternative.StatId.Trim(),
+                        Value = alternative.Minimum.HasValue || alternative.Maximum.HasValue
+                            ? new PathOfExileTradeSearchStatValue
+                            {
+                                Min = alternative.Minimum,
+                                Max = alternative.Maximum,
+                            }
+                            : null,
+                    })
+                    .ToArray(),
+            });
+        }
 
         var request = new PathOfExileTradeSearchRequest
         {
@@ -371,13 +416,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 },
                 Name = itemNameResult.Name,
                 Type = selectedBaseType,
-                Stats =
-                [
-                    new PathOfExileTradeSearchStatsGroup
-                    {
-                        Filters = statFilters,
-                    },
-                ],
+                Stats = statGroups,
                 Filters = BuildProviderFilters(
                     draft,
                     providerItemIdentity,
@@ -645,6 +684,14 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         }
 
         groups[groupId] = new PathOfExileTradeSearchFilterGroup { Filters = merged };
+    }
+
+    private static string LogicalSourceKey(PathOfExileTradeSelectedModifierFilter filter)
+    {
+        var sourceIndexes = filter.SourceIndexes.Count > 0
+            ? filter.SourceIndexes
+            : [filter.SourceIndex];
+        return string.Join(",", sourceIndexes.Distinct().Order());
     }
 
     private static string MapListingStatus(TradeListingMode listingMode)

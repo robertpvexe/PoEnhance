@@ -196,6 +196,8 @@ public sealed class PathOfExileTradeQueryBuilderTests
     [InlineData(TradeItemStateKind.Corrupted, TradeTriState.No, "corrupted", "false")]
     [InlineData(TradeItemStateKind.Identified, TradeTriState.Yes, "identified", "true")]
     [InlineData(TradeItemStateKind.Identified, TradeTriState.No, "identified", "false")]
+    [InlineData(TradeItemStateKind.Fractured, TradeTriState.Yes, "fractured_item", "true")]
+    [InlineData(TradeItemStateKind.Fractured, TradeTriState.No, "fractured_item", "false")]
     public void Build_ItemStateYesAndNoUseReviewedOfficialOptionShape(
         TradeItemStateKind kind,
         TradeTriState state,
@@ -696,7 +698,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
-    public void Build_SelectedProviderFilters_AreSerializedAsPresenceOnlyIdsInSelectedOrder()
+    public void Build_SelectedProviderFilters_OwnIndependentGroupsInSelectedOrder()
     {
         var result = BuildSuccessful(
             Draft(modifiers:
@@ -710,13 +712,17 @@ public sealed class PathOfExileTradeQueryBuilderTests
             ]);
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
-        var filters = document.RootElement
+        var groups = document.RootElement
             .GetProperty("query")
-            .GetProperty("stats")[0]
-            .GetProperty("filters")
+            .GetProperty("stats")
             .EnumerateArray()
             .ToArray();
+        var filters = groups
+            .Select(group => Assert.Single(group.GetProperty("filters").EnumerateArray()))
+            .ToArray();
 
+        Assert.Equal(2, groups.Length);
+        Assert.All(groups, group => Assert.Equal("and", group.GetProperty("type").GetString()));
         Assert.Equal(["explicit.stat_life", "explicit.stat_resistance"], filters.Select(filter =>
             filter.GetProperty("id").GetString()));
         Assert.All(filters, filter =>
@@ -771,6 +777,110 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetProperty("filters")[0].GetProperty("value");
         Assert.Equal(-2.83m, value.GetProperty("min").GetDecimal());
         Assert.Equal(60m, value.GetProperty("max").GetDecimal());
+    }
+
+    [Fact]
+    public void Build_EquivalentProviderSetSerializesOneCountGroupWithBoundsOnEveryAlternative()
+    {
+        var equivalent = ProviderFilter(0, "fractured.suppress.one") with
+        {
+            Minimum = 12m,
+            Maximum = 14m,
+            Alternatives =
+            [
+                new PathOfExileTradeSelectedModifierFilterAlternative
+                {
+                    StatId = "fractured.suppress.one",
+                    Minimum = 12m,
+                    Maximum = 14m,
+                },
+                new PathOfExileTradeSelectedModifierFilterAlternative
+                {
+                    StatId = "fractured.suppress.two",
+                    Minimum = 12m,
+                    Maximum = 14m,
+                },
+            ],
+        };
+        var result = BuildSuccessful(
+            Draft(modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            [equivalent]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var group = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("count", group.GetProperty("type").GetString());
+        Assert.Equal(1m, group.GetProperty("value").GetProperty("min").GetDecimal());
+        var filters = group.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["fractured.suppress.one", "fractured.suppress.two"],
+            filters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.All(filters, filter =>
+        {
+            var value = filter.GetProperty("value");
+            Assert.Equal(12m, value.GetProperty("min").GetDecimal());
+            Assert.Equal(14m, value.GetProperty("max").GetDecimal());
+        });
+    }
+
+    [Fact]
+    public void Build_TwoEquivalentLogicalSourcesRemainIndependentCountGroups()
+    {
+        static PathOfExileTradeSelectedModifierFilter Equivalent(
+            int sourceIndex,
+            string first,
+            string second,
+            decimal minimum) =>
+            ProviderFilter(sourceIndex, first) with
+            {
+                Minimum = minimum,
+                Alternatives =
+                [
+                    new PathOfExileTradeSelectedModifierFilterAlternative
+                    {
+                        StatId = first,
+                        Minimum = minimum,
+                    },
+                    new PathOfExileTradeSelectedModifierFilterAlternative
+                    {
+                        StatId = second,
+                        Minimum = minimum,
+                    },
+                ],
+            };
+
+        var result = BuildSuccessful(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+            ]),
+            [
+                Equivalent(0, "fractured.life.one", "fractured.life.two", 76m),
+                Equivalent(1, "fractured.maim.one", "fractured.maim.two", 21m),
+            ]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var groups = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(2, groups.Length);
+        Assert.All(groups, group =>
+        {
+            Assert.Equal("count", group.GetProperty("type").GetString());
+            Assert.Equal(1m, group.GetProperty("value").GetProperty("min").GetDecimal());
+            Assert.Equal(2, group.GetProperty("filters").GetArrayLength());
+        });
+        Assert.Equal(
+            [76m, 21m],
+            groups.Select(group => group.GetProperty("filters")[0]
+                .GetProperty("value")
+                .GetProperty("min")
+                .GetDecimal()));
     }
 
     [Fact]
@@ -1267,6 +1377,7 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 OptionDefinition(0, "identified", "Identified"),
                 OptionDefinition(1, "corrupted", "Corrupted"),
                 OptionDefinition(2, "mirrored", "Mirrored"),
+                OptionDefinition(3, "fractured_item", "Fractured Item"),
             });
     }
 

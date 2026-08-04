@@ -102,9 +102,18 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             .GetProperty("option")
             .GetString());
 
-        var statsGroup = Assert.Single(query.GetProperty("stats").EnumerateArray());
-        Assert.Equal("and", statsGroup.GetProperty("type").GetString());
-        var filters = statsGroup.GetProperty("filters").EnumerateArray().ToArray();
+        var statsGroups = query.GetProperty("stats").EnumerateArray().ToArray();
+        Assert.Equal(Math.Max(1, selectedRowFragments.Count), statsGroups.Length);
+        Assert.All(statsGroups, statsGroup =>
+        {
+            Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+            Assert.Equal(
+                selectedRowFragments.Count == 0 ? 0 : 1,
+                statsGroup.GetProperty("filters").GetArrayLength());
+        });
+        var filters = statsGroups
+            .SelectMany(statsGroup => statsGroup.GetProperty("filters").EnumerateArray())
+            .ToArray();
         Assert.Equal(selectedRowFragments.Count, selectedCount);
         Assert.Equal(selectedRowFragments.Count, filters.Length);
         var providerStatIds = filters
@@ -191,16 +200,20 @@ public sealed class PathOfExileTradeBowProductionJsonTests
             .GetProperty("category")
             .GetProperty("option")
             .GetString());
-        var stats = Assert.Single(query.GetProperty("stats").EnumerateArray());
-        Assert.Equal("and", stats.GetProperty("type").GetString());
+        var stats = query.GetProperty("stats").EnumerateArray().ToArray();
+        Assert.Equal(3, stats.Length);
+        Assert.All(stats, group =>
+        {
+            Assert.Equal("and", group.GetProperty("type").GetString());
+            Assert.Single(group.GetProperty("filters").EnumerateArray());
+        });
         Assert.Equal(
             [
                 "explicit.stat_1037193709",
                 "explicit.stat_709508406",
                 "explicit.stat_3336890334",
             ],
-            stats.GetProperty("filters")
-                .EnumerateArray()
+            stats.SelectMany(group => group.GetProperty("filters").EnumerateArray())
                 .Select(filter => filter.GetProperty("id").GetString()));
         Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);

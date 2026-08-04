@@ -142,4 +142,26 @@ internal sealed class PathOfExileTradeStatCatalog
             ? candidates
             : [];
     }
+
+    public bool HasRelevantDiagnostics(
+        IReadOnlyCollection<string> providerStatIds,
+        string? providerKind = null)
+    {
+        ArgumentNullException.ThrowIfNull(providerStatIds);
+        var ids = providerStatIds
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Select(statId => statId.Trim())
+            .ToHashSet(StringComparer.Ordinal);
+        var trimmedKind = providerKind?.Trim();
+        return Diagnostics.Any(diagnostic =>
+            diagnostic.IsCatalogWide ||
+            !string.IsNullOrWhiteSpace(diagnostic.ProviderStatId) &&
+                ids.Contains(diagnostic.ProviderStatId.Trim()) ||
+            !string.IsNullOrWhiteSpace(trimmedKind) &&
+                !string.IsNullOrWhiteSpace(diagnostic.ProviderGroupId) &&
+                string.Equals(
+                    diagnostic.ProviderGroupId.Trim(),
+                    trimmedKind,
+                    StringComparison.OrdinalIgnoreCase));
+    }
 }

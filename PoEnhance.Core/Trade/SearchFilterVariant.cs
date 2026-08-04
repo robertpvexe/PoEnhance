@@ -10,6 +10,8 @@ public sealed record SearchFilterVariant
 
     public string ProviderKind { get; init; } = string.Empty;
 
+    public int ProviderAlternativeCount { get; init; } = 1;
+
     public SearchFilterVariantMode Mode { get; init; } = SearchFilterVariantMode.Standalone;
 
     public bool SupportsContributorComposition { get; init; }

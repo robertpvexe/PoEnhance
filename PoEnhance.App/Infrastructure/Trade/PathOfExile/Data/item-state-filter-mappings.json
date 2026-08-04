@@ -31,6 +31,16 @@
       "yesOptionText": "Yes",
       "noOptionId": "false",
       "noOptionText": "No"
+    },
+    {
+      "kind": "Fractured",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "fractured_item",
+      "expectedOfficialText": "Fractured Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
     }
   ]
 }

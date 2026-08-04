@@ -17,4 +17,15 @@ internal sealed record PathOfExileTradeSelectedModifierFilter
     public decimal? Minimum { get; init; }
 
     public decimal? Maximum { get; init; }
+
+    public IReadOnlyList<PathOfExileTradeSelectedModifierFilterAlternative> Alternatives { get; init; } = [];
+}
+
+internal sealed record PathOfExileTradeSelectedModifierFilterAlternative
+{
+    public required string StatId { get; init; }
+
+    public decimal? Minimum { get; init; }
+
+    public decimal? Maximum { get; init; }
 }

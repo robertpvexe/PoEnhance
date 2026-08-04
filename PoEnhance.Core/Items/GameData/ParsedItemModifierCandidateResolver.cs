@@ -163,6 +163,24 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         if (eligibilityContext is null)
         {
+            if (kindCandidates.Count > 1 &&
+                ExtractAdvancedStatRanges(modifier.ValueLines).Count > 0)
+            {
+                var structuralResult = ResolveTextSignatures(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    nameCandidates.Count,
+                    kindCandidates.Count,
+                    kindCandidates,
+                    eligibilityExcludedCandidates: []);
+                if (structuralResult.Status == ModifierCandidateResolutionStatus.Exact)
+                {
+                    return structuralResult;
+                }
+            }
+
             return kindCandidates.Count == 1
                 ? MatchedWithoutEligibility(
                     index,
@@ -224,10 +242,17 @@ public sealed partial class ParsedItemModifierCandidateResolver
         if (eligibleCandidates.Count == 0)
         {
             var structurallyCompatibleCandidates = ToReadOnly(evaluations
-                .Where(evaluation => IsStructurallyCompatibleDespiteSpawnWeight(evaluation.Candidate, eligibilityContext))
+                .Where(evaluation => IsStructurallyCompatibleDespiteSpawnWeight(
+                    modifier,
+                    evaluation.Candidate,
+                    eligibilityContext,
+                    catalog))
                 .Select(evaluation => evaluation.Candidate));
             if (structurallyCompatibleCandidates.Count > 0)
             {
+                var structurallyCompatibleIds = structurallyCompatibleCandidates
+                    .Select(candidate => candidate.Id)
+                    .ToHashSet(StringComparer.Ordinal);
                 var structuralResult = ResolveTextSignatures(
                     index,
                     modifier,
@@ -236,11 +261,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
                     nameCandidates.Count,
                     kindCandidates.Count,
                     structurallyCompatibleCandidates,
-                    excludedCandidates);
-                if (structuralResult.Status == ModifierCandidateResolutionStatus.Exact)
-                {
-                    return structuralResult;
-                }
+                    excludedCandidates
+                        .Where(candidate => !structurallyCompatibleIds.Contains(candidate.Id))
+                        .ToArray());
+                return structuralResult;
             }
 
             return Unknown(
@@ -489,6 +513,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
     {
         if (TrySelectOneByAdvancedRange(
                 modifier,
+                catalog,
                 eligibleCandidates,
                 out var rangeSelectedCandidate,
                 out var rangeExcludedCandidates))
@@ -545,6 +570,37 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 textResults);
         }
 
+        var exactTextEvaluations = retainedEvaluations
+            .Where(evaluation => evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.Match)
+            .ToArray();
+        var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
+        if (exactTextEvaluations.Length == 1 &&
+            advancedRanges.Count > 0 &&
+            CandidateAdvancedValuesMatch(
+                exactTextEvaluations[0].Candidate,
+                catalog,
+                modifier.ValueLines,
+                advancedRanges))
+        {
+            var selectedCandidate = exactTextEvaluations[0].Candidate;
+            return MatchedByStructuralEvidence(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                selectedCandidate,
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                allExcludedCandidates
+                    .Concat(finalCandidates.Where(candidate => !ReferenceEquals(candidate, selectedCandidate)))
+                    .ToArray(),
+                finalCandidates.Count,
+                textExcludedCandidates.Length,
+                textResults,
+                "One candidate matched both the authentic Advanced Item Description source roll ranges and stat-text signature; unevaluable text candidates were excluded.");
+        }
+
         if (finalCandidates.Count == 1)
         {
             var retainedTextResult = retainedEvaluations[0].Result;
@@ -577,6 +633,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         if (TrySelectOneByAdvancedRange(
                 modifier,
+                catalog,
                 finalCandidates,
                 out var textRangeSelectedCandidate,
                 out var textRangeExcludedCandidates))
@@ -735,6 +792,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
     private static bool TrySelectOneByAdvancedRange(
         ParsedModifier modifier,
+        GameDataCatalog catalog,
         IReadOnlyList<ModifierDefinition> candidates,
         out ModifierDefinition selectedCandidate,
         out IReadOnlyList<ModifierDefinition> excludedCandidates)
@@ -748,7 +806,11 @@ public sealed partial class ParsedItemModifierCandidateResolver
         }
 
         var retained = candidates
-            .Where(candidate => CandidateRangesMatch(candidate, ranges))
+            .Where(candidate => CandidateAdvancedValuesMatch(
+                candidate,
+                catalog,
+                modifier.ValueLines,
+                ranges))
             .ToArray();
         if (retained.Length != 1)
         {
@@ -826,6 +888,182 @@ public sealed partial class ParsedItemModifierCandidateResolver
         return true;
     }
 
+    private static bool CandidateAdvancedValuesMatch(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog,
+        IReadOnlyList<string> valueLines,
+        IReadOnlyList<AdvancedStatRange> ranges)
+    {
+        var observedValues = ExtractAdvancedObservedValues(valueLines);
+        var stats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (stats.Length != ranges.Count ||
+            observedValues.Count != ranges.Count)
+        {
+            return false;
+        }
+
+        var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
+        var translations = catalog.FindStatTranslationsByStatIdGroup(statIds);
+        foreach (var translation in translations)
+        {
+            foreach (var variant in translation.Variants)
+            {
+                if (TranslationProjectionMatches(
+                        stats,
+                        variant,
+                        ranges,
+                        observedValues))
+                {
+                    return true;
+                }
+            }
+        }
+
+        // Preserve the established raw-range proof when the packaged translation
+        // uses an operation this resolver cannot project. The observed roll is an
+        // additional discriminator only for translations whose complete numeric
+        // projection is structurally understood.
+        return CandidateRangesMatch(candidate, ranges);
+    }
+
+    private static bool TranslationProjectionMatches(
+        IReadOnlyList<ModifierStat> stats,
+        StatTranslationVariant variant,
+        IReadOnlyList<AdvancedStatRange> sourceRanges,
+        IReadOnlyList<decimal> observedValues)
+    {
+        if (variant.ValueFormats.Count != stats.Count ||
+            variant.Conditions.Count != stats.Count)
+        {
+            return false;
+        }
+
+        var conditions = variant.Conditions
+            .GroupBy(condition => condition.Index)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var stat = stats[index];
+            if (!stat.MinValue.HasValue ||
+                !stat.MaxValue.HasValue ||
+                !conditions.TryGetValue(index, out var indexedConditions) ||
+                indexedConditions.Length != 1 ||
+                !ConditionContainsRange(
+                    indexedConditions[0],
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value))
+            {
+                return false;
+            }
+
+            if (variant.ValueFormats[index] is not ("#" or "+#"))
+            {
+                return false;
+            }
+
+            var handlerGroups = variant.IndexHandlers
+                .Where(handler => handler.Index == index)
+                .ToArray();
+            if (handlerGroups.Length != 1 ||
+                !TryProjectDiscreteRange(
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value,
+                    handlerGroups[0].Handlers,
+                    out var projectedValues))
+            {
+                return false;
+            }
+
+            var sourceRange = sourceRanges[index];
+            if (projectedValues.Min() != sourceRange.Minimum ||
+                projectedValues.Max() != sourceRange.Maximum ||
+                !projectedValues.Contains(observedValues[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ConditionContainsRange(
+        StatTranslationCondition condition,
+        decimal minimum,
+        decimal maximum)
+    {
+        if (condition.IsNegated)
+        {
+            return false;
+        }
+
+        return (!condition.MinValue.HasValue || minimum >= condition.MinValue.Value) &&
+            (!condition.MaxValue.HasValue || maximum <= condition.MaxValue.Value);
+    }
+
+    private static bool TryProjectDiscreteRange(
+        decimal minimum,
+        decimal maximum,
+        IReadOnlyList<string> handlers,
+        out IReadOnlyList<decimal> projectedValues)
+    {
+        projectedValues = [];
+        if (minimum != decimal.Truncate(minimum) ||
+            maximum != decimal.Truncate(maximum) ||
+            maximum < minimum ||
+            maximum - minimum > 10_000m)
+        {
+            return false;
+        }
+
+        var values = new List<decimal>();
+        for (var value = minimum; value <= maximum; value++)
+        {
+            var projected = value;
+            foreach (var handler in handlers)
+            {
+                if (!TryApplyNumericTranslationHandler(handler, projected, out projected))
+                {
+                    return false;
+                }
+            }
+
+            values.Add(projected);
+        }
+
+        projectedValues = values;
+        return values.Count > 0;
+    }
+
+    private static bool TryApplyNumericTranslationHandler(
+        string? handler,
+        decimal value,
+        out decimal projected)
+    {
+        projected = value;
+        switch (handler?.Trim().ToLowerInvariant())
+        {
+            case null:
+            case "":
+                return true;
+            case "divide_by_one_hundred":
+            case "divide_by_one_hundred_2dp":
+            case "divide_by_one_hundred_2dp_if_required":
+                projected = decimal.Round(value / 100m, 2, MidpointRounding.AwayFromZero);
+                return true;
+            case "old_leech_percent":
+                projected = value / 5m;
+                return true;
+            case "old_leech_permyriad":
+                projected = value / 500m;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private static IReadOnlyList<AdvancedStatRange> ExtractAdvancedStatRanges(
         IReadOnlyList<string> valueLines)
     {
@@ -855,16 +1093,59 @@ public sealed partial class ParsedItemModifierCandidateResolver
         return ranges;
     }
 
+    private static IReadOnlyList<decimal> ExtractAdvancedObservedValues(
+        IReadOnlyList<string> valueLines)
+    {
+        var values = new List<decimal>();
+        foreach (var line in valueLines)
+        {
+            foreach (Match match in AdvancedRangePattern().Matches(line))
+            {
+                if (!decimal.TryParse(
+                        match.Groups["value"].Value,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var value))
+                {
+                    return [];
+                }
+
+                values.Add(value);
+            }
+        }
+
+        return values;
+    }
+
     private static bool IsStructurallyCompatibleDespiteSpawnWeight(
+        ParsedModifier modifier,
         ModifierDefinition candidate,
-        ItemModifierEligibilityContext context)
+        ItemModifierEligibilityContext context,
+        GameDataCatalog catalog)
     {
         var modifierDomain = Normalize(candidate.Domain);
         var itemBaseDomain = Normalize(context.ItemBase.Domain);
         return modifierDomain is not null &&
             itemBaseDomain is not null &&
             string.Equals(modifierDomain, itemBaseDomain, StringComparison.OrdinalIgnoreCase) &&
-            HasOnlyZeroDefaultSpawnWeights(candidate);
+            IsCompatibleWithBasePropertyScope(candidate, context.ItemBase, catalog) &&
+            (HasOnlyZeroDefaultSpawnWeights(candidate) ||
+                ExtractAdvancedStatRanges(modifier.ValueLines).Count > 0);
+    }
+
+    private static bool IsCompatibleWithBasePropertyScope(
+        ModifierDefinition candidate,
+        ItemBaseRecord itemBase,
+        GameDataCatalog catalog)
+    {
+        var handScoped = candidate.Stats
+            .Select(stat => stat.StatId)
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .SelectMany(catalog.FindStatsById)
+            .Any(stat =>
+                !string.IsNullOrWhiteSpace(stat.MainHandAliasId) ||
+                !string.IsNullOrWhiteSpace(stat.OffHandAliasId));
+        return !handScoped || itemBase.WeaponProperties is not null;
     }
 
     private static bool HasOnlyZeroDefaultSpawnWeights(ModifierDefinition candidate)
@@ -1065,7 +1346,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
     private sealed record AdvancedStatRange(decimal Minimum, decimal Maximum);
 
-    [GeneratedRegex(@"[+-]?\d+(?:\.\d+)?\((?<minimum>[+-]?\d+(?:\.\d+)?)-(?<maximum>[+-]?\d+(?:\.\d+)?)\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<value>[+-]?\d+(?:\.\d+)?)\((?<minimum>[+-]?\d+(?:\.\d+)?)-(?<maximum>[+-]?\d+(?:\.\d+)?)\)", RegexOptions.CultureInvariant)]
     private static partial Regex AdvancedRangePattern();
 
     [GeneratedRegex(@"(?<![\w])(?<value>[+-]?\d+(?:\.\d+)?)(?:\([+-]?\d+(?:\.\d+)?-[+-]?\d+(?:\.\d+)?\))?", RegexOptions.CultureInvariant)]

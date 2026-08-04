@@ -30,38 +30,64 @@ internal sealed class PathOfExileTradeItemStateFilterResolver
                 continue;
             }
 
-            if (!mappings.TryGetValue(kind, out var mapping))
+            if (!TryMap(kind, state, catalog, out var filter, out var diagnostic))
             {
-                diagnostics.Add($"No reviewed provider mapping exists for item state '{kind}'.");
+                diagnostics.Add(diagnostic);
                 continue;
             }
 
-            var definitions = catalog.FindOptionFilterDefinitions(
-                mapping.ProviderGroupId,
-                mapping.ProviderFilterId);
-            var optionId = state == TradeTriState.Yes ? mapping.YesOptionId : mapping.NoOptionId;
-            if (definitions.Count != 1 ||
-                !string.Equals(definitions[0].Text, mapping.ExpectedOfficialText, StringComparison.Ordinal) ||
-                !HasExactOption(definitions[0], mapping.YesOptionId, mapping.YesOptionText) ||
-                !HasExactOption(definitions[0], mapping.NoOptionId, mapping.NoOptionText))
-            {
-                diagnostics.Add(
-                    $"The official Trade catalog is incompatible with the reviewed '{kind}' state mapping.");
-                continue;
-            }
-
-            filters.Add(new PathOfExileTradeSelectedItemStateFilter
-            {
-                SourceKind = kind,
-                ProviderGroupId = mapping.ProviderGroupId,
-                ProviderFilterId = mapping.ProviderFilterId,
-                Option = optionId,
-            });
+            filters.Add(filter);
         }
 
         return diagnostics.Count == 0
             ? PathOfExileTradeItemStateFilterMappingResult.Success(filters)
             : PathOfExileTradeItemStateFilterMappingResult.Failure(diagnostics);
+    }
+
+    internal bool TryMap(
+        TradeItemStateKind kind,
+        TradeTriState state,
+        PathOfExileTradeFilterCatalog catalog,
+        out PathOfExileTradeSelectedItemStateFilter filter,
+        out string diagnostic)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        filter = null!;
+        if (state is not (TradeTriState.Yes or TradeTriState.No))
+        {
+            diagnostic = $"Item state '{kind}' must be Yes or No before it can be mapped.";
+            return false;
+        }
+
+        if (!mappings.TryGetValue(kind, out var mapping))
+        {
+            diagnostic = $"No reviewed provider mapping exists for item state '{kind}'.";
+            return false;
+        }
+
+        var definitions = catalog.FindOptionFilterDefinitions(
+            mapping.ProviderGroupId,
+            mapping.ProviderFilterId);
+        if (definitions.Count != 1 ||
+            !string.Equals(definitions[0].Text, mapping.ExpectedOfficialText, StringComparison.Ordinal) ||
+            !HasExactOption(definitions[0], mapping.YesOptionId, mapping.YesOptionText) ||
+            !HasExactOption(definitions[0], mapping.NoOptionId, mapping.NoOptionText))
+        {
+            diagnostic =
+                $"The official Trade catalog is incompatible with the reviewed '{kind}' state mapping.";
+            return false;
+        }
+
+        filter = new PathOfExileTradeSelectedItemStateFilter
+        {
+            SourceKind = kind,
+            ProviderGroupId = mapping.ProviderGroupId,
+            ProviderFilterId = mapping.ProviderFilterId,
+            Option = state == TradeTriState.Yes ? mapping.YesOptionId : mapping.NoOptionId,
+        };
+        diagnostic = string.Empty;
+        return true;
     }
 
     private static bool HasExactOption(

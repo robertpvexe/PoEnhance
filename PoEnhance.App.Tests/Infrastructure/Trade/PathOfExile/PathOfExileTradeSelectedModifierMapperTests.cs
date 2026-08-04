@@ -55,6 +55,62 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_NegatedDisplayBoundsAreProjectedPerProviderAtFinalMapping()
+    {
+        var component = Modifier(
+            "20% reduced Attribute Requirements",
+            providerStatId: "explicit.attribute-requirements",
+            canonicalSignature: "<number>% reduced Attribute Requirements") with
+        {
+            ProviderCanonicalSignature = "<number>% reduced Attribute Requirements",
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 10m,
+            RequestedMaximum = 20m,
+            ValueBoundTranslationHandlers = [["negate"]],
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog(
+                "explicit.attribute-requirements",
+                "#% increased Attribute Requirements",
+                "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(-20m, filter.Minimum);
+        Assert.Equal(-10m, filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_FixedPresenceSourceAddsRequiredProviderScalarAtFinalMapping()
+    {
+        var component = Modifier(
+            "Bow Attacks fire an additional Arrow",
+            providerStatId: "explicit.additional-arrows",
+            canonicalSignature: "Bow Attacks fire an additional Arrow") with
+        {
+            ProviderCanonicalSignature = "Bow Attacks fire an additional Arrow",
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ProviderFallbackNumericValues = [1m],
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog(
+                "explicit.additional-arrows",
+                "Bow Attacks fire # additional Arrows",
+                "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(1m, filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
+    [Fact]
     public void Map_ProviderOwnedUniqueExact_SerializesOneExactExplicitFilterWithoutGameDataProvenance()
     {
         var unique = Modifier(
@@ -136,7 +192,106 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_FracturedSourceWithSelectedExactExplicitVariant_EmitsOnlyExplicit()
+    public void Map_ExactEquivalentFracturedComponentEmitsOneLogicalFilterWithAllAlternatives()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "fractured",
+                GroupLabel = "Fractured",
+                Id = "fractured.suppress.one",
+                Text = "+#% chance to Suppress Spell Damage",
+                Type = "fractured",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 1,
+                GroupId = "fractured",
+                GroupLabel = "Fractured",
+                Id = "fractured.suppress.two",
+                Text = "+#% chance to Suppress Spell Damage",
+                Type = "fractured",
+            },
+        ]);
+        var candidates = new[]
+        {
+            PathOfExileTradeStatCandidateClassifier.ToCandidate(catalog.Entries[0]),
+            PathOfExileTradeStatCandidateClassifier.ToCandidate(catalog.Entries[1]),
+        };
+        var identity = PathOfExileTradeModifierVariantResolver.IdentityFor(candidates);
+        var component = Modifier(
+            "+12% chance to Suppress Spell Damage",
+            providerResolutionStatus: SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            providerStatId: null,
+            canonicalSignature: "+<number>% chance to Suppress Spell Damage") with
+        {
+            IsFractured = true,
+            ProviderStatText = "+#% chance to Suppress Spell Damage",
+            ProviderStatAlternativeIds = ["fractured.suppress.one", "fractured.suppress.two"],
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 12m,
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = identity,
+                    Label = "Fractured",
+                    Description = "Suppress Spell Damage",
+                    ProviderKind = "fractured",
+                    ProviderAlternativeCount = 2,
+                    SupportsValueBounds = true,
+                },
+            ],
+            SelectedFilterVariantIdentity = identity,
+        };
+
+        var result = mapper.Map(Draft([component]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("fractured.suppress.one", filter.StatId);
+        Assert.Equal(
+            ["fractured.suppress.one", "fractured.suppress.two"],
+            filter.Alternatives.Select(alternative => alternative.StatId));
+        Assert.All(filter.Alternatives, alternative => Assert.Equal(12m, alternative.Minimum));
+    }
+
+    [Fact]
+    public void Map_ApproximateFracturedSourceWithExplicitRepresentation_EmitsOnlyExplicit()
+    {
+        var explicitVariant = Variant("explicit.stat_life", "Explicit", "explicit", supportsBounds: true);
+        var component = Modifier(
+            "+84 to maximum Life",
+            providerStatId: "explicit.stat_life",
+            canonicalSignature: "+<number> to maximum Life") with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Approximate,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 84m,
+            FilterVariants = [explicitVariant],
+            SelectedFilterVariantIdentity = explicitVariant.Identity,
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog("explicit.stat_life", "+# to maximum Life", "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_life", filter.StatId);
+        Assert.Equal(84m, filter.Minimum);
+        Assert.Equal([0], filter.SourceIndexes);
+        Assert.DoesNotContain(result.Filters, candidate =>
+            candidate.StatId.StartsWith("fractured.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Map_ExactFracturedSourceCannotUseOrdinaryExplicitRepresentation()
     {
         var explicitVariant = Variant("explicit.stat_life", "Explicit", "explicit", supportsBounds: true);
         var component = Modifier(
@@ -156,12 +311,41 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
             Draft([component]),
             Catalog("explicit.stat_life", "+# to maximum Life", "Explicit"));
 
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Map_ManualExplicitRequestFromFracturedSourceUsesExplicitAndPreservesCoverage()
+    {
+        var explicitVariant = Variant("explicit.stat_life", "Explicit", "explicit", supportsBounds: true);
+        var component = Modifier(
+            "+84 to maximum Life",
+            providerStatId: "explicit.stat_life",
+            canonicalSignature: "+<number> to maximum Life") with
+        {
+            IsFractured = true,
+            RequestedFilterVariantIdentity = explicitVariant.Identity,
+            RequestedFilterVariantKind = explicitVariant.ProviderKind,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 84m,
+            FilterVariants = [explicitVariant],
+            SelectedFilterVariantIdentity = explicitVariant.Identity,
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog("explicit.stat_life", "+# to maximum Life", "Explicit"));
+
         Assert.True(result.IsSuccess);
         var filter = Assert.Single(result.Filters);
         Assert.Equal("explicit.stat_life", filter.StatId);
+        Assert.Equal([0], filter.SourceIndexes);
         Assert.Equal(84m, filter.Minimum);
-        Assert.DoesNotContain(result.Filters, candidate =>
-            candidate.StatId.StartsWith("fractured.", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -95,8 +95,13 @@ public sealed class PathOfExileTradeImplicitProductionTests
         var json = fixture.SingleSearchJson();
         using var document = JsonDocument.Parse(json);
         var query = document.RootElement.GetProperty("query");
-        var statsGroup = Assert.Single(query.GetProperty("stats").EnumerateArray());
-        Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+        var statsGroups = query.GetProperty("stats").EnumerateArray().ToArray();
+        Assert.Equal(2, statsGroups.Length);
+        Assert.All(statsGroups, statsGroup =>
+        {
+            Assert.Equal("and", statsGroup.GetProperty("type").GetString());
+            Assert.Single(statsGroup.GetProperty("filters").EnumerateArray());
+        });
         var ids = StatIds(query);
         Assert.Equal(["implicit.phys_reduction", "implicit.non_phys"], ids);
         Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());
@@ -368,7 +373,10 @@ public sealed class PathOfExileTradeImplicitProductionTests
 
         using var document = JsonDocument.Parse(fixture.SingleSearchJson());
         var query = document.RootElement.GetProperty("query");
-        var filters = query.GetProperty("stats")[0].GetProperty("filters").EnumerateArray().ToArray();
+        var filters = query.GetProperty("stats")
+            .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray())
+            .ToArray();
         Assert.Equal(
             ["implicit.stat_1871056256", "implicit.stat_3714003708"],
             filters.Select(filter => filter.GetProperty("id").GetString()));
@@ -521,9 +529,9 @@ public sealed class PathOfExileTradeImplicitProductionTests
     private static string[] StatIds(JsonElement query)
     {
         return query
-            .GetProperty("stats")[0]
-            .GetProperty("filters")
+            .GetProperty("stats")
             .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray())
             .Select(filter =>
             {
                 Assert.False(filter.TryGetProperty("min", out _));

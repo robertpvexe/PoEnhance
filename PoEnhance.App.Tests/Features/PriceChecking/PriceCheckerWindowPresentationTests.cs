@@ -664,6 +664,7 @@ Item Level: 82
             Text = "Veiled Suffix",
             IsVeiledModifier = true,
         };
+        Assert.True(fractured.IsFracturedModifier);
         Assert.Equal("Explicit", fractured.ModTypeLabel);
         Assert.Equal("Veiled", veiled.ModTypeLabel);
         Assert.False(fractured.HasStaticModType);
@@ -675,9 +676,11 @@ Item Level: 82
         var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
         Assert.Contains("Text=\"{Binding ModTypeLabel}\"", modifiers);
         Assert.Contains("Binding=\"{Binding HasStaticModType}\"", modifiers);
-        Assert.Contains("IsEnabled=\"{Binding IsInteractionEnabled}\"", modifiers);
+        Assert.Contains("IsEnabled=\"{Binding CanToggleSelection}\"", modifiers);
         Assert.Contains("Value=\"Collapsed\"", modifiers);
         Assert.Contains("IsHitTestVisible=\"False\"", modifiers);
+        Assert.Contains("Text=\"Approximate\"", modifiers);
+        Assert.Contains("ToolTip=\"{Binding ApproximationMessage}\"", modifiers);
         Assert.Contains(
             "IsCanonicalImplicit = IsImplicitPresentationModifier(modifier)",
             LoadSearchControllerCode());
@@ -1528,7 +1531,7 @@ Item Level: 82
     }
 
     [Fact]
-    public void ModifierFilterVariantState_OnlyEnablesDropdownForSelectedRowsWithMultipleOptions()
+    public void ModifierFilterVariantState_EnablesDropdownForUnselectedRowsWithMultipleSafeOptions()
     {
         var option = new PriceCheckerModifierFilterVariantViewModel
         {
@@ -1556,7 +1559,7 @@ Item Level: 82
         Assert.False(single.HasMultipleFilterVariants);
         Assert.False(single.CanSelectFilterVariant);
         Assert.True(unselectedMultiple.HasMultipleFilterVariants);
-        Assert.False(unselectedMultiple.CanSelectFilterVariant);
+        Assert.True(unselectedMultiple.CanSelectFilterVariant);
         Assert.True(selectedMultiple.CanSelectFilterVariant);
     }
 

@@ -464,6 +464,45 @@ Item Level: 80
     }
 
     [Fact]
+    public void Resolve_AdvancedRangeAndExactTextSelectMatchingCandidateOverUnevaluableText()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"]))],
+            ModifierWithStat(
+                "mod.prefix.hale.life",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                "life_stat",
+                SpawnWeight("ring", 1000)),
+            ModifierWithStat(
+                "mod.prefix.hale.unknown",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                "unknown_stat",
+                SpawnWeight("ring", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 9) - Life }
++50(1-100) to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.life", Assert.Single(result.Candidates).Id);
+        Assert.Contains(result.ExcludedCandidates ?? [], candidate =>
+            candidate.Id == "mod.prefix.hale.unknown");
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Resolve_AllTextMismatchesReturnUnknownWithNoFinalCandidates()
     {
         var catalog = CreateCatalogWithTranslations(
@@ -750,6 +789,44 @@ Regenerate 29.2(24.1-32) Life per second
     }
 
     [Fact]
+    public void Resolve_AdvancedSourceRangeCanProveExistingRestrictedModifierDespiteCurrentSpawnWeight()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            ModifierWithStats(
+                "mod.suffix.restricted",
+                "of Haunting",
+                ModifierGenerationType.Suffix,
+                "item",
+                [
+                    new ModifierStat
+                    {
+                        StatId = "test_stat",
+                        MinValue = 15m,
+                        MaxValue = 25m,
+                    },
+                ],
+                SpawnWeight("special_gloves", 500),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Fractured Suffix Modifier "of Haunting" - Attack }
+Attacks have 21(15-25)% chance to Maim on Hit
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.suffix.restricted", Assert.Single(result.Candidates).Id);
+        Assert.Equal(1, result.EligibilityCandidateCount);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Resolve_UnknownBasePreservesNameAndKindCandidates()
     {
         var catalog = CreateCatalog(
@@ -772,6 +849,130 @@ Regenerate 29.2(24.1-32) Life per second
         Assert.Equal(
             ModifierCandidateResolutionDiagnosticCodes.ModifierEligibilityNotEvaluated,
             Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_UnknownBaseUsesAuthenticAdvancedRangeAndTextWhenTheyProveOneCandidate()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation(["mana_leech"], Variant(["{0}% of Physical Attack Damage Leeched as Mana"], ["#"]))],
+            ModifierWithStats(
+                "mod.prefix.thirsty.mana",
+                "Thirsty",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("mana_leech", 0.2m, 0.4m)]),
+            ModifierWithStats(
+                "mod.prefix.thirsty.unknown",
+                "Thirsty",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("unknown_stat", 0.2m, 0.4m)]));
+        var item = ParseWithModifier("""
+{ Fractured Prefix Modifier "Thirsty" - Mana, Physical, Attack }
+0.34(0.2-0.4)% of Physical Attack Damage Leeched as Mana
+""");
+        var baseResolution = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+        };
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.thirsty.mana", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
+    public void Resolve_AdvancedObservedRollAndHandScopeIdentifyRestrictedGlobalSource()
+    {
+        const string oldStat = "legacy_leech_stat";
+        const string globalStat = "permyriad_global_stat";
+        const string localStat = "permyriad_local_stat";
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [Base(
+                "base.stealth-gloves",
+                "Stealth Gloves",
+                "Gloves",
+                "item",
+                ["armour", "default", "gloves"])],
+            [
+                Stat(oldStat),
+                Stat(globalStat),
+                Stat(
+                    localStat,
+                    isLocal: true,
+                    mainHandAliasId: "main_hand_permyriad_local_stat",
+                    offHandAliasId: "off_hand_permyriad_local_stat"),
+                Stat("main_hand_permyriad_local_stat", isLocal: true),
+                Stat("off_hand_permyriad_local_stat", isLocal: true),
+            ],
+            [
+                Translation(
+                    [oldStat],
+                    Variant(
+                        ["{0}% of Physical Attack Damage Leeched as Mana"],
+                        ["#"],
+                        [["old_leech_percent"]])),
+                Translation(
+                    [globalStat],
+                    Variant(
+                        ["{0}% of Physical Attack Damage Leeched as Mana"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+                Translation(
+                    [localStat],
+                    Variant(
+                        ["{0}% of Physical Attack Damage Leeched as Mana"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            ModifierWithStats(
+                "mod.prefix.legacy-global",
+                "Thirsty",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef(oldStat, 1m, 2m)],
+                SpawnWeight("default", 0)),
+            ModifierWithStats(
+                "mod.prefix.permyriad-global",
+                "Thirsty",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef(globalStat, 20m, 40m)],
+                SpawnWeight("default", 0)),
+            ModifierWithStats(
+                "mod.prefix.permyriad-local",
+                "Thirsty",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef(localStat, 20m, 40m)],
+                SpawnWeight("default", 0)));
+        var item = parser.Parse("""
+Item Class: Gloves
+Rarity: Magic
+Thirsty Stealth Gloves
+--------
+Item Level: 83
+--------
+{ Fractured Prefix Modifier "Thirsty" - Mana, Physical, Attack }
+0.34(0.2-0.4)% of Physical Attack Damage Leeched as Mana
+--------
+Fractured Item
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ProbableBase(catalog, "base.stealth-gloves")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.permyriad-global", Assert.Single(result.Candidates).Id);
+        Assert.Equal(ModifierLocality.Global, result.Locality);
+        Assert.Equal(
+            ["mod.prefix.legacy-global", "mod.prefix.permyriad-local"],
+            result.ExcludedCandidates!.Select(candidate => candidate.Id).Order());
     }
 
     [Fact]
@@ -1506,7 +1707,8 @@ Item Level: 80
 
     private static StatTranslationVariant Variant(
         IReadOnlyList<string> lines,
-        IReadOnlyList<string> formats)
+        IReadOnlyList<string> formats,
+        IReadOnlyList<IReadOnlyList<string>>? handlers = null)
     {
         return new StatTranslationVariant
         {
@@ -1521,7 +1723,7 @@ Item Level: 80
                 .Select((_, index) => new StatTranslationIndexHandler
                 {
                     Index = index,
-                    Handlers = [],
+                    Handlers = handlers?.ElementAtOrDefault(index) ?? [],
                 })
                 .ToArray(),
             FormatLines = lines,
@@ -1588,12 +1790,18 @@ Item Level: 80
         };
     }
 
-    private static StatDefinition Stat(string id, bool isLocal = false)
+    private static StatDefinition Stat(
+        string id,
+        bool isLocal = false,
+        string? mainHandAliasId = null,
+        string? offHandAliasId = null)
     {
         return new StatDefinition
         {
             Id = id,
             IsLocal = isLocal,
+            MainHandAliasId = mainHandAliasId,
+            OffHandAliasId = offHandAliasId,
             Sources =
             [
                 new GameDataSourceReference

@@ -140,9 +140,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(call.Request!));
         var filters = document.RootElement
             .GetProperty("query")
-            .GetProperty("stats")[0]
-            .GetProperty("filters")
+            .GetProperty("stats")
             .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray())
             .ToDictionary(filter => filter.GetProperty("id").GetString()!);
         Assert.Equal(2.83m, filters["explicit.stat_mana_leech"]
             .GetProperty("value")
@@ -580,15 +580,19 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .GetProperty("pdps")
             .GetProperty("min")
             .GetDecimal());
-        var stats = Assert.Single(query.GetProperty("stats").EnumerateArray());
-        Assert.Equal("and", stats.GetProperty("type").GetString());
+        var stats = query.GetProperty("stats").EnumerateArray().ToArray();
+        Assert.Equal(2, stats.Length);
+        Assert.All(stats, group =>
+        {
+            Assert.Equal("and", group.GetProperty("type").GetString());
+            Assert.Single(group.GetProperty("filters").EnumerateArray());
+        });
         Assert.Equal(
             [
                 "explicit.stat_1509134228",
                 "explicit.stat_1940865751",
             ],
-            stats.GetProperty("filters")
-                .EnumerateArray()
+            stats.SelectMany(group => group.GetProperty("filters").EnumerateArray())
                 .Select(filter => filter.GetProperty("id").GetString()));
         Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);

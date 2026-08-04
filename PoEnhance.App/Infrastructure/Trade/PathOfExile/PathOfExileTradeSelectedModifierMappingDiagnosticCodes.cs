@@ -14,6 +14,10 @@ internal static class PathOfExileTradeSelectedModifierMappingDiagnosticCodes
     public const string VariantUnavailable = "POE_TRADE_SELECTED_MODIFIER_VARIANT_UNAVAILABLE";
     public const string VariantKindAmbiguous = "POE_TRADE_MODIFIER_VARIANT_KIND_AMBIGUOUS";
     public const string VariantLocalityAmbiguous = "POE_TRADE_MODIFIER_VARIANT_LOCALITY_AMBIGUOUS";
+    public const string FracturedApproximation =
+        "POE_TRADE_SELECTED_MODIFIER_FRACTURED_APPROXIMATION";
+    public const string FracturedApproximationUnavailable =
+        "POE_TRADE_SELECTED_MODIFIER_FRACTURED_APPROXIMATION_UNAVAILABLE";
     public const string UnsafeLocalDisplayedProviderScope =
         "POE_TRADE_SELECTED_MODIFIER_UNSAFE_LOCAL_DISPLAYED_PROVIDER_SCOPE";
     public const string AggregateCoverageUnavailable =

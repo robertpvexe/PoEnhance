@@ -69,7 +69,10 @@ internal static partial class PathOfExileTradePseudoVariantCompatibility
         var sameDirection = sameArity && sourceNumeric
             .Select(token => token.Direction)
             .SequenceEqual(candidateNumeric.Select(token => token.Direction), StringComparer.Ordinal);
-        var projectionCompatible = HasCompatibleProjection(component, candidateNumeric.Count);
+        var structuredProjection = PathOfExileTradeModifierBoundProjector
+            .CanProjectSemanticBridge(component, candidate);
+        var projectionCompatible = structuredProjection ||
+            HasCompatibleProjection(component, candidateNumeric.Count);
         var translationCompatible = HasCompatibleTranslationProjection(component, sourceNumeric.Count);
         var localityDecision = PathOfExileTradeProviderLocalityCompatibility.EvaluateVariant(
             component,
@@ -79,23 +82,23 @@ internal static partial class PathOfExileTradePseudoVariantCompatibility
         var conditions = new[]
         {
             !requirePseudo || isPseudo,
-            sameEffect,
-            sameArity,
-            sameUnits,
-            sameDirection,
+            sameEffect || structuredProjection,
+            sameArity || structuredProjection,
+            sameUnits || structuredProjection,
+            sameDirection || structuredProjection,
             projectionCompatible,
             translationCompatible,
             localityCompatible,
         };
         var rejectionCode = requirePseudo && !isPseudo
             ? NotPseudo
-            : !sameEffect
+            : !sameEffect && !structuredProjection
                 ? DifferentLogicalEffect
-                : !sameArity
+                : !sameArity && !structuredProjection
                     ? IncompatibleNumericArity
-                    : !sameUnits
+                    : !sameUnits && !structuredProjection
                         ? IncompatibleNumericUnit
-                        : !sameDirection
+                        : !sameDirection && !structuredProjection
                             ? IncompatibleDirection
                             : !projectionCompatible
                                 ? IncompatibleProjection

@@ -44,6 +44,10 @@ internal sealed record PathOfExileTradeSearchStatsGroup
     public string Type { get; init; } = "and";
 
     [JsonPropertyOrder(1)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PathOfExileTradeSearchStatValue? Value { get; init; }
+
+    [JsonPropertyOrder(2)]
     public IReadOnlyList<PathOfExileTradeSearchStatFilter> Filters { get; init; } = [];
 }
 

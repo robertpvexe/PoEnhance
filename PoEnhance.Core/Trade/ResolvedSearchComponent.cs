@@ -80,6 +80,8 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
 
+    public IReadOnlyList<decimal> ProviderFallbackNumericValues { get; init; } = [];
+
     public string? ProviderCanonicalSignature { get; init; }
 
     public IReadOnlyList<IReadOnlyList<string>> ValueBoundTranslationHandlers { get; init; } = [];
@@ -92,6 +94,10 @@ public sealed record ResolvedSearchComponent
 
     public string? SelectedFilterVariantIdentity { get; init; }
 
+    public string? RequestedFilterVariantIdentity { get; init; }
+
+    public string? RequestedFilterVariantKind { get; init; }
+
     public bool IsSelected { get; init; }
 
     public SearchComponentProviderResolutionStatus ProviderResolutionStatus { get; init; } =
@@ -100,6 +106,8 @@ public sealed record ResolvedSearchComponent
     public string? ProviderStatId { get; init; }
 
     public string? ProviderStatText { get; init; }
+
+    public IReadOnlyList<string> ProviderStatAlternativeIds { get; init; } = [];
 
     public IReadOnlyList<string> ProviderCandidateStatIds { get; init; } = [];
 

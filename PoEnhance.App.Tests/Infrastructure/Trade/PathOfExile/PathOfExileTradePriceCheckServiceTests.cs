@@ -226,23 +226,28 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         var component = Assert.Single(resolved.ModifierFilters);
         Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
         Assert.Equal("fractured.stat_life", component.ProviderStatId);
+        Assert.Equal(3, component.FilterVariants.Count);
         Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "fractured");
         Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "explicit");
+        Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "pseudo");
         Assert.Equal(
             "fractured",
             Assert.Single(component.FilterVariants, variant =>
                 variant.Identity == component.SelectedFilterVariantIdentity).ProviderKind,
             ignoreCase: true);
+        Assert.Equal(component.SelectedFilterVariantIdentity, component.RequestedFilterVariantIdentity);
+        Assert.Equal("fractured", component.RequestedFilterVariantKind);
+        Assert.Null(component.ProviderDiagnosticMessage);
         Assert.True(component.SupportsValueBounds);
         Assert.Equal(84m, component.RequestedMinimum);
         Assert.False(component.IsSelected);
     }
 
     [Fact]
-    public void ResolveProviderComponents_FracturedModifier_UsesExplicitFallbackOnlyWhenItIsExactAndCompatible()
+    public void ResolveProviderComponents_FracturedModifier_UsesStructuredApproximationWhenEveryGuardExists()
     {
         var fixture = ServiceFixture.Create();
-        var draft = Draft() with
+        var draft = SafeFracturedBaseDraft() with
         {
             ModifierFilters =
             [
@@ -256,6 +261,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                     ValueBoundTranslationHandlers = [[]],
                     ValueBoundTranslationIdentity = "test-life",
                     RequestedMinimum = 84m,
+                    IsSelected = true,
                 },
             ],
         };
@@ -265,18 +271,148 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
         ]);
 
-        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
 
         var component = Assert.Single(resolved.ModifierFilters);
-        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Approximate, component.ProviderResolutionStatus);
         Assert.Equal("explicit.stat_life", component.ProviderStatId);
-        Assert.DoesNotContain(component.FilterVariants, variant => variant.ProviderKind == "fractured");
+        Assert.Equal(3, component.FilterVariants.Count);
+        Assert.Contains(component.FilterVariants, variant =>
+            variant.Identity == PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity &&
+            variant.ProviderKind == "fractured");
+        Assert.Contains(component.FilterVariants, variant => variant.ProviderKind == "pseudo");
         Assert.Equal("explicit", Assert.Single(component.FilterVariants, variant =>
             variant.Identity == component.SelectedFilterVariantIdentity).ProviderKind);
-        Assert.Contains("source is Fractured", component.ProviderDiagnosticMessage, StringComparison.Ordinal);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+            component.RequestedFilterVariantIdentity);
+        Assert.Equal("fractured", component.RequestedFilterVariantKind);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            component.ProviderDiagnosticMessage);
         Assert.Equal(84m, component.RequestedMinimum);
         Assert.True(component.IsFractured);
-        Assert.False(component.IsSelected);
+        Assert.True(component.IsSelected);
+        Assert.Equal(BaseSearchMode.ExactBase, resolved.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Titan Plate", resolved.Base.ActiveCriterion?.ExactBaseName);
+        Assert.True(resolved.Base.IsExactBaseForcedByFracturedApproximation);
+        Assert.True(resolved.Base.IsFracturedStateForcedByFracturedApproximation);
+        Assert.Equal(TradeTriState.Yes, resolved.ItemStateCriteria.Fractured);
+    }
+
+    [Theory]
+    [InlineData("explicit")]
+    [InlineData("pseudo")]
+    public void ResolveProviderComponents_FracturedSourceManualVariantControlsResolution(
+        string requestedKind)
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+        var initialDraft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var approximate = fixture.Service.ResolveProviderComponents(
+            initialDraft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var initial = Assert.Single(approximate.ModifierFilters);
+        var requested = Assert.Single(initial.FilterVariants, option =>
+            option.ProviderKind == requestedKind);
+
+        var manuallyRequested = fixture.Service.ResolveProviderComponents(
+            approximate with
+            {
+                ModifierFilters =
+                [
+                    initial with
+                    {
+                        RequestedFilterVariantIdentity = requested.Identity,
+                        RequestedFilterVariantKind = requested.ProviderKind,
+                    },
+                ],
+            },
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var resolved = Assert.Single(manuallyRequested.ModifierFilters);
+        Assert.True(resolved.IsFractured);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
+        Assert.Equal(requested.Identity, resolved.RequestedFilterVariantIdentity);
+        Assert.Equal(requestedKind, resolved.RequestedFilterVariantKind);
+        Assert.Equal(requested.Identity, resolved.SelectedFilterVariantIdentity);
+        Assert.StartsWith($"{requestedKind}.", resolved.ProviderStatId, StringComparison.Ordinal);
+        Assert.Null(resolved.ProviderDiagnosticMessage);
+        Assert.Equal(BaseSearchMode.Category, manuallyRequested.Base.ActiveCriterion?.Mode);
+        Assert.Equal(TradeTriState.Any, manuallyRequested.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_ManualExplicitCanReturnToGuardedFracturedRequest()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+        ]);
+        var initialDraft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var approximate = fixture.Service.ResolveProviderComponents(
+            initialDraft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var approximateComponent = Assert.Single(approximate.ModifierFilters);
+        var explicitOption = Assert.Single(approximateComponent.FilterVariants, option =>
+            option.ProviderKind == "explicit");
+        var manualExplicit = fixture.Service.ResolveProviderComponents(
+            approximate with
+            {
+                ModifierFilters =
+                [
+                    approximateComponent with
+                    {
+                        RequestedFilterVariantIdentity = explicitOption.Identity,
+                        RequestedFilterVariantKind = "explicit",
+                    },
+                ],
+            },
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var explicitComponent = Assert.Single(manualExplicit.ModifierFilters);
+
+        var fracturedAgain = fixture.Service.ResolveProviderComponents(
+            manualExplicit with
+            {
+                ModifierFilters =
+                [
+                    explicitComponent with
+                    {
+                        RequestedFilterVariantIdentity =
+                            PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                        RequestedFilterVariantKind = "fractured",
+                    },
+                ],
+            },
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var resolved = Assert.Single(fracturedAgain.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Approximate, resolved.ProviderResolutionStatus);
+        Assert.Equal("fractured", resolved.RequestedFilterVariantKind);
+        Assert.Equal(BaseSearchMode.ExactBase, fracturedAgain.Base.ActiveCriterion?.Mode);
+        Assert.Equal(TradeTriState.Yes, fracturedAgain.ItemStateCriteria.Fractured);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            resolved.ProviderDiagnosticMessage);
     }
 
     [Fact]
@@ -302,10 +438,361 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ]));
 
         var component = Assert.Single(resolved.ModifierFilters);
-        Assert.Equal(SearchComponentProviderResolutionStatus.NotFound, component.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
         Assert.Empty(component.FilterVariants);
         Assert.Null(component.ProviderStatId);
         Assert.False(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedCatalogChangesRecomputeExactAndApproximate()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters =
+            [
+                FracturedLifeComponent(isSelected: true),
+            ],
+        };
+        var explicitOnly = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+        ]);
+        var withFractured = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+        ]);
+        var filterCatalog = FracturedStateFilterCatalog();
+
+        var approximate = fixture.Service.ResolveProviderComponents(
+            draft,
+            explicitOnly,
+            filterCatalog: filterCatalog);
+        var exact = fixture.Service.ResolveProviderComponents(
+            approximate,
+            withFractured,
+            filterCatalog: filterCatalog);
+        var approximateAgain = fixture.Service.ResolveProviderComponents(
+            exact,
+            explicitOnly,
+            filterCatalog: filterCatalog);
+
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Approximate,
+            Assert.Single(approximate.ModifierFilters).ProviderResolutionStatus);
+        var exactComponent = Assert.Single(exact.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, exactComponent.ProviderResolutionStatus);
+        Assert.Equal("fractured.stat_life", exactComponent.ProviderStatId);
+        Assert.Null(exactComponent.ProviderDiagnosticMessage);
+        Assert.Equal(BaseSearchMode.Category, exact.Base.ActiveCriterion?.Mode);
+        Assert.False(exact.Base.IsExactBaseForcedByFracturedApproximation);
+        Assert.False(exact.Base.IsFracturedStateForcedByFracturedApproximation);
+        Assert.Equal(TradeTriState.Any, exact.ItemStateCriteria.Fractured);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Approximate,
+            Assert.Single(approximateAgain.ModifierFilters).ProviderResolutionStatus);
+        Assert.Equal(BaseSearchMode.ExactBase, approximateAgain.Base.ActiveCriterion?.Mode);
+        Assert.Equal(TradeTriState.Yes, approximateAgain.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_ManualVariantDisappearancePreservesRequestAndBecomesUnresolved()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var initialCatalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+        var refreshedCatalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+            Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
+        ]);
+        var initial = fixture.Service.ResolveProviderComponents(
+            draft,
+            initialCatalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var initialComponent = Assert.Single(initial.ModifierFilters);
+        var explicitOption = Assert.Single(initialComponent.FilterVariants, option =>
+            option.ProviderKind == "explicit");
+        var manuallySelected = fixture.Service.ResolveProviderComponents(
+            initial with
+            {
+                ModifierFilters =
+                [
+                    initialComponent with
+                    {
+                        RequestedFilterVariantIdentity = explicitOption.Identity,
+                        RequestedFilterVariantKind = "explicit",
+                    },
+                ],
+            },
+            initialCatalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var refreshed = fixture.Service.ResolveProviderComponents(
+            manuallySelected,
+            refreshedCatalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var restored = fixture.Service.ResolveProviderComponents(
+            refreshed,
+            initialCatalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(refreshed.ModifierFilters);
+        Assert.True(component.IsFractured);
+        Assert.Equal(SearchComponentProviderResolutionStatus.NotFound, component.ProviderResolutionStatus);
+        Assert.Equal(explicitOption.Identity, component.RequestedFilterVariantIdentity);
+        Assert.Equal("explicit", component.RequestedFilterVariantKind);
+        Assert.Null(component.ProviderStatId);
+        Assert.DoesNotContain(component.FilterVariants, option => option.ProviderKind == "explicit");
+        Assert.Contains(component.FilterVariants, option => option.ProviderKind == "fractured");
+        Assert.Contains(component.FilterVariants, option => option.ProviderKind == "pseudo");
+        var restoredComponent = Assert.Single(restored.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, restoredComponent.ProviderResolutionStatus);
+        Assert.True(restoredComponent.IsSearchable);
+        Assert.Equal(explicitOption.Identity, restoredComponent.RequestedFilterVariantIdentity);
+        Assert.Equal("explicit.stat_life", restoredComponent.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_EquivalentAlternativeKindIsOfferedAsOneLogicalOption()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: false)],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life_a", "+# to maximum Life", "explicit"),
+            Stat("explicit.stat_life_b", "+# to maximum Life", "explicit"),
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Contains(component.FilterVariants, option => option.ProviderKind == "fractured");
+        var explicitOption = Assert.Single(component.FilterVariants, option =>
+            option.ProviderKind == "explicit");
+        Assert.Equal(2, explicitOption.ProviderAlternativeCount);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedApproximationDoesNotMutateUserFracturedState()
+    {
+        var fixture = ServiceFixture.Create();
+        var component = FracturedLifeComponent(isSelected: true);
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Fractured = TradeTriState.Yes,
+            },
+            ModifierFilters = [component],
+        };
+        var explicitOnly = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+        ]);
+        var withFractured = new PathOfExileTradeStatCatalog(
+        [
+            Stat("fractured.stat_life", "+# to maximum Life", "fractured"),
+        ]);
+
+        var approximate = fixture.Service.ResolveProviderComponents(
+            draft,
+            explicitOnly,
+            filterCatalog: FracturedStateFilterCatalog());
+        var exact = fixture.Service.ResolveProviderComponents(
+            approximate,
+            withFractured,
+            filterCatalog: FracturedStateFilterCatalog());
+        var incompatibleNo = fixture.Service.ResolveProviderComponents(
+            draft with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Fractured = TradeTriState.No,
+                },
+            },
+            explicitOnly,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        Assert.Equal(TradeTriState.Yes, approximate.ItemStateCriteria.Fractured);
+        Assert.False(approximate.Base.IsFracturedStateForcedByFracturedApproximation);
+        Assert.Equal(TradeTriState.Yes, exact.ItemStateCriteria.Fractured);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            Assert.Single(incompatibleNo.ModifierFilters).ProviderResolutionStatus);
+        Assert.Equal(TradeTriState.No, incompatibleNo.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedApproximationUsesEquivalentExplicitSet()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life_a", "+# to maximum Life", "explicit"),
+            Stat("explicit.stat_life_b", "+# to maximum Life", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Approximate, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Equal(
+            ["explicit.stat_life_a", "explicit.stat_life_b"],
+            component.ProviderStatAlternativeIds);
+        Assert.Equal(BaseSearchMode.ExactBase, resolved.Base.ActiveCriterion?.Mode);
+        Assert.Equal(TradeTriState.Yes, resolved.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedApproximationWithLocalityConflictIsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters =
+            [
+                FracturedLifeComponent(isSelected: true) with
+                {
+                    Locality = ModifierLocality.Local,
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("explicit.stat_life", "+# to maximum Life (Global)", "explicit"),
+            ]),
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_FracturedApproximationWithoutSafeBaseOrStateFilterIsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var unsafeBase = Draft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var safeBase = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+        ]);
+
+        var unresolvedBase = fixture.Service.ResolveProviderComponents(
+            unsafeBase,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+        var missingStateFilter = fixture.Service.ResolveProviderComponents(
+            safeBase,
+            catalog,
+            filterCatalog: new PathOfExileTradeFilterCatalog([]));
+
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            Assert.Single(unresolvedBase.ModifierFilters).ProviderResolutionStatus);
+        Assert.Contains(
+            "canonical base",
+            Assert.Single(unresolvedBase.ModifierFilters).ProviderDiagnosticMessage,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            Assert.Single(missingStateFilter.ModifierFilters).ProviderResolutionStatus);
+        Assert.Contains(
+            "incompatible",
+            Assert.Single(missingStateFilter.ModifierFilters).ProviderDiagnosticMessage,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_UnrelatedCatalogDiagnosticDoesNotBlockFracturedApproximation()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+            [Stat("explicit.stat_life", "+# to maximum Life", "explicit")],
+            [
+                new PathOfExileTradeQueryDiagnostic(
+                    PathOfExileTradeStatsDiagnosticCodes.MalformedEntry,
+                    "A provider entry was omitted."),
+            ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Approximate, component.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_life", component.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_RelevantCatalogDiagnosticBlocksFracturedApproximation()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = SafeFracturedBaseDraft() with
+        {
+            ModifierFilters = [FracturedLifeComponent(isSelected: true)],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+            [Stat("explicit.stat_life", "+# to maximum Life", "explicit")],
+            [
+                new PathOfExileTradeQueryDiagnostic(
+                    PathOfExileTradeStatsDiagnosticCodes.DuplicateStatId,
+                    "The required provider identity is duplicated.")
+                {
+                    ProviderStatId = "explicit.stat_life",
+                },
+            ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            filterCatalog: FracturedStateFilterCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Contains("diagnostic", component.ProviderDiagnosticMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1439,6 +1926,68 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         };
     }
 
+    private static TradeSearchDraft SafeFracturedBaseDraft()
+    {
+        var category = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = "Body Armour",
+        };
+        var exactBase = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.ExactBase,
+            Category = "Body Armour",
+            ExactBaseName = "Titan Plate",
+        };
+        return Draft() with
+        {
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseId = "base.titan-plate",
+                ResolvedBaseName = "Titan Plate",
+                Category = "Body Armour",
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = ItemBaseResolutionStatus.Exact,
+                    ExactBaseId = "base.titan-plate",
+                    ExactBaseName = "Titan Plate",
+                    Category = "Body Armour",
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = category,
+                    ExactBase = exactBase,
+                },
+                ActiveCriterion = category,
+            },
+        };
+    }
+
+    private static PathOfExileTradeFilterCatalog FracturedStateFilterCatalog()
+    {
+        return new PathOfExileTradeFilterCatalog(
+            [],
+            optionFilterDefinitions:
+            [
+                new PathOfExileTradeOptionFilterDefinition
+                {
+                    GroupProviderOrder = 0,
+                    ProviderOrder = 0,
+                    GroupId = "misc_filters",
+                    GroupTitle = "Miscellaneous",
+                    FilterId = "fractured_item",
+                    Text = "Fractured Item",
+                    Options =
+                    [
+                        new PathOfExileTradeOptionDefinition { Id = null, Text = "Any" },
+                        new PathOfExileTradeOptionDefinition { Id = "true", Text = "Yes" },
+                        new PathOfExileTradeOptionDefinition { Id = "false", Text = "No" },
+                    ],
+                },
+            ]);
+    }
+
     private static TradeSearchDraft SelectedDraft(string originalText = "+55 to maximum Life")
     {
         var displayedValue = decimal.Parse(
@@ -1728,6 +2277,48 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ResolvedStatIds = ["stat.special.test"],
             IsSearchable = true,
             IsSelected = false,
+        };
+    }
+
+    private static ResolvedSearchComponent FracturedLifeComponent(bool isSelected)
+    {
+        return SpecialComponent("+84 to maximum Life", "+<number> to maximum Life") with
+        {
+            IsFractured = true,
+            Locality = ModifierLocality.Global,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [84m],
+            CanonicalNumericValues = [84m],
+            ValueBoundTranslationHandlers = [[]],
+            ValueBoundTranslationIdentity = "test-life",
+            RequestedMinimum = 84m,
+            IsSelected = isSelected,
+            ProviderDomainEvidence =
+            [
+                new SearchComponentProviderDomainEvidence
+                {
+                    ProviderDomain = "Fractured",
+                    ModifierId = "mod.special.test",
+                    GenerationType = ModifierGenerationType.Suffix,
+                    Locality = ModifierLocality.Global,
+                    IsSourceExact = true,
+                    ItemBaseId = "base.titan-plate",
+                    ItemClass = "Body Armour",
+                    ApplicabilityReason = "Exact Fractured source fixture.",
+                },
+                new SearchComponentProviderDomainEvidence
+                {
+                    ProviderDomain = "Explicit",
+                    ModifierId = "mod.explicit.test",
+                    GenerationType = ModifierGenerationType.Suffix,
+                    Locality = ModifierLocality.Global,
+                    IsProjectedDomain = true,
+                    ItemBaseId = "base.titan-plate",
+                    ItemClass = "Body Armour",
+                    ApplicabilityReason = "Compatible ordinary provider fixture.",
+                },
+            ],
         };
     }
 

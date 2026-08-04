@@ -17,4 +17,8 @@ public sealed record TradeSearchBaseDraft
     public AvailableBaseSearchCriteria AvailableCriteria { get; init; } = new();
 
     public BaseSearchCriterion? ActiveCriterion { get; init; }
+
+    public bool IsExactBaseForcedByFracturedApproximation { get; init; }
+
+    public bool IsFracturedStateForcedByFracturedApproximation { get; init; }
 }

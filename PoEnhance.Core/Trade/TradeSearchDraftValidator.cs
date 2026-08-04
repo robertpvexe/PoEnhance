@@ -160,10 +160,18 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
 
+            var hasSupportedSpecialResolution = modifier.IsFractured
+                ? modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.Approximate
+                : modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet;
             if ((modifier.IsFractured || modifier.IsVeiled) &&
-                (modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+                (!hasSupportedSpecialResolution ||
                     !modifier.IsSearchable ||
-                    string.IsNullOrWhiteSpace(modifier.ProviderStatId)))
+                    !HasResolvedProviderAlternatives(modifier)))
             {
                 diagnostics.Add(Error(
                     TradeSearchValidationDiagnosticCodes.SelectedSpecialModifierUnsupported,
@@ -188,7 +196,10 @@ public sealed class TradeSearchDraftValidator
                 variant.Identity,
                 modifier.SelectedFilterVariantIdentity,
                 StringComparison.Ordinal));
-            if (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            if (modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.Approximate &&
                 selectedVariant is null)
             {
                 diagnostics.Add(Error(
@@ -215,7 +226,7 @@ public sealed class TradeSearchDraftValidator
                     $"Selected base implicit is represented by Exact Base: {exactBaseName}.",
                     index));
             }
-            else if (!HasExactProviderMapping(modifier) &&
+            else if (!HasProviderMapping(modifier) &&
                 (modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
                 string.IsNullOrWhiteSpace(modifier.ResolvedModifierId))
             )
@@ -236,7 +247,10 @@ public sealed class TradeSearchDraftValidator
                     index));
             }
 
-            if (modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact &&
+            if (modifier.ProviderResolutionStatus is not
+                    SearchComponentProviderResolutionStatus.Exact and not
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet and not
+                    SearchComponentProviderResolutionStatus.Approximate &&
                 !string.IsNullOrWhiteSpace(modifier.SelectedFilterVariantIdentity) &&
                 !modifier.FilterVariants.Any(variant => string.Equals(
                     variant.Identity,
@@ -264,11 +278,20 @@ public sealed class TradeSearchDraftValidator
         }
     }
 
-    private static bool HasExactProviderMapping(ResolvedSearchComponent modifier)
+    private static bool HasProviderMapping(ResolvedSearchComponent modifier)
     {
-        return (modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
-                !string.IsNullOrWhiteSpace(modifier.ProviderStatId)) ||
+        return (modifier.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.Approximate &&
+                HasResolvedProviderAlternatives(modifier)) ||
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact;
+    }
+
+    private static bool HasResolvedProviderAlternatives(ResolvedSearchComponent modifier)
+    {
+        return !string.IsNullOrWhiteSpace(modifier.ProviderStatId) ||
+            modifier.ProviderStatAlternativeIds.Any(statId => !string.IsNullOrWhiteSpace(statId));
     }
 
     private static void ValidateContributors(

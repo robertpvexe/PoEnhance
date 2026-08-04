@@ -5,4 +5,5 @@ public enum TradeItemStateKind
     Mirrored,
     Corrupted,
     Identified,
+    Fractured,
 }

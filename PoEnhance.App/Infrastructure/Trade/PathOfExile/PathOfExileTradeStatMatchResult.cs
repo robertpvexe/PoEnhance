@@ -14,6 +14,8 @@ internal sealed record PathOfExileTradeStatMatchResult
 
     public PathOfExileTradeStatMatchCandidate? ExactCandidate { get; init; }
 
+    public IReadOnlyList<PathOfExileTradeStatMatchCandidate> ExactEquivalentCandidates { get; init; } = [];
+
     public IReadOnlyList<PathOfExileTradeStatMatchCandidate> InitialCandidates { get; init; } = [];
 
     public IReadOnlyList<PathOfExileTradeStatMatchCandidate> Candidates { get; init; } = [];

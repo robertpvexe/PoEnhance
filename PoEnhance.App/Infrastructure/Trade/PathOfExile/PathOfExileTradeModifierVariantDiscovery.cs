@@ -13,6 +13,7 @@ internal static class PathOfExileTradeModifierVariantDiscovery
     public const string DuplicateCanonicalIdentity = "DuplicateCanonicalIdentity";
     public const string WeakerSemanticProvenance = "WeakerSemanticProvenance";
     public const string SameKindAmbiguous = "SameKindAmbiguous";
+    public const string RelevantCatalogDiagnostic = "RelevantCatalogDiagnostic";
 
     public static PathOfExileTradeModifierVariantDiscoveryResult Discover(
         ResolvedSearchComponent component,
@@ -30,6 +31,7 @@ internal static class PathOfExileTradeModifierVariantDiscovery
             .Select((candidate, index) => Evaluate(
                 index,
                 component,
+                catalog,
                 sourceExactCandidate,
                 candidate,
                 sourceDomains))
@@ -43,6 +45,7 @@ internal static class PathOfExileTradeModifierVariantDiscovery
             working.Add(Evaluate(
                 working.Count,
                 component,
+                catalog,
                 sourceExactCandidate,
                 sourceExactCandidate,
                 sourceDomains));
@@ -67,6 +70,20 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                     .ToArray(),
             })
             .ToList();
+        diagnostics.AddRange(working
+            .Where(candidate => candidate.Trace.RejectionReason == RelevantCatalogDiagnostic)
+            .GroupBy(candidate => PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+                candidate.Candidate), StringComparer.Ordinal)
+            .Select(group => new PathOfExileTradeModifierVariantDiscoveryDiagnostic
+            {
+                Code = PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                Message = $"Excluded {DisplayKind(group.Key)} Trade candidates affected by relevant catalog diagnostics.",
+                ProviderKind = group.Key,
+                ProviderStatIds = group.Select(candidate => candidate.Candidate.StatId)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(statId => statId, StringComparer.Ordinal)
+                    .ToArray(),
+            }));
         var eligible = working.Where(candidate => candidate.IsEligible).ToList();
         eligible = DeduplicateExactProviderIds(eligible, working, component, sourceExactCandidate);
         eligible = DeduplicateGroups(
@@ -114,6 +131,7 @@ internal static class PathOfExileTradeModifierVariantDiscovery
     private static WorkingCandidate Evaluate(
         int index,
         ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
         PathOfExileTradeStatMatchCandidate source,
         PathOfExileTradeStatMatchCandidate candidate,
         IReadOnlyList<string> sourceDomains)
@@ -145,6 +163,9 @@ internal static class PathOfExileTradeModifierVariantDiscovery
             kind,
             PathOfExileTradeStatCandidateClassifier.UnknownProviderKind,
             StringComparison.Ordinal);
+        var hasRelevantCatalogDiagnostic = catalog.HasRelevantDiagnostics(
+            [candidate.StatId],
+            providerKind: null);
         var sourceIdentityWithoutProjectableBounds = isSourceIdentity &&
             compatibility.LocalityDecision.IsCompatible &&
             compatibility.RejectionCode is
@@ -153,13 +174,16 @@ internal static class PathOfExileTradeModifierVariantDiscovery
         var semanticCompatible = compatibility.IsCompatible || sourceIdentityWithoutProjectableBounds;
         var itemApplicable = isPseudo || isSourceIdentity || hasContributorIdentity ||
             hasSourceDomainProvenance || evidence.Length > 0;
-        var isEligible = semanticCompatible && kindKnown && itemApplicable;
+        var isEligible = semanticCompatible && kindKnown && itemApplicable &&
+            !hasRelevantCatalogDiagnostic;
         var reason = !semanticCompatible
             ? $"{SemanticMismatch}:{compatibility.RejectionCode}"
             : !kindKnown
                 ? ProviderKindUnknown
                 : !itemApplicable
                     ? ItemApplicabilityUnproven
+                    : hasRelevantCatalogDiagnostic
+                        ? RelevantCatalogDiagnostic
                     : Accepted;
         var applicability = isPseudo
             ? "Pseudo totals do not require one source modifier domain."
@@ -197,7 +221,14 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                 NumericArity = compatibility.CandidateNumericSemantics.Count,
                 NumericSemantics = compatibility.CandidateNumericSemantics,
                 TranslationHandlers = compatibility.TranslationHandlers,
+                TranslationIdentity = component.ValueBoundTranslationIdentity,
                 BoundDirection = compatibility.BoundDirection,
+                ValueShape = compatibility.ValueShape,
+                ContributorShape = string.Join(
+                    '\u001e',
+                    component.ContributorProjection,
+                    component.Contributors.Count,
+                    component.Sources.Count),
                 SourceModifierDomains = sourceDomains,
                 ItemBaseContext = itemBaseContext,
                 ItemApplicability = applicability,
@@ -254,6 +285,12 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                 continue;
             }
 
+            if (AreEquivalentProviderCandidates(candidates))
+            {
+                retained.AddRange(candidates);
+                continue;
+            }
+
             var ranked = candidates
                 .Select(candidate => new
                 {
@@ -294,6 +331,44 @@ internal static class PathOfExileTradeModifierVariantDiscovery
         }
 
         return retained;
+    }
+
+    private static bool AreEquivalentProviderCandidates(
+        IReadOnlyList<WorkingCandidate> candidates)
+    {
+        if (!PathOfExileTradeStatMatcher.AreEquivalentProviderCandidates(
+                candidates.Select(candidate => candidate.Candidate).ToArray()))
+        {
+            return false;
+        }
+
+        var first = candidates[0].Trace;
+        return candidates.All(candidate =>
+            candidate.Trace.IsAccepted == first.IsAccepted &&
+            candidate.Trace.NumericArity == first.NumericArity &&
+            candidate.Trace.NumericSemantics.SequenceEqual(
+                first.NumericSemantics,
+                StringComparer.Ordinal) &&
+            candidate.Trace.BoundDirection == first.BoundDirection &&
+            candidate.Trace.ValueShape == first.ValueShape &&
+            string.Equals(
+                candidate.Trace.ContributorShape,
+                first.ContributorShape,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                candidate.Trace.TranslationIdentity,
+                first.TranslationIdentity,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                candidate.Trace.NormalizedLogicalEffect,
+                first.NormalizedLogicalEffect,
+                StringComparison.Ordinal) &&
+            candidate.Trace.TranslationHandlers.Count == first.TranslationHandlers.Count &&
+            candidate.Trace.TranslationHandlers
+                .Select(handlers => string.Join('\u001e', handlers))
+                .SequenceEqual(
+                    first.TranslationHandlers.Select(handlers => string.Join('\u001e', handlers)),
+                    StringComparer.Ordinal));
     }
 
     private static void Reject(
@@ -462,7 +537,13 @@ internal sealed record PathOfExileTradeModifierVariantCandidateTrace
 
     public IReadOnlyList<IReadOnlyList<string>> TranslationHandlers { get; init; } = [];
 
+    public string? TranslationIdentity { get; init; }
+
     public ModifierBoundDirection BoundDirection { get; init; }
+
+    public ModifierBoundShape ValueShape { get; init; }
+
+    public required string ContributorShape { get; init; }
 
     public IReadOnlyList<string> SourceModifierDomains { get; init; } = [];
 

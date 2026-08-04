@@ -1,6 +1,7 @@
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -350,7 +351,7 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
-    public void Match_EquivalentDuplicateImplicitProviderCandidatesSelectStableCanonicalId()
+    public void Match_EquivalentLookingParsedCandidatesRemainAmbiguousWithoutStructuredProof()
     {
         var catalog = Catalog(
             Entry("implicit.suppress.one", "+#% chance to Suppress Spell Damage", "implicit"),
@@ -360,8 +361,38 @@ public sealed class PathOfExileTradeStatMatcherTests
             Modifier("+5% chance to Suppress Spell Damage", ParsedModifierKind.Implicit),
             catalog);
 
-        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
-        Assert.Equal("implicit.suppress.one", result.ExactCandidate?.StatId);
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Empty(result.ExactEquivalentCandidates);
+    }
+
+    [Fact]
+    public void Match_EquivalentResolvedCandidatesProduceExactEquivalentSetWithoutSelectingOneId()
+    {
+        var catalog = Catalog(
+            Entry("explicit.suppress.one", "+#% chance to Suppress Spell Damage", "explicit"),
+            Entry("explicit.suppress.two", "+#% chance to Suppress Spell Damage", "explicit"));
+        var component = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0",
+            OriginalText = "+12% chance to Suppress Spell Damage",
+            CanonicalSignature = "+<number>% chance to Suppress Spell Damage",
+            ParsedKind = ParsedModifierKind.Suffix,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = "mod.test.suppress",
+            ResolvedStatIds = ["base_spell_suppression_chance"],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            SupportsValueBounds = true,
+        };
+
+        var result = matcher.Match(component, catalog, Context(
+            internalStatIds: ["base_spell_suppression_chance"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            ["explicit.suppress.one", "explicit.suppress.two"],
+            result.ExactEquivalentCandidates.Select(candidate => candidate.StatId));
     }
 
     [Fact]

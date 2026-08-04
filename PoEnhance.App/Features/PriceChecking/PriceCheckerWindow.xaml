@@ -1120,7 +1120,7 @@
                                                               VerticalAlignment="Top"
                                                               Click="OnModifierSelectionClick"
                                                               FocusVisualStyle="{x:Null}"
-                                                              IsEnabled="{Binding IsInteractionEnabled}"
+                                                              IsEnabled="{Binding CanToggleSelection}"
                                                               IsChecked="{Binding IsSelected, Mode=OneWay}" />
                                                     <Border Grid.Column="3"
                                                             VerticalAlignment="Top"
@@ -1136,6 +1136,32 @@
                                                                    Text="{Binding SectionLabel}"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    TextWrapping="NoWrap" />
+                                                        <Border Margin="0,3,0,0"
+                                                                HorizontalAlignment="Left"
+                                                                Padding="5,1"
+                                                                Background="#332A0B"
+                                                                BorderBrush="#D6A52A"
+                                                                BorderThickness="0.75"
+                                                                CornerRadius="3"
+                                                                ToolTip="{Binding ApproximationMessage}">
+                                                            <Border.Style>
+                                                                <Style TargetType="{x:Type Border}">
+                                                                    <Setter Property="Visibility"
+                                                                            Value="Collapsed" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding HasApproximationWarning}"
+                                                                                     Value="True">
+                                                                            <Setter Property="Visibility"
+                                                                                    Value="Visible" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <TextBlock Foreground="#F2C94C"
+                                                                       FontSize="10"
+                                                                       FontWeight="SemiBold"
+                                                                       Text="Approximate" />
+                                                        </Border>
                                                         </StackPanel>
                                                     </Border>
                                                     <Grid Grid.Column="4"
@@ -1425,7 +1451,7 @@
                                           VerticalAlignment="Top"
                                           Click="OnModifierSelectionClick"
                                           FocusVisualStyle="{x:Null}"
-                                          IsEnabled="{Binding IsInteractionEnabled}"
+                                          IsEnabled="{Binding CanToggleSelection}"
                                           IsChecked="{Binding IsSelected, Mode=OneWay}" />
                                 <Border Grid.Column="2"
                                         VerticalAlignment="Top"
@@ -1442,6 +1468,32 @@
                                                Text="{Binding SectionLabel}"
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="NoWrap" />
+                                    <Border Margin="0,3,0,0"
+                                            HorizontalAlignment="Left"
+                                            Padding="5,1"
+                                            Background="#332A0B"
+                                            BorderBrush="#D6A52A"
+                                            BorderThickness="0.75"
+                                            CornerRadius="3"
+                                            ToolTip="{Binding ApproximationMessage}">
+                                        <Border.Style>
+                                            <Style TargetType="{x:Type Border}">
+                                                <Setter Property="Visibility"
+                                                        Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasApproximationWarning}"
+                                                                 Value="True">
+                                                        <Setter Property="Visibility"
+                                                                Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Foreground="#F2C94C"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Text="Approximate" />
+                                    </Border>
                                     </StackPanel>
                                 </Border>
                                 <Grid Grid.Column="3"

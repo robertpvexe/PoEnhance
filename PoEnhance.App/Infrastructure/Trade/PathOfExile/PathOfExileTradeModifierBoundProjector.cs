@@ -1,10 +1,116 @@
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
+using System.Text.RegularExpressions;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
-internal static class PathOfExileTradeModifierBoundProjector
+internal static partial class PathOfExileTradeModifierBoundProjector
 {
+    private const string NegateHandler = "negate";
+
+    public static IReadOnlyList<string> ProjectedLookupTemplates(
+        ResolvedSearchComponent component)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+
+        var source = string.IsNullOrWhiteSpace(component.ProviderCanonicalSignature)
+            ? component.CanonicalSignature
+            : component.ProviderCanonicalSignature;
+        source = source
+            .Replace("+<number>", "+#", StringComparison.Ordinal)
+            .Replace("-<number>", "-#", StringComparison.Ordinal)
+            .Replace("<number>", "#", StringComparison.Ordinal);
+        var templates = new List<string>();
+        if (HasSingleNegateProjection(component))
+        {
+            var projected = IncreasedRegex().IsMatch(source)
+                ? IncreasedRegex().Replace(source, "reduced", 1)
+                : ReducedRegex().IsMatch(source)
+                    ? ReducedRegex().Replace(source, "increased", 1)
+                    : null;
+            if (projected is not null)
+            {
+                templates.Add(PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(projected));
+            }
+        }
+
+        if (HasFixedPresenceOneProjection(component))
+        {
+            var projected = SingularAdditionalRegex().Replace(
+                source,
+                match => $"# additional {Pluralize(match.Groups["noun"].Value)}");
+            if (!string.Equals(projected, source, StringComparison.Ordinal))
+            {
+                templates.Add(PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(projected));
+            }
+        }
+
+        return templates.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    public static bool CanProjectSemanticBridge(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(providerStat);
+
+        var projectedTemplates = ProjectedLookupTemplates(component);
+        return projectedTemplates.Contains(providerStat.LookupTemplate, StringComparer.Ordinal) &&
+            (HasSingleNegateProjection(component) &&
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) == 1 ||
+            HasFixedPresenceOneProjection(component) &&
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) == 1);
+    }
+
+    public static PathOfExileTradeProviderBoundProjection ProjectBounds(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(providerStat);
+
+        if (CanProjectSemanticBridge(component, providerStat) &&
+            HasSingleNegateProjection(component))
+        {
+            return new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                Minimum = component.RequestedMaximum.HasValue
+                    ? -component.RequestedMaximum.Value
+                    : null,
+                Maximum = component.RequestedMinimum.HasValue
+                    ? -component.RequestedMinimum.Value
+                    : null,
+                ProjectionKind = "NegatedScalar",
+            };
+        }
+
+        if (CanProjectSemanticBridge(component, providerStat) &&
+            HasFixedPresenceOneProjection(component))
+        {
+            return new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                Minimum = component.ProviderFallbackNumericValues[0],
+                ProjectionKind = "FixedPresenceScalar",
+            };
+        }
+
+        var projected = Project(component, providerStat);
+        return new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = projected.SupportsValueBounds ||
+                projected.ValueBoundShape == ModifierBoundShape.PresenceOnly,
+            ValueBoundShape = projected.ValueBoundShape,
+            Minimum = projected.SupportsValueBounds ? projected.RequestedMinimum : null,
+            Maximum = projected.SupportsValueBounds ? projected.RequestedMaximum : null,
+            ProjectionKind = "DisplayIdentity",
+        };
+    }
+
     public static ResolvedSearchComponent Project(
         ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate? providerStat)
@@ -72,4 +178,45 @@ internal static class PathOfExileTradeModifierBoundProjector
 
         return component;
     }
+
+    private static bool HasSingleNegateProjection(ResolvedSearchComponent component) =>
+        component.ValueBoundShape == ModifierBoundShape.Scalar &&
+        component.ValueBoundTranslationHandlers.Count == 1 &&
+        component.ValueBoundTranslationHandlers[0].Count == 1 &&
+        string.Equals(
+            component.ValueBoundTranslationHandlers[0][0],
+            NegateHandler,
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasFixedPresenceOneProjection(ResolvedSearchComponent component) =>
+        component.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
+        component.ProviderFallbackNumericValues.Count == 1 &&
+        component.ProviderFallbackNumericValues[0] == 1m;
+
+    private static string Pluralize(string noun) =>
+        noun.EndsWith('s') ? noun : $"{noun}s";
+
+    [GeneratedRegex(@"\bincreased\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex IncreasedRegex();
+
+    [GeneratedRegex(@"\breduced\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex ReducedRegex();
+
+    [GeneratedRegex(
+        @"\ban additional (?<noun>[A-Za-z]+)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex SingularAdditionalRegex();
+}
+
+internal sealed record PathOfExileTradeProviderBoundProjection
+{
+    public bool IsFaithful { get; init; }
+
+    public ModifierBoundShape ValueBoundShape { get; init; }
+
+    public decimal? Minimum { get; init; }
+
+    public decimal? Maximum { get; init; }
+
+    public required string ProjectionKind { get; init; }
 }

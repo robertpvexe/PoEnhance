@@ -17,6 +17,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private readonly IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider;
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
+    private readonly PathOfExileTradeItemStateFilterResolver itemStateFilterResolver;
 
     public PathOfExileTradePriceCheckService(
         IPathOfExileTradeQueryBuilder queryBuilder,
@@ -29,7 +30,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         IPathOfExileTradeFetchClient fetchClient,
         IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider = null,
         PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null,
-        PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null)
+        PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null,
+        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
         this.statMatcher = statMatcher ?? throw new ArgumentNullException(nameof(statMatcher));
@@ -43,6 +45,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         this.itemPropertyResolver = itemPropertyResolver ?? new PathOfExileTradeItemPropertyResolver();
         this.requestedItemFilterResolver = requestedItemFilterResolver ??
             new PathOfExileTradeRequestedItemFilterResolver();
+        this.itemStateFilterResolver = itemStateFilterResolver ??
+            new PathOfExileTradeItemStateFilterResolver();
     }
 
     public async Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
@@ -59,13 +63,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         ArgumentNullException.ThrowIfNull(draft);
         var effectiveDraft = draft;
-        if (!draft.ItemProperties.IsDefaultOrEmpty || !draft.RequestedItemFilters.IsDefaultOrEmpty)
+        PathOfExileTradeFilterCatalog? providerFilterCatalog = null;
+        var needsNumericFilterCatalog =
+            !draft.ItemProperties.IsDefaultOrEmpty || !draft.RequestedItemFilters.IsDefaultOrEmpty;
+        var needsFracturedFilterCatalog = draft.ModifierFilters.Any(component => component.IsFractured);
+        if (needsNumericFilterCatalog || needsFracturedFilterCatalog)
         {
             if (filterCatalogProvider is null)
             {
-                effectiveDraft = MarkFilterCatalogUnavailable(
-                    effectiveDraft,
-                    "The official Trade filter catalog is unavailable for filter resolution.");
+                if (needsNumericFilterCatalog)
+                {
+                    effectiveDraft = MarkFilterCatalogUnavailable(
+                        effectiveDraft,
+                        "The official Trade filter catalog is unavailable for filter resolution.");
+                }
             }
             else
             {
@@ -81,11 +92,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                         .ConfigureAwait(false);
                 }
 
-                effectiveDraft = filterCatalogResult.IsSuccess && filterCatalogResult.Catalog is not null
-                    ? ResolveNumericFilters(effectiveDraft, filterCatalogResult.Catalog)
-                    : MarkFilterCatalogUnavailable(
+                if (filterCatalogResult.IsSuccess && filterCatalogResult.Catalog is not null)
+                {
+                    providerFilterCatalog = filterCatalogResult.Catalog;
+                    if (needsNumericFilterCatalog)
+                    {
+                        effectiveDraft = ResolveNumericFilters(effectiveDraft, providerFilterCatalog);
+                    }
+                }
+                else if (needsNumericFilterCatalog)
+                {
+                    effectiveDraft = MarkFilterCatalogUnavailable(
                         effectiveDraft,
                         "The official Trade filter catalog could not be loaded for filter resolution.");
+                }
             }
         }
 
@@ -110,7 +130,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             .GetCatalogAsync(cancellationToken)
             .ConfigureAwait(false);
         return catalogResult.IsSuccess && catalogResult.Catalog is not null
-            ? ResolveProviderComponents(effectiveDraft, catalogResult.Catalog, uniqueIdentity)
+            ? ResolveProviderComponents(
+                effectiveDraft,
+                catalogResult.Catalog,
+                uniqueIdentity,
+                providerFilterCatalog)
             : effectiveDraft;
     }
 
@@ -154,8 +178,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         var hasSelectedItemProperties = draft?.ItemProperties.Any(property => property.IsSelected) == true;
         var hasRequestedItemFilters = draft?.RequestedItemFilters.IsDefaultOrEmpty == false;
         var hasActiveRequestedItemFilters = draft?.RequestedItemFilters.Any(filter => filter.IsActive) == true;
+        var hasFracturedModifiers = draft?.ModifierFilters.Any(component => component.IsFractured) == true;
         var needsCategoryCatalog = draft?.Base.ActiveCriterion?.Mode == BaseSearchMode.Category;
-        if ((hasItemProperties || hasRequestedItemFilters || needsCategoryCatalog) && filterCatalogProvider is not null)
+        if ((hasItemProperties ||
+                hasRequestedItemFilters ||
+                hasFracturedModifiers ||
+                needsCategoryCatalog) &&
+            filterCatalogProvider is not null)
         {
             PathOfExileTradeFilterCatalogProviderResult filterCatalogResult;
             if (filterCatalogProvider.TryGetCachedCatalog(out var cachedFilterCatalog))
@@ -246,7 +275,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 return CatalogFailure(catalogResult);
             }
 
-            draft = ResolveProviderComponents(draft!, catalogResult.Catalog, providerItemIdentity);
+            draft = ResolveProviderComponents(
+                draft!,
+                catalogResult.Catalog,
+                providerItemIdentity,
+                providerFilterCatalog);
             effectiveDraft = draft;
             providerStatCatalog = catalogResult.Catalog;
         }
@@ -508,19 +541,27 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         ArgumentNullException.ThrowIfNull(draft);
 
-        var effectiveDraft = filterCatalogProvider is not null &&
-            filterCatalogProvider.TryGetCachedCatalog(out var filterCatalog)
-            ? ResolveNumericFilters(draft, filterCatalog)
-            : draft;
+        PathOfExileTradeFilterCatalog? filterCatalog = null;
+        var effectiveDraft = draft;
+        if (filterCatalogProvider is not null &&
+            filterCatalogProvider.TryGetCachedCatalog(out var cachedFilterCatalog))
+        {
+            filterCatalog = cachedFilterCatalog;
+            effectiveDraft = ResolveNumericFilters(draft, filterCatalog);
+        }
 
         if (statCatalogProvider.TryGetCachedCatalog(out var catalog))
         {
-            return ResolveProviderComponents(effectiveDraft, catalog);
+            return ResolveProviderComponents(
+                effectiveDraft,
+                catalog,
+                filterCatalog: filterCatalog);
         }
 
         var resolvedComponents = effectiveDraft.ModifierFilters
             .Select(component => component.IsSelected &&
                 component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact &&
+                component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Approximate &&
                 component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed &&
                 CanUseAvailableExactBaseFallback(effectiveDraft, component)
                     ? component with
@@ -713,8 +754,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     internal TradeSearchDraft ResolveProviderComponents(
         TradeSearchDraft draft,
         PathOfExileTradeStatCatalog catalog,
-        PathOfExileTradeItemIdentity? uniqueIdentity = null)
+        PathOfExileTradeItemIdentity? uniqueIdentity = null,
+        PathOfExileTradeFilterCatalog? filterCatalog = null)
     {
+        draft = RemoveAutomaticFracturedApproximationRequirements(draft);
         if (draft.ModifierFilters.Count == 0)
         {
             return draft;
@@ -727,15 +770,36 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             .Where(group => group.Count() > 1)
             .Select(group => group.Key)
             .ToHashSet();
+        var multiComponentFracturedSourceIndexes = draft.ModifierFilters
+            .Where(component => component.IsFractured &&
+                component.SourceModifierIndex >= 0)
+            .GroupBy(component => component.SourceModifierIndex)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet();
         var resolvedComponents = draft.ModifierFilters
             .Select(component => multiLineUniqueSourceIndexes.Contains(component.SourceModifierIndex)
                 ? MarkUnsafeMultiLineUnique(component)
-                : ResolveProviderComponent(draft, component, catalog, uniqueIdentity))
+                : ResolveProviderComponent(
+                    draft,
+                    component,
+                    catalog,
+                    uniqueIdentity,
+                    filterCatalog,
+                    !multiComponentFracturedSourceIndexes.Contains(component.SourceModifierIndex)))
             .ToArray();
         var resolvedDraft = draft with
         {
             ModifierFilters = resolvedComponents,
         };
+
+        if (resolvedComponents.Any(component =>
+                component.IsSelected &&
+                component.ProviderResolutionStatus ==
+                    SearchComponentProviderResolutionStatus.Approximate))
+        {
+            resolvedDraft = ActivateFracturedApproximationRequirements(resolvedDraft);
+        }
 
         return resolvedComponents.Any(component =>
                 component.IsSelected &&
@@ -749,7 +813,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         TradeSearchDraft draft,
         ResolvedSearchComponent component,
         PathOfExileTradeStatCatalog catalog,
-        PathOfExileTradeItemIdentity? uniqueIdentity)
+        PathOfExileTradeItemIdentity? uniqueIdentity,
+        PathOfExileTradeFilterCatalog? filterCatalog,
+        bool hasCompleteFracturedSourceRepresentation)
     {
         if (component.Sources.Count > 0 && component.ParsedKind != ParsedModifierKind.Unique)
         {
@@ -766,7 +832,65 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return ResolveVeiledPresence(component, catalog);
         }
 
-        if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+        if (component.IsFractured &&
+            TryGetRequestedNonFracturedVariant(
+                component,
+                out var requestedIdentity,
+                out var requestedKind))
+        {
+            return ResolveRequestedFracturedSourceVariant(
+                draft,
+                component,
+                catalog,
+                filterCatalog,
+                hasCompleteFracturedSourceRepresentation,
+                requestedIdentity,
+                requestedKind);
+        }
+
+        if (component.IsFractured)
+        {
+            component = ResetFracturedProviderResolution(component with
+            {
+                RequestedFilterVariantIdentity =
+                    PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                RequestedFilterVariantKind = "fractured",
+            });
+        }
+
+        if (!component.IsFractured &&
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.ExactEquivalentSet)
+        {
+            var retainedCandidates = component.ProviderStatAlternativeIds
+                .Select(statId => catalog.TryGetById(statId, out var entry)
+                    ? PathOfExileTradeStatCandidateClassifier.ToCandidate(entry)
+                    : null)
+                .Where(candidate => candidate is not null)
+                .Select(candidate => candidate!)
+                .ToArray();
+            if (retainedCandidates.Length == component.ProviderStatAlternativeIds.Count &&
+                retainedCandidates.Length > 1)
+            {
+                return PathOfExileTradeModifierVariantResolver.Apply(
+                    component,
+                    catalog,
+                    retainedCandidates);
+            }
+
+            component = component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
+                ProviderCandidateStatIds = [],
+                ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
+            };
+        }
+
+        if (!component.IsFractured &&
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry) &&
             HasExpectedSpecialProviderKind(component, previouslyResolvedEntry))
         {
@@ -791,6 +915,22 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 PathOfExileTradeStatCandidateClassifier.ToCandidate(discoverySource));
         }
 
+        if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Approximate)
+        {
+            component = component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
+                ProviderCandidateStatIds = [],
+                FilterVariants = [],
+                SelectedFilterVariantIdentity = null,
+                ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
+            };
+        }
+
         if (component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(component.SelectedFilterVariantIdentity))
         {
@@ -799,6 +939,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
                 ProviderStatId = null,
                 ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
                 ProviderDiagnosticCode = null,
                 ProviderDiagnosticMessage = null,
             };
@@ -812,6 +953,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
                 ProviderStatId = null,
                 ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
                 ProviderDiagnosticCode = null,
                 ProviderDiagnosticMessage = null,
             };
@@ -824,6 +966,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
                 ProviderStatId = null,
                 ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
                 ProviderDiagnosticCode = null,
                 ProviderDiagnosticMessage = null,
             };
@@ -837,6 +980,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     ProviderResolutionStatus = SearchComponentProviderResolutionStatus.BaseGuaranteed,
                     ProviderStatId = null,
                     ProviderStatText = null,
+                    ProviderStatAlternativeIds = [],
                     ProviderDiagnosticCode = null,
                     ProviderDiagnosticMessage = null,
                 }
@@ -860,17 +1004,16 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component,
             catalog,
             CreateMatchContext(draft, component));
-        if (component.IsFractured && match.Status != PathOfExileTradeStatMatchStatus.Exact)
+        if (component.IsFractured &&
+            !IsExactMatch(match))
         {
-            var ordinaryProjection = component with { IsFractured = false };
-            var ordinaryMatch = statMatcher.Match(
-                ordinaryProjection,
+            return ResolveFracturedApproximation(
+                draft,
+                component,
                 catalog,
-                CreateMatchContext(draft, ordinaryProjection));
-            if (ordinaryMatch.Status == PathOfExileTradeStatMatchStatus.Exact)
-            {
-                match = ordinaryMatch;
-            }
+                filterCatalog,
+                match,
+                hasCompleteFracturedSourceRepresentation);
         }
         if (match.Status == PathOfExileTradeStatMatchStatus.NotFound &&
             CanUseAvailableExactBaseFallback(draft, component))
@@ -891,26 +1034,33 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         var providerStatus = match.Status switch
         {
             PathOfExileTradeStatMatchStatus.Exact => SearchComponentProviderResolutionStatus.Exact,
+            PathOfExileTradeStatMatchStatus.ExactEquivalentSet =>
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet,
             PathOfExileTradeStatMatchStatus.Ambiguous => SearchComponentProviderResolutionStatus.Ambiguous,
             PathOfExileTradeStatMatchStatus.NotFound => SearchComponentProviderResolutionStatus.NotFound,
             _ => SearchComponentProviderResolutionStatus.Unsupported,
         };
+        var exactCandidates = ExactCandidates(match);
         if (hasProviderOwnedUniqueProof &&
-            providerStatus == SearchComponentProviderResolutionStatus.Exact &&
-            !string.Equals(
-                PathOfExileTradeStatCandidateClassifier.GetProviderKind(match.ExactCandidate!),
+            providerStatus is
+                SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
+            exactCandidates.Any(candidate => !string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 "explicit",
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)))
         {
             providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
         }
         var expectedSpecialProviderKind = ExpectedSpecialProviderKind(component);
         if (expectedSpecialProviderKind is not null &&
-            providerStatus == SearchComponentProviderResolutionStatus.Exact &&
-            !string.Equals(
-                PathOfExileTradeStatCandidateClassifier.GetProviderKind(match.ExactCandidate!),
+            providerStatus is
+                SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
+            exactCandidates.Any(candidate => !string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 expectedSpecialProviderKind,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)))
         {
             providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
         }
@@ -931,11 +1081,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     : component.NotSearchableReason,
             ProviderResolutionStatus = providerStatus,
             ProviderStatId = providerStatus == SearchComponentProviderResolutionStatus.Exact
-                ? match.ExactCandidate?.StatId
+                ? exactCandidates.SingleOrDefault()?.StatId
                 : null,
-            ProviderStatText = providerStatus == SearchComponentProviderResolutionStatus.Exact
-                ? match.ExactCandidate?.Text
+            ProviderStatText = providerStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                ? exactCandidates.FirstOrDefault()?.Text
                 : null,
+            ProviderStatAlternativeIds = providerStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                ? exactCandidates.Select(candidate => candidate.StatId)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray()
+                : [],
             ProviderCandidateStatIds = candidates
                 .Select(candidate => candidate.StatId)
                 .Where(statId => !string.IsNullOrWhiteSpace(statId))
@@ -945,30 +1104,462 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
             ProviderDiagnosticMessage = null,
         };
-        if (providerStatus != SearchComponentProviderResolutionStatus.Exact)
+        if (providerStatus is not (
+                SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet))
         {
             return resolved;
         }
 
-        var applied = hasProviderOwnedUniqueProof
-            ? PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
+        ResolvedSearchComponent applied;
+        if (hasProviderOwnedUniqueProof)
+        {
+            if (exactCandidates.Count != 1)
+            {
+                return resolved with
+                {
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+                    ProviderStatAlternativeIds = [],
+                    ProviderDiagnosticCode =
+                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+                    ProviderDiagnosticMessage =
+                        "Provider-owned Unique modifiers require one exact provider identity.",
+                };
+            }
+            applied = PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
                 resolved,
-                match.ExactCandidate!)
-            : PathOfExileTradeModifierVariantResolver.Apply(
+                exactCandidates[0]);
+        }
+        else if (component.IsFractured)
+        {
+            applied = PathOfExileTradeModifierVariantResolver.ApplyFracturedExact(
                 resolved,
                 catalog,
-                match.ExactCandidate!);
+                exactCandidates);
+            if (applied.ProviderResolutionStatus is not (
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet))
+            {
+                return ResolveFracturedApproximation(
+                    draft,
+                    component,
+                    catalog,
+                    filterCatalog,
+                    match,
+                    hasCompleteFracturedSourceRepresentation);
+            }
+        }
+        else
+        {
+            applied = PathOfExileTradeModifierVariantResolver.Apply(
+                resolved,
+                catalog,
+                exactCandidates);
+        }
+
         return hasProviderOwnedUniqueProof
             ? applied with
             {
                 Sources = applied.Sources.Select(source => source with
                 {
                     StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
-                    ProviderIdentity = PathOfExileTradeProviderIdentity.Create(match.ExactCandidate!.StatId),
+                    ProviderIdentity = PathOfExileTradeProviderIdentity.Create(exactCandidates[0].StatId),
                     ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
                 }).ToArray(),
             }
             : applied;
+    }
+
+    private ResolvedSearchComponent ResolveFracturedApproximation(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog statCatalog,
+        PathOfExileTradeFilterCatalog? filterCatalog,
+        PathOfExileTradeStatMatchResult fracturedMatch,
+        bool hasCompleteSourceRepresentation)
+    {
+        var ordinaryProjection = component with
+        {
+            IsFractured = false,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
+            ProviderCandidateStatIds = [],
+            SelectedFilterVariantIdentity = null,
+            ProviderDiagnosticCode = null,
+            ProviderDiagnosticMessage = null,
+        };
+        var ordinaryMatch = statMatcher.Match(
+            ordinaryProjection,
+            statCatalog,
+            CreateMatchContext(draft, ordinaryProjection));
+        var ordinaryCandidates = ExactCandidates(ordinaryMatch);
+        var hasCompatibleOrdinaryRepresentation = IsExactMatch(ordinaryMatch) &&
+            ordinaryCandidates.Count > 0 &&
+            ordinaryCandidates.All(candidate => string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                "explicit",
+                StringComparison.Ordinal));
+        var componentWithAvailableVariants = hasCompatibleOrdinaryRepresentation
+            ? PathOfExileTradeModifierVariantResolver.Apply(
+                component with { SelectedFilterVariantIdentity = null },
+                statCatalog,
+                ordinaryCandidates)
+            : component;
+
+        if (fracturedMatch.Status is not (
+                PathOfExileTradeStatMatchStatus.NotFound or
+                PathOfExileTradeStatMatchStatus.Exact or
+                PathOfExileTradeStatMatchStatus.ExactEquivalentSet))
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "The Fractured provider identity is ambiguous or incompatible; approximation is not safe.",
+                fracturedMatch);
+        }
+
+        if (!hasCompleteSourceRepresentation ||
+            component.SourceCount != 1 ||
+            component.Contributors.Count > 0)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "A compound or partially represented Fractured source cannot be approximated safely.",
+                fracturedMatch);
+        }
+
+        if (!TryGetSafeFracturedApproximationBase(draft, out _))
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "A safe resolved canonical base is required for Fractured approximation.",
+                fracturedMatch);
+        }
+
+        var stateDiagnostic = string.Empty;
+        if (draft.ItemStateCriteria.Fractured == TradeTriState.No)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "Fractured approximation is incompatible with the current Fractured item-state criterion.",
+                fracturedMatch);
+        }
+
+        if (filterCatalog is null)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "The official Trade filter catalog is required for Fractured approximation.",
+                fracturedMatch);
+        }
+
+        if (!itemStateFilterResolver.TryMap(
+                TradeItemStateKind.Fractured,
+                TradeTriState.Yes,
+                filterCatalog,
+                out _,
+                out stateDiagnostic))
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                stateDiagnostic,
+                fracturedMatch);
+        }
+
+        if (!component.SupportsValueBounds ||
+            component.CanonicalNumericValues.Count == 0 ||
+            !component.RequestedMinimum.HasValue && !component.RequestedMaximum.HasValue)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "Fractured approximation requires a faithful numeric projection and selected Min or Max.",
+                fracturedMatch);
+        }
+
+        if (!hasCompatibleOrdinaryRepresentation)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                ordinaryMatch.Status == PathOfExileTradeStatMatchStatus.Ambiguous
+                    ? "Multiple incompatible ordinary explicit Trade stats remain; Fractured approximation is ambiguous."
+                    : "No compatible ordinary explicit Trade stat representation is available for Fractured approximation.",
+                ordinaryMatch);
+        }
+
+        if (ordinaryCandidates.Any(candidate =>
+                statCatalog.HasRelevantDiagnostics(
+                    [candidate.StatId],
+                    PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate))))
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "A diagnostic affects an ordinary provider candidate required for Fractured approximation.",
+                ordinaryMatch);
+        }
+
+        var approximate = PathOfExileTradeModifierVariantResolver.ApplyFracturedApproximate(
+            component,
+            statCatalog,
+            ordinaryCandidates);
+        if (!approximate.SupportsValueBounds ||
+            approximate.RequestedMinimum != component.RequestedMinimum ||
+            approximate.RequestedMaximum != component.RequestedMaximum)
+        {
+            return MarkFracturedApproximationUnsupported(
+                componentWithAvailableVariants,
+                "The ordinary explicit Trade stat does not preserve the selected Fractured Min/Max faithfully.",
+                ordinaryMatch);
+        }
+
+        return approximate;
+    }
+
+    private ResolvedSearchComponent ResolveRequestedFracturedSourceVariant(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog statCatalog,
+        PathOfExileTradeFilterCatalog? filterCatalog,
+        bool hasCompleteSourceRepresentation,
+        string requestedIdentity,
+        string requestedKind)
+    {
+        component = ResetFracturedProviderResolution(component) with
+        {
+            RequestedFilterVariantIdentity = requestedIdentity,
+            RequestedFilterVariantKind = requestedKind,
+        };
+        var fracturedMatch = statMatcher.Match(
+            component,
+            statCatalog,
+            CreateMatchContext(draft, component));
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> anchor = IsExactMatch(fracturedMatch)
+            ? ExactCandidates(fracturedMatch)
+            : [];
+        PathOfExileTradeStatMatchResult? ordinaryMatch = null;
+        if (anchor.Count == 0)
+        {
+            var ordinaryProjection = component with
+            {
+                IsFractured = false,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
+                ProviderCandidateStatIds = [],
+                SelectedFilterVariantIdentity = null,
+                ProviderDiagnosticCode = null,
+                ProviderDiagnosticMessage = null,
+            };
+            ordinaryMatch = statMatcher.Match(
+                ordinaryProjection,
+                statCatalog,
+                CreateMatchContext(draft, ordinaryProjection));
+            if (IsExactMatch(ordinaryMatch))
+            {
+                anchor = ExactCandidates(ordinaryMatch);
+            }
+        }
+
+        if (anchor.Count == 0)
+        {
+            var failedMatch = ordinaryMatch ?? fracturedMatch;
+            return MarkFracturedApproximationUnsupported(
+                component with
+                {
+                    RequestedFilterVariantIdentity = requestedIdentity,
+                    RequestedFilterVariantKind = requestedKind,
+                },
+                "The requested Trade Mod Type has no safe compatible provider anchor in the current catalog.",
+                failedMatch) with
+            {
+                ProviderDiagnosticCode =
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+            };
+        }
+
+        var applied = PathOfExileTradeModifierVariantResolver.ApplyFracturedRequestedVariant(
+            component,
+            statCatalog,
+            anchor,
+            requestedIdentity,
+            requestedKind);
+
+        if (fracturedMatch.Status != PathOfExileTradeStatMatchStatus.Exact)
+        {
+            var fracturedRequest = ResolveFracturedApproximation(
+                draft,
+                component with
+                {
+                    RequestedFilterVariantIdentity =
+                        PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                    RequestedFilterVariantKind = "fractured",
+                },
+                statCatalog,
+                filterCatalog,
+                fracturedMatch,
+                hasCompleteSourceRepresentation);
+            var guardedRequestOption = fracturedRequest.ProviderResolutionStatus ==
+                    SearchComponentProviderResolutionStatus.Approximate
+                ? fracturedRequest.FilterVariants.FirstOrDefault(option => string.Equals(
+                    option.Identity,
+                    PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                    StringComparison.Ordinal))
+                : null;
+            if (guardedRequestOption is not null &&
+                !applied.FilterVariants.Any(option => string.Equals(
+                    option.Identity,
+                    guardedRequestOption.Identity,
+                    StringComparison.Ordinal)))
+            {
+                applied = applied with
+                {
+                    FilterVariants = applied.FilterVariants
+                        .Append(guardedRequestOption)
+                        .ToArray(),
+                };
+            }
+        }
+
+        return applied;
+    }
+
+    private static ResolvedSearchComponent ResetFracturedProviderResolution(
+        ResolvedSearchComponent component)
+    {
+        var hasExactGameDataProvenance =
+            component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
+            component.ResolvedStatIds.Count > 0;
+        return component with
+        {
+            IsSearchable = component.IsSearchable || hasExactGameDataProvenance,
+            NotSearchableReason = hasExactGameDataProvenance
+                ? null
+                : component.NotSearchableReason,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotResolved,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
+            ProviderCandidateStatIds = [],
+            FilterVariants = [],
+            SelectedFilterVariantIdentity = null,
+            ProviderDiagnosticCode = null,
+            ProviderDiagnosticMessage = null,
+        };
+    }
+
+    private static bool TryGetRequestedNonFracturedVariant(
+        ResolvedSearchComponent component,
+        out string requestedIdentity,
+        out string requestedKind)
+    {
+        requestedIdentity = TrimToNull(component.RequestedFilterVariantIdentity) ?? string.Empty;
+        requestedKind = TrimToNull(component.RequestedFilterVariantKind) ?? string.Empty;
+        if (requestedKind.Length == 0 &&
+            component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Approximate)
+        {
+            var selected = component.FilterVariants.FirstOrDefault(option => string.Equals(
+                option.Identity,
+                component.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal));
+            requestedIdentity = selected?.Identity ?? requestedIdentity;
+            requestedKind = selected?.ProviderKind ?? requestedKind;
+        }
+
+        if (requestedKind.Length == 0)
+        {
+            requestedKind = "fractured";
+        }
+
+        return !string.Equals(requestedKind, "fractured", StringComparison.OrdinalIgnoreCase) &&
+            requestedIdentity.Length > 0;
+    }
+
+    private static ResolvedSearchComponent MarkFracturedApproximationUnsupported(
+        ResolvedSearchComponent component,
+        string reason,
+        PathOfExileTradeStatMatchResult match)
+    {
+        var candidates = match.Candidates.Count > 0
+            ? match.Candidates
+            : match.InitialCandidates;
+        var variants = component.FilterVariants
+            .Where(variant => !string.Equals(
+                variant.Identity,
+                PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                StringComparison.Ordinal))
+            .ToList();
+        if (variants.Count > 0)
+        {
+            variants.Add(new SearchFilterVariant
+            {
+                Identity = PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+                Label = "Fractured",
+                Description = reason,
+                ProviderKind = "fractured",
+                ProviderAlternativeCount = 0,
+                SupportsContributorComposition = false,
+                SupportsValueBounds = component.SupportsValueBounds,
+                ValueBoundsUnsupportedReason = component.ValueBoundsUnsupportedReason,
+            });
+        }
+        return component with
+        {
+            IsSearchable = false,
+            NotSearchableReason = reason,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
+            ProviderCandidateStatIds = candidates
+                .Select(candidate => candidate.StatId)
+                .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(statId => statId, StringComparer.Ordinal)
+                .ToArray(),
+            FilterVariants = variants,
+            SelectedFilterVariantIdentity = null,
+            RequestedFilterVariantIdentity =
+                PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+            RequestedFilterVariantKind = "fractured",
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.FracturedApproximationUnavailable,
+            ProviderDiagnosticMessage = reason,
+        };
+    }
+
+    private static bool TryGetSafeFracturedApproximationBase(
+        TradeSearchDraft draft,
+        out BaseSearchCriterion exactBase)
+    {
+        var availableExactBase = draft.Base.AvailableCriteria.ExactBase;
+        if (availableExactBase is null)
+        {
+            exactBase = null!;
+            return false;
+        }
+
+        exactBase = availableExactBase;
+        var statusIsSafe = draft.Base.Status is
+            ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable;
+        var observedStatusIsSafe = draft.Base.Observed?.Status is
+            ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable;
+        var resolvedBaseId = TrimToNull(draft.Base.ResolvedBaseId);
+        var resolvedBaseName = TrimToNull(draft.Base.ResolvedBaseName);
+        var observedBaseId = TrimToNull(draft.Base.Observed?.ExactBaseId);
+        var observedBaseName = TrimToNull(draft.Base.Observed?.ExactBaseName);
+        var exactBaseName = TrimToNull(exactBase.ExactBaseName);
+        return statusIsSafe &&
+            observedStatusIsSafe &&
+            resolvedBaseId is not null &&
+            resolvedBaseName is not null &&
+            observedBaseId is not null &&
+            observedBaseName is not null &&
+            exactBaseName is not null &&
+            string.Equals(resolvedBaseId, observedBaseId, StringComparison.Ordinal) &&
+            string.Equals(resolvedBaseName, observedBaseName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(resolvedBaseName, exactBaseName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool CanResolveProviderOwnedUnique(
@@ -1003,7 +1594,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static string? ExpectedSpecialProviderKind(ResolvedSearchComponent component)
     {
-        return component.IsVeiled ? "veiled" : null;
+        return component.IsFractured
+            ? "fractured"
+            : component.IsVeiled
+                ? "veiled"
+                : null;
     }
 
     private static bool IsUnrevealedVeiledPlaceholder(ResolvedSearchComponent component)
@@ -1042,6 +1637,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
             ProviderStatId = null,
             ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
             ProviderCandidateStatIds = [],
             ProviderDiagnosticCode =
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
@@ -1068,6 +1664,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
             ProviderStatId = null,
             ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
             ProviderCandidateStatIds = [],
             ProviderDiagnosticCode =
                 PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
@@ -1265,6 +1862,55 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     ActiveCriterion = exactBase,
                 },
             };
+    }
+
+    private static TradeSearchDraft RemoveAutomaticFracturedApproximationRequirements(
+        TradeSearchDraft draft)
+    {
+        var baseDraft = draft.Base;
+        var restoredCriterion = baseDraft.IsExactBaseForcedByFracturedApproximation
+            ? baseDraft.AvailableCriteria.Category ?? baseDraft.ActiveCriterion
+            : baseDraft.ActiveCriterion;
+        return draft with
+        {
+            Base = baseDraft with
+            {
+                ActiveCriterion = restoredCriterion,
+                IsExactBaseForcedByFracturedApproximation = false,
+                IsFracturedStateForcedByFracturedApproximation = false,
+            },
+            ItemStateCriteria = draft.ItemStateCriteria with
+            {
+                Fractured = baseDraft.IsFracturedStateForcedByFracturedApproximation
+                    ? TradeTriState.Any
+                    : draft.ItemStateCriteria.Fractured,
+            },
+        };
+    }
+
+    private static TradeSearchDraft ActivateFracturedApproximationRequirements(
+        TradeSearchDraft draft)
+    {
+        if (!TryGetSafeFracturedApproximationBase(draft, out var exactBase))
+        {
+            return draft;
+        }
+
+        return draft with
+        {
+            Base = draft.Base with
+            {
+                ActiveCriterion = exactBase,
+                IsExactBaseForcedByFracturedApproximation =
+                    draft.Base.ActiveCriterion?.Mode == BaseSearchMode.Category,
+                IsFracturedStateForcedByFracturedApproximation =
+                    draft.ItemStateCriteria.Fractured == TradeTriState.Any,
+            },
+            ItemStateCriteria = draft.ItemStateCriteria with
+            {
+                Fractured = TradeTriState.Yes,
+            },
+        };
     }
 
     private static bool CanMapCategoryCriteria(
@@ -1704,6 +2350,26 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             .Where(offersById.ContainsKey)
             .Select(resultId => offersById[resultId])
             .ToArray();
+    }
+
+    private static bool IsExactMatch(PathOfExileTradeStatMatchResult match)
+    {
+        return match.Status is
+            PathOfExileTradeStatMatchStatus.Exact or
+            PathOfExileTradeStatMatchStatus.ExactEquivalentSet;
+    }
+
+    private static IReadOnlyList<PathOfExileTradeStatMatchCandidate> ExactCandidates(
+        PathOfExileTradeStatMatchResult match)
+    {
+        return match.Status switch
+        {
+            PathOfExileTradeStatMatchStatus.Exact when match.ExactCandidate is not null =>
+                [match.ExactCandidate],
+            PathOfExileTradeStatMatchStatus.ExactEquivalentSet =>
+                match.ExactEquivalentCandidates,
+            _ => [],
+        };
     }
 
     private static string? TrimToNull(string? value)

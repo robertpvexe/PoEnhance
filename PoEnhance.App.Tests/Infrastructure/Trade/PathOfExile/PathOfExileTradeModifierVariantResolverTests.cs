@@ -222,7 +222,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
     }
 
     [Fact]
-    public void Apply_DistinctEquivalentIdsRetainTheExactSourceAsStrongerProvenance()
+    public void Apply_DistinctEquivalentIdsProduceOneExactEquivalentSet()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -241,15 +241,21 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
 
         var option = Assert.Single(result.FilterVariants);
         Assert.Equal(
-            PathOfExileTradeModifierVariantResolver.IdentityFor("explicit.source"),
+            PathOfExileTradeModifierVariantResolver.IdentityFor(
+            [
+                Candidate(catalog, "explicit.source"),
+                Candidate(catalog, "explicit.other"),
+            ]),
             option.Identity);
-        Assert.Equal(
-            PathOfExileTradeModifierVariantDiscovery.DuplicateCanonicalIdentity,
-            Assert.Single(audit.Trace, entry => entry.ProviderStatId == "explicit.other").RejectionReason);
+        Assert.Equal(2, option.ProviderAlternativeCount);
+        Assert.Equal(SearchComponentProviderResolutionStatus.ExactEquivalentSet, result.ProviderResolutionStatus);
+        Assert.Null(result.ProviderStatId);
+        Assert.Equal(["explicit.source", "explicit.other"], result.ProviderStatAlternativeIds);
+        Assert.All(audit.Trace, entry => Assert.True(entry.IsAccepted));
     }
 
     [Fact]
-    public void Apply_EquallyPlausibleSameKindIdsExcludeKindAndEmitDeveloperDiagnostic()
+    public void Apply_EquallyPlausibleEquivalentSameKindIdsProduceOneLogicalOption()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -275,19 +281,12 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             catalog,
             Candidate(catalog, "crafted.source"));
 
-        Assert.DoesNotContain(result.FilterVariants, option => option.Label == "Implicit");
-        Assert.Contains("implicit.one", result.ProviderDiagnosticMessage, StringComparison.Ordinal);
-        Assert.Contains("implicit.two", result.ProviderDiagnosticMessage, StringComparison.Ordinal);
-        var diagnostic = Assert.Single(audit.Diagnostics);
-        Assert.Equal(
-            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantKindAmbiguous,
-            diagnostic.Code);
-        Assert.Equal(["implicit.one", "implicit.two"], diagnostic.ProviderStatIds);
+        var option = Assert.Single(result.FilterVariants, option => option.Label == "Implicit");
+        Assert.Equal(2, option.ProviderAlternativeCount);
+        Assert.Empty(audit.Diagnostics);
         Assert.All(
             audit.Trace.Where(entry => entry.ProviderKind == "implicit"),
-            entry => Assert.Equal(
-                PathOfExileTradeModifierVariantDiscovery.SameKindAmbiguous,
-                entry.RejectionReason));
+            entry => Assert.True(entry.IsAccepted));
     }
 
     [Fact]

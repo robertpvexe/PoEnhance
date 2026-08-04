@@ -30,6 +30,8 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool CanEditBounds => IsSelected && SupportsValueBounds;
 
+    public bool CanToggleSelection => IsSelected || IsInteractionEnabled;
+
     public IReadOnlyList<PriceCheckerModifierFilterVariantViewModel> FilterVariants { get; init; } = [];
 
     public PriceCheckerModifierFilterVariantViewModel? SelectedFilterVariant { get; init; }
@@ -44,25 +46,32 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public bool IsVeiledModifier { get; init; }
 
+    public bool IsApproximate { get; init; }
+
+    public string? ApproximationMessage { get; init; }
+
+    public bool HasApproximationWarning =>
+        IsSelected && IsApproximate && !string.IsNullOrWhiteSpace(ApproximationMessage);
+
     public bool HasStaticModType =>
         IsCanonicalImplicit || IsUniqueModifier || IsVeiledModifier;
 
     public string ModTypeLabel => IsCanonicalImplicit
         ? "Implicit"
         : IsVeiledModifier
-                ? "Veiled"
-                : IsFoulbornUniqueModifier
-                    ? "Foulborn"
-                    : IsUniqueModifier
-                        ? "Unique"
-                        : SelectedFilterVariant?.Label ??
-                            (IsInteractionEnabled ? string.Empty : "Unsupported");
+            ? "Veiled"
+            : IsFoulbornUniqueModifier
+                ? "Foulborn"
+                : IsUniqueModifier
+                    ? "Unique"
+                    : SelectedFilterVariant?.Label ??
+                        (IsInteractionEnabled ? string.Empty : "Unsupported");
 
     public bool HasSingleFilterVariant => FilterVariants.Count == 1;
 
     public bool HasMultipleFilterVariants => FilterVariants.Count > 1;
 
-    public bool CanSelectFilterVariant => !HasStaticModType && IsSelected && HasMultipleFilterVariants;
+    public bool CanSelectFilterVariant => !HasStaticModType && HasMultipleFilterVariants;
 
     public IReadOnlyList<PriceCheckerModifierContributorViewModel> Contributors { get; init; } = [];
 

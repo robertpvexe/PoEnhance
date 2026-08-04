@@ -102,6 +102,24 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         var groups = catalog
             .FindCandidateGroupsByNormalizedTemplate(lookupTemplate)
             .ToArray();
+        if (groups.Length == 0 && source.Component is not null)
+        {
+            groups = PathOfExileTradeModifierBoundProjector
+                .ProjectedLookupTemplates(source.Component)
+                .SelectMany(catalog.FindCandidateGroupsByNormalizedTemplate)
+                .Select(group => group with
+                {
+                    Candidates = group.Candidates
+                        .Where(candidate =>
+                            PathOfExileTradeModifierBoundProjector.CanProjectSemanticBridge(
+                                source.Component,
+                                candidate))
+                        .ToArray(),
+                })
+                .Where(group => group.Candidates.Count > 0)
+                .DistinctBy(group => group.Key)
+                .ToArray();
+        }
         var initialCandidates = groups
             .SelectMany(group => group.Candidates)
             .ToArray();
@@ -243,7 +261,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 localityRejections,
                 context,
                 group.Key.ToString(),
-                source.Kind == ParsedModifierKind.Implicit);
+                source.CanProveEquivalentSet);
         }
 
         return ResolveRemainingCandidates(
@@ -254,7 +272,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             kindRejections,
             context,
             group.Key.ToString(),
-            source.Kind == ParsedModifierKind.Implicit);
+            source.CanProveEquivalentSet);
     }
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
@@ -265,7 +283,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
         PathOfExileTradeStatMatchContext? context,
         string providerCandidateGroupKey,
-        bool allowEquivalentCandidateCollapse)
+        bool canProveEquivalentSet)
     {
         if (candidates.Count == 1)
         {
@@ -280,21 +298,16 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 candidates[0]);
         }
 
-        if (allowEquivalentCandidateCollapse &&
-            AreEquivalentProviderCandidates(candidates))
+        if (canProveEquivalentSet && AreEquivalentProviderCandidates(candidates))
         {
-            var selected = candidates
-                .OrderBy(candidate => candidate.StatId, StringComparer.Ordinal)
-                .First();
-            return Exact(
+            return ExactEquivalentSet(
                 normalization,
                 expectedLocality,
                 initialCandidates,
                 candidates,
                 rejections,
                 context,
-                providerCandidateGroupKey,
-                selected);
+                providerCandidateGroupKey);
         }
 
         var diagnosticCode = expectedLocality == ModifierLocality.Unknown &&
@@ -358,7 +371,47 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         };
     }
 
-    private static bool AreEquivalentProviderCandidates(
+    private static PathOfExileTradeStatMatchResult ExactEquivalentSet(
+        PathOfExileTradeStatModifierNormalization normalization,
+        ModifierLocality expectedLocality,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> initialCandidates,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates,
+        IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
+        PathOfExileTradeStatMatchContext? context,
+        string providerCandidateGroupKey)
+    {
+        var ordered = candidates
+            .OrderBy(candidate => candidate.ProviderOrder)
+            .ThenBy(candidate => candidate.StatId, StringComparer.Ordinal)
+            .ToArray();
+        Log.Debug(
+            "Path of Exile Trade equivalent stat set selected. GroupKey={GroupKey}; ProviderKind={ProviderKind}; CandidateCount={CandidateCount}; NormalizedTemplate={NormalizedTemplate}",
+            providerCandidateGroupKey,
+            ordered[0].ProviderKind,
+            ordered.Length,
+            normalization.NormalizedTemplate);
+        return new PathOfExileTradeStatMatchResult
+        {
+            Status = PathOfExileTradeStatMatchStatus.ExactEquivalentSet,
+            NormalizedItemTemplate = normalization.NormalizedTemplate,
+            ExtractedNumericValues = normalization.ExtractedNumericValues,
+            RequestedLocality = expectedLocality,
+            ExactEquivalentCandidates = ordered,
+            InitialCandidates = initialCandidates,
+            Candidates = ordered,
+            RejectedCandidates = rejections.Select(rejection => rejection.Candidate).ToArray(),
+            Trace = CreateTrace(
+                normalization.NormalizedTemplate,
+                context,
+                providerCandidateGroupKey,
+                ordered,
+                rejections,
+                selectedProviderStatId: null,
+                finalDiagnosticCode: null),
+        };
+    }
+
+    internal static bool AreEquivalentProviderCandidates(
         IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates)
     {
         if (candidates.Count <= 1)
@@ -383,7 +436,11 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             string.Equals(candidate.Type, first.Type, StringComparison.Ordinal) &&
             string.Equals(candidate.ProviderKind, first.ProviderKind, StringComparison.Ordinal) &&
             candidate.ProviderLocality == first.ProviderLocality &&
-            string.Equals(candidate.Text, first.Text, StringComparison.Ordinal));
+            string.Equals(candidate.Text, first.Text, StringComparison.Ordinal) &&
+            candidate.OptionMetadata.Count == first.OptionMetadata.Count &&
+            candidate.OptionMetadata.All(option =>
+                first.OptionMetadata.TryGetValue(option.Key, out var firstValue) &&
+                string.Equals(option.Value, firstValue, StringComparison.Ordinal)));
     }
 
     private static PathOfExileTradeStatCandidateGroup[] ApplyKindConstraints(
@@ -564,6 +621,10 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
         public bool IsVeiled { get; init; }
 
+        public bool CanProveEquivalentSet { get; init; }
+
+        public ResolvedSearchComponent? Component { get; init; }
+
         public static StatMatchSource FromParsedModifier(ParsedModifier modifier)
         {
             return new StatMatchSource
@@ -572,6 +633,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 IsCrafted = modifier.IsCrafted,
                 IsFractured = modifier.IsFractured,
                 IsVeiled = modifier.IsVeiled,
+                CanProveEquivalentSet = false,
+                Component = null,
             };
         }
 
@@ -583,6 +646,16 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 IsCrafted = component.IsCrafted,
                 IsFractured = component.IsFractured,
                 IsVeiled = component.IsVeiled,
+                CanProveEquivalentSet =
+                    !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
+                    (component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+                        !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
+                        component.ResolvedStatIds.Count > 0 ||
+                    component.Sources.Count > 0 &&
+                        component.Sources.All(source =>
+                            !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
+                            source.ResolvedStatIds.Count > 0)),
+                Component = component,
             };
         }
     }

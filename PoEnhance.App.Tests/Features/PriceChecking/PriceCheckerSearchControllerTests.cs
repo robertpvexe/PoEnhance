@@ -1000,7 +1000,7 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public async Task ExactFracturedRow_SwitchesProviderVariantsWithoutSearchingAndResetRestoresFractured()
+    public async Task FracturedRow_ComboBoxSelectionControlsProviderWithoutChangingSourceAndResetRestoresDefault()
     {
         var fixture = SearchFixture.Create();
         var fracturedIdentity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life");
@@ -1033,6 +1033,8 @@ public sealed class PriceCheckerSearchControllerTests
             ValueBoundShape = ModifierBoundShape.Scalar,
             FilterVariants = [fracturedVariant, explicitVariant],
             SelectedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantKind = fracturedVariant.ProviderKind,
         };
         var draft = Draft("Pain Road", modifiers: [fractured]) with
         {
@@ -1042,20 +1044,23 @@ public sealed class PriceCheckerSearchControllerTests
         {
             ModifierFilters = candidate.ModifierFilters.Select(modifier =>
             {
-                var selected = Assert.Single(modifier.FilterVariants, variant =>
-                    variant.Identity == modifier.SelectedFilterVariantIdentity);
+                var requestedIdentity = modifier.RequestedFilterVariantIdentity ??
+                    modifier.SelectedFilterVariantIdentity;
+                var requested = Assert.Single(modifier.FilterVariants, variant =>
+                    variant.Identity == requestedIdentity);
                 return modifier with
                 {
                     ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
-                    ProviderStatId = selected.ProviderKind == "fractured"
+                    SelectedFilterVariantIdentity = requested.Identity,
+                    ProviderStatId = requested.ProviderKind == "fractured"
                         ? "fractured.stat_life"
                         : "explicit.stat_life",
-                    ProviderStatText = selected.Description,
-                    SupportsValueBounds = selected.SupportsValueBounds,
+                    ProviderStatText = requested.Description,
+                    SupportsValueBounds = requested.SupportsValueBounds,
+                    ProviderDiagnosticMessage = null,
                 };
             }).ToArray(),
         };
-
         fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
 
         var initial = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
@@ -1064,40 +1069,51 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.True(initial.IsFracturedModifier);
         Assert.Equal("Fractured", initial.ModTypeLabel);
         Assert.False(initial.HasStaticModType);
-        Assert.False(initial.CanSelectFilterVariant);
+        Assert.True(initial.CanSelectFilterVariant);
+        Assert.False(initial.HasApproximationWarning);
+        Assert.Equal(["Fractured", "Explicit"], initial.FilterVariants.Select(option => option.Label));
         Assert.Equal("84", initial.MinimumText);
 
+        fixture.Window.RaiseModifierFilterVariantChanged(0, explicitVariant.Identity);
+        var unselectedExplicit = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.False(unselectedExplicit.IsSelected);
+        Assert.Equal("Explicit", unselectedExplicit.ModTypeLabel);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        fixture.Window.RaiseModifierFilterVariantChanged(0, fracturedVariant.Identity);
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
-        Assert.True(Assert.Single(fixture.Window.CurrentSearchState.Modifiers).CanSelectFilterVariant);
+        var selected = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(selected.CanSelectFilterVariant);
+        Assert.False(selected.HasApproximationWarning);
         await fixture.Controller.SearchAsync();
         Assert.Single(fixture.PriceCheckService.Calls);
 
-        fixture.Controller.UpdateModifierFilterVariant(0, explicitVariant.Identity);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, explicitVariant.Identity);
         var explicitRow = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
-        Assert.True(explicitRow.IsSelected);
+        var explicitComponent = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.True(explicitComponent.IsFractured);
+        Assert.Equal("explicit", explicitComponent.RequestedFilterVariantKind);
+        Assert.Equal("explicit.stat_life", explicitComponent.ProviderStatId);
         Assert.Equal("Explicit", explicitRow.ModTypeLabel);
-        Assert.Equal("explicit.stat_life", fixture.Window.CurrentState!.Draft.ModifierFilters[0].ProviderStatId);
+        Assert.False(explicitRow.HasApproximationWarning);
+        Assert.Equal(PriceCheckerSearchViewStatus.Idle, fixture.Window.CurrentSearchState.Status);
+        Assert.False(fixture.Window.CurrentSearchState.CanOpenTrade);
         Assert.Single(fixture.PriceCheckService.Calls);
 
-        fixture.Controller.UpdateModifierFilterVariant(0, fracturedVariant.Identity);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, fracturedVariant.Identity);
+        var fracturedAgain = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.True(fracturedAgain.IsFractured);
+        Assert.Equal("fractured", fracturedAgain.RequestedFilterVariantKind);
+        Assert.Equal("fractured.stat_life", fracturedAgain.ProviderStatId);
         Assert.Equal("Fractured", Assert.Single(fixture.Window.CurrentSearchState.Modifiers).ModTypeLabel);
-        Assert.Equal("fractured.stat_life", fixture.Window.CurrentState!.Draft.ModifierFilters[0].ProviderStatId);
-        fixture.Controller.UpdateModifierFilterVariant(0, explicitVariant.Identity);
-        fixture.Window.RaiseModifierBoundsChanged(0, "80", "90");
 
+        fixture.Window.RaiseModifierFilterVariantChanged(0, explicitVariant.Identity);
+        fixture.Window.RaiseModifierBoundsChanged(0, "80", "90");
         var edited = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
         Assert.True(edited.IsSelected);
         Assert.True(edited.CanEditBounds);
         Assert.Equal("Explicit", edited.ModTypeLabel);
-        Assert.Equal(explicitVariant.Identity, fixture.Window.CurrentState!.Draft.ModifierFilters[0].SelectedFilterVariantIdentity);
         Assert.Single(fixture.PriceCheckService.Calls);
-
-        await fixture.Controller.SearchAsync();
-
-        var searched = fixture.PriceCheckService.Calls[1].Draft!;
-        Assert.Equal("explicit.stat_life", searched.ModifierFilters[0].ProviderStatId);
-        Assert.Equal(80m, searched.ModifierFilters[0].RequestedMinimum);
-        Assert.Equal(90m, searched.ModifierFilters[0].RequestedMaximum);
 
         fixture.Window.RaiseResetItemRequested();
         var reset = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
@@ -1105,7 +1121,316 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal("Fractured", reset.ModTypeLabel);
         Assert.Equal("84", reset.MinimumText);
         Assert.Equal(fracturedVariant.Identity, fixture.Window.CurrentState!.Draft.ModifierFilters[0].SelectedFilterVariantIdentity);
-        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        Assert.Equal(fracturedVariant.Identity, fixture.Window.CurrentState.Draft.ModifierFilters[0].RequestedFilterVariantIdentity);
+        Assert.Single(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public void FracturedRow_ResetRestoresDefaultRequestAndRecalculatesCurrentCatalogQuality()
+    {
+        var fixture = SearchFixture.Create();
+        var exactAvailable = true;
+        var fracturedVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life"),
+            Label = "Fractured",
+            Description = "+# to maximum Life",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var explicitVariant = fracturedVariant with
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("explicit.stat_life"),
+            Label = "Explicit",
+            ProviderKind = "explicit",
+        };
+        var fracturedRequest = fracturedVariant with
+        {
+            Identity = PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+            Description = PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+        };
+        var component = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "fractured.stat_life",
+            ProviderStatText = fracturedVariant.Description,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants = [fracturedVariant, explicitVariant],
+            SelectedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantKind = "fractured",
+        };
+        fixture.PriceCheckService.EffectiveDraftResolver = candidate => candidate with
+        {
+            ModifierFilters = candidate.ModifierFilters.Select(modifier =>
+            {
+                if (modifier.RequestedFilterVariantKind == "explicit")
+                {
+                    return modifier with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                        ProviderStatId = "explicit.stat_life",
+                        SelectedFilterVariantIdentity = explicitVariant.Identity,
+                        FilterVariants = exactAvailable
+                            ? [fracturedVariant, explicitVariant]
+                            : [explicitVariant, fracturedRequest],
+                        ProviderDiagnosticMessage = null,
+                    };
+                }
+
+                return exactAvailable
+                    ? modifier with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                        ProviderStatId = "fractured.stat_life",
+                        SelectedFilterVariantIdentity = fracturedVariant.Identity,
+                        RequestedFilterVariantIdentity = fracturedVariant.Identity,
+                        RequestedFilterVariantKind = "fractured",
+                        FilterVariants = [fracturedVariant, explicitVariant],
+                        ProviderDiagnosticMessage = null,
+                    }
+                    : modifier with
+                    {
+                        ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Approximate,
+                        ProviderStatId = "explicit.stat_life",
+                        SelectedFilterVariantIdentity = explicitVariant.Identity,
+                        RequestedFilterVariantIdentity = fracturedRequest.Identity,
+                        RequestedFilterVariantKind = "fractured",
+                        FilterVariants = [explicitVariant, fracturedRequest],
+                        ProviderDiagnosticMessage =
+                            PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+                    };
+            }).ToArray(),
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Pain Road", modifiers: [component]),
+            new TradeSearchDraftValidator().Validate(Draft("Pain Road", modifiers: [component])));
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierFilterVariantChanged(0, explicitVariant.Identity);
+        Assert.Equal("Explicit", Assert.Single(fixture.Window.CurrentSearchState!.Modifiers).ModTypeLabel);
+
+        exactAvailable = false;
+        fixture.Window.RaiseResetItemRequested();
+
+        var resetComponent = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        var resetRow = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(resetComponent.IsFractured);
+        Assert.False(resetComponent.IsSelected);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Approximate, resetComponent.ProviderResolutionStatus);
+        Assert.Equal("fractured", resetComponent.RequestedFilterVariantKind);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+            resetComponent.RequestedFilterVariantIdentity);
+        Assert.Equal("Fractured", resetRow.ModTypeLabel);
+        Assert.False(resetRow.HasApproximationWarning);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
+    public async Task ApproximateFracturedRow_RemainsFracturedShowsOneWarningAndCanSearch()
+    {
+        var fixture = SearchFixture.Create();
+        var explicitVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("explicit.stat_life"),
+            Label = "Explicit",
+            Description = "+# to maximum Life",
+            ProviderKind = "explicit",
+            SupportsValueBounds = true,
+        };
+        var fracturedRequest = explicitVariant with
+        {
+            Identity = PathOfExileTradeModifierVariantResolver.FracturedRequestIdentity,
+            Label = "Fractured",
+            Description = PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            ProviderKind = "fractured",
+        };
+        var fractured = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            isSelected: false,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Approximate,
+            ProviderStatId = "explicit.stat_life",
+            ProviderStatText = "+# to maximum Life",
+            ProviderDiagnosticMessage =
+                PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants = [explicitVariant, fracturedRequest],
+            SelectedFilterVariantIdentity = explicitVariant.Identity,
+            RequestedFilterVariantIdentity = fracturedRequest.Identity,
+            RequestedFilterVariantKind = fracturedRequest.ProviderKind,
+        };
+        var draft = Draft("Pain Road", modifiers: [fractured]) with
+        {
+            ItemStates = ["Fractured Item"],
+        };
+        fixture.PriceCheckService.Handler = call => Task.FromResult(
+            SuccessResult([], total: 0) with { EffectiveDraft = call.Draft });
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        var initial = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.Equal("Fractured", initial.ModTypeLabel);
+        Assert.False(initial.HasStaticModType);
+        Assert.False(initial.HasApproximationWarning);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        var selected = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.True(selected.IsInteractionEnabled);
+        Assert.True(selected.IsSelected);
+        Assert.Equal("Fractured", selected.ModTypeLabel);
+        Assert.True(selected.HasApproximationWarning);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            selected.ApproximationMessage);
+        Assert.True(selected.CanSelectFilterVariant);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.FracturedApproximationMessage,
+            fixture.Window.CurrentSearchState?.Message);
+        Assert.Equal("No offers found.", fixture.Window.CurrentSearchState?.Summary);
+    }
+
+    [Fact]
+    public async Task SelectedUnsupportedFracturedModifierBlocksSearchUntilDeselected()
+    {
+        var fixture = SearchFixture.Create();
+        var fracturedVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life"),
+            Label = "Fractured",
+            Description = "+# to maximum Life",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var fractured = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            isSelected: false,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "fractured.stat_life",
+            ProviderStatText = "+# to maximum Life",
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants = [fracturedVariant],
+            SelectedFilterVariantIdentity = fracturedVariant.Identity,
+        };
+        var draft = Draft("Pain Road", modifiers: [fractured]);
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.PriceCheckService.EffectiveDraftResolver = candidate => candidate with
+        {
+            ModifierFilters = candidate.ModifierFilters.Select(modifier => modifier with
+            {
+                IsSearchable = false,
+                NotSearchableReason = "The current catalogs cannot represent this Fractured modifier safely.",
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                FilterVariants = [],
+                SelectedFilterVariantIdentity = null,
+                ProviderDiagnosticMessage =
+                    "The current catalogs cannot represent this Fractured modifier safely.",
+            }).ToArray(),
+        };
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.NotEqual("No offers found.", fixture.Window.CurrentSearchState?.Message);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+    }
+
+    [Fact]
+    public async Task FracturedRow_SelectedManualVariantDisappearanceKeepsRequestedTypeAndBlocksSearch()
+    {
+        var fixture = SearchFixture.Create();
+        var fracturedVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life"),
+            Label = "Fractured",
+            Description = "+# to maximum Life",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var explicitVariant = fracturedVariant with
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("explicit.stat_life"),
+            Label = "Explicit",
+            ProviderKind = "explicit",
+        };
+        var component = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "explicit.stat_life",
+            ProviderStatText = explicitVariant.Description,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            FilterVariants = [fracturedVariant, explicitVariant],
+            SelectedFilterVariantIdentity = explicitVariant.Identity,
+            RequestedFilterVariantIdentity = explicitVariant.Identity,
+            RequestedFilterVariantKind = "explicit",
+        };
+        var draft = Draft("Pain Road", modifiers: [component]);
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+        fixture.PriceCheckService.EffectiveDraftResolver = candidate => candidate with
+        {
+            ModifierFilters = candidate.ModifierFilters.Select(modifier => modifier with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                FilterVariants = [fracturedVariant],
+                SelectedFilterVariantIdentity = explicitVariant.Identity,
+                ProviderDiagnosticMessage =
+                    "The requested Explicit Trade Mod Type is unavailable in the current catalog.",
+            }).ToArray(),
+        };
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var unresolved = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(unresolved.IsSelected);
+        Assert.False(unresolved.IsInteractionEnabled);
+        Assert.True(unresolved.CanToggleSelection);
+        Assert.Equal("Explicit", unresolved.ModTypeLabel);
+        Assert.Equal(2, unresolved.FilterVariants.Count);
+        Assert.True(unresolved.CanSelectFilterVariant);
+        Assert.Contains("Unsupported", unresolved.SectionLabel, StringComparison.Ordinal);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState.Status);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
     }
 
     [Fact]
