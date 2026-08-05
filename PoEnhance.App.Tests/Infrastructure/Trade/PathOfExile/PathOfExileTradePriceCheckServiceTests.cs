@@ -12,9 +12,44 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradePriceCheckServiceTests
 {
     private const string League = "Mercenaries";
+    private const string AlberonsWarpathText = """
+Item Class: Boots
+Rarity: Unique
+Alberon's Warpath
+Soldier Boots
+--------
+Armour: 304 (augmented)
+Energy Shield: 19
+--------
+Requirements:
+Level: 49
+Str: 47
+Int: 47
+--------
+Sockets: B
+--------
+Item Level: 85
+--------
+{ Unique Modifier — Defences, Armour }
++208(180-220) to Armour
+{ Unique Modifier — Attribute }
+16(15-18)% increased Strength
+{ Unique Modifier — Damage, Chaos, Attack }
+Adds 1 to 80 Chaos Damage to Attacks
+{ Unique Modifier — Chaos, Resistance }
++18(13-19)% to Chaos Resistance
+{ Unique Modifier — Speed }
+25% increased Movement Speed
+{ Unique Modifier }
+Summoned Skeleton Warriors are Permanent and Follow you
+Summon Skeletons cannot Summon more than 1 Skeleton Warrior — Unscalable Value
+--------
+Alberon walked among the accursed,
+and they welcomed him.
+""";
 
     [Fact]
-    public void ResolveProviderComponents_OrdinaryUniqueScalar_UsesExplicitProviderOwnedProofAndCopiedBound()
+    public void ResolveProviderComponents_SelectedOrdinaryUniqueScalar_PreservesSelectionAndCopiedBound()
     {
         var fixture = ServiceFixture.Create();
         var draft = UniqueDraft() with
@@ -26,6 +61,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
                 ObservedNumericValues = [69m],
                 CanonicalNumericValues = [69m],
                 RequestedMinimum = 69m,
+                IsSelected = true,
             }],
         };
         var catalog = new PathOfExileTradeStatCatalog(
@@ -48,9 +84,49 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         Assert.True(component.IsSearchable);
         Assert.True(component.SupportsValueBounds);
         Assert.Equal(69m, component.RequestedMinimum);
-        Assert.False(component.IsSelected);
+        Assert.True(component.IsSelected);
         Assert.DoesNotContain(component.FilterVariants, variant =>
             string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_SelectedOrdinaryUniquePresence_PreservesSelectionWithoutBounds()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = UniqueDraft() with
+        {
+            ModifierFilters =
+            [
+                UniqueComponent(
+                    "Gain Arcane Surge when you use a Movement Skill",
+                    "Gain Arcane Surge when you use a Movement Skill") with
+                {
+                    IsSelected = true,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_arcane_surge",
+                "Gain Arcane Surge when you use a Movement Skill",
+                "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.No));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_arcane_surge", component.ProviderStatId);
+        Assert.True(component.IsSearchable);
+        Assert.True(component.IsSelected);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Null(component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
     }
 
     [Fact]
@@ -100,7 +176,7 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
-    public void ResolveProviderComponents_MultiLineUniqueBlockRejectsEveryLineInsteadOfPartialQuery()
+    public void ResolveProviderComponents_UnselectedMultiLineUniqueBlockRemainsUnselectedAndUnsupported()
     {
         var fixture = ServiceFixture.Create();
         var draft = UniqueDraft("Foulborn Midnight Bargain", "Calling Wand") with
@@ -140,6 +216,98 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             Assert.False(component.IsSelected);
             Assert.Null(component.ProviderStatId);
         });
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_SelectedMultiLineUniqueBlockPreservesIntentBoundsAndProvenance()
+    {
+        var fixture = ServiceFixture.Create();
+        var first = UniqueComponent(
+            "+1 to maximum number of Raised Zombies",
+            "+<number> to maximum number of Raised Zombies") with
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            IsSelected = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            RequestedMinimum = 1m,
+            RequestedMaximum = 2m,
+            SelectedFilterVariantIdentity = "variant.explicit",
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = "variant.explicit",
+                    Label = "Explicit",
+                    Description = "+# to maximum number of Raised Zombies",
+                    ProviderKind = "explicit",
+                    SupportsValueBounds = true,
+                },
+            ],
+            Sources = [UniqueSource(
+                "modifier:0:0",
+                sourceModifierIndex: 0,
+                sourceLineIndex: 0,
+                "+1 to maximum number of Raised Zombies")],
+        };
+        var second = UniqueComponent(
+            "+1 to maximum number of Spectres",
+            "+<number> to maximum number of Spectres") with
+        {
+            ComponentId = "modifier:0:1",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 1,
+            IsSelected = true,
+            Sources = [UniqueSource(
+                "modifier:0:1",
+                sourceModifierIndex: 0,
+                sourceLineIndex: 1,
+                "+1 to maximum number of Spectres")],
+        };
+        var draft = UniqueDraft("Foulborn Midnight Bargain", "Calling Wand") with
+        {
+            ModifierFilters = [first, second],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            EmptyStatCatalog(),
+            UniqueIdentity(TradeTriState.Yes));
+
+        Assert.Equal(2, resolved.ModifierFilters.Count);
+        Assert.All(resolved.ModifierFilters, component =>
+        {
+            Assert.True(component.IsSelected);
+            Assert.False(component.IsSearchable);
+            Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+            Assert.Equal(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
+                component.ProviderDiagnosticCode);
+            Assert.Null(component.ProviderStatId);
+            Assert.Empty(component.FilterVariants);
+        });
+
+        var resolvedFirst = resolved.ModifierFilters[0];
+        Assert.Equal(1m, resolvedFirst.RequestedMinimum);
+        Assert.Equal(2m, resolvedFirst.RequestedMaximum);
+        Assert.Equal("variant.explicit", resolvedFirst.SelectedFilterVariantIdentity);
+
+        Assert.Collection(
+            resolved.ModifierFilters,
+            component => AssertUniqueSource(component, first),
+            component => AssertUniqueSource(component, second));
+
+        var validation = new TradeSearchDraftValidator().Validate(resolved);
+        var unresolved = validation.Diagnostics
+            .Where(diagnostic =>
+                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved &&
+                diagnostic.Message.Contains(
+                    "Multi-line Unique modifier blocks remain unsupported",
+                    StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, unresolved.Length);
     }
 
     [Fact]
@@ -1352,6 +1520,120 @@ public sealed class PathOfExileTradePriceCheckServiceTests
     }
 
     [Fact]
+    public async Task CheckAsync_AlberonsUnsafeMultiLineSourceUnselected_AllowsExactIdentityOnlySearch()
+    {
+        var draft = AlberonsWarpathDraft();
+        var skeletonComponents = AlberonsSkeletonComponents(draft);
+        Assert.Equal(2, skeletonComponents.Count);
+        Assert.All(skeletonComponents, component => Assert.False(component.IsSelected));
+        Assert.Single(skeletonComponents.Select(component => component.SourceModifierIndex).Distinct());
+
+        var statCatalogProvider = new FakeCatalogProvider();
+        var itemCatalogProvider = new FakeItemCatalogProvider();
+        itemCatalogProvider.Enqueue(PathOfExileTradeItemCatalogProviderResult.Success(AlberonsItemCatalog()));
+        var searchClient = new FakeSearchClient();
+        searchClient.Enqueue(SearchSuccess([], total: 0));
+        var fetchClient = new FakeFetchClient();
+        var service = CreateProductionUniqueService(
+            statCatalogProvider,
+            itemCatalogProvider,
+            searchClient,
+            fetchClient);
+
+        var result = await service.CheckAsync(
+            draft,
+            new TradeSearchDraftValidator().Validate(draft),
+            League);
+
+        Assert.True(
+            result.IsSuccess,
+            string.Join(
+                Environment.NewLine,
+                result.Diagnostics.Select(diagnostic =>
+                    $"{diagnostic.Code}/{diagnostic.SourceCode}: {diagnostic.Message}")));
+        Assert.Equal(PathOfExileTradePriceCheckStage.Completed, result.Stage);
+        Assert.Empty(statCatalogProvider.Calls);
+        var search = Assert.Single(searchClient.Calls);
+        Assert.Equal("Alberon's Warpath", search.Request?.Query.Name);
+        Assert.Equal("Soldier Boots", search.Request?.Query.Type);
+        Assert.Empty(Assert.Single(search.Request!.Query.Stats).Filters);
+        Assert.Empty(fetchClient.Calls);
+    }
+
+    [Fact]
+    public async Task CheckAsync_AlberonsUnsafeMultiLineSourceSelected_BlocksBeforeSearchWithoutLosingCoverage()
+    {
+        var draft = AlberonsWarpathDraft();
+        var skeletonSourceIndex = Assert
+            .Single(AlberonsSkeletonComponents(draft)
+                .Select(component => component.SourceModifierIndex)
+                .Distinct());
+        var selectedDraft = draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select(component => component.SourceModifierIndex == skeletonSourceIndex
+                    ? component with { IsSelected = true }
+                    : component)
+                .ToArray(),
+        };
+        Assert.Equal(2, AlberonsSkeletonComponents(selectedDraft).Count);
+        Assert.All(AlberonsSkeletonComponents(selectedDraft), component => Assert.True(component.IsSelected));
+
+        var statCatalogProvider = new FakeCatalogProvider();
+        statCatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(EmptyStatCatalog()));
+        var itemCatalogProvider = new FakeItemCatalogProvider();
+        itemCatalogProvider.Enqueue(PathOfExileTradeItemCatalogProviderResult.Success(AlberonsItemCatalog()));
+        var searchClient = new FakeSearchClient();
+        var fetchClient = new FakeFetchClient();
+        var service = CreateProductionUniqueService(
+            statCatalogProvider,
+            itemCatalogProvider,
+            searchClient,
+            fetchClient);
+
+        var result = await service.CheckAsync(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            League);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(PathOfExileTradePriceCheckStage.QueryBuild, result.Stage);
+        Assert.Empty(searchClient.Calls);
+        Assert.Empty(fetchClient.Calls);
+        var effectiveDraft = Assert.IsType<TradeSearchDraft>(result.EffectiveDraft);
+        var effectiveSkeletonComponents = AlberonsSkeletonComponents(effectiveDraft);
+        Assert.Equal(2, effectiveSkeletonComponents.Count);
+        Assert.All(effectiveSkeletonComponents, component =>
+        {
+            Assert.True(component.IsSelected);
+            Assert.False(component.IsSearchable);
+            Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+            Assert.Equal(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
+                component.ProviderDiagnosticCode);
+        });
+
+        var validation = new TradeSearchDraftValidator().Validate(effectiveDraft);
+        var unresolved = validation.Diagnostics
+            .Where(diagnostic =>
+                diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved)
+            .ToArray();
+        Assert.Equal(2, unresolved.Length);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.SourceCode == PathOfExileTradeQueryDiagnosticCodes.LocallyInvalidDraft);
+
+        var coverageBuild = new PathOfExileTradeQueryBuilder().Build(
+            effectiveDraft,
+            ValidationSuccess(),
+            League,
+            selectedModifierFilters: [],
+            providerItemIdentity: AlberonsIdentity());
+        Assert.False(coverageBuild.IsSuccess);
+        Assert.Contains(coverageBuild.Diagnostics, diagnostic =>
+            diagnostic.Code == PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping);
+    }
+
+    [Fact]
     public async Task CheckAsync_SelectedModifierWarningValidationStillLoadsCatalogAndMaps()
     {
         var fixture = ServiceFixture.Create();
@@ -2239,6 +2521,95 @@ public sealed class PathOfExileTradePriceCheckServiceTests
         };
     }
 
+    private static TradeSearchDraft AlberonsWarpathDraft()
+    {
+        var parsed = new ItemTextParser().Parse(AlberonsWarpathText);
+        Assert.Equal("Alberon's Warpath", parsed.DisplayName);
+        Assert.Equal("Soldier Boots", parsed.BaseType);
+        Assert.Equal("Unique", parsed.Rarity);
+        var skeletonSource = Assert.Single(parsed.UniqueModifiers, modifier =>
+            modifier.ValueLines.Any(line => line.Contains(
+                "Summoned Skeleton Warriors are Permanent",
+                StringComparison.Ordinal)));
+        Assert.Equal(2, skeletonSource.ValueLines.Count);
+
+        var result = new TradeSearchDraftMapper().CreateDraft(parsed);
+        Assert.True(result.IsSuccess);
+        var mappedDraft = Assert.IsType<TradeSearchDraft>(result.Draft);
+        var draft = mappedDraft with
+        {
+            RequestedItemFilters =
+            [
+                .. mappedDraft.RequestedItemFilters.Select(filter => filter with
+                {
+                    IsActive = false,
+                    RequestedMinimum = null,
+                }),
+            ],
+        };
+        Assert.Equal("Alberon's Warpath", draft.DisplayName);
+        Assert.Equal("Soldier Boots", draft.ParsedBaseType);
+        Assert.Equal("Unique", draft.Rarity);
+        return draft;
+    }
+
+    private static IReadOnlyList<ResolvedSearchComponent> AlberonsSkeletonComponents(TradeSearchDraft draft)
+    {
+        var first = Assert.Single(draft.ModifierFilters, component =>
+            component.OriginalText.Contains(
+                "Summoned Skeleton Warriors are Permanent",
+                StringComparison.Ordinal));
+        return draft.ModifierFilters
+            .Where(component => component.SourceModifierIndex == first.SourceModifierIndex)
+            .OrderBy(component => component.SourceLineIndex)
+            .ToArray();
+    }
+
+    private static PathOfExileTradeItemIdentity AlberonsIdentity()
+    {
+        return new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = "Alberon's Warpath",
+            CanonicalType = "Soldier Boots",
+            Foulborn = TradeTriState.No,
+        };
+    }
+
+    private static PathOfExileTradeItemCatalog AlberonsItemCatalog()
+    {
+        return new PathOfExileTradeItemCatalog(
+        [
+            new PathOfExileTradeItemEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "armour",
+                GroupLabel = "Armour",
+                Name = "Alberon's Warpath",
+                Type = "Soldier Boots",
+                IsUnique = true,
+            },
+        ]);
+    }
+
+    private static PathOfExileTradePriceCheckService CreateProductionUniqueService(
+        FakeCatalogProvider statCatalogProvider,
+        FakeItemCatalogProvider itemCatalogProvider,
+        FakeSearchClient searchClient,
+        FakeFetchClient fetchClient)
+    {
+        return new PathOfExileTradePriceCheckService(
+            new PathOfExileTradeQueryBuilder(),
+            new PathOfExileTradeStatMatcher(),
+            statCatalogProvider,
+            itemCatalogProvider,
+            new PathOfExileTradeSelectedModifierMapper(),
+            new PathOfExileTradeItemIdentityMapper(),
+            searchClient,
+            fetchClient,
+            new StaticFilterCatalogProvider(
+                PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog()));
+    }
+
     private static ResolvedSearchComponent UniqueComponent(
         string originalText,
         string canonicalSignature,
@@ -2257,6 +2628,60 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
             IsSelected = false,
         };
+    }
+
+    private static SearchComponentSourceProvenance UniqueSource(
+        string componentId,
+        int sourceModifierIndex,
+        int sourceLineIndex,
+        string originalText)
+    {
+        return new SearchComponentSourceProvenance
+        {
+            ComponentId = componentId,
+            SourceModifierIndex = sourceModifierIndex,
+            SourceLineIndex = sourceLineIndex,
+            OriginalText = originalText,
+            CanonicalSignature = PathOfExileTradeStatTemplateNormalizer
+                .NormalizeModifierText(originalText)
+                .NormalizedTemplate,
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            ProviderDomain = "Unique",
+            ProviderIdentity = "unsafe.partial.identity",
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+        };
+    }
+
+    private static void AssertUniqueSource(
+        ResolvedSearchComponent actual,
+        ResolvedSearchComponent expected)
+    {
+        Assert.Equal(expected.ComponentId, actual.ComponentId);
+        Assert.Equal(expected.SourceModifierIndex, actual.SourceModifierIndex);
+        Assert.Equal(expected.SourceLineIndex, actual.SourceLineIndex);
+        Assert.Equal(expected.SourceComponentIndex, actual.SourceComponentIndex);
+        Assert.Equal(expected.OriginalText, actual.OriginalText);
+        Assert.Equal(expected.ParsedKind, actual.ParsedKind);
+        Assert.Equal(expected.UniqueOrigin, actual.UniqueOrigin);
+
+        var expectedSource = Assert.Single(expected.Sources);
+        var actualSource = Assert.Single(actual.Sources);
+        Assert.Equal(expectedSource.ComponentId, actualSource.ComponentId);
+        Assert.Equal(expectedSource.SourceModifierIndex, actualSource.SourceModifierIndex);
+        Assert.Equal(expectedSource.SourceLineIndex, actualSource.SourceLineIndex);
+        Assert.Equal(expectedSource.SourceComponentIndex, actualSource.SourceComponentIndex);
+        Assert.Equal(expectedSource.OriginalText, actualSource.OriginalText);
+        Assert.Equal(expectedSource.CanonicalSignature, actualSource.CanonicalSignature);
+        Assert.Equal(expectedSource.ParsedKind, actualSource.ParsedKind);
+        Assert.Equal(expectedSource.UniqueOrigin, actualSource.UniqueOrigin);
+        Assert.Equal(expectedSource.ProviderDomain, actualSource.ProviderDomain);
+        Assert.Equal(expectedSource.StatMappingProof, actualSource.StatMappingProof);
+        Assert.Null(actualSource.ProviderIdentity);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            actualSource.ProviderResolutionStatus);
     }
 
     private static ResolvedSearchComponent SpecialComponent(
@@ -2719,6 +3144,28 @@ public sealed class PathOfExileTradePriceCheckServiceTests
             return Task.FromResult(PendingResults.Count == 0
                 ? PathOfExileTradeStatCatalogProviderResult.Success(Catalog())
                 : PendingResults.Dequeue());
+        }
+    }
+
+    private sealed class StaticFilterCatalogProvider : IPathOfExileTradeFilterCatalogProvider
+    {
+        private readonly PathOfExileTradeFilterCatalog catalog;
+
+        public StaticFilterCatalogProvider(PathOfExileTradeFilterCatalog catalog)
+        {
+            this.catalog = catalog;
+        }
+
+        public bool TryGetCachedCatalog(out PathOfExileTradeFilterCatalog cachedCatalog)
+        {
+            cachedCatalog = catalog;
+            return true;
+        }
+
+        public Task<PathOfExileTradeFilterCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(PathOfExileTradeFilterCatalogProviderResult.Success(catalog));
         }
     }
 

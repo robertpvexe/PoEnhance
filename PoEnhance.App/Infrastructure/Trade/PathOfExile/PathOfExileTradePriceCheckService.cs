@@ -1652,15 +1652,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             "Multi-line Unique modifier blocks remain unsupported unless the complete block has one proven provider representation.";
         return component with
         {
-            IsSelected = false,
             IsSearchable = false,
             NotSearchableReason = reason,
             SupportsValueBounds = false,
             ValueBoundsUnsupportedReason = reason,
-            RequestedMinimum = null,
-            RequestedMaximum = null,
             FilterVariants = [],
-            SelectedFilterVariantIdentity = null,
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
             ProviderStatId = null,
             ProviderStatText = null,
