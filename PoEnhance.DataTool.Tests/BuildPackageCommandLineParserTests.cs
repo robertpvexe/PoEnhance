@@ -20,6 +20,8 @@ public sealed class BuildPackageCommandLineParserTests
             "reviewed-semantics.json",
             "--output",
             "package.json",
+            "--source-snapshot-dir",
+            "source-snapshot",
             "--source-root",
             "repoe",
             "--source-data-root",
@@ -47,6 +49,7 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("stat_translations.json", result.Request.TranslationsPath);
         Assert.Equal("reviewed-semantics.json", result.Request.ItemPropertySemanticsPath);
         Assert.Equal("package.json", result.Request.OutputPath);
+        Assert.Equal("source-snapshot", result.Request.SourceSnapshotDirectory);
         Assert.Equal("repoe", result.Request.SourceRootPath);
         Assert.Equal("repoe-data", result.Request.SourceDataRootPath);
         Assert.Equal("https://github.com/repoe-fork/repoe", result.Request.SourceUri);
@@ -107,6 +110,14 @@ public sealed class BuildPackageCommandLineParserTests
             @"--item-property-semantics .\data\semantics\item-property-semantics.json",
             usage,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetUsage_DocumentsOptionalSourceSnapshotDirectory()
+    {
+        var usage = BuildPackageCommandLineParser.GetUsage();
+
+        Assert.Contains("--source-snapshot-dir <path>", usage, StringComparison.Ordinal);
     }
 
     [Fact]

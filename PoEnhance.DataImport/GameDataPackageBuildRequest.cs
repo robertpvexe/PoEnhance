@@ -14,6 +14,8 @@ public sealed record GameDataPackageBuildRequest
 
     public string? OutputPath { get; init; }
 
+    public string? SourceSnapshotDirectory { get; init; }
+
     public string? SourceRootPath { get; init; }
 
     public string? SourceDataRootPath { get; init; }

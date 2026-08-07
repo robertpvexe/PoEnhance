@@ -18,6 +18,10 @@ public sealed record GameDataPackageBuildResult
 
     public string? Sha256 { get; init; }
 
+    public string? SourceSnapshotDirectory { get; init; }
+
+    public string? SourceSnapshotManifestPath { get; init; }
+
     public GameDataPackage? Package { get; init; }
 
     public bool IsSuccess => ExitCode == GameDataPackageBuildExitCode.Success;

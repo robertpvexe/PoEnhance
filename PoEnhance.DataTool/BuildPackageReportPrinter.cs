@@ -76,6 +76,16 @@ public static class BuildPackageReportPrinter
         {
             writer.WriteLine($"SHA256: {result.Sha256}");
         }
+
+        if (!string.IsNullOrWhiteSpace(result.SourceSnapshotDirectory))
+        {
+            writer.WriteLine($"SourceSnapshotDirectory: {result.SourceSnapshotDirectory}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.SourceSnapshotManifestPath))
+        {
+            writer.WriteLine($"SourceSnapshotManifestPath: {result.SourceSnapshotManifestPath}");
+        }
     }
 
     private static int Count(GameDataPackageBuildResult result, ImportDiagnosticSeverity severity)

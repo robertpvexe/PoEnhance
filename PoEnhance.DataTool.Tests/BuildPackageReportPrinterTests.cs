@@ -108,6 +108,23 @@ public sealed class BuildPackageReportPrinterTests
         Assert.Contains("  ItemPropertySemantics: 6", output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Print_ReportsSourceSnapshotPaths()
+    {
+        var output = Print(new GameDataPackageBuildResult
+        {
+            ExitCode = GameDataPackageBuildExitCode.Success,
+            SourceSnapshotDirectory = @"C:\snapshot",
+            SourceSnapshotManifestPath = @"C:\snapshot\source-snapshot-manifest.json",
+        });
+
+        Assert.Contains("SourceSnapshotDirectory: C:\\snapshot", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "SourceSnapshotManifestPath: C:\\snapshot\\source-snapshot-manifest.json",
+            output,
+            StringComparison.Ordinal);
+    }
+
     private static string Print(GameDataPackageBuildResult result, bool verboseDiagnostics = false)
     {
         using var writer = new StringWriter();

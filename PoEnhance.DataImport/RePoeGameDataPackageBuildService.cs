@@ -120,6 +120,48 @@ public sealed class RePoeGameDataPackageBuildService
         var package = packageCreation.Package;
         var counts = CountRecords(package);
         var outputPath = Path.GetFullPath(request.OutputPath!);
+        var sourceSnapshotDirectory = NormalizePathOrNull(request.SourceSnapshotDirectory);
+        string? sourceSnapshotManifestPath = null;
+
+        if (sourceSnapshotDirectory is not null)
+        {
+            try
+            {
+                var repoeSource = package.Manifest.Sources.Single(source =>
+                    string.Equals(
+                        source.SourceId,
+                        RePoeBaseItemImporter.SourceId,
+                        StringComparison.OrdinalIgnoreCase));
+                sourceSnapshotManifestPath = RePoeSourceSnapshotWriter.Write(
+                    sourceSnapshotDirectory,
+                    request.SourceUri!,
+                    request.SourceBranch!,
+                    request.SourceVersion!,
+                    request.DataVersion!,
+                    createdAtUtc,
+                    CreateSourceSnapshotInputs(inputFiles, repoeSource.InputFiles));
+            }
+            catch (Exception exception) when (exception is
+                IOException or
+                UnauthorizedAccessException or
+                ArgumentException or
+                NotSupportedException)
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.BuildSourceSnapshotWriteFailed,
+                    ImportDiagnosticSeverity.Error,
+                    "--source-snapshot-dir",
+                    $"Failed to retain the RePoE source snapshot: {exception.Message}"));
+
+                return Failure(
+                    GameDataPackageBuildExitCode.OutputWriteFailure,
+                    diagnostics,
+                    summaries,
+                    counts,
+                    outputPath,
+                    sourceSnapshotDirectory);
+            }
+        }
 
         try
         {
@@ -133,6 +175,8 @@ public sealed class RePoeGameDataPackageBuildService
                 OutputPath = outputPath,
                 OutputFileSizeBytes = fileSize,
                 Sha256 = sha256,
+                SourceSnapshotDirectory = sourceSnapshotDirectory,
+                SourceSnapshotManifestPath = sourceSnapshotManifestPath,
                 Package = package,
             };
         }
@@ -149,7 +193,8 @@ public sealed class RePoeGameDataPackageBuildService
                 diagnostics,
                 summaries,
                 counts,
-                outputPath);
+                outputPath,
+                sourceSnapshotDirectory);
         }
     }
 
@@ -178,6 +223,8 @@ public sealed class RePoeGameDataPackageBuildService
                 "--output",
                 "Output path must not be inside a PoEnhance.App directory."));
         }
+
+        ValidateSourceSnapshotArgument(request, diagnostics);
     }
 
     private static void AddRequiredArgumentDiagnostic(
@@ -195,21 +242,22 @@ public sealed class RePoeGameDataPackageBuildService
         }
     }
 
-    private static IReadOnlyList<(string Label, string Path)> BuildInputFileList(GameDataPackageBuildRequest request)
+    private static IReadOnlyList<(string LogicalRole, string Label, string Path)> BuildInputFileList(
+        GameDataPackageBuildRequest request)
     {
         return
         [
-            ("base_items.json", request.BaseItemsPath!),
-            ("mods.json", request.ModsPath!),
-            ("stats.json", request.StatsPath!),
-            ("stat_translations.json", request.TranslationsPath!),
+            ("baseItems", "base_items.json", request.BaseItemsPath!),
+            ("modifiers", "mods.json", request.ModsPath!),
+            ("stats", "stats.json", request.StatsPath!),
+            ("statTranslations", "stat_translations.json", request.TranslationsPath!),
         ];
     }
 
     private static GameDataPackageManifest CreateManifest(
         GameDataPackageBuildRequest request,
         DateTimeOffset createdAtUtc,
-        IReadOnlyList<(string Label, string Path)> inputFiles,
+        IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles,
         GameDataPackageReviewedItemPropertySemanticInput reviewedSemanticInput)
     {
         return new GameDataPackageManifest
@@ -239,7 +287,7 @@ public sealed class RePoeGameDataPackageBuildService
 
     private static void ValidateSourceGuard(
         GameDataPackageBuildRequest request,
-        IReadOnlyList<(string Label, string Path)> inputFiles,
+        IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles,
         List<ImportDiagnostic> diagnostics)
     {
         if (string.IsNullOrWhiteSpace(request.SourceRootPath) ||
@@ -324,7 +372,7 @@ public sealed class RePoeGameDataPackageBuildService
 
     private static IReadOnlyList<GameDataPackageInputFileFingerprint> CreateInputFingerprints(
         string sourceDataRootPath,
-        IReadOnlyList<(string Label, string Path)> inputFiles)
+        IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles)
     {
         var sourceDataRoot = Path.GetFullPath(sourceDataRootPath);
         return inputFiles
@@ -341,6 +389,76 @@ public sealed class RePoeGameDataPackageBuildService
                 };
             })
             .ToArray();
+    }
+
+    private static IReadOnlyList<RePoeSourceSnapshotInput> CreateSourceSnapshotInputs(
+        IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles,
+        IReadOnlyList<GameDataPackageInputFileFingerprint> fingerprints)
+    {
+        return inputFiles
+            .Select(inputFile =>
+            {
+                var fingerprint = fingerprints.Single(candidate =>
+                    string.Equals(candidate.Label, inputFile.Label, StringComparison.Ordinal));
+                return new RePoeSourceSnapshotInput
+                {
+                    LogicalInputRole = inputFile.LogicalRole,
+                    PackageInputLabel = inputFile.Label,
+                    OriginalPath = inputFile.Path,
+                    ExpectedSizeBytes = fingerprint.SizeBytes,
+                    ExpectedSha256 = fingerprint.Sha256!,
+                };
+            })
+            .ToArray();
+    }
+
+    private static void ValidateSourceSnapshotArgument(
+        GameDataPackageBuildRequest request,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (string.IsNullOrWhiteSpace(request.SourceSnapshotDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshotDirectory = Path.GetFullPath(request.SourceSnapshotDirectory);
+            if (!string.IsNullOrWhiteSpace(request.SourceRootPath))
+            {
+                var sourceRoot = Path.GetFullPath(request.SourceRootPath);
+                if (PathsEqual(snapshotDirectory, sourceRoot) ||
+                    IsUnderDirectory(snapshotDirectory, sourceRoot))
+                {
+                    diagnostics.Add(Diagnostic(
+                        RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                        ImportDiagnosticSeverity.Error,
+                        "--source-snapshot-dir",
+                        "Source snapshot output must be outside the RePoE checkout."));
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.OutputPath))
+            {
+                var packageOutputPath = Path.GetFullPath(request.OutputPath);
+                if (IsUnderDirectory(packageOutputPath, snapshotDirectory))
+                {
+                    diagnostics.Add(Diagnostic(
+                        RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                        ImportDiagnosticSeverity.Error,
+                        "--source-snapshot-dir",
+                        "The runtime package output must not be placed inside the source snapshot directory."));
+                }
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--source-snapshot-dir",
+                $"Source snapshot output path is invalid: {exception.Message}"));
+        }
     }
 
     private static string? RunGit(
@@ -401,6 +519,14 @@ public sealed class RePoeGameDataPackageBuildService
         var normalizedDirectory = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
             Path.DirectorySeparatorChar;
         return fullPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathsEqual(string first, string second)
+    {
+        return string.Equals(
+            first.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            second.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeRepositoryUri(string value)
@@ -484,7 +610,8 @@ public sealed class RePoeGameDataPackageBuildService
         IReadOnlyList<ImportDiagnostic> diagnostics,
         IReadOnlyList<GameDataPackageBuildSourceSummary>? summaries = null,
         GameDataPackageBuildRecordCounts? counts = null,
-        string? outputPath = null)
+        string? outputPath = null,
+        string? sourceSnapshotDirectory = null)
     {
         return new GameDataPackageBuildResult
         {
@@ -493,6 +620,7 @@ public sealed class RePoeGameDataPackageBuildService
             SourceSummaries = summaries ?? [],
             FinalCounts = counts ?? new GameDataPackageBuildRecordCounts(),
             OutputPath = outputPath,
+            SourceSnapshotDirectory = sourceSnapshotDirectory,
         };
     }
 

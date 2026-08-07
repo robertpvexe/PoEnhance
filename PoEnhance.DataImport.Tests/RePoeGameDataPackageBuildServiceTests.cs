@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using PoEnhance.GameData;
 
@@ -40,6 +41,134 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             descriptor.Id == "weapon.critical-strike-chance.added.local");
         Assert.Equal(new FileInfo(outputPath).Length, result.OutputFileSizeBytes);
         Assert.Equal(ComputeSha256(outputPath), result.Sha256);
+    }
+
+    [Fact]
+    public void Build_WithSourceSnapshot_CopiesExactlyFourInputsAndMatchesPackageFingerprints()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.PathFor("out", "poenhance-game-data.json");
+        var snapshotDirectory = workspace.PathFor("source-snapshot");
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            SourceSnapshotDirectory = snapshotDirectory,
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.Success, result.ExitCode);
+        Assert.Equal(Path.GetFullPath(snapshotDirectory), result.SourceSnapshotDirectory);
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath(snapshotDirectory), RePoeSourceSnapshotWriter.ManifestFileName),
+            result.SourceSnapshotManifestPath);
+        var retainedNames = Directory.GetFiles(snapshotDirectory)
+            .Select(path => Path.GetFileName(path)!)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            [
+                "base_items.json",
+                "mods.json",
+                RePoeSourceSnapshotWriter.ManifestFileName,
+                "stat_translations.json",
+                "stats.json",
+            ],
+            retainedNames);
+
+        var manifest = DeserializeSnapshotManifest(result.SourceSnapshotManifestPath!);
+        Assert.Equal(1, manifest.SnapshotVersion);
+        Assert.Equal(request.SourceUri, manifest.RepositoryUri);
+        Assert.Equal(request.SourceBranch, manifest.Branch);
+        Assert.Equal(request.SourceVersion, manifest.CommitSha);
+        Assert.Equal(request.DataVersion, manifest.PackageDataVersion);
+        Assert.Equal(FixedCreatedAtUtc, manifest.BuildTimestampUtc);
+        Assert.Equal(
+            ["baseItems", "modifiers", "stats", "statTranslations"],
+            manifest.Files.Select(file => file.LogicalInputRole));
+
+        var packageFingerprints = Assert.Single(result.Package!.Manifest.Sources).InputFiles
+            .ToDictionary(input => input.Label!, StringComparer.Ordinal);
+        Assert.Equal(4, manifest.Files.Count);
+        foreach (var retainedFile in manifest.Files)
+        {
+            var fingerprint = packageFingerprints[retainedFile.RetainedFileName!];
+            var retainedPath = Path.Combine(snapshotDirectory, retainedFile.RetainedFileName!);
+            Assert.Equal(Path.GetFullPath(GetRequestInputPath(request, retainedFile.RetainedFileName!)),
+                retainedFile.OriginalResolvedPath);
+            Assert.Equal(fingerprint.SizeBytes, retainedFile.SizeBytes);
+            Assert.Equal(fingerprint.Sha256, retainedFile.Sha256);
+            Assert.Equal(new FileInfo(retainedPath).Length, retainedFile.SizeBytes);
+            Assert.Equal(ComputeSha256(retainedPath), retainedFile.Sha256);
+        }
+    }
+
+    [Fact]
+    public void SourceSnapshotWriter_PartialCopyFailureLeavesNoCompleteManifest()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var firstInput = workspace.WriteText("first.json", """{"ok":true}""");
+        var missingInput = workspace.PathFor("missing.json");
+        var snapshotDirectory = workspace.PathFor("snapshot");
+
+        Assert.Throws<FileNotFoundException>(() => RePoeSourceSnapshotWriter.Write(
+            snapshotDirectory,
+            "https://github.com/repoe-fork/repoe",
+            "master",
+            "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
+            "test-data-version",
+            FixedCreatedAtUtc,
+            [
+                new RePoeSourceSnapshotInput
+                {
+                    LogicalInputRole = "baseItems",
+                    PackageInputLabel = "base_items.json",
+                    OriginalPath = firstInput,
+                    ExpectedSizeBytes = new FileInfo(firstInput).Length,
+                    ExpectedSha256 = ComputeSha256(firstInput),
+                },
+                new RePoeSourceSnapshotInput
+                {
+                    LogicalInputRole = "modifiers",
+                    PackageInputLabel = "mods.json",
+                    OriginalPath = missingInput,
+                    ExpectedSizeBytes = 1,
+                    ExpectedSha256 = new string('0', 64),
+                },
+            ]));
+
+        Assert.False(File.Exists(Path.Combine(
+            snapshotDirectory,
+            RePoeSourceSnapshotWriter.ManifestFileName)));
+        Assert.False(Directory.Exists(snapshotDirectory));
+        Assert.DoesNotContain(
+            Directory.EnumerateDirectories(workspace.Root),
+            directory => Path.GetFileName(directory).EndsWith(".tmp", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_NonEmptySnapshotDirectory_FailsVisiblyWithoutWritingPackageOrManifest()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var outputPath = workspace.PathFor("package.json");
+        var snapshotDirectory = workspace.PathFor("snapshot");
+        Directory.CreateDirectory(snapshotDirectory);
+        var sentinelPath = workspace.WriteText(Path.Combine("snapshot", "owner-file.txt"), "preserve");
+        var request = CreateWorkspaceRequest(workspace, outputPath) with
+        {
+            SourceSnapshotDirectory = snapshotDirectory,
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.OutputWriteFailure, result.ExitCode);
+        Assert.False(File.Exists(outputPath));
+        Assert.Equal("preserve", File.ReadAllText(sentinelPath));
+        Assert.False(File.Exists(Path.Combine(
+            snapshotDirectory,
+            RePoeSourceSnapshotWriter.ManifestFileName)));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.BuildSourceSnapshotWriteFailed &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
     }
 
     [Fact]
@@ -547,6 +676,27 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         using var stream = File.OpenRead(filePath);
         var hash = SHA256.HashData(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static RePoeSourceSnapshotManifest DeserializeSnapshotManifest(string path)
+    {
+        return JsonSerializer.Deserialize<RePoeSourceSnapshotManifest>(
+            File.ReadAllText(path),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    }
+
+    private static string GetRequestInputPath(
+        GameDataPackageBuildRequest request,
+        string retainedFileName)
+    {
+        return retainedFileName switch
+        {
+            "base_items.json" => request.BaseItemsPath!,
+            "mods.json" => request.ModsPath!,
+            "stats.json" => request.StatsPath!,
+            "stat_translations.json" => request.TranslationsPath!,
+            _ => throw new ArgumentOutOfRangeException(nameof(retainedFileName)),
+        };
     }
 
     private sealed record TestSource(
