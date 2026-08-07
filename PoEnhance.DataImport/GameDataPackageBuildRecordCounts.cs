@@ -11,4 +11,12 @@ public sealed record GameDataPackageBuildRecordCounts
     public int StatTranslations { get; init; }
 
     public int ItemPropertySemantics { get; init; }
+
+    public int ItemClasses { get; init; }
+
+    public int Tags { get; init; }
+
+    public int BaseModifierEvidenceGroups { get; init; }
+
+    public int BaseModifierRelationships { get; init; }
 }

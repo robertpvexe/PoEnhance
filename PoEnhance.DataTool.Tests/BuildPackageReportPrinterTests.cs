@@ -109,6 +109,36 @@ public sealed class BuildPackageReportPrinterTests
     }
 
     [Fact]
+    public void Print_ReportsNewCatalogAndRelationshipAuditCounts()
+    {
+        var output = Print(new GameDataPackageBuildResult
+        {
+            ExitCode = GameDataPackageBuildExitCode.Success,
+            FinalCounts = new GameDataPackageBuildRecordCounts
+            {
+                ItemClasses = 3,
+                Tags = 7,
+                BaseModifierEvidenceGroups = 2,
+                BaseModifierRelationships = 11,
+            },
+            BaseModifierEvidenceAudit = new RePoeModsByBaseImportAudit
+            {
+                SourceBaseEntriesRead = 4,
+                RelationshipsImported = 11,
+                RelationshipsUnavailableStatlessModifiers = 2,
+                UnknownModifierRelationships = 1,
+            },
+        });
+
+        Assert.Contains("  ItemClasses: 3", output, StringComparison.Ordinal);
+        Assert.Contains("  Tags: 7", output, StringComparison.Ordinal);
+        Assert.Contains("  BaseModifierRelationships: 11", output, StringComparison.Ordinal);
+        Assert.Contains("BaseModifierEvidenceAudit:", output, StringComparison.Ordinal);
+        Assert.Contains("  RelationshipsUnavailableStatlessModifiers: 2", output, StringComparison.Ordinal);
+        Assert.Contains("  UnknownModifierRelationships: 1", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Print_ReportsSourceSnapshotPaths()
     {
         var output = Print(new GameDataPackageBuildResult

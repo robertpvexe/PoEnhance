@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PoEnhance.GameData;
 
 public sealed record GameDataPackage
@@ -13,4 +15,13 @@ public sealed record GameDataPackage
     public IReadOnlyList<StatTranslationDefinition> StatTranslations { get; init; } = [];
 
     public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; init; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<ItemClassDefinition>? ItemClasses { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<TagDefinition>? Tags { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BaseModifierSourceEvidence? BaseModifierEvidence { get; init; }
 }

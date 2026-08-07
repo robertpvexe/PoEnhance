@@ -1,0 +1,20 @@
+{
+  "Ring": {
+    "ring,default": {
+      "bases": ["Metadata/Items/Rings/Ring4"],
+      "mods": {
+        "prefix": {
+          "AbyssJewelLife": {
+            "AbyssJewelAddedLife1": 1000
+          }
+        },
+        "suffix": {
+          "FireResistanceForJewel": {
+            "AbyssFireResistanceJewel1": 800
+          }
+        }
+      },
+      "conditional_mods": null
+    }
+  }
+}

@@ -24,5 +24,7 @@ public sealed record GameDataPackageBuildResult
 
     public GameDataPackage? Package { get; init; }
 
+    public RePoeModsByBaseImportAudit? BaseModifierEvidenceAudit { get; init; }
+
     public bool IsSuccess => ExitCode == GameDataPackageBuildExitCode.Success;
 }

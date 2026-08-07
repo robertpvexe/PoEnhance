@@ -15,6 +15,9 @@ public sealed class GameDataPackageBuilder
             stats: [],
             statTranslations: [],
             itemPropertySemantics: [],
+            itemClasses: null,
+            tags: null,
+            baseModifierEvidence: null,
             requireCompleteStatReferences: false);
     }
 
@@ -32,6 +35,9 @@ public sealed class GameDataPackageBuilder
             stats,
             statTranslations,
             itemPropertySemantics: [],
+            itemClasses: null,
+            tags: null,
+            baseModifierEvidence: null,
             requireCompleteStatReferences: true);
     }
 
@@ -50,6 +56,33 @@ public sealed class GameDataPackageBuilder
             stats,
             statTranslations,
             itemPropertySemantics,
+            itemClasses: null,
+            tags: null,
+            baseModifierEvidence: null,
+            requireCompleteStatReferences: true);
+    }
+
+    public GameDataPackageCreationResult CreatePackage(
+        GameDataPackageManifest manifest,
+        IEnumerable<ItemBaseRecord> itemBases,
+        IEnumerable<ModifierDefinition> modifiers,
+        IEnumerable<StatDefinition> stats,
+        IEnumerable<StatTranslationDefinition> statTranslations,
+        IEnumerable<ItemPropertySemanticDescriptor> itemPropertySemantics,
+        IEnumerable<ItemClassDefinition> itemClasses,
+        IEnumerable<TagDefinition> tags,
+        BaseModifierSourceEvidence baseModifierEvidence)
+    {
+        return CreatePackage(
+            manifest,
+            itemBases,
+            modifiers,
+            stats,
+            statTranslations,
+            itemPropertySemantics,
+            itemClasses,
+            tags,
+            baseModifierEvidence,
             requireCompleteStatReferences: true);
     }
 
@@ -60,6 +93,9 @@ public sealed class GameDataPackageBuilder
         IEnumerable<StatDefinition> stats,
         IEnumerable<StatTranslationDefinition> statTranslations,
         IEnumerable<ItemPropertySemanticDescriptor> itemPropertySemantics,
+        IEnumerable<ItemClassDefinition>? itemClasses,
+        IEnumerable<TagDefinition>? tags,
+        BaseModifierSourceEvidence? baseModifierEvidence,
         bool requireCompleteStatReferences)
     {
         var diagnostics = new List<ImportDiagnostic>();
@@ -108,6 +144,9 @@ public sealed class GameDataPackageBuilder
             Stats = stats.ToArray(),
             StatTranslations = statTranslations.ToArray(),
             ItemPropertySemantics = itemPropertySemantics.ToArray(),
+            ItemClasses = itemClasses?.ToArray(),
+            Tags = tags?.ToArray(),
+            BaseModifierEvidence = baseModifierEvidence,
         };
 
         if (requireCompleteStatReferences)

@@ -13,6 +13,9 @@ public sealed class RePoeGameDataPackageBuildService
     private readonly RePoeModifierImporter _modifierImporter = new();
     private readonly RePoeStatsImporter _statsImporter = new();
     private readonly RePoeStatTranslationsImporter _translationImporter = new();
+    private readonly RePoeItemClassImporter _itemClassImporter = new();
+    private readonly RePoeTagImporter _tagImporter = new();
+    private readonly RePoeModsByBaseImporter _modsByBaseImporter = new();
     private readonly ReviewedItemPropertySemanticImporter _itemPropertySemanticImporter = new();
     private readonly GameDataPackageBuilder _packageBuilder = new();
 
@@ -64,6 +67,14 @@ public sealed class RePoeGameDataPackageBuildService
         var modifiers = _modifierImporter.Import(request.ModsPath!);
         var stats = _statsImporter.Import(request.StatsPath!);
         var translations = _translationImporter.Import(request.TranslationsPath!, stats.ImportedRecords);
+        var itemClasses = _itemClassImporter.Import(request.ItemClassesPath!);
+        var tags = _tagImporter.Import(request.TagsPath!);
+        var modsByBase = _modsByBaseImporter.Import(
+            request.ModsByBasePath!,
+            request.BaseItemsPath!,
+            request.ModsPath!,
+            baseItems.ImportedRecords,
+            modifiers.ImportedRecords);
         var semanticInputBytes = File.ReadAllBytes(request.ItemPropertySemanticsPath!);
         using var semanticInputStream = new MemoryStream(semanticInputBytes, writable: false);
         var itemPropertySemantics = _itemPropertySemanticImporter.Import(
@@ -74,6 +85,9 @@ public sealed class RePoeGameDataPackageBuildService
         diagnostics.AddRange(modifiers.Diagnostics);
         diagnostics.AddRange(stats.Diagnostics);
         diagnostics.AddRange(translations.Diagnostics);
+        diagnostics.AddRange(itemClasses.Diagnostics);
+        diagnostics.AddRange(tags.Diagnostics);
+        diagnostics.AddRange(modsByBase.Diagnostics);
         diagnostics.AddRange(itemPropertySemantics.Diagnostics);
 
         var summaries = new[]
@@ -82,6 +96,15 @@ public sealed class RePoeGameDataPackageBuildService
             Summary("Modifiers", modifiers),
             Summary("Stats", stats),
             Summary("StatTranslations", translations),
+            Summary("ItemClasses", itemClasses),
+            Summary("Tags", tags),
+            new GameDataPackageBuildSourceSummary
+            {
+                SourceName = "BaseModifierEvidence",
+                SourceRecordsRead = modsByBase.Audit.SourceBaseEntriesRead,
+                RecordsImported = modsByBase.Audit.BaseEntriesImported,
+                RecordsSkipped = modsByBase.Audit.BaseEntriesSkipped,
+            },
             Summary("ItemPropertySemantics", itemPropertySemantics),
         };
 
@@ -90,7 +113,8 @@ public sealed class RePoeGameDataPackageBuildService
             return Failure(
                 GameDataPackageBuildExitCode.SourceImportFailure,
                 diagnostics,
-                summaries);
+                summaries,
+                baseModifierEvidenceAudit: modsByBase.Audit);
         }
 
         var createdAtUtc = NormalizeCreatedAtUtc(request.CreatedAtUtc ?? DateTimeOffset.UtcNow);
@@ -105,7 +129,10 @@ public sealed class RePoeGameDataPackageBuildService
             modifiers.ImportedRecords,
             stats.ImportedRecords,
             translations.ImportedRecords,
-            itemPropertySemantics.ImportedRecords);
+            itemPropertySemantics.ImportedRecords,
+            itemClasses.ImportedRecords,
+            tags.ImportedRecords,
+            modsByBase.Evidence!);
         diagnostics.AddRange(packageCreation.Diagnostics);
 
         if (packageCreation.Package is null || HasErrors(diagnostics))
@@ -114,7 +141,8 @@ public sealed class RePoeGameDataPackageBuildService
                 GameDataPackageBuildExitCode.PackageValidationFailure,
                 diagnostics,
                 summaries,
-                CountRecords(packageCreation.Package));
+                CountRecords(packageCreation.Package),
+                baseModifierEvidenceAudit: modsByBase.Audit);
         }
 
         var package = packageCreation.Package;
@@ -159,7 +187,8 @@ public sealed class RePoeGameDataPackageBuildService
                     summaries,
                     counts,
                     outputPath,
-                    sourceSnapshotDirectory);
+                    sourceSnapshotDirectory,
+                    modsByBase.Audit);
             }
         }
 
@@ -178,6 +207,7 @@ public sealed class RePoeGameDataPackageBuildService
                 SourceSnapshotDirectory = sourceSnapshotDirectory,
                 SourceSnapshotManifestPath = sourceSnapshotManifestPath,
                 Package = package,
+                BaseModifierEvidenceAudit = modsByBase.Audit,
             };
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -194,7 +224,8 @@ public sealed class RePoeGameDataPackageBuildService
                 summaries,
                 counts,
                 outputPath,
-                sourceSnapshotDirectory);
+                sourceSnapshotDirectory,
+                modsByBase.Audit);
         }
     }
 
@@ -206,6 +237,9 @@ public sealed class RePoeGameDataPackageBuildService
         AddRequiredArgumentDiagnostic(request.ModsPath, "--mods", diagnostics);
         AddRequiredArgumentDiagnostic(request.StatsPath, "--stats", diagnostics);
         AddRequiredArgumentDiagnostic(request.TranslationsPath, "--translations", diagnostics);
+        AddRequiredArgumentDiagnostic(request.ItemClassesPath, "--item-classes", diagnostics);
+        AddRequiredArgumentDiagnostic(request.TagsPath, "--tags", diagnostics);
+        AddRequiredArgumentDiagnostic(request.ModsByBasePath, "--mods-by-base", diagnostics);
         AddRequiredArgumentDiagnostic(request.ItemPropertySemanticsPath, "--item-property-semantics", diagnostics);
         AddRequiredArgumentDiagnostic(request.OutputPath, "--output", diagnostics);
         AddRequiredArgumentDiagnostic(request.SourceRootPath, "--source-root", diagnostics);
@@ -251,6 +285,9 @@ public sealed class RePoeGameDataPackageBuildService
             ("modifiers", "mods.json", request.ModsPath!),
             ("stats", "stats.json", request.StatsPath!),
             ("statTranslations", "stat_translations.json", request.TranslationsPath!),
+            ("itemClasses", "item_classes.json", request.ItemClassesPath!),
+            ("tags", "tags.json", request.TagsPath!),
+            ("baseModifierEvidence", "mods_by_base.json", request.ModsByBasePath!),
         ];
     }
 
@@ -582,6 +619,10 @@ public sealed class RePoeGameDataPackageBuildService
             Stats = package?.Stats?.Count ?? 0,
             StatTranslations = package?.StatTranslations?.Count ?? 0,
             ItemPropertySemantics = package?.ItemPropertySemantics?.Count ?? 0,
+            ItemClasses = package?.ItemClasses?.Count ?? 0,
+            Tags = package?.Tags?.Count ?? 0,
+            BaseModifierEvidenceGroups = package?.BaseModifierEvidence?.Groups.Count ?? 0,
+            BaseModifierRelationships = package?.BaseModifierEvidence?.RelationshipsRepresented ?? 0,
         };
     }
 
@@ -611,7 +652,8 @@ public sealed class RePoeGameDataPackageBuildService
         IReadOnlyList<GameDataPackageBuildSourceSummary>? summaries = null,
         GameDataPackageBuildRecordCounts? counts = null,
         string? outputPath = null,
-        string? sourceSnapshotDirectory = null)
+        string? sourceSnapshotDirectory = null,
+        RePoeModsByBaseImportAudit? baseModifierEvidenceAudit = null)
     {
         return new GameDataPackageBuildResult
         {
@@ -621,6 +663,7 @@ public sealed class RePoeGameDataPackageBuildService
             FinalCounts = counts ?? new GameDataPackageBuildRecordCounts(),
             OutputPath = outputPath,
             SourceSnapshotDirectory = sourceSnapshotDirectory,
+            BaseModifierEvidenceAudit = baseModifierEvidenceAudit,
         };
     }
 

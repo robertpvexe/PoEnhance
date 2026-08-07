@@ -1,0 +1,8 @@
+{
+  "Body Armour": { "category": "Armour", "category_id": "Armour", "name": "Body Armour", "influence_tags": null },
+  "Jewel": { "category": "Jewel", "category_id": "Jewel", "name": "Jewel", "influence_tags": null },
+  "Ring": { "category": "Ring", "category_id": "Ring", "name": "Ring", "influence_tags": ["ring"] },
+  "StackableCurrency": { "category": "Currency", "category_id": "Currency", "name": "StackableCurrency", "influence_tags": null },
+  "Two Hand Axe": { "category": "Weapon", "category_id": "Weapon", "name": "Two Hand Axe", "influence_tags": null },
+  "UtilityFlask": { "category": "Flask", "category_id": "Flask", "name": "UtilityFlask", "influence_tags": null }
+}

@@ -61,6 +61,33 @@ public static class BuildPackageReportPrinter
         writer.WriteLine($"  Stats: {result.FinalCounts.Stats}");
         writer.WriteLine($"  StatTranslations: {result.FinalCounts.StatTranslations}");
         writer.WriteLine($"  ItemPropertySemantics: {result.FinalCounts.ItemPropertySemantics}");
+        writer.WriteLine($"  ItemClasses: {result.FinalCounts.ItemClasses}");
+        writer.WriteLine($"  Tags: {result.FinalCounts.Tags}");
+        writer.WriteLine($"  BaseModifierEvidenceGroups: {result.FinalCounts.BaseModifierEvidenceGroups}");
+        writer.WriteLine($"  BaseModifierRelationships: {result.FinalCounts.BaseModifierRelationships}");
+
+        if (result.BaseModifierEvidenceAudit is { } audit)
+        {
+            writer.WriteLine("BaseModifierEvidenceAudit:");
+            writer.WriteLine($"  SourceGroupsRead: {audit.SourceGroupsRead}");
+            writer.WriteLine($"  GroupsImported: {audit.GroupsImported}");
+            writer.WriteLine($"  SpecialSourceEntriesNotModeled: {audit.SpecialSourceEntriesNotModeled}");
+            writer.WriteLine($"  SourceBaseEntriesRead: {audit.SourceBaseEntriesRead}");
+            writer.WriteLine($"  BaseEntriesImported: {audit.BaseEntriesImported}");
+            writer.WriteLine($"  BaseEntriesSkipped: {audit.BaseEntriesSkipped}");
+            writer.WriteLine($"  DuplicateBaseEntries: {audit.DuplicateBaseEntries}");
+            writer.WriteLine($"  UnknownBaseReferences: {audit.UnknownBaseReferences}");
+            writer.WriteLine($"  SourceRelationshipsRead: {audit.SourceRelationshipsRead}");
+            writer.WriteLine($"  RelationshipsImported: {audit.RelationshipsImported}");
+            writer.WriteLine($"  RelationshipsUnavailableBases: {audit.RelationshipsUnavailableBases}");
+            writer.WriteLine($"  RelationshipsUnavailableStatlessModifiers: {audit.RelationshipsUnavailableStatlessModifiers}");
+            writer.WriteLine($"  RelationshipsUnavailableOtherModifiers: {audit.RelationshipsUnavailableOtherModifiers}");
+            writer.WriteLine($"  UnknownModifierRelationships: {audit.UnknownModifierRelationships}");
+            writer.WriteLine($"  UnresolvedRelationships: {audit.UnresolvedRelationships}");
+            writer.WriteLine($"  DuplicateRelationships: {audit.DuplicateRelationships}");
+            WriteCounts(writer, "SourceGenerationRelationships", audit.SourceGenerationRelationshipCounts);
+            WriteCounts(writer, "SourceGenerationBucketRelationships", audit.SourceGenerationBucketRelationshipCounts);
+        }
 
         if (!string.IsNullOrWhiteSpace(result.OutputPath))
         {
@@ -117,6 +144,18 @@ public static class BuildPackageReportPrinter
             ? string.Empty
             : $" ({diagnostic.SourceRecordId})";
         writer.WriteLine($"  {diagnostic.Severity}: {diagnostic.Code}{sourceRecord}: {diagnostic.Message}");
+    }
+
+    private static void WriteCounts(
+        TextWriter writer,
+        string label,
+        IReadOnlyDictionary<string, int> counts)
+    {
+        writer.WriteLine($"  {label}:");
+        foreach (var entry in counts.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+        {
+            writer.WriteLine($"    {entry.Key}: {entry.Value}");
+        }
     }
 
     private sealed record DiagnosticGroup(

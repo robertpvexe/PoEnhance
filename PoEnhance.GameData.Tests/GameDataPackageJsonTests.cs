@@ -187,6 +187,9 @@ public sealed class GameDataPackageJsonTests
         Assert.Empty(package.Stats);
         Assert.Empty(package.StatTranslations);
         Assert.Empty(package.ItemPropertySemantics);
+        Assert.Null(package.ItemClasses);
+        Assert.Null(package.Tags);
+        Assert.Null(package.BaseModifierEvidence);
         Assert.Null(package.Manifest.ReviewedItemPropertySemantics);
         Assert.Null(package.Manifest.ItemPropertySemanticAugmentation);
     }
@@ -265,5 +268,77 @@ public sealed class GameDataPackageJsonTests
         root["modifiers"]![0]!["sourceAvailability"] = "notARealAvailability";
 
         Assert.Throws<JsonException>(() => GameDataPackageJson.Deserialize(root.ToJsonString()));
+    }
+
+    [Fact]
+    public void Serialize_NewEligibilitySourceCatalogs_RoundTripExactly()
+    {
+        var package = AddEligibilitySources(GameDataPackageFixtures.CreateDevelopmentPackage());
+
+        var json = GameDataPackageJson.Serialize(package);
+        var roundTripped = GameDataPackageJson.Deserialize(json);
+
+        Assert.Contains("\"semantics\": \"positiveAndContextualOnly\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"coverage\": \"partial\"", json, StringComparison.Ordinal);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(package.ItemClasses!.Select(item => item.Id), roundTripped.ItemClasses!.Select(item => item.Id));
+        Assert.Equal(package.ItemClasses!.SelectMany(item => item.InfluenceTagIds), roundTripped.ItemClasses!.SelectMany(item => item.InfluenceTagIds));
+        Assert.Equal(package.Tags!.Select(tag => tag.Id), roundTripped.Tags!.Select(tag => tag.Id));
+        Assert.Equal(package.BaseModifierEvidence!.Semantics, roundTripped.BaseModifierEvidence!.Semantics);
+        Assert.Equal(package.BaseModifierEvidence.Coverage, roundTripped.BaseModifierEvidence.Coverage);
+        Assert.Equal(
+            package.BaseModifierEvidence.Groups.SelectMany(group => group.Modifiers).Select(modifier => modifier.ModifierId),
+            roundTripped.BaseModifierEvidence.Groups.SelectMany(group => group.Modifiers).Select(modifier => modifier.ModifierId));
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+    }
+
+    private static GameDataPackage AddEligibilitySources(GameDataPackage package)
+    {
+        var source = new GameDataSourceReference { SourceId = "repoe", ExternalId = "fixture" };
+        var itemClasses = package.ItemBases
+            .Select(itemBase => itemBase.ItemClass!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .Select(name => new ItemClassDefinition { Id = name, Name = name, Sources = [source with { ExternalId = name }] })
+            .ToArray();
+        var tags = package.ItemBases.SelectMany(itemBase => itemBase.Tags)
+            .Concat(package.Modifiers.SelectMany(modifier => modifier.Tags))
+            .Concat(package.Modifiers.SelectMany(modifier => modifier.SpawnWeights.Select(weight => weight.Tag!)))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .Select(id => new TagDefinition { Id = id, Sources = [source with { ExternalId = id }] })
+            .ToArray();
+        return package with
+        {
+            ItemClasses = itemClasses,
+            Tags = tags,
+            BaseModifierEvidence = new BaseModifierSourceEvidence
+            {
+                Semantics = BaseModifierEvidenceSemantics.PositiveAndContextualOnly,
+                Coverage = BaseModifierEvidenceCoverage.Partial,
+                SourceBaseEntriesRead = 1,
+                BaseEntriesRepresented = 1,
+                SourceRelationshipsRead = 1,
+                RelationshipsRepresented = 1,
+                Groups =
+                [
+                    new BaseModifierSourceEvidenceGroup
+                    {
+                        BaseItemIds = [package.ItemBases[0].Id!],
+                        Modifiers =
+                        [
+                            new BaseModifierSourceEvidenceEntry
+                            {
+                                ModifierId = package.Modifiers[1].Id,
+                                ReportedWeight = 1000,
+                                SourceGenerationBucket = "prefix",
+                            },
+                        ],
+                        Sources = [source with { ExternalId = "mods_by_base.json#/fixture" }],
+                    },
+                ],
+                Sources = [source with { ExternalId = "mods_by_base.json" }],
+            },
+        };
     }
 }

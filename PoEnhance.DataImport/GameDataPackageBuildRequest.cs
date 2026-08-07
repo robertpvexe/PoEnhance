@@ -10,6 +10,12 @@ public sealed record GameDataPackageBuildRequest
 
     public string? TranslationsPath { get; init; }
 
+    public string? ItemClassesPath { get; init; }
+
+    public string? TagsPath { get; init; }
+
+    public string? ModsByBasePath { get; init; }
+
     public string? ItemPropertySemanticsPath { get; init; }
 
     public string? OutputPath { get; init; }

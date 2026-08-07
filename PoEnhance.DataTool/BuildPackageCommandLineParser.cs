@@ -12,6 +12,9 @@ public static class BuildPackageCommandLineParser
         "--mods",
         "--stats",
         "--translations",
+        "--item-classes",
+        "--tags",
+        "--mods-by-base",
         "--item-property-semantics",
         "--output",
         "--source-snapshot-dir",
@@ -86,6 +89,9 @@ public static class BuildPackageCommandLineParser
         AddMissingRequiredOption(values, "--mods", errors);
         AddMissingRequiredOption(values, "--stats", errors);
         AddMissingRequiredOption(values, "--translations", errors);
+        AddMissingRequiredOption(values, "--item-classes", errors);
+        AddMissingRequiredOption(values, "--tags", errors);
+        AddMissingRequiredOption(values, "--mods-by-base", errors);
         AddMissingRequiredOption(values, "--item-property-semantics", errors);
         AddMissingRequiredOption(values, "--output", errors);
         AddMissingRequiredOption(values, "--source-root", errors);
@@ -111,6 +117,9 @@ public static class BuildPackageCommandLineParser
                 ModsPath = values["--mods"],
                 StatsPath = values["--stats"],
                 TranslationsPath = values["--translations"],
+                ItemClassesPath = values["--item-classes"],
+                TagsPath = values["--tags"],
+                ModsByBasePath = values["--mods-by-base"],
                 ItemPropertySemanticsPath = values["--item-property-semantics"],
                 OutputPath = values["--output"],
                 SourceSnapshotDirectory = values.GetValueOrDefault("--source-snapshot-dir"),
@@ -139,10 +148,10 @@ public static class BuildPackageCommandLineParser
     {
         return """
             Usage:
-              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
+              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-classes <path> --tags <path> --mods-by-base <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
 
             Example:
-              dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.json --source-snapshot-dir .\artifacts\source-snapshots\dev-001 --source-root .\local-data\repoe --source-data-root .\data\repoe --source-uri https://github.com/repoe-fork/repoe --source-branch master --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 --data-version dev-001
+              dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --item-classes .\data\repoe\item_classes.json --tags .\data\repoe\tags.json --mods-by-base .\data\repoe\mods_by_base.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.json --source-snapshot-dir .\artifacts\source-snapshots\dev-001 --source-root .\local-data\repoe --source-data-root .\data\repoe --source-uri https://github.com/repoe-fork/repoe --source-branch master --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 --data-version dev-001
             """;
     }
 

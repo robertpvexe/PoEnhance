@@ -16,6 +16,12 @@ public sealed class BuildPackageCommandLineParserTests
             "stats.json",
             "--translations",
             "stat_translations.json",
+            "--item-classes",
+            "item_classes.json",
+            "--tags",
+            "tags.json",
+            "--mods-by-base",
+            "mods_by_base.json",
             "--item-property-semantics",
             "reviewed-semantics.json",
             "--output",
@@ -47,6 +53,9 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("mods.json", result.Request.ModsPath);
         Assert.Equal("stats.json", result.Request.StatsPath);
         Assert.Equal("stat_translations.json", result.Request.TranslationsPath);
+        Assert.Equal("item_classes.json", result.Request.ItemClassesPath);
+        Assert.Equal("tags.json", result.Request.TagsPath);
+        Assert.Equal("mods_by_base.json", result.Request.ModsByBasePath);
         Assert.Equal("reviewed-semantics.json", result.Request.ItemPropertySemanticsPath);
         Assert.Equal("package.json", result.Request.OutputPath);
         Assert.Equal("source-snapshot", result.Request.SourceSnapshotDirectory);
@@ -110,6 +119,9 @@ public sealed class BuildPackageCommandLineParserTests
             @"--item-property-semantics .\data\semantics\item-property-semantics.json",
             usage,
             StringComparison.Ordinal);
+        Assert.Contains("--item-classes <path>", usage, StringComparison.Ordinal);
+        Assert.Contains("--tags <path>", usage, StringComparison.Ordinal);
+        Assert.Contains("--mods-by-base <path>", usage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -237,6 +249,12 @@ public sealed class BuildPackageCommandLineParserTests
             "stats.json",
             "--translations",
             "stat_translations.json",
+            "--item-classes",
+            "item_classes.json",
+            "--tags",
+            "tags.json",
+            "--mods-by-base",
+            "mods_by_base.json",
             "--item-property-semantics",
             "reviewed-semantics.json",
             "--output",

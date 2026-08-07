@@ -69,6 +69,7 @@ public static class GameDataPackageValidator
         }
 
         errors.AddRange(ValidateItemPropertySemantics(package.ItemPropertySemantics, package.Stats).Errors);
+        errors.AddRange(GameDataPackageEligibilitySourceValidator.Validate(package, manifestSourceIds));
 
         return new GameDataValidationResult(errors);
     }

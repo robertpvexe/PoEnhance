@@ -32,6 +32,10 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(55, result.FinalCounts.Stats);
         Assert.Equal(6, result.FinalCounts.StatTranslations);
         Assert.Equal(25, result.FinalCounts.ItemPropertySemantics);
+        Assert.Equal(6, result.FinalCounts.ItemClasses);
+        Assert.Equal(22, result.FinalCounts.Tags);
+        Assert.Equal(1, result.FinalCounts.BaseModifierEvidenceGroups);
+        Assert.Equal(2, result.FinalCounts.BaseModifierRelationships);
         Assert.Equal(25, result.Package.ItemPropertySemantics.Count);
         Assert.Equal("weapon.physical-damage.increased-percent.local", result.Package.ItemPropertySemantics[0].Id);
         Assert.Equal("item.evasion-energy-shield.added.local", result.Package.ItemPropertySemantics[^1].Id);
@@ -44,7 +48,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     }
 
     [Fact]
-    public void Build_WithSourceSnapshot_CopiesExactlyFourInputsAndMatchesPackageFingerprints()
+    public void Build_WithSourceSnapshot_CopiesExactlySevenInputsAndMatchesPackageFingerprints()
     {
         using var workspace = TemporaryWorkspace.Create();
         var outputPath = workspace.PathFor("out", "poenhance-game-data.json");
@@ -68,10 +72,13 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(
             [
                 "base_items.json",
+                "item_classes.json",
                 "mods.json",
+                "mods_by_base.json",
                 RePoeSourceSnapshotWriter.ManifestFileName,
                 "stat_translations.json",
                 "stats.json",
+                "tags.json",
             ],
             retainedNames);
 
@@ -83,12 +90,12 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(request.DataVersion, manifest.PackageDataVersion);
         Assert.Equal(FixedCreatedAtUtc, manifest.BuildTimestampUtc);
         Assert.Equal(
-            ["baseItems", "modifiers", "stats", "statTranslations"],
+            ["baseItems", "modifiers", "stats", "statTranslations", "itemClasses", "tags", "baseModifierEvidence"],
             manifest.Files.Select(file => file.LogicalInputRole));
 
         var packageFingerprints = Assert.Single(result.Package!.Manifest.Sources).InputFiles
             .ToDictionary(input => input.Label!, StringComparer.Ordinal);
-        Assert.Equal(4, manifest.Files.Count);
+        Assert.Equal(7, manifest.Files.Count);
         foreach (var retainedFile in manifest.Files)
         {
             var fingerprint = packageFingerprints[retainedFile.RetainedFileName!];
@@ -191,7 +198,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal("https://github.com/repoe-fork/repoe", source.SourceUri);
         Assert.Equal("master", source.SourceBranch);
         Assert.Equal(SharedTestSource.Value.SourceVersion, source.SourceVersion);
-        Assert.Equal(4, source.InputFiles.Count);
+        Assert.Equal(7, source.InputFiles.Count);
         Assert.All(source.InputFiles, input =>
         {
             Assert.False(string.IsNullOrWhiteSpace(input.RelativePath));
@@ -468,6 +475,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         request = request with
         {
             ModsPath = badModsPath,
+            ModsByBasePath = workspace.WriteText(Path.Combine("source-data", "mods_by_base.empty.json"), "{}"),
         };
 
         var result = _service.Build(request);
@@ -506,6 +514,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             modifiers => AssertSummary(modifiers, "Modifiers", 4, 4, 0),
             stats => AssertSummary(stats, "Stats", 55, 55, 0),
             translations => AssertSummary(translations, "StatTranslations", 6, 6, 0),
+            itemClasses => AssertSummary(itemClasses, "ItemClasses", 6, 6, 0),
+            tags => AssertSummary(tags, "Tags", 22, 22, 0),
+            evidence => AssertSummary(evidence, "BaseModifierEvidence", 1, 1, 0),
             semantics => AssertSummary(semantics, "ItemPropertySemantics", 25, 25, 0));
     }
 
@@ -526,6 +537,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.All(result.Package.Modifiers.SelectMany(record => record.Sources), AssertRePoeSource);
         Assert.All(result.Package.Stats.SelectMany(record => record.Sources), AssertRePoeSource);
         Assert.All(result.Package.StatTranslations.SelectMany(record => record.Sources), AssertRePoeSource);
+        Assert.All(result.Package.ItemClasses!.SelectMany(record => record.Sources), AssertRePoeSource);
+        Assert.All(result.Package.Tags!.SelectMany(record => record.Sources), AssertRePoeSource);
+        Assert.All(result.Package.BaseModifierEvidence!.Groups.SelectMany(record => record.Sources), AssertRePoeSource);
     }
 
     private static GameDataPackageBuildRequest CreateRequest(string outputPath)
@@ -537,6 +551,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             ModsPath = RePoeImportTestFixtures.ReducedModsPath,
             StatsPath = RePoeImportTestFixtures.ReducedStatsPath,
             TranslationsPath = RePoeImportTestFixtures.ReducedStatTranslationsPath,
+            ItemClassesPath = RePoeImportTestFixtures.ReducedItemClassesPath,
+            TagsPath = RePoeImportTestFixtures.ReducedTagsPath,
+            ModsByBasePath = RePoeImportTestFixtures.ReducedModsByBasePath,
             ItemPropertySemanticsPath = RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath,
             OutputPath = outputPath,
             SourceRootPath = testSource.SourceRoot,
@@ -565,6 +582,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             RePoeImportTestFixtures.ReducedStatTranslationsPath,
             dataRoot,
             "stat_translations.json");
+        var itemClassesPath = CopyFixture(RePoeImportTestFixtures.ReducedItemClassesPath, dataRoot, "item_classes.json");
+        var tagsPath = CopyFixture(RePoeImportTestFixtures.ReducedTagsPath, dataRoot, "tags.json");
+        var modsByBasePath = CopyFixture(RePoeImportTestFixtures.ReducedModsByBasePath, dataRoot, "mods_by_base.json");
 
         return CreateRequest(outputPath) with
         {
@@ -572,6 +592,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             ModsPath = modsPath,
             StatsPath = statsPath,
             TranslationsPath = translationsPath,
+            ItemClassesPath = itemClassesPath,
+            TagsPath = tagsPath,
+            ModsByBasePath = modsByBasePath,
             SourceDataRootPath = dataRoot,
         };
     }
@@ -695,6 +718,9 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             "mods.json" => request.ModsPath!,
             "stats.json" => request.StatsPath!,
             "stat_translations.json" => request.TranslationsPath!,
+            "item_classes.json" => request.ItemClassesPath!,
+            "tags.json" => request.TagsPath!,
+            "mods_by_base.json" => request.ModsByBasePath!,
             _ => throw new ArgumentOutOfRangeException(nameof(retainedFileName)),
         };
     }
