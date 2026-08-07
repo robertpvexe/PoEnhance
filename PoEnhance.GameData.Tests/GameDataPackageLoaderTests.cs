@@ -38,6 +38,24 @@ public sealed class GameDataPackageLoaderTests
     }
 
     [Fact]
+    public async Task LoadFromFileAsync_Active326Artifact_RemainsCompatible()
+    {
+        var activePackagePath = FindRepositoryFile(
+            "artifacts",
+            "poenhance-game-data.json");
+
+        var result = await GameDataPackageLoader.LoadFromFileAsync(activePackagePath);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Package);
+        Assert.Equal("Mercenaries", result.Package.Manifest.League);
+        Assert.Equal("3.26.0", result.Package.Manifest.Patch);
+        Assert.All(
+            result.Package.Modifiers,
+            modifier => Assert.Equal(ModifierSourceAvailability.Unknown, modifier.SourceAvailability));
+    }
+
+    [Fact]
     public async Task LoadFromFileAsync_MissingFile_ReturnsFileNotFoundDiagnostic()
     {
         var path = Path.Combine(Path.GetTempPath(), $"poenhance-missing-{Guid.NewGuid():N}.json");
@@ -184,6 +202,23 @@ public sealed class GameDataPackageLoaderTests
         var path = Path.Combine(Path.GetTempPath(), $"poenhance-package-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, text, Encoding.UTF8);
         return path;
+    }
+
+    private static string FindRepositoryFile(params string[] relativePath)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            var candidate = Path.Combine([directory.FullName, .. relativePath]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException(
+            $"Repository test file was not found: {Path.Combine(relativePath)}");
     }
 
     private static void TryDelete(string path)

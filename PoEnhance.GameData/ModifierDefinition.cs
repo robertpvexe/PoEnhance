@@ -16,6 +16,12 @@ public sealed record ModifierDefinition
     /// </summary>
     public string? SourceGenerationType { get; init; }
 
+    /// <summary>
+    /// Provider-neutral summary of source-level spawn-weight evidence. This does not
+    /// determine eligibility for a particular item or base.
+    /// </summary>
+    public ModifierSourceAvailability SourceAvailability { get; init; }
+
     public int? Tier { get; init; }
 
     public int? RequiredLevel { get; init; }

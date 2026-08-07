@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using PoEnhance.GameData;
 
 namespace PoEnhance.GameData.Tests;
@@ -187,5 +189,81 @@ public sealed class GameDataPackageJsonTests
         Assert.Empty(package.ItemPropertySemantics);
         Assert.Null(package.Manifest.ReviewedItemPropertySemantics);
         Assert.Null(package.Manifest.ItemPropertySemanticAugmentation);
+    }
+
+    [Fact]
+    public void Serialize_CorruptedAvailabilityAndProvenance_RoundTripsExactly()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var corrupted = package.Modifiers[0] with
+        {
+            GenerationType = ModifierGenerationType.Corrupted,
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            SpawnWeights =
+            [
+                new ModifierSpawnWeight { Tag = "graft", Weight = 80 },
+                new ModifierSpawnWeight { Tag = "default", Weight = 0 },
+            ],
+        };
+        package = package with
+        {
+            Modifiers = [corrupted, .. package.Modifiers.Skip(1)],
+        };
+
+        var json = GameDataPackageJson.Serialize(package);
+        var roundTripped = GameDataPackageJson.Deserialize(json);
+
+        Assert.Contains("\"generationType\": \"corrupted\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"sourceAvailability\": \"potentiallyEligible\"", json, StringComparison.Ordinal);
+        Assert.NotNull(roundTripped);
+        var modifier = roundTripped.Modifiers[0];
+        Assert.Equal(ModifierGenerationType.Corrupted, modifier.GenerationType);
+        Assert.Equal("corrupted", modifier.SourceGenerationType);
+        Assert.Equal(ModifierSourceAvailability.PotentiallyEligible, modifier.SourceAvailability);
+        Assert.Equal(["graft", "default"], modifier.SpawnWeights.Select(weight => weight.Tag));
+        Assert.Equal([80, 0], modifier.SpawnWeights.Select(weight => weight.Weight));
+        Assert.Equal(corrupted.Sources, modifier.Sources);
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+    }
+
+    [Fact]
+    public void Deserialize_OldPackageMissingSourceAvailability_DefaultsToUnknown()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var legacyCorrupted = package.Modifiers[0] with
+        {
+            GenerationType = ModifierGenerationType.Unknown,
+            SourceGenerationType = "corrupted",
+        };
+        package = package with
+        {
+            Modifiers = [legacyCorrupted, .. package.Modifiers.Skip(1)],
+        };
+        var root = JsonNode.Parse(GameDataPackageJson.Serialize(package))!;
+        foreach (var modifier in root["modifiers"]!.AsArray())
+        {
+            Assert.True(modifier!.AsObject().Remove("sourceAvailability"));
+        }
+
+        var deserialized = GameDataPackageJson.Deserialize(root.ToJsonString());
+
+        Assert.NotNull(deserialized);
+        Assert.All(
+            deserialized.Modifiers,
+            modifier => Assert.Equal(ModifierSourceAvailability.Unknown, modifier.SourceAvailability));
+        Assert.Equal(ModifierGenerationType.Unknown, deserialized.Modifiers[0].GenerationType);
+        Assert.Equal("corrupted", deserialized.Modifiers[0].SourceGenerationType);
+        Assert.True(GameDataPackageValidator.Validate(deserialized).IsValid);
+    }
+
+    [Fact]
+    public void Deserialize_InvalidSourceAvailabilityEnum_FailsVisibly()
+    {
+        var root = JsonNode.Parse(
+            GameDataPackageJson.Serialize(GameDataPackageFixtures.CreateDevelopmentPackage()))!;
+        root["modifiers"]![0]!["sourceAvailability"] = "notARealAvailability";
+
+        Assert.Throws<JsonException>(() => GameDataPackageJson.Deserialize(root.ToJsonString()));
     }
 }

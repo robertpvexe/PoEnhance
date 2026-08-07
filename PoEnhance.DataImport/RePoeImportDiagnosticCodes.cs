@@ -20,6 +20,7 @@ public static class RePoeImportDiagnosticCodes
     public const string ModifierRecordMissingStats = "REPOE_MODIFIER_RECORD_MISSING_STATS";
     public const string ModifierRecordInvalidStat = "REPOE_MODIFIER_RECORD_INVALID_STAT";
     public const string ModifierRecordInvalidSpawnWeight = "REPOE_MODIFIER_RECORD_INVALID_SPAWN_WEIGHT";
+    public const string ModifierRecordAvailabilityUnknown = "REPOE_MODIFIER_RECORD_AVAILABILITY_UNKNOWN";
     public const string ModifierRecordInvalidTags = "REPOE_MODIFIER_RECORD_INVALID_TAGS";
     public const string StatRecordMissingId = "REPOE_STAT_RECORD_MISSING_ID";
     public const string StatRecordUnsupported = "REPOE_STAT_RECORD_UNSUPPORTED";
@@ -44,4 +45,5 @@ public static class RePoeImportDiagnosticCodes
     public const string BuildArgumentInvalid = "BUILD_ARGUMENT_INVALID";
     public const string BuildInputFileMissing = "BUILD_INPUT_FILE_MISSING";
     public const string BuildOutputWriteFailed = "BUILD_OUTPUT_WRITE_FAILED";
+    public const string BuildSourceSnapshotWriteFailed = "BUILD_SOURCE_SNAPSHOT_WRITE_FAILED";
 }

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using PoEnhance.GameData;
 
 namespace PoEnhance.DataImport.Tests;
@@ -96,6 +98,100 @@ public sealed class RePoeModifierImporterTests
         var modifier = Assert.Single(result.ImportedRecords);
         Assert.Equal(ModifierGenerationType.Implicit, modifier.GenerationType);
         Assert.Equal(generationType, modifier.SourceGenerationType);
+    }
+
+    [Fact]
+    public void Import_CorruptedGeneration_PreservesProvenanceOrderAndPotentialAvailability()
+    {
+        var result = ImportJson(ModifierJson(
+            "CorruptedImplicit",
+            "corrupted",
+            """
+                "spawn_weights": [
+                  { "tag": "graft", "weight": 80 },
+                  { "tag": "default", "weight": 0 }
+                ],
+            """));
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(ModifierGenerationType.Corrupted, modifier.GenerationType);
+        Assert.Equal("corrupted", modifier.SourceGenerationType);
+        Assert.Equal(ModifierSourceAvailability.PotentiallyEligible, modifier.SourceAvailability);
+        Assert.Equal(["graft", "default"], modifier.SpawnWeights.Select(weight => weight.Tag));
+        Assert.Equal([80, 0], modifier.SpawnWeights.Select(weight => weight.Weight));
+        AssertRePoeSource(modifier, "CorruptedImplicit");
+    }
+
+    [Fact]
+    public void Import_AllZeroSpawnWeights_ProducesDisabledAvailability()
+    {
+        var result = ImportJson(ModifierJson(
+            "DisabledMod",
+            "prefix",
+            """
+                "spawn_weights": [
+                  { "tag": "ring", "weight": 0 },
+                  { "tag": "default", "weight": 0 }
+                ],
+            """));
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(ModifierSourceAvailability.Disabled, modifier.SourceAvailability);
+    }
+
+    [Fact]
+    public void Import_MissingSpawnWeights_ProducesUnknownAvailability()
+    {
+        var result = ImportJson(ModifierJson("UnknownAvailabilityMod", "suffix"));
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(ModifierSourceAvailability.Unknown, modifier.SourceAvailability);
+        Assert.Empty(modifier.SpawnWeights);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            diagnostic => diagnostic.Code == RePoeImportDiagnosticCodes.ModifierRecordAvailabilityUnknown);
+    }
+
+    [Fact]
+    public void Import_MalformedSpawnWeights_PreservesUsableOrderButFailsClosedToUnknown()
+    {
+        var result = ImportJson(ModifierJson(
+            "MalformedWeightsMod",
+            "prefix",
+            """
+                "spawn_weights": [
+                  { "tag": "ring", "weight": 0 },
+                  { "tag": 42, "weight": 0 },
+                  { "tag": "default", "weight": 0 }
+                ],
+            """));
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(ModifierSourceAvailability.Unknown, modifier.SourceAvailability);
+        Assert.Equal(["ring", "default"], modifier.SpawnWeights.Select(weight => weight.Tag));
+        AssertHasDiagnostic(result, RePoeImportDiagnosticCodes.ModifierRecordInvalidSpawnWeight);
+        AssertHasDiagnostic(result, RePoeImportDiagnosticCodes.ModifierRecordAvailabilityUnknown);
+    }
+
+    [Theory]
+    [InlineData("prefix", ModifierGenerationType.Prefix)]
+    [InlineData("suffix", ModifierGenerationType.Suffix)]
+    [InlineData("enchantment", ModifierGenerationType.Enchantment)]
+    [InlineData("unique", ModifierGenerationType.Implicit)]
+    [InlineData("exarch_implicit", ModifierGenerationType.Implicit)]
+    [InlineData("searing_exarch_implicit", ModifierGenerationType.Implicit)]
+    [InlineData("eater_implicit", ModifierGenerationType.Implicit)]
+    [InlineData("eater_of_worlds_implicit", ModifierGenerationType.Implicit)]
+    [InlineData("fractured", ModifierGenerationType.Unknown)]
+    public void Import_NonCorruptedGenerationMappings_RemainUnchanged(
+        string sourceGenerationType,
+        ModifierGenerationType expectedGenerationType)
+    {
+        var result = ImportJson(ModifierJson("MappedMod", sourceGenerationType));
+
+        var modifier = Assert.Single(result.ImportedRecords);
+        Assert.Equal(expectedGenerationType, modifier.GenerationType);
+        Assert.Equal(sourceGenerationType, modifier.SourceGenerationType);
     }
 
     [Fact]
@@ -207,10 +303,118 @@ public sealed class RePoeModifierImporterTests
         Assert.Equal(["ring", "default"], modifier.SpawnWeights.Select(weight => weight.Tag));
     }
 
+    [Fact]
+    public void Import_AuditedCurrentSource_ProducesExpectedCorruptedEvidence()
+    {
+        var auditRepository = Path.Combine(
+            Path.GetTempPath(),
+            "PoEnhance-CurrentLeague-DataSourceAudit",
+            "external",
+            "repoe-latest",
+            "RePoE");
+        var modsPath = Path.Combine(auditRepository, "data", "mods.json");
+        if (!File.Exists(modsPath))
+        {
+            return;
+        }
+
+        Assert.Equal(
+            "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
+            RunGit(auditRepository, "rev-parse HEAD"));
+
+        var result = _importer.Import(modsPath);
+        using var rawDocument = JsonDocument.Parse(File.ReadAllBytes(modsPath));
+        var rawCorruptedRecords = rawDocument.RootElement
+            .EnumerateObject()
+            .Where(property =>
+                property.Value.TryGetProperty("generation_type", out var generationType) &&
+                generationType.ValueKind == JsonValueKind.String &&
+                generationType.GetString() == "corrupted")
+            .ToArray();
+        var importedCorrupted = result.ImportedRecords
+            .Where(modifier => modifier.SourceGenerationType == "corrupted")
+            .ToArray();
+        var importedById = importedCorrupted.ToDictionary(modifier => modifier.Id!, StringComparer.Ordinal);
+
+        Assert.Equal(521, rawCorruptedRecords.Length);
+        Assert.Equal(521, importedCorrupted.Length);
+        Assert.Equal(521, importedCorrupted.Count(modifier =>
+            modifier.GenerationType == ModifierGenerationType.Corrupted));
+        Assert.DoesNotContain(
+            importedCorrupted,
+            modifier => modifier.GenerationType == ModifierGenerationType.Unknown);
+        Assert.Equal(348, importedCorrupted.Count(modifier =>
+            modifier.SourceAvailability == ModifierSourceAvailability.PotentiallyEligible));
+        Assert.Equal(173, importedCorrupted.Count(modifier =>
+            modifier.SourceAvailability == ModifierSourceAvailability.Disabled));
+        Assert.DoesNotContain(
+            importedCorrupted,
+            modifier => modifier.SourceAvailability == ModifierSourceAvailability.Unknown);
+
+        foreach (var rawRecord in rawCorruptedRecords)
+        {
+            var imported = importedById[rawRecord.Name];
+            AssertRePoeSource(imported, rawRecord.Name);
+            var rawWeights = rawRecord.Value.GetProperty("spawn_weights")
+                .EnumerateArray()
+                .Select(weight => (
+                    Tag: weight.GetProperty("tag").GetString(),
+                    Weight: weight.GetProperty("weight").GetInt32()))
+                .ToArray();
+            Assert.Equal(
+                rawWeights,
+                imported.SpawnWeights.Select(weight => (weight.Tag, weight.Weight)).ToArray());
+        }
+    }
+
     private ImportResult<ModifierDefinition> ImportJson(string json)
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
         return _importer.Import(stream);
+    }
+
+    private static string ModifierJson(
+        string id,
+        string generationType,
+        string additionalProperties = "")
+    {
+        return $$"""
+            {
+              "{{id}}": {
+                "domain": "item",
+                "generation_type": "{{generationType}}",
+                "groups": ["TestGroup"],
+            {{additionalProperties}}
+                "stats": [
+                  {
+                    "id": "test_stat",
+                    "min": 1,
+                    "max": 2
+                  }
+                ]
+              }
+            }
+            """;
+    }
+
+    private static string RunGit(string workingDirectory, string arguments)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = $"-C \"{workingDirectory}\" {arguments}",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        Assert.NotNull(process);
+
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        var error = process.StandardError.ReadToEnd().Trim();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"git {arguments} failed: {error}");
+        return output;
     }
 
     private static void AssertRePoeSource(ModifierDefinition record, string externalId)

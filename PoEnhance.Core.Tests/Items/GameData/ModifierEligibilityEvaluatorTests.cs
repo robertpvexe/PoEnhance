@@ -103,6 +103,23 @@ public sealed class ModifierEligibilityEvaluatorTests
     }
 
     [Fact]
+    public void Evaluate_PotentialSourceAvailability_DoesNotOverrideContextSpecificFirstMatch()
+    {
+        var modifier = Modifier(
+            SpawnWeight("graft", 80),
+            SpawnWeight("default", 0)) with
+        {
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+
+        var result = evaluator.Evaluate(modifier, Base(tags: ["default"]));
+
+        Assert.Equal(ModifierEligibilityOutcome.Ineligible, result.Outcome);
+        Assert.Equal(ModifierEligibilityDiagnosticCodes.ModifierSpawnWeightZero, result.ReasonCode);
+        Assert.Equal("default", result.MatchedTag);
+    }
+
+    [Fact]
     public void Evaluate_DynamicInfluenceTagCanSatisfyFirstMatchingSpawnWeight()
     {
         var itemBase = Base(tags: ["body_armour", "default"]);

@@ -78,6 +78,87 @@ public sealed class GameDataPackageValidatorTests
     }
 
     [Fact]
+    public void Validate_CorruptedSourceAndProviderNeutralGeneration_IsValid()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var corrupted = package.Modifiers[0] with
+        {
+            GenerationType = ModifierGenerationType.Corrupted,
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+            SpawnWeights = [new ModifierSpawnWeight { Tag = "default", Weight = 0 }],
+        };
+        package = package with
+        {
+            Modifiers = [corrupted, .. package.Modifiers.Skip(1)],
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_LegacyUnknownCorruptedGeneration_RemainsValid()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var legacyCorrupted = package.Modifiers[0] with
+        {
+            GenerationType = ModifierGenerationType.Unknown,
+            SourceGenerationType = "corrupted",
+        };
+        package = package with
+        {
+            Modifiers = [legacyCorrupted, .. package.Modifiers.Skip(1)],
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Theory]
+    [InlineData(ModifierGenerationType.Implicit, "corrupted")]
+    [InlineData(ModifierGenerationType.Corrupted, "prefix")]
+    public void Validate_ContradictoryCorruptedGeneration_ReturnsClearError(
+        ModifierGenerationType generationType,
+        string sourceGenerationType)
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var contradictory = package.Modifiers[0] with
+        {
+            GenerationType = generationType,
+            SourceGenerationType = sourceGenerationType,
+        };
+        package = package with
+        {
+            Modifiers = [contradictory, .. package.Modifiers.Skip(1)],
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        AssertHasError(result, GameDataValidationErrorCodes.ModifierCorruptedGenerationContradiction);
+    }
+
+    [Fact]
+    public void Validate_InvalidAvailabilityEnum_ReturnsClearError()
+    {
+        var package = GameDataPackageFixtures.CreateDevelopmentPackage();
+        var invalid = package.Modifiers[0] with
+        {
+            SourceAvailability = (ModifierSourceAvailability)999,
+        };
+        package = package with
+        {
+            Modifiers = [invalid, .. package.Modifiers.Skip(1)],
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        AssertHasError(result, GameDataValidationErrorCodes.ModifierSourceAvailabilityInvalid);
+    }
+
+    [Fact]
     public void Validate_ItemBaseImplicitModifierIdUnknown_ReturnsUnknownError()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();

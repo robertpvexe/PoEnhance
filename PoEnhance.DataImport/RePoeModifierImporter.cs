@@ -149,19 +149,35 @@ public sealed class RePoeModifierImporter
             return null;
         }
 
+        var sourceGenerationType = ReadOptionalString(record, "generation_type");
+        var spawnWeights = ReadSpawnWeights(
+            record,
+            sourceRecordId,
+            diagnostics,
+            out var spawnWeightEvidenceReliable);
+        if (!spawnWeightEvidenceReliable)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.ModifierRecordAvailabilityUnknown,
+                ImportDiagnosticSeverity.Warning,
+                sourceRecordId,
+                "Malformed RePoE spawn-weight data prevents a reliable source-level availability decision; availability was set to Unknown."));
+        }
+
         return new ModifierDefinition
         {
             Id = sourceRecordId,
             GroupId = groupId,
             Name = ReadOptionalString(record, "name"),
-            GenerationType = ReadGenerationType(record),
-            SourceGenerationType = ReadOptionalString(record, "generation_type"),
+            GenerationType = ReadGenerationType(sourceGenerationType),
+            SourceGenerationType = sourceGenerationType,
+            SourceAvailability = DeriveSourceAvailability(spawnWeights, spawnWeightEvidenceReliable),
             RequiredLevel = ReadOptionalNonNegativeInt(record, "required_level"),
             Domain = ReadOptionalString(record, "domain"),
             IsEssenceOnly = ReadOptionalBoolean(record, "is_essence_only"),
             Tags = ReadTags(record, sourceRecordId, diagnostics),
             Stats = stats,
-            SpawnWeights = ReadSpawnWeights(record, sourceRecordId, diagnostics),
+            SpawnWeights = spawnWeights,
             Sources = [CreateSourceReference(sourceRecordId)],
         };
     }
@@ -183,14 +199,14 @@ public sealed class RePoeModifierImporter
         return ReadOptionalString(record, "type");
     }
 
-    private static ModifierGenerationType ReadGenerationType(JsonElement record)
+    private static ModifierGenerationType ReadGenerationType(string? generationType)
     {
-        var generationType = ReadOptionalString(record, "generation_type");
         return generationType switch
         {
             "prefix" => ModifierGenerationType.Prefix,
             "suffix" => ModifierGenerationType.Suffix,
             "enchantment" => ModifierGenerationType.Enchantment,
+            "corrupted" => ModifierGenerationType.Corrupted,
             "unique" => ModifierGenerationType.Implicit,
             "exarch_implicit" => ModifierGenerationType.Implicit,
             "searing_exarch_implicit" => ModifierGenerationType.Implicit,
@@ -308,8 +324,11 @@ public sealed class RePoeModifierImporter
     private static IReadOnlyList<ModifierSpawnWeight> ReadSpawnWeights(
         JsonElement record,
         string sourceRecordId,
-        List<ImportDiagnostic> diagnostics)
+        List<ImportDiagnostic> diagnostics,
+        out bool evidenceReliable)
     {
+        evidenceReliable = true;
+
         if (!record.TryGetProperty("spawn_weights", out var spawnWeights) ||
             spawnWeights.ValueKind == JsonValueKind.Null)
         {
@@ -318,6 +337,7 @@ public sealed class RePoeModifierImporter
 
         if (spawnWeights.ValueKind != JsonValueKind.Array)
         {
+            evidenceReliable = false;
             diagnostics.Add(Diagnostic(
                 RePoeImportDiagnosticCodes.ModifierRecordInvalidSpawnWeight,
                 ImportDiagnosticSeverity.Warning,
@@ -338,6 +358,7 @@ public sealed class RePoeModifierImporter
                 !weightElement.TryGetInt32(out var weight) ||
                 weight < 0)
             {
+                evidenceReliable = false;
                 diagnostics.Add(Diagnostic(
                     RePoeImportDiagnosticCodes.ModifierRecordInvalidSpawnWeight,
                     ImportDiagnosticSeverity.Warning,
@@ -354,6 +375,20 @@ public sealed class RePoeModifierImporter
         }
 
         return importedSpawnWeights.ToArray();
+    }
+
+    private static ModifierSourceAvailability DeriveSourceAvailability(
+        IReadOnlyCollection<ModifierSpawnWeight> spawnWeights,
+        bool evidenceReliable)
+    {
+        if (!evidenceReliable || spawnWeights.Count == 0)
+        {
+            return ModifierSourceAvailability.Unknown;
+        }
+
+        return spawnWeights.Any(spawnWeight => spawnWeight.Weight > 0)
+            ? ModifierSourceAvailability.PotentiallyEligible
+            : ModifierSourceAvailability.Disabled;
     }
 
     private static int? ReadOptionalNonNegativeInt(JsonElement record, string propertyName)

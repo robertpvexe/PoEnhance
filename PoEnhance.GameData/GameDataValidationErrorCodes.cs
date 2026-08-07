@@ -57,6 +57,10 @@ public static class GameDataValidationErrorCodes
     public const string ModifierGroupIdRequired = "modifier.groupId.required";
     public const string ModifierTierInvalid = "modifier.tier.invalid";
     public const string ModifierRequiredLevelNegative = "modifier.requiredLevel.negative";
+    public const string ModifierGenerationTypeInvalid = "modifier.generationType.invalid";
+    public const string ModifierCorruptedGenerationContradiction = "modifier.generationType.corruptedContradiction";
+    public const string ModifierSourceAvailabilityInvalid = "modifier.sourceAvailability.invalid";
+    public const string ModifierSourceAvailabilityContradiction = "modifier.sourceAvailability.contradiction";
     public const string ModifierTagRequired = "modifier.tag.required";
     public const string ModifierTagDuplicate = "modifier.tag.duplicate";
     public const string ModifierStatsRequired = "modifier.stats.required";

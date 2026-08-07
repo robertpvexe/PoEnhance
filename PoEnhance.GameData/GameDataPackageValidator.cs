@@ -343,6 +343,9 @@ public static class GameDataPackageValidator
                     $"Modifiers[{index}].RequiredLevel must be 0 or greater when provided."));
             }
 
+            ValidateModifierGeneration(modifier, path, index, errors);
+            ValidateModifierSourceAvailability(modifier, path, index, errors);
+
             ValidateTags(
                 modifier.Tags,
                 $"{path}.tags",
@@ -357,6 +360,86 @@ public static class GameDataPackageValidator
         }
 
         return ids;
+    }
+
+    private static void ValidateModifierGeneration(
+        ModifierDefinition modifier,
+        string path,
+        int modifierIndex,
+        List<GameDataValidationError> errors)
+    {
+        if (!Enum.IsDefined(modifier.GenerationType))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierGenerationTypeInvalid,
+                $"{path}.generationType",
+                $"Modifiers[{modifierIndex}].GenerationType is invalid."));
+            return;
+        }
+
+        var sourceGenerationType = modifier.SourceGenerationType?.Trim();
+        var sourceIsCorrupted = string.Equals(
+            sourceGenerationType,
+            "corrupted",
+            StringComparison.Ordinal);
+
+        if (sourceIsCorrupted &&
+            modifier.GenerationType is not ModifierGenerationType.Corrupted and
+                not ModifierGenerationType.Unknown)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierCorruptedGenerationContradiction,
+                $"{path}.generationType",
+                $"Modifiers[{modifierIndex}] has source generation 'corrupted' but a contradictory provider-neutral generation."));
+        }
+        else if (modifier.GenerationType == ModifierGenerationType.Corrupted && !sourceIsCorrupted)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierCorruptedGenerationContradiction,
+                $"{path}.sourceGenerationType",
+                $"Modifiers[{modifierIndex}] has provider-neutral generation Corrupted but its source generation is not 'corrupted'."));
+        }
+    }
+
+    private static void ValidateModifierSourceAvailability(
+        ModifierDefinition modifier,
+        string path,
+        int modifierIndex,
+        List<GameDataValidationError> errors)
+    {
+        if (!Enum.IsDefined(modifier.SourceAvailability))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierSourceAvailabilityInvalid,
+                $"{path}.sourceAvailability",
+                $"Modifiers[{modifierIndex}].SourceAvailability is invalid."));
+            return;
+        }
+
+        var usableSpawnWeights = modifier.SpawnWeights?
+            .Where(spawnWeight =>
+                spawnWeight is not null &&
+                !string.IsNullOrWhiteSpace(spawnWeight.Tag) &&
+                spawnWeight.Weight >= 0)
+            .ToArray() ?? [];
+
+        if (modifier.SourceAvailability == ModifierSourceAvailability.PotentiallyEligible &&
+            !usableSpawnWeights.Any(spawnWeight => spawnWeight.Weight > 0))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierSourceAvailabilityContradiction,
+                $"{path}.sourceAvailability",
+                $"Modifiers[{modifierIndex}] is PotentiallyEligible but has no positive usable spawn weight."));
+        }
+        else if (modifier.SourceAvailability == ModifierSourceAvailability.Disabled &&
+            (usableSpawnWeights.Length == 0 ||
+             usableSpawnWeights.Any(spawnWeight => spawnWeight.Weight > 0)))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.ModifierSourceAvailabilityContradiction,
+                $"{path}.sourceAvailability",
+                $"Modifiers[{modifierIndex}] is Disabled but does not have one or more exclusively zero usable spawn weights."));
+        }
     }
 
     private static void ValidateImplicitModifierIds(

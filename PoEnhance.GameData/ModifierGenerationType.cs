@@ -7,4 +7,5 @@ public enum ModifierGenerationType
     Suffix,
     Implicit,
     Enchantment,
+    Corrupted,
 }
