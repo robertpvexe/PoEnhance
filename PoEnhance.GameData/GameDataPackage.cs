@@ -24,4 +24,11 @@ public sealed record GameDataPackage
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BaseModifierSourceEvidence? BaseModifierEvidence { get; init; }
+
+    /// <summary>
+    /// Exact, versioned observations of base implicits. A null value means that the
+    /// package carries no historical evidence; it is not evidence that no history exists.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BaseImplicitHistoryCatalog? BaseImplicitHistory { get; init; }
 }

@@ -54,7 +54,8 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatIdGroup,
         IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
         IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
-            itemPropertySemanticsByOrderedStatVector)
+            itemPropertySemanticsByOrderedStatVector,
+        BaseImplicitHistoryCatalog? baseImplicitHistory)
     {
         ItemBases = itemBases;
         _itemBasesById = itemBasesById;
@@ -74,6 +75,7 @@ public sealed class GameDataCatalog
         _translationsByStatIdGroup = translationsByStatIdGroup;
         ItemPropertySemantics = itemPropertySemantics;
         _itemPropertySemanticsByOrderedStatVector = itemPropertySemanticsByOrderedStatVector;
+        BaseImplicitHistory = baseImplicitHistory;
     }
 
     public static GameDataCatalog FromPackage(GameDataPackage package)
@@ -158,7 +160,8 @@ public sealed class GameDataCatalog
             BuildIndex(
                 itemPropertySemantics,
                 descriptor => CreateOrderedStatVectorKey(descriptor.OrderedStatIds),
-                StringComparer.OrdinalIgnoreCase));
+                StringComparer.OrdinalIgnoreCase),
+            package.BaseImplicitHistory);
     }
 
     public IReadOnlyList<ItemBaseRecord> ItemBases { get; }
@@ -166,6 +169,8 @@ public sealed class GameDataCatalog
     public IReadOnlyList<ModifierDefinition> Modifiers { get; }
 
     public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; }
+
+    public BaseImplicitHistoryCatalog? BaseImplicitHistory { get; }
 
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)
     {

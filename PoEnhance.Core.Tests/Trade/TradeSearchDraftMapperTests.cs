@@ -698,6 +698,43 @@ Item Level: 84
     }
 
     [Fact]
+    public void CreateDraft_T2AHistoricalRecognitionMetadataDoesNotChangeProviderNeutralDraft()
+    {
+        var item = parser.Parse("""
+Item Class: Warstaves
+Rarity: Magic
+Foul Staff of Ashes
+--------
+Warstaff
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
++22% Chance to Block Attack Damage while wielding a Staff
+""");
+        var unresolved = ModifierResolution(
+            item,
+            modifierIndex: 0,
+            ModifierCandidateResolutionStatus.Unknown,
+            ModifierGenerationType.Implicit);
+        var recognized = unresolved with
+        {
+            BaseImplicitRecognition = new BaseImplicitRecognitionResult(
+                BaseImplicitRecognitionStatus.HistoricalExact,
+                [],
+                "base-implicit-historical-exact",
+                "Historical mechanics were recognized without provider activation."),
+        };
+
+        var before = mapper.CreateDraft(item, modifierResolutions: [unresolved]);
+        var after = mapper.CreateDraft(item, modifierResolutions: [recognized]);
+
+        Assert.Equal(
+            System.Text.Json.JsonSerializer.Serialize(before),
+            System.Text.Json.JsonSerializer.Serialize(after));
+    }
+
+    [Fact]
     public void CreateDraft_PreservesItemStatesAndCorruptionForTradeValidation()
     {
         var item = parser.Parse("""

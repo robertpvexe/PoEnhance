@@ -18,6 +18,7 @@ public sealed class GameDataPackageBuilder
             itemClasses: null,
             tags: null,
             baseModifierEvidence: null,
+            baseImplicitHistory: null,
             requireCompleteStatReferences: false);
     }
 
@@ -38,6 +39,7 @@ public sealed class GameDataPackageBuilder
             itemClasses: null,
             tags: null,
             baseModifierEvidence: null,
+            baseImplicitHistory: null,
             requireCompleteStatReferences: true);
     }
 
@@ -59,6 +61,7 @@ public sealed class GameDataPackageBuilder
             itemClasses: null,
             tags: null,
             baseModifierEvidence: null,
+            baseImplicitHistory: null,
             requireCompleteStatReferences: true);
     }
 
@@ -71,7 +74,8 @@ public sealed class GameDataPackageBuilder
         IEnumerable<ItemPropertySemanticDescriptor> itemPropertySemantics,
         IEnumerable<ItemClassDefinition> itemClasses,
         IEnumerable<TagDefinition> tags,
-        BaseModifierSourceEvidence baseModifierEvidence)
+        BaseModifierSourceEvidence baseModifierEvidence,
+        BaseImplicitHistoryCatalog? baseImplicitHistory = null)
     {
         return CreatePackage(
             manifest,
@@ -83,6 +87,7 @@ public sealed class GameDataPackageBuilder
             itemClasses,
             tags,
             baseModifierEvidence,
+            baseImplicitHistory,
             requireCompleteStatReferences: true);
     }
 
@@ -96,6 +101,7 @@ public sealed class GameDataPackageBuilder
         IEnumerable<ItemClassDefinition>? itemClasses,
         IEnumerable<TagDefinition>? tags,
         BaseModifierSourceEvidence? baseModifierEvidence,
+        BaseImplicitHistoryCatalog? baseImplicitHistory,
         bool requireCompleteStatReferences)
     {
         var diagnostics = new List<ImportDiagnostic>();
@@ -147,6 +153,7 @@ public sealed class GameDataPackageBuilder
             ItemClasses = itemClasses?.ToArray(),
             Tags = tags?.ToArray(),
             BaseModifierEvidence = baseModifierEvidence,
+            BaseImplicitHistory = baseImplicitHistory,
         };
 
         if (requireCompleteStatReferences)

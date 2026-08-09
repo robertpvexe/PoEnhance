@@ -70,8 +70,95 @@ public static class GameDataPackageValidator
 
         errors.AddRange(ValidateItemPropertySemantics(package.ItemPropertySemantics, package.Stats).Errors);
         errors.AddRange(GameDataPackageEligibilitySourceValidator.Validate(package, manifestSourceIds));
+        ValidateBaseImplicitHistory(package.BaseImplicitHistory, manifestSourceIds, errors);
 
         return new GameDataValidationResult(errors);
+    }
+
+    private static void ValidateBaseImplicitHistory(
+        BaseImplicitHistoryCatalog? history,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        if (history is null)
+        {
+            return;
+        }
+
+        var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < history.SourceSnapshots.Count; index++)
+        {
+            var source = history.SourceSnapshots[index];
+            var path = $"baseImplicitHistory.sourceSnapshots[{index}]";
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.Id) ||
+                !sourceIds.Add(source.Id.Trim()) ||
+                source.Role == BaseImplicitSnapshotRole.Unknown ||
+                string.IsNullOrWhiteSpace(source.ManifestSourceId) ||
+                !manifestSourceIds.Contains(source.ManifestSourceId.Trim()) ||
+                string.IsNullOrWhiteSpace(source.RepositoryUri) ||
+                source.CommitSha is not { Length: 40 } ||
+                !source.CommitSha.All(Uri.IsHexDigit) ||
+                string.IsNullOrWhiteSpace(source.DataVersion) ||
+                source.Files.Count == 0 ||
+                source.Files.Any(file => file is null ||
+                    string.IsNullOrWhiteSpace(file.LogicalRole) ||
+                    string.IsNullOrWhiteSpace(file.PackageInputLabel)))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.BaseImplicitHistorySourceInvalid,
+                    path,
+                    "Base-implicit source snapshots require unique ids, an exact source, role, version, and input-file roles."));
+            }
+        }
+
+        var effectIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (effect, index) in history.MechanicalEffects.Select((value, index) => (value, index)))
+        {
+            var path = $"baseImplicitHistory.mechanicalEffects[{index}]";
+            if (effect is null ||
+                string.IsNullOrWhiteSpace(effect.Id) ||
+                !effectIds.Add(effect.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(effect.SourceSnapshotId) ||
+                !sourceIds.Contains(effect.SourceSnapshotId.Trim()) ||
+                string.IsNullOrWhiteSpace(effect.SourceModifierId) ||
+                (effect.IsResolved &&
+                    (effect.Modifier is null ||
+                     effect.MechanicalSignature is not { Length: 64 } ||
+                     !effect.MechanicalSignature.All(Uri.IsHexDigit) ||
+                     effect.Stats.Count == 0 ||
+                     effect.StatTranslations.Count == 0)))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.BaseImplicitHistoryEffectInvalid,
+                    path,
+                    "Base-implicit mechanical effects must retain a source modifier and complete structured evidence when resolved."));
+            }
+        }
+
+        var observationKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (observation, index) in history.Observations.Select((value, index) => (value, index)))
+        {
+            var path = $"baseImplicitHistory.observations[{index}]";
+            var key = $"{observation?.SourceSnapshotId}\u001F{observation?.CanonicalBaseId}";
+            if (observation is null ||
+                string.IsNullOrWhiteSpace(observation.CanonicalBaseId) ||
+                string.IsNullOrWhiteSpace(observation.SourceSnapshotId) ||
+                !sourceIds.Contains(observation.SourceSnapshotId.Trim()) ||
+                !observationKeys.Add(key) ||
+                observation.ImplicitModifierIds.Count != observation.MechanicalEffectIds.Count ||
+                observation.ImplicitModifierIds.Any(string.IsNullOrWhiteSpace) ||
+                observation.MechanicalEffectIds.Any(effectId =>
+                    effectId is not null && !effectIds.Contains(effectId.Trim())) ||
+                observation.ImplicitSetMechanicalSignature is not { Length: 64 } ||
+                !observation.ImplicitSetMechanicalSignature.All(Uri.IsHexDigit))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.BaseImplicitHistoryObservationInvalid,
+                    path,
+                    "Each base-implicit observation requires one exact source/base key and ordered, aligned modifier/effect references."));
+            }
+        }
     }
 
     public static GameDataValidationResult ValidateItemPropertySemantics(

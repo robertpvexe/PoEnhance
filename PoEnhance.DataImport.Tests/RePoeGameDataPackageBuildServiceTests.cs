@@ -83,7 +83,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             retainedNames);
 
         var manifest = DeserializeSnapshotManifest(result.SourceSnapshotManifestPath!);
-        Assert.Equal(1, manifest.SnapshotVersion);
+        Assert.Equal(2, manifest.SnapshotVersion);
         Assert.Equal(request.SourceUri, manifest.RepositoryUri);
         Assert.Equal(request.SourceBranch, manifest.Branch);
         Assert.Equal(request.SourceVersion, manifest.CommitSha);
@@ -92,6 +92,13 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(
             ["baseItems", "modifiers", "stats", "statTranslations", "itemClasses", "tags", "baseModifierEvidence"],
             manifest.Files.Select(file => file.LogicalInputRole));
+        Assert.All(manifest.Files, file =>
+        {
+            Assert.Equal("current", file.SnapshotRole);
+            Assert.Equal(request.SourceUri, file.RepositoryUri);
+            Assert.Equal(request.SourceVersion, file.CommitSha);
+            Assert.Equal(request.DataVersion, file.SourceDataVersion);
+        });
 
         var packageFingerprints = Assert.Single(result.Package!.Manifest.Sources).InputFiles
             .ToDictionary(input => input.Label!, StringComparer.Ordinal);
@@ -107,6 +114,59 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             Assert.Equal(new FileInfo(retainedPath).Length, retainedFile.SizeBytes);
             Assert.Equal(ComputeSha256(retainedPath), retainedFile.Sha256);
         }
+    }
+
+    [Fact]
+    public void Build_WithExplicitHistoricalBundle_RetainsHistoryAndFingerprintsAllHistoricalInputs()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var snapshotDirectory = workspace.PathFor("source-snapshot");
+        var request = CreateWorkspaceRequest(workspace, workspace.PathFor("package.json"));
+        request = request with
+        {
+            SourceSnapshotDirectory = snapshotDirectory,
+            HistoricalBaseItemsPath = request.BaseItemsPath,
+            HistoricalModsPath = request.ModsPath,
+            HistoricalStatsPath = request.StatsPath,
+            HistoricalTranslationsPath = request.TranslationsPath,
+            HistoricalSourceRootPath = request.SourceRootPath,
+            HistoricalSourceDataRootPath = request.SourceDataRootPath,
+            HistoricalSourceUri = request.SourceUri,
+            HistoricalSourceBranch = request.SourceBranch,
+            HistoricalSourceVersion = request.SourceVersion,
+            HistoricalDataVersion = "prior-exact-snapshot",
+        };
+
+        var result = _service.Build(request);
+
+        Assert.Equal(GameDataPackageBuildExitCode.Success, result.ExitCode);
+        Assert.NotNull(result.Package!.BaseImplicitHistory);
+        Assert.Equal(2, result.Package.BaseImplicitHistory.SourceSnapshots.Count);
+        Assert.Contains(result.Package.BaseImplicitHistory.SourceSnapshots, source =>
+            source.Role == BaseImplicitSnapshotRole.HistoricalObserved &&
+            source.DataVersion == "prior-exact-snapshot");
+        Assert.Equal(2, result.Package.Manifest.Sources.Count);
+
+        var manifest = DeserializeSnapshotManifest(result.SourceSnapshotManifestPath!);
+        var historicalFiles = manifest.Files
+            .Where(file => file.SnapshotRole == "historical-base-implicit")
+            .ToArray();
+        Assert.Equal(4, historicalFiles.Length);
+        Assert.All(historicalFiles, file =>
+        {
+            Assert.Equal(request.HistoricalSourceUri, file.RepositoryUri);
+            Assert.Equal(request.HistoricalSourceVersion, file.CommitSha);
+            Assert.Equal(request.HistoricalDataVersion, file.SourceDataVersion);
+            Assert.Equal(ComputeSha256(Path.Combine(snapshotDirectory, file.RetainedFileName!)), file.Sha256);
+        });
+        Assert.Equal(
+            [
+                "historical-base_items.json",
+                "historical-mods.json",
+                "historical-stat_translations.json",
+                "historical-stats.json",
+            ],
+            historicalFiles.Select(file => file.RetainedFileName).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -136,6 +196,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
                 new RePoeSourceSnapshotInput
                 {
                     LogicalInputRole = "modifiers",
+                    SnapshotRole = "historical-base-implicit",
                     PackageInputLabel = "mods.json",
                     OriginalPath = missingInput,
                     ExpectedSizeBytes = 1,

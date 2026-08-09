@@ -11,6 +11,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
     private readonly ParsedItemBaseResolver baseResolver = new();
     private readonly ModifierEligibilityEvaluator eligibilityEvaluator = new();
     private readonly ModifierTextSignatureMatcher textSignatureMatcher = new();
+    private readonly ParsedItemBaseImplicitRecognitionResolver baseImplicitRecognitionResolver = new();
 
     public IReadOnlyList<ModifierCandidateResolutionResult> Resolve(
         ParsedItem parsedItem,
@@ -43,7 +44,19 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 continue;
             }
 
-            results.Add(ResolveModifier(index, modifier, catalog, eligibilityContext));
+            var result = ResolveModifier(index, modifier, catalog, eligibilityContext);
+            if (eligibilityContext is not null && modifier.Kind == ParsedModifierKind.Implicit)
+            {
+                result = result with
+                {
+                    BaseImplicitRecognition = baseImplicitRecognitionResolver.Resolve(
+                        modifier,
+                        eligibilityContext.ItemBase,
+                        catalog),
+                };
+            }
+
+            results.Add(result);
         }
 
         return ToReadOnly(results);

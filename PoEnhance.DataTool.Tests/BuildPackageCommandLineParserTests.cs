@@ -110,6 +110,45 @@ public sealed class BuildPackageCommandLineParserTests
     }
 
     [Fact]
+    public void Parse_CompleteHistoricalBaseImplicitBundle_IsForwardedExplicitly()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(
+        [
+            "--historical-base-items", "old/base_items.json",
+            "--historical-mods", "old/mods.json",
+            "--historical-stats", "old/stats.json",
+            "--historical-translations", "old/stat_translations.json",
+            "--historical-source-root", "old/repoe",
+            "--historical-source-data-root", "old/data",
+            "--historical-source-uri", "https://github.com/repoe-fork/repoe",
+            "--historical-source-branch", "historical-t2a",
+            "--historical-source-version", "c50acab2ed660a70511e7f91ee09db4e632089e4",
+            "--historical-data-version", "3.28.0.13",
+        ]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.True(result.IsValid);
+        Assert.Equal("old/base_items.json", result.Request!.HistoricalBaseItemsPath);
+        Assert.Equal("c50acab2ed660a70511e7f91ee09db4e632089e4", result.Request.HistoricalSourceVersion);
+        Assert.Equal("3.28.0.13", result.Request.HistoricalDataVersion);
+    }
+
+    [Fact]
+    public void Parse_PartialHistoricalBundleFailsVisibly()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(["--historical-base-items", "old/base_items.json"]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("--historical-mods", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("--historical-source-version", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void GetUsage_DocumentsRequiredItemPropertySemanticsOption()
     {
         var usage = BuildPackageCommandLineParser.GetUsage();

@@ -64,6 +64,9 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<ItemPropertySemanticEvidenceMethod>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<BaseImplicitSnapshotRole>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
 
         return options;
     }

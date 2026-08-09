@@ -20,7 +20,8 @@ public sealed record ModifierCandidateResolutionResult(
     int TextSignatureCandidateCount = 0,
     int ExcludedByTextCandidateCount = 0,
     IReadOnlyList<ModifierTextSignatureMatchResult>? TextSignatureMatches = null,
-    ModifierLocality Locality = ModifierLocality.Unknown)
+    ModifierLocality Locality = ModifierLocality.Unknown,
+    BaseImplicitRecognitionResult? BaseImplicitRecognition = null)
 {
     public int CandidateCount => Candidates.Count;
 }

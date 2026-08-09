@@ -38,5 +38,25 @@ public sealed record GameDataPackageBuildRequest
 
     public string? SourceVersion { get; init; }
 
+    public string? HistoricalBaseItemsPath { get; init; }
+
+    public string? HistoricalModsPath { get; init; }
+
+    public string? HistoricalStatsPath { get; init; }
+
+    public string? HistoricalTranslationsPath { get; init; }
+
+    public string? HistoricalSourceRootPath { get; init; }
+
+    public string? HistoricalSourceDataRootPath { get; init; }
+
+    public string? HistoricalSourceUri { get; init; }
+
+    public string? HistoricalSourceBranch { get; init; }
+
+    public string? HistoricalSourceVersion { get; init; }
+
+    public string? HistoricalDataVersion { get; init; }
+
     public DateTimeOffset? CreatedAtUtc { get; init; }
 }

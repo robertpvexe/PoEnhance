@@ -74,8 +74,14 @@ internal static class RePoeSourceSnapshotWriter
                 retainedFiles.Add(new RePoeSourceSnapshotFile
                 {
                     LogicalInputRole = input.LogicalInputRole,
+                    SnapshotRole = input.SnapshotRole,
+                    RepositoryUri = input.RepositoryUri,
+                    Branch = input.Branch,
+                    CommitSha = input.CommitSha,
+                    SourceDataVersion = input.SourceDataVersion,
                     OriginalResolvedPath = originalPath,
                     RetainedFileName = input.PackageInputLabel,
+                    RetainedRelativePath = input.PackageInputLabel,
                     SizeBytes = sizeBytes,
                     Sha256 = sha256,
                 });

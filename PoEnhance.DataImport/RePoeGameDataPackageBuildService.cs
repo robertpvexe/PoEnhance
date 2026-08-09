@@ -32,6 +32,23 @@ public sealed class RePoeGameDataPackageBuildService
 
         var inputFiles = BuildInputFileList(request);
         ValidateSourceGuard(request, inputFiles, diagnostics);
+        var historicalInputFiles = HasHistoricalInputs(request)
+            ? BuildHistoricalInputFileList(request)
+            : [];
+        if (historicalInputFiles.Count > 0)
+        {
+            ValidateSourceGuard(
+                new GameDataPackageBuildRequest
+                {
+                    SourceRootPath = request.HistoricalSourceRootPath,
+                    SourceDataRootPath = request.HistoricalSourceDataRootPath,
+                    SourceUri = request.HistoricalSourceUri,
+                    SourceBranch = request.HistoricalSourceBranch,
+                    SourceVersion = request.HistoricalSourceVersion,
+                },
+                historicalInputFiles,
+                diagnostics);
+        }
         if (HasErrors(diagnostics))
         {
             return Failure(GameDataPackageBuildExitCode.InvalidArguments, diagnostics);
@@ -46,6 +63,18 @@ public sealed class RePoeGameDataPackageBuildService
                     ImportDiagnosticSeverity.Error,
                     inputFile.Label,
                     $"Required local RePoE input file is missing: {inputFile.Label}."));
+            }
+        }
+
+        foreach (var inputFile in historicalInputFiles)
+        {
+            if (!File.Exists(inputFile.Path))
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.BuildInputFileMissing,
+                    ImportDiagnosticSeverity.Error,
+                    inputFile.Label,
+                    $"Required historical RePoE input file is missing: {inputFile.Label}."));
             }
         }
 
@@ -67,6 +96,23 @@ public sealed class RePoeGameDataPackageBuildService
         var modifiers = _modifierImporter.Import(request.ModsPath!);
         var stats = _statsImporter.Import(request.StatsPath!);
         var translations = _translationImporter.Import(request.TranslationsPath!, stats.ImportedRecords);
+        ImportResult<ItemBaseRecord>? historicalBaseItems = null;
+        ImportResult<ModifierDefinition>? historicalModifiers = null;
+        ImportResult<StatDefinition>? historicalStats = null;
+        ImportResult<StatTranslationDefinition>? historicalTranslations = null;
+        if (historicalInputFiles.Count > 0)
+        {
+            historicalBaseItems = _baseItemImporter.Import(request.HistoricalBaseItemsPath!);
+            historicalModifiers = _modifierImporter.Import(request.HistoricalModsPath!);
+            historicalStats = _statsImporter.Import(request.HistoricalStatsPath!);
+            historicalTranslations = _translationImporter.Import(
+                request.HistoricalTranslationsPath!,
+                historicalStats.ImportedRecords);
+            diagnostics.AddRange(historicalBaseItems.Diagnostics);
+            diagnostics.AddRange(historicalModifiers.Diagnostics);
+            diagnostics.AddRange(historicalStats.Diagnostics);
+            diagnostics.AddRange(historicalTranslations.Diagnostics);
+        }
         var itemClasses = _itemClassImporter.Import(request.ItemClassesPath!);
         var tags = _tagImporter.Import(request.TagsPath!);
         var modsByBase = _modsByBaseImporter.Import(
@@ -123,6 +169,29 @@ public sealed class RePoeGameDataPackageBuildService
             semanticInputBytes);
         var manifest = CreateManifest(request, createdAtUtc, inputFiles, reviewedSemanticInput);
 
+        BaseImplicitHistoryCatalog? baseImplicitHistory = null;
+        if (historicalBaseItems is not null &&
+            historicalModifiers is not null &&
+            historicalStats is not null &&
+            historicalTranslations is not null)
+        {
+            baseImplicitHistory = BaseImplicitHistoryBuilder.Build(
+                request.SourceUri!,
+                request.SourceVersion!,
+                request.DataVersion!,
+                baseItems.ImportedRecords,
+                modifiers.ImportedRecords,
+                stats.ImportedRecords,
+                translations.ImportedRecords,
+                request.HistoricalSourceUri!,
+                request.HistoricalSourceVersion!,
+                request.HistoricalDataVersion!,
+                historicalBaseItems.ImportedRecords,
+                historicalModifiers.ImportedRecords,
+                historicalStats.ImportedRecords,
+                historicalTranslations.ImportedRecords);
+        }
+
         var packageCreation = _packageBuilder.CreatePackage(
             manifest,
             baseItems.ImportedRecords,
@@ -132,7 +201,8 @@ public sealed class RePoeGameDataPackageBuildService
             itemPropertySemantics.ImportedRecords,
             itemClasses.ImportedRecords,
             tags.ImportedRecords,
-            modsByBase.Evidence!);
+            modsByBase.Evidence!,
+            baseImplicitHistory);
         diagnostics.AddRange(packageCreation.Diagnostics);
 
         if (packageCreation.Package is null || HasErrors(diagnostics))
@@ -167,7 +237,28 @@ public sealed class RePoeGameDataPackageBuildService
                     request.SourceVersion!,
                     request.DataVersion!,
                     createdAtUtc,
-                    CreateSourceSnapshotInputs(inputFiles, repoeSource.InputFiles));
+                    CreateSourceSnapshotInputs(
+                        inputFiles,
+                        repoeSource.InputFiles,
+                        "current",
+                        request.SourceUri!,
+                        request.SourceBranch!,
+                        request.SourceVersion!,
+                        request.DataVersion!)
+                    .Concat(historicalInputFiles.Count == 0
+                        ? []
+                        : CreateSourceSnapshotInputs(
+                            historicalInputFiles,
+                            package.Manifest.Sources.Single(source => string.Equals(
+                                source.SourceId,
+                                BaseImplicitHistoryBuilder.HistoricalManifestSourceId,
+                                StringComparison.OrdinalIgnoreCase)).InputFiles,
+                            "historical-base-implicit",
+                            request.HistoricalSourceUri!,
+                            request.HistoricalSourceBranch!,
+                            request.HistoricalSourceVersion!,
+                            request.HistoricalDataVersion!))
+                    .ToArray());
             }
             catch (Exception exception) when (exception is
                 IOException or
@@ -249,6 +340,27 @@ public sealed class RePoeGameDataPackageBuildService
         AddRequiredArgumentDiagnostic(request.SourceVersion, "--source-version", diagnostics);
         AddRequiredArgumentDiagnostic(request.DataVersion, "--data-version", diagnostics);
 
+        var historicalValues = new (string? Value, string Name)[]
+        {
+            (request.HistoricalBaseItemsPath, "--historical-base-items"),
+            (request.HistoricalModsPath, "--historical-mods"),
+            (request.HistoricalStatsPath, "--historical-stats"),
+            (request.HistoricalTranslationsPath, "--historical-translations"),
+            (request.HistoricalSourceRootPath, "--historical-source-root"),
+            (request.HistoricalSourceDataRootPath, "--historical-source-data-root"),
+            (request.HistoricalSourceUri, "--historical-source-uri"),
+            (request.HistoricalSourceBranch, "--historical-source-branch"),
+            (request.HistoricalSourceVersion, "--historical-source-version"),
+            (request.HistoricalDataVersion, "--historical-data-version"),
+        };
+        if (historicalValues.Any(value => !string.IsNullOrWhiteSpace(value.Value)))
+        {
+            foreach (var value in historicalValues)
+            {
+                AddRequiredArgumentDiagnostic(value.Value, value.Name, diagnostics);
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(request.OutputPath) && IsInsidePoEnhanceAppDirectory(request.OutputPath))
         {
             diagnostics.Add(Diagnostic(
@@ -291,6 +403,21 @@ public sealed class RePoeGameDataPackageBuildService
         ];
     }
 
+    private static bool HasHistoricalInputs(GameDataPackageBuildRequest request) =>
+        !string.IsNullOrWhiteSpace(request.HistoricalBaseItemsPath);
+
+    private static IReadOnlyList<(string LogicalRole, string Label, string Path)> BuildHistoricalInputFileList(
+        GameDataPackageBuildRequest request)
+    {
+        return
+        [
+            ("baseItems", "historical-base_items.json", request.HistoricalBaseItemsPath!),
+            ("modifiers", "historical-mods.json", request.HistoricalModsPath!),
+            ("stats", "historical-stats.json", request.HistoricalStatsPath!),
+            ("statTranslations", "historical-stat_translations.json", request.HistoricalTranslationsPath!),
+        ];
+    }
+
     private static GameDataPackageManifest CreateManifest(
         GameDataPackageBuildRequest request,
         DateTimeOffset createdAtUtc,
@@ -312,12 +439,32 @@ public sealed class RePoeGameDataPackageBuildService
                     SourceId = RePoeBaseItemImporter.SourceId,
                     RetrievedAtUtc = createdAtUtc,
                     SourceVersion = TrimToNull(request.SourceVersion),
+                    DataVersion = TrimToNull(request.DataVersion),
                     SourceUri = TrimToNull(request.SourceUri) ?? RePoeSourceUri,
                     SourceBranch = TrimToNull(request.SourceBranch),
                     SourceRoot = NormalizePathOrNull(request.SourceRootPath),
                     SourceDataRoot = NormalizePathOrNull(request.SourceDataRootPath),
                     InputFiles = CreateInputFingerprints(request.SourceDataRootPath!, inputFiles),
                 },
+                ..(HasHistoricalInputs(request)
+                    ? new[]
+                    {
+                        new GameDataPackageSource
+                        {
+                            SourceId = BaseImplicitHistoryBuilder.HistoricalManifestSourceId,
+                            RetrievedAtUtc = createdAtUtc,
+                            SourceVersion = TrimToNull(request.HistoricalSourceVersion),
+                            DataVersion = TrimToNull(request.HistoricalDataVersion),
+                            SourceUri = TrimToNull(request.HistoricalSourceUri),
+                            SourceBranch = TrimToNull(request.HistoricalSourceBranch),
+                            SourceRoot = NormalizePathOrNull(request.HistoricalSourceRootPath),
+                            SourceDataRoot = NormalizePathOrNull(request.HistoricalSourceDataRootPath),
+                            InputFiles = CreateInputFingerprints(
+                                request.HistoricalSourceDataRootPath!,
+                                BuildHistoricalInputFileList(request)),
+                        },
+                    }
+                    : []),
             ],
         };
     }
@@ -430,7 +577,12 @@ public sealed class RePoeGameDataPackageBuildService
 
     private static IReadOnlyList<RePoeSourceSnapshotInput> CreateSourceSnapshotInputs(
         IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles,
-        IReadOnlyList<GameDataPackageInputFileFingerprint> fingerprints)
+        IReadOnlyList<GameDataPackageInputFileFingerprint> fingerprints,
+        string snapshotRole,
+        string repositoryUri,
+        string branch,
+        string commitSha,
+        string sourceDataVersion)
     {
         return inputFiles
             .Select(inputFile =>
@@ -444,6 +596,11 @@ public sealed class RePoeGameDataPackageBuildService
                     OriginalPath = inputFile.Path,
                     ExpectedSizeBytes = fingerprint.SizeBytes,
                     ExpectedSha256 = fingerprint.Sha256!,
+                    SnapshotRole = snapshotRole,
+                    RepositoryUri = repositoryUri,
+                    Branch = branch,
+                    CommitSha = commitSha,
+                    SourceDataVersion = sourceDataVersion,
                 };
             })
             .ToArray();
@@ -472,6 +629,20 @@ public sealed class RePoeGameDataPackageBuildService
                         ImportDiagnosticSeverity.Error,
                         "--source-snapshot-dir",
                         "Source snapshot output must be outside the RePoE checkout."));
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.HistoricalSourceRootPath))
+            {
+                var historicalSourceRoot = Path.GetFullPath(request.HistoricalSourceRootPath);
+                if (PathsEqual(snapshotDirectory, historicalSourceRoot) ||
+                    IsUnderDirectory(snapshotDirectory, historicalSourceRoot))
+                {
+                    diagnostics.Add(Diagnostic(
+                        RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                        ImportDiagnosticSeverity.Error,
+                        "--source-snapshot-dir",
+                        "Source snapshot output must be outside the historical RePoE checkout."));
                 }
             }
 

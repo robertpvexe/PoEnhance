@@ -8,6 +8,10 @@ public static class GameDataValidationErrorCodes
     public const string PackageStatsRequired = "package.stats.required";
     public const string PackageStatTranslationsRequired = "package.statTranslations.required";
     public const string PackageItemPropertySemanticsRequired = "package.itemPropertySemantics.required";
+    public const string BaseImplicitHistorySourceInvalid = "baseImplicitHistory.source.invalid";
+    public const string BaseImplicitHistoryEffectInvalid = "baseImplicitHistory.effect.invalid";
+    public const string BaseImplicitHistoryObservationInvalid = "baseImplicitHistory.observation.invalid";
+    public const string BaseImplicitHistoryReferenceUnknown = "baseImplicitHistory.reference.unknown";
 
     public const string ItemClassRequired = "itemClass.required";
     public const string ItemClassIdRequired = "itemClass.id.required";

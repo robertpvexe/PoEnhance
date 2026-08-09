@@ -2,7 +2,7 @@ namespace PoEnhance.DataImport;
 
 public sealed record RePoeSourceSnapshotManifest
 {
-    public int SnapshotVersion { get; init; } = 1;
+    public int SnapshotVersion { get; init; } = 2;
 
     public string? RepositoryUri { get; init; }
 
