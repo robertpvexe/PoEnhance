@@ -9,7 +9,7 @@ namespace PoEnhance.App.Tests;
 public sealed class QuickUseSettingsTests
 {
     [Fact]
-    public void SettingsMarkup_UsesThemedComboPopupAndAdjacentLeagueApplyLayout()
+    public void SettingsMarkup_UsesThemedProviderLeagueComboAndAdjacentApplyLayout()
     {
         var xaml = ReadRepositoryFile("PoEnhance.App", "Shell", "MultitoolMenuWindow.xaml");
 
@@ -20,11 +20,11 @@ public sealed class QuickUseSettingsTests
         Assert.Contains("Background=\"#202431\"", xaml, StringComparison.Ordinal);
         Assert.Contains("VerticalScrollBarVisibility=\"Auto\"", xaml, StringComparison.Ordinal);
         Assert.Contains(
-            "<Button x:Name=\"ApplyLeagueButton\"\n                                    Grid.Row=\"1\"\n                                    Grid.Column=\"2\"",
+            "<Button x:Name=\"ApplyLeagueButton\"\n                                    Grid.Row=\"0\"\n                                    Grid.Column=\"2\"",
             xaml,
             StringComparison.Ordinal);
         Assert.Contains("x:Name=\"CustomLeagueTextBox\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Grid.Row=\"1\"\n                                     Grid.Column=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextChanged=\"CustomLeagueTextBox_OnTextChanged\"\n                                     Visibility=\"Collapsed\"", xaml, StringComparison.Ordinal);
     }
 
     [Fact]

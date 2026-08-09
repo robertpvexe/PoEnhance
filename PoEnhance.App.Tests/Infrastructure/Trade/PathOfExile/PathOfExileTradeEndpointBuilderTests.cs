@@ -92,6 +92,15 @@ public sealed class PathOfExileTradeEndpointBuilderTests
     }
 
     [Fact]
+    public void BuildLeaguesEndpoint_IsProviderMetadataAndNeedsNoConfiguredLeague()
+    {
+        var result = builder.BuildLeaguesEndpoint();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/api/trade/data/leagues", result.PathAndQuery);
+    }
+
+    [Fact]
     public void ProviderTradeInfrastructure_DoesNotIntroduceExchangeEndpoint()
     {
         var search = builder.BuildSearchEndpoint("Mercenaries");

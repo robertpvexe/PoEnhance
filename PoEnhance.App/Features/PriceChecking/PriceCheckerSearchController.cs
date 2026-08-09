@@ -16,6 +16,7 @@ internal sealed class PriceCheckerSearchController
 
     private readonly IPathOfExileTradePriceCheckService priceCheckService;
     private readonly ApplicationLeagueSetting leagueSetting;
+    private readonly IPathOfExileTradeLeagueResolver leagueResolver;
     private readonly ITradeSearchDraftValidator draftValidator;
     private readonly IExternalUrlLauncher externalUrlLauncher;
     private readonly PathOfExileTradeSearchUrlBuilder tradeSearchUrlBuilder;
@@ -49,12 +50,14 @@ internal sealed class PriceCheckerSearchController
     public PriceCheckerSearchController(
         IPathOfExileTradePriceCheckService priceCheckService,
         ApplicationLeagueSetting leagueSetting,
+        IPathOfExileTradeLeagueResolver leagueResolver,
         ITradeSearchDraftValidator? draftValidator = null,
         IExternalUrlLauncher? externalUrlLauncher = null,
         PathOfExileTradeSearchUrlBuilder? tradeSearchUrlBuilder = null)
     {
         this.priceCheckService = priceCheckService ?? throw new ArgumentNullException(nameof(priceCheckService));
         this.leagueSetting = leagueSetting ?? throw new ArgumentNullException(nameof(leagueSetting));
+        this.leagueResolver = leagueResolver ?? throw new ArgumentNullException(nameof(leagueResolver));
         this.draftValidator = draftValidator ?? new CoreTradeSearchDraftValidatorAdapter();
         this.externalUrlLauncher = externalUrlLauncher ?? new SystemExternalUrlLauncher();
         this.tradeSearchUrlBuilder = tradeSearchUrlBuilder ?? new PathOfExileTradeSearchUrlBuilder();
@@ -64,7 +67,7 @@ internal sealed class PriceCheckerSearchController
 
     public PriceCheckerSearchViewState CurrentViewState { get; private set; }
 
-    private string? LeagueIdentifier => leagueSetting.EffectiveLeague;
+    private string? LeagueDisplayText => leagueSetting.LeagueSelection?.DisplayText;
 
     public PriceCheckerDeveloperDiagnosticsSnapshot CurrentDeveloperDiagnostics { get; private set; } =
         PriceCheckerDeveloperDiagnosticsSnapshot.Idle;
@@ -257,8 +260,8 @@ internal sealed class PriceCheckerSearchController
 
         var draft = currentDraft;
         var validationResult = currentValidationResult;
-        var trimmedLeague = TrimLeague(LeagueIdentifier);
-        if (draft is null || validationResult is null || trimmedLeague is null)
+        var selection = leagueSetting.LeagueSelection;
+        if (draft is null || validationResult is null || selection is null)
         {
             ApplyState(CreateIdleOrValidationState());
             return;
@@ -273,7 +276,76 @@ internal sealed class PriceCheckerSearchController
         ApplyState(new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Loading,
-            LeagueIdentifier = trimmedLeague,
+            LeagueIdentifier = selection.DisplayText,
+            CanSearch = false,
+            Message = "Resolving league...",
+            ItemProperties = CreateItemPropertyRows(),
+            Modifiers = CreateModifierRows(),
+        });
+
+        PathOfExileTradeLeagueResolutionResult leagueResolution;
+        try
+        {
+            leagueResolution = await leagueResolver.ResolveAsync(selection, requestCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            leagueResolution = new PathOfExileTradeLeagueResolutionResult { IsCancelled = true };
+        }
+        catch
+        {
+            leagueResolution = new PathOfExileTradeLeagueResolutionResult
+            {
+                Diagnostics =
+                [
+                    new PathOfExileTradeHttpDiagnostic(
+                        PathOfExileTradeLeaguesDiagnosticCodes.CatalogUnavailable,
+                        "The official Trade league catalog is unavailable. Try again later."),
+                ],
+            };
+        }
+
+        if (!IsCurrentRequest(requestGeneration, requestCancellation))
+        {
+            return;
+        }
+
+        if (!leagueResolution.IsSuccess || leagueResolution.League is null)
+        {
+            activeRequestCancellation = null;
+            isLoading = false;
+            isLoadingMore = false;
+            var diagnostic = leagueResolution.Diagnostics.FirstOrDefault();
+            var selectionFailure = diagnostic?.Code is
+                PathOfExileTradeLeaguesDiagnosticCodes.SelectionMissing or
+                PathOfExileTradeLeaguesDiagnosticCodes.SelectionNotFound or
+                PathOfExileTradeLeaguesDiagnosticCodes.SelectionAmbiguous;
+            ApplyState(new PriceCheckerSearchViewState
+            {
+                Status = leagueResolution.IsCancelled
+                    ? PriceCheckerSearchViewStatus.Cancelled
+                    : selectionFailure
+                        ? PriceCheckerSearchViewStatus.ValidationError
+                        : PriceCheckerSearchViewStatus.ProviderOrTransportError,
+                LeagueIdentifier = selection.DisplayText,
+                CanSearch = true,
+                Message = leagueResolution.IsCancelled
+                    ? "Search cancelled."
+                    : SafeMessage(diagnostic?.Message),
+                ItemProperties = CreateItemPropertyRows(),
+                Modifiers = CreateModifierRows(),
+            });
+            return;
+        }
+
+        var resolvedLeague = leagueResolution.League;
+        _ = leagueSetting.TryRevalidateResolved(
+            resolvedLeague.ProviderId,
+            resolvedLeague.DisplayText);
+        ApplyState(new PriceCheckerSearchViewState
+        {
+            Status = PriceCheckerSearchViewStatus.Loading,
+            LeagueIdentifier = resolvedLeague.DisplayText,
             CanSearch = false,
             Message = "Searching...",
             ItemProperties = CreateItemPropertyRows(),
@@ -286,7 +358,7 @@ internal sealed class PriceCheckerSearchController
             result = await priceCheckService.CheckAsync(
                 draft,
                 validationResult,
-                trimmedLeague,
+                resolvedLeague.ProviderId,
                 InitialFetchResultCount(),
                 requestCancellation.Token);
         }
@@ -329,7 +401,7 @@ internal sealed class PriceCheckerSearchController
             PublishCurrentContent();
         }
 
-        ApplyState(MapResult(result, effectiveDraft, trimmedLeague));
+        ApplyState(MapResult(result, effectiveDraft, resolvedLeague));
     }
 
     public async Task LoadMoreAsync()
@@ -980,7 +1052,7 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
-        if (!tradeSearchUrlBuilder.TryBuild(search.LeagueIdentifier, search.QueryId, out var uri) ||
+        if (!tradeSearchUrlBuilder.TryBuild(search.ProviderLeagueId, search.QueryId, out var uri) ||
             uri is null ||
             !externalUrlLauncher.TryOpen(uri))
         {
@@ -1165,7 +1237,7 @@ internal sealed class PriceCheckerSearchController
         return CreateLocalValidationState() ?? new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Idle,
-            LeagueIdentifier = LeagueIdentifier,
+            LeagueIdentifier = LeagueDisplayText,
             CanSearch = true,
             Message = "Ready to search.",
             ItemProperties = CreateItemPropertyRows(),
@@ -1189,7 +1261,7 @@ internal sealed class PriceCheckerSearchController
 
     private PriceCheckerSearchViewState? CreateLocalValidationState()
     {
-        if (TrimLeague(LeagueIdentifier) is null)
+        if (leagueSetting.LeagueSelection is null)
         {
             return ValidationState("Select a league in Settings before searching.");
         }
@@ -1235,7 +1307,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.ValidationError,
-            LeagueIdentifier = LeagueIdentifier,
+            LeagueIdentifier = LeagueDisplayText,
             CanSearch = false,
             Message = message,
             ItemProperties = CreateItemPropertyRows(),
@@ -1246,14 +1318,14 @@ internal sealed class PriceCheckerSearchController
     private PriceCheckerSearchViewState MapResult(
         PathOfExileTradePriceCheckResult result,
         TradeSearchDraft? effectiveDraft,
-        string searchLeagueIdentifier)
+        PathOfExileTradeLeagueEntry resolvedLeague)
     {
         if (result.IsCancelled)
         {
             return new PriceCheckerSearchViewState
             {
                 Status = PriceCheckerSearchViewStatus.Cancelled,
-                LeagueIdentifier = LeagueIdentifier,
+                LeagueIdentifier = LeagueDisplayText,
                 CanSearch = CanStartSearch(),
                 Message = "Search cancelled.",
                 ItemProperties = CreateItemPropertyRows(effectiveDraft),
@@ -1271,7 +1343,7 @@ internal sealed class PriceCheckerSearchController
             return new PriceCheckerSearchViewState
             {
                 Status = status,
-                LeagueIdentifier = LeagueIdentifier,
+                LeagueIdentifier = LeagueDisplayText,
                 CanSearch = CanStartSearch(),
                 Message = FailureMessage(result),
                 ItemProperties = CreateItemPropertyRows(effectiveDraft),
@@ -1279,14 +1351,14 @@ internal sealed class PriceCheckerSearchController
             };
         }
 
-        InitializePaginationState(result, searchLeagueIdentifier);
+        InitializePaginationState(result, resolvedLeague.ProviderId);
         var approximationWarning = SelectedFracturedApproximationWarning(effectiveDraft);
         if (displayedOffers.Count == 0 && !HasUnfetchedResultIds())
         {
             return new PriceCheckerSearchViewState
             {
                 Status = PriceCheckerSearchViewStatus.ZeroResults,
-                LeagueIdentifier = LeagueIdentifier,
+                LeagueIdentifier = resolvedLeague.DisplayText,
                 CanSearch = CanStartSearch(),
                 CanOpenTrade = successfulSearch is not null,
                 Message = approximationWarning ?? "No offers found.",
@@ -1299,7 +1371,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = PriceCheckerSearchViewStatus.Success,
-            LeagueIdentifier = LeagueIdentifier,
+            LeagueIdentifier = resolvedLeague.DisplayText,
             CanSearch = CanStartSearch(),
             CanLoadMore = CanFetchMore(),
             CanOpenTrade = successfulSearch is not null,
@@ -1332,7 +1404,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerSearchViewState
         {
             Status = isLoading ? PriceCheckerSearchViewStatus.Loading : PriceCheckerSearchViewStatus.Success,
-            LeagueIdentifier = LeagueIdentifier,
+            LeagueIdentifier = LeagueDisplayText,
             CanSearch = !isLoading && CanStartSearch(),
             CanLoadMore = canLoadMore ?? (!isLoading && CanFetchMore()),
             CanOpenTrade = successfulSearch is not null,
@@ -1361,13 +1433,13 @@ internal sealed class PriceCheckerSearchController
 
     private void InitializePaginationState(
         PathOfExileTradePriceCheckResult result,
-        string searchLeagueIdentifier)
+        string providerLeagueId)
     {
         ClearPaginationState();
         var queryId = TrimToNull(result.SearchQueryId);
         successfulSearch = queryId is null
             ? null
-            : new PriceCheckerSuccessfulSearchIdentity(queryId, searchLeagueIdentifier);
+            : new PriceCheckerSuccessfulSearchIdentity(queryId, providerLeagueId);
         paginationResultIds.AddRange(result.ResultIds
             .Select(TrimToNull)
             .Where(resultId => resultId is not null)
@@ -2485,11 +2557,6 @@ internal sealed class PriceCheckerSearchController
         return safe.Length <= MaximumSafeProviderMessageLength
             ? safe
             : $"{safe[..MaximumSafeProviderMessageLength]}...";
-    }
-
-    private static string? TrimLeague(string? value)
-    {
-        return TrimToNull(value);
     }
 
     private void OnLeagueSettingChanged(object? sender, string effectiveLeague)

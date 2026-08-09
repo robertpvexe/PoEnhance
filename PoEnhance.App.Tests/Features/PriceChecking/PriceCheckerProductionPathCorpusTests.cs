@@ -1119,7 +1119,8 @@ Item Level: 84
             var priceCheckService = new FakePriceCheckService();
             var searchController = new PriceCheckerSearchController(
                 priceCheckService,
-                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
+                global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"),
+                new global::PoEnhance.App.Tests.TestTradeLeagueResolver());
             var controller = new PriceCheckerWindowController(
                 new FakeBoundsProvider(),
                 new PriceCheckerPlacementCalculator(),

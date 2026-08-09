@@ -38,7 +38,8 @@ internal sealed class PriceCheckerWindowController
     public PriceCheckerWindowController(
         IPriceCheckerWindowFactory windowFactory,
         IPathOfExileTradePriceCheckService priceCheckService,
-        ApplicationLeagueSetting leagueSetting)
+        ApplicationLeagueSetting leagueSetting,
+        IPathOfExileTradeLeagueResolver leagueResolver)
         : this(
             new PathOfExileClientBoundsProvider(),
             new PriceCheckerPlacementCalculator(),
@@ -49,7 +50,7 @@ internal sealed class PriceCheckerWindowController
             new CoreTradeSearchDraftValidatorAdapter(),
             new PathOfExileForegroundWindowDetector(),
             new WpfPriceCheckerDeferredActionScheduler(),
-            new PriceCheckerSearchController(priceCheckService, leagueSetting),
+            new PriceCheckerSearchController(priceCheckService, leagueSetting, leagueResolver),
             PriceCheckerDeveloperDiagnosticsPresenter.CreateForCurrentBuild(),
             new OfferCardPreviewController(
                 new OfferCardPreviewWindowFactory(),

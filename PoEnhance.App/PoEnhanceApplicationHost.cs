@@ -76,7 +76,9 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
         Action requestApplicationShutdown)
     {
         var developerWindow = new MainWindow(composition);
-        var multitoolMenuWindow = new MultitoolMenuWindow(composition.LeagueSetting);
+        var multitoolMenuWindow = new MultitoolMenuWindow(
+            composition.LeagueSetting,
+            composition.TradeLeagueCatalogProvider);
         var multitoolMenuWindowController = new MultitoolMenuWindowController(
             multitoolMenuWindow,
             new PathOfExileClientBoundsProvider());
@@ -284,7 +286,8 @@ internal sealed class PoEnhanceApplicationHost : IDisposable
     private async void OnPriceCheckerHotkeyTriggered(object? sender, EventArgs e)
     {
         await developerWindow.HandlePriceCheckerShortcutAsync(
-            priceCheckerHotkeyService.SelectedShortcut);
+            priceCheckerHotkeyService.SelectedShortcut,
+            shutdownCancellation.Token);
     }
 
     private void OnDeveloperWindowHotkeyTriggered(object? sender, EventArgs e)

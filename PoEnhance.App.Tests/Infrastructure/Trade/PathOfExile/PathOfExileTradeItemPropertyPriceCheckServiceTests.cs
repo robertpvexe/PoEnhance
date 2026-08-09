@@ -19,7 +19,8 @@ public sealed class PathOfExileTradeItemPropertyPriceCheckServiceTests
         var service = CreateService(filtersClient);
         var controller = new PriceCheckerSearchController(
             service,
-            global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"));
+            global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"),
+            new global::PoEnhance.App.Tests.TestTradeLeagueResolver());
         var draft = PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(
             [PathOfExileTradeItemPropertyTestFixtures.Property(
                 TradeSearchItemPropertyKind.TotalDps,

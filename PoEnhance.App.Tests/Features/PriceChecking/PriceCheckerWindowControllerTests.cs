@@ -1612,7 +1612,8 @@ Item Level: 80
                 deferredActionScheduler,
                 new PriceCheckerSearchController(
                     priceCheckService,
-                    leagueSetting),
+                    leagueSetting,
+                    new global::PoEnhance.App.Tests.TestTradeLeagueResolver()),
                 offerCardPreviewController: previewController,
                 pinnedOfferCardSessionController: pinnedController);
 

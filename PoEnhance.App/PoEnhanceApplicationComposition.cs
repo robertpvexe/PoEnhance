@@ -17,10 +17,13 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         IPathOfExileTradeStatsClient tradeStatsClient,
         IPathOfExileTradeItemsClient tradeItemsClient,
         IPathOfExileTradeFiltersClient tradeFiltersClient,
+        IPathOfExileTradeLeaguesClient tradeLeaguesClient,
         IPathOfExileTradeStatMatcher tradeStatMatcher,
         IPathOfExileTradeStatCatalogProvider tradeStatCatalogProvider,
         IPathOfExileTradeItemCatalogProvider tradeItemCatalogProvider,
         IPathOfExileTradeFilterCatalogProvider tradeFilterCatalogProvider,
+        IPathOfExileTradeLeagueCatalogProvider tradeLeagueCatalogProvider,
+        IPathOfExileTradeLeagueResolver tradeLeagueResolver,
         IPathOfExileTradeSelectedModifierMapper tradeSelectedModifierMapper,
         IPathOfExileTradeItemIdentityMapper tradeItemIdentityMapper,
         IPathOfExileTradePriceCheckService priceCheckService,
@@ -35,10 +38,13 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         TradeStatsClient = tradeStatsClient;
         TradeItemsClient = tradeItemsClient;
         TradeFiltersClient = tradeFiltersClient;
+        TradeLeaguesClient = tradeLeaguesClient;
         TradeStatMatcher = tradeStatMatcher;
         TradeStatCatalogProvider = tradeStatCatalogProvider;
         TradeItemCatalogProvider = tradeItemCatalogProvider;
         TradeFilterCatalogProvider = tradeFilterCatalogProvider;
+        TradeLeagueCatalogProvider = tradeLeagueCatalogProvider;
+        TradeLeagueResolver = tradeLeagueResolver;
         TradeSelectedModifierMapper = tradeSelectedModifierMapper;
         TradeItemIdentityMapper = tradeItemIdentityMapper;
         PriceCheckService = priceCheckService;
@@ -62,6 +68,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
     public IPathOfExileTradeFiltersClient TradeFiltersClient { get; }
 
+    public IPathOfExileTradeLeaguesClient TradeLeaguesClient { get; }
+
     public IPathOfExileTradeStatMatcher TradeStatMatcher { get; }
 
     public IPathOfExileTradeStatCatalogProvider TradeStatCatalogProvider { get; }
@@ -69,6 +77,10 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
     public IPathOfExileTradeItemCatalogProvider TradeItemCatalogProvider { get; }
 
     public IPathOfExileTradeFilterCatalogProvider TradeFilterCatalogProvider { get; }
+
+    public IPathOfExileTradeLeagueCatalogProvider TradeLeagueCatalogProvider { get; }
+
+    public IPathOfExileTradeLeagueResolver TradeLeagueResolver { get; }
 
     public IPathOfExileTradeSelectedModifierMapper TradeSelectedModifierMapper { get; }
 
@@ -88,10 +100,13 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var statsClient = new PathOfExileTradeStatsClient(tradeHttpClient);
         var itemsClient = new PathOfExileTradeItemsClient(tradeHttpClient);
         var filtersClient = new PathOfExileTradeFiltersClient(tradeHttpClient);
+        var leaguesClient = new PathOfExileTradeLeaguesClient(tradeHttpClient);
         var statMatcher = new PathOfExileTradeStatMatcher();
         var statCatalogProvider = new PathOfExileTradeStatCatalogProvider(statsClient);
         var itemCatalogProvider = new PathOfExileTradeItemCatalogProvider(itemsClient);
         var filterCatalogProvider = new PathOfExileTradeFilterCatalogProvider(filtersClient);
+        var leagueCatalogProvider = new PathOfExileTradeLeagueCatalogProvider(leaguesClient);
+        var leagueResolver = new PathOfExileTradeLeagueResolver(leagueCatalogProvider);
         var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper();
         var itemIdentityMapper = new PathOfExileTradeItemIdentityMapper();
         var priceCheckService = new PathOfExileTradePriceCheckService(
@@ -108,7 +123,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var priceCheckerWindowController = new PriceCheckerWindowController(
             new PriceCheckerWindowFactory(),
             priceCheckService,
-            leagueSetting);
+            leagueSetting,
+            leagueResolver);
 
         return new PoEnhanceApplicationComposition(
             tradeHttpClient,
@@ -121,10 +137,13 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             statsClient,
             itemsClient,
             filtersClient,
+            leaguesClient,
             statMatcher,
             statCatalogProvider,
             itemCatalogProvider,
             filterCatalogProvider,
+            leagueCatalogProvider,
+            leagueResolver,
             selectedModifierMapper,
             itemIdentityMapper,
             priceCheckService,

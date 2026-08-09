@@ -3,6 +3,7 @@ using System.Windows;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.App.Shell;
 
 namespace PoEnhance.App.Tests;
@@ -188,26 +189,24 @@ public sealed class MultitoolMenuShellTests
     }
 
     [Fact]
-    public void BuiltInLeagueSelections_SaveTheirEffectiveValueAndDisableCustomInput()
+    public void ProviderLeagueSelections_SaveSeparatedIdentityAndDisableCustomInput()
     {
         RunOnSta(() =>
         {
             using var directory = new TemporaryDirectory();
             var setting = new ApplicationLeagueSetting(Path.Combine(directory.Path, "settings.json"));
-            var window = new MultitoolMenuWindow(setting);
+            var window = new MultitoolMenuWindow(setting, LeagueProvider());
+            window.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
 
             Assert.Equal(
-                ["Standard", "Hardcore", "Ruthless", "Hardcore Ruthless", "Other"],
+                ["Current League", "Standard"],
                 window.LeagueChoices);
 
-            foreach (var league in MultitoolMenuWindow.BuiltInLeagueChoices)
-            {
-                window.SelectPendingLeague(league);
-
-                Assert.False(window.IsCustomLeagueEnabled);
-                Assert.True(window.ApplyPendingLeague());
-                Assert.Equal(league, setting.EffectiveLeague);
-            }
+            window.SelectPendingLeague("Current League");
+            Assert.False(window.IsCustomLeagueEnabled);
+            Assert.True(window.ApplyPendingLeague());
+            Assert.Equal("Current League", setting.EffectiveLeague);
+            Assert.Equal("provider-current", setting.LeagueSelection?.ProviderId);
 
             Assert.Equal("League saved successfully.", window.LeagueFeedback);
             window.CloseForApplicationExit();
@@ -215,49 +214,38 @@ public sealed class MultitoolMenuShellTests
     }
 
     [Fact]
-    public void OtherLeague_EnablesCustomInputPreservesTextAndSavesTrimmedValue()
+    public void NonPcRows_AreNotOffered()
     {
         RunOnSta(() =>
         {
             using var directory = new TemporaryDirectory();
-            var setting = new ApplicationLeagueSetting(Path.Combine(directory.Path, "settings.json"));
-            var window = new MultitoolMenuWindow(setting);
+            var window = new MultitoolMenuWindow(
+                new ApplicationLeagueSetting(Path.Combine(directory.Path, "settings.json")),
+                LeagueProvider());
+            window.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
 
-            window.SelectPendingLeague("Other");
-            Assert.True(window.IsCustomLeagueEnabled);
-            window.SetPendingCustomLeague("  Keepers of the Flame  ");
-
-            window.SelectPendingLeague("Standard");
+            Assert.DoesNotContain("Console Current League", window.LeagueChoices);
             Assert.False(window.IsCustomLeagueEnabled);
-            Assert.Equal("  Keepers of the Flame  ", window.PendingCustomLeague);
-            Assert.Null(setting.EffectiveLeague);
-
-            window.SelectPendingLeague("Other");
-            Assert.True(window.ApplyPendingLeague());
-
-            Assert.Equal("Keepers of the Flame", setting.EffectiveLeague);
-            Assert.Equal(
-                "Keepers of the Flame",
-                new ApplicationLeagueSetting(setting.FilePath!).EffectiveLeague);
             window.CloseForApplicationExit();
         });
     }
 
     [Fact]
-    public void EmptyOtherLeague_IsRejectedWithoutPersistence()
+    public void FailedCatalogLoad_DoesNotInjectFallbackLeague()
     {
         RunOnSta(() =>
         {
             using var directory = new TemporaryDirectory();
             var path = Path.Combine(directory.Path, "settings.json");
             var setting = new ApplicationLeagueSetting(path);
-            var window = new MultitoolMenuWindow(setting);
-            window.SelectPendingLeague("Other");
-            window.SetPendingCustomLeague("   ");
+            var window = new MultitoolMenuWindow(
+                setting,
+                new global::PoEnhance.App.Tests.TestTradeLeagueCatalogProvider(
+                    new PathOfExileTradeLeagueCatalogProviderResult()));
+            window.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
 
-            Assert.False(window.ApplyPendingLeague());
-
-            Assert.Equal("Enter a league name before applying.", window.LeagueFeedback);
+            Assert.Empty(window.LeagueChoices);
+            Assert.Contains("could not be loaded", window.LeagueFeedback, StringComparison.Ordinal);
             Assert.Null(setting.EffectiveLeague);
             Assert.False(File.Exists(path));
             window.CloseForApplicationExit();
@@ -265,7 +253,7 @@ public sealed class MultitoolMenuShellTests
     }
 
     [Fact]
-    public void SavedLeague_RestoresBuiltInCustomAndUnselectedStates()
+    public void SavedAndLegacyLeague_RestoreOnlyWhenCurrentCatalogMatchIsUnique()
     {
         RunOnSta(() =>
         {
@@ -273,23 +261,30 @@ public sealed class MultitoolMenuShellTests
 
             var builtInPath = Path.Combine(directory.Path, "built-in.json");
             var builtInSetting = new ApplicationLeagueSetting(builtInPath);
-            Assert.True(builtInSetting.TrySave("Hardcore"));
-            var builtInWindow = new MultitoolMenuWindow(new ApplicationLeagueSetting(builtInPath));
-            Assert.Equal("Hardcore", builtInWindow.PendingLeagueChoice);
+            Assert.True(builtInSetting.TrySaveResolved("provider-current", "Old label"));
+            var builtInWindow = new MultitoolMenuWindow(
+                new ApplicationLeagueSetting(builtInPath),
+                LeagueProvider());
+            builtInWindow.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
+            Assert.Equal("Current League", builtInWindow.PendingLeagueChoice);
             Assert.False(builtInWindow.IsCustomLeagueEnabled);
             builtInWindow.CloseForApplicationExit();
 
             var customPath = Path.Combine(directory.Path, "custom.json");
             var customSetting = new ApplicationLeagueSetting(customPath);
-            Assert.True(customSetting.TrySave("Legacy of Phrecia"));
-            var customWindow = new MultitoolMenuWindow(new ApplicationLeagueSetting(customPath));
-            Assert.Equal("Other", customWindow.PendingLeagueChoice);
-            Assert.True(customWindow.IsCustomLeagueEnabled);
-            Assert.Equal("Legacy of Phrecia", customWindow.PendingCustomLeague);
+            Assert.True(customSetting.TrySave("Standard"));
+            var customWindow = new MultitoolMenuWindow(
+                new ApplicationLeagueSetting(customPath),
+                LeagueProvider());
+            customWindow.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
+            Assert.Equal("Standard", customWindow.PendingLeagueChoice);
+            Assert.False(customWindow.IsCustomLeagueEnabled);
             customWindow.CloseForApplicationExit();
 
             var emptyWindow = new MultitoolMenuWindow(
-                new ApplicationLeagueSetting(Path.Combine(directory.Path, "missing.json")));
+                new ApplicationLeagueSetting(Path.Combine(directory.Path, "missing.json")),
+                LeagueProvider());
+            emptyWindow.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
             Assert.Equal("Select league", emptyWindow.PendingLeagueChoice);
             Assert.False(emptyWindow.IsCustomLeagueEnabled);
             emptyWindow.CloseForApplicationExit();
@@ -302,15 +297,21 @@ public sealed class MultitoolMenuShellTests
         RunOnSta(() =>
         {
             var setting = ApplicationLeagueSetting.CreateTransient("Standard");
-            var window = new MultitoolMenuWindow(setting);
+            var window = new MultitoolMenuWindow(setting, LeagueProvider());
+            window.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
 
-            window.SelectPendingLeague("Other");
-            window.SetPendingCustomLeague("Settlers");
+            window.SelectPendingLeague("Current League");
 
             Assert.Equal("Standard", setting.EffectiveLeague);
             window.CloseForApplicationExit();
         });
     }
+
+    private static global::PoEnhance.App.Tests.TestTradeLeagueCatalogProvider LeagueProvider() =>
+        new(
+            new PathOfExileTradeLeagueEntry("provider-current", "Current League", "pc", 0),
+            new PathOfExileTradeLeagueEntry("standard-id", "Standard", "pc", 1),
+            new PathOfExileTradeLeagueEntry("console-current", "Console Current League", "xbox", 2));
 
     [Fact]
     public void WindowLayout_ContainsRequiredEnglishModulesAndExitCopy()

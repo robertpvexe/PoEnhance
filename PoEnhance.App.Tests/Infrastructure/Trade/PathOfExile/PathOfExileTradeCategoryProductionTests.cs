@@ -1053,6 +1053,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             var controller = new PriceCheckerSearchController(
                 service,
                 global::PoEnhance.App.Infrastructure.Settings.ApplicationLeagueSetting.CreateTransient("Mirage"),
+                new global::PoEnhance.App.Tests.TestTradeLeagueResolver(),
                 externalUrlLauncher: urlLauncher);
             controller.AttachWindow(window);
 

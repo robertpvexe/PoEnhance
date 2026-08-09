@@ -860,6 +860,96 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task ResolvedProviderIdNotDisplayTextIsUsedForSearchAndBrowserUrl()
+    {
+        var setting = ApplicationLeagueSetting.CreateTransient();
+        Assert.True(setting.TrySaveResolved("provider/id", "Pretty League"));
+        var resolver = new global::PoEnhance.App.Tests.TestTradeLeagueResolver((_, _) =>
+            Task.FromResult(new PathOfExileTradeLeagueResolutionResult
+            {
+                League = new PathOfExileTradeLeagueEntry(
+                    "provider/id",
+                    "Pretty League",
+                    "pc",
+                    0),
+            }));
+        var fixture = SearchFixture.Create(setting, resolver);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+        fixture.Window.RaiseTradeRequested();
+
+        Assert.Equal("provider/id", Assert.Single(fixture.PriceCheckService.Calls).LeagueIdentifier);
+        Assert.DoesNotContain("Pretty", Assert.Single(fixture.ExternalUrlLauncher.OpenedUris).AbsoluteUri,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "https://www.pathofexile.com/trade/search/provider%2Fid/query-1",
+            fixture.ExternalUrlLauncher.OpenedUris[0].AbsoluteUri);
+        Assert.Equal("Pretty League", fixture.Window.CurrentSearchState?.LeagueIdentifier);
+    }
+
+    [Fact]
+    public async Task UnresolvedLeagueSendsZeroPriceCheckRequestsAndSurfacesDiagnostic()
+    {
+        var resolver = new global::PoEnhance.App.Tests.TestTradeLeagueResolver((_, _) =>
+            Task.FromResult(new PathOfExileTradeLeagueResolutionResult
+            {
+                Diagnostics =
+                [
+                    new PathOfExileTradeHttpDiagnostic(
+                        PathOfExileTradeLeaguesDiagnosticCodes.SelectionNotFound,
+                        "The selected league is no longer available."),
+                ],
+            }));
+        var fixture = SearchFixture.Create(
+            ApplicationLeagueSetting.CreateTransient("Removed"),
+            resolver);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError,
+            fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("The selected league is no longer available.",
+            fixture.Window.CurrentSearchState?.Message);
+    }
+
+    [Fact]
+    public async Task EachRefreshRevalidatesLeagueWhileLoadMoreKeepsSuccessfulProviderIdentity()
+    {
+        var resolveCalls = 0;
+        var resolver = new global::PoEnhance.App.Tests.TestTradeLeagueResolver((_, _) =>
+        {
+            resolveCalls++;
+            return Task.FromResult(new PathOfExileTradeLeagueResolutionResult
+            {
+                League = new PathOfExileTradeLeagueEntry("stable-id", "Display", "pc", 0),
+            });
+        });
+        var fixture = SearchFixture.Create(
+            ApplicationLeagueSetting.CreateTransient("Display"),
+            resolver);
+        fixture.PriceCheckService.Result = SuccessResult(
+            [Offer("id-1")],
+            total: 2,
+            resultIds: ["id-1", "id-2"],
+            fetchedResultIds: ["id-1"]);
+        fixture.Controller.UpdateCurrentDraft(Draft("Armoured Shell"), ValidationSuccess());
+
+        await fixture.Controller.SearchAsync();
+        await fixture.Controller.LoadMoreAsync();
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(2, resolveCalls);
+        Assert.Equal("stable-id", fixture.LeagueSetting.LeagueSelection?.ProviderId);
+        Assert.False(fixture.LeagueSetting.LeagueSelection?.IsLegacy);
+        Assert.All(fixture.PriceCheckService.Calls,
+            call => Assert.Equal("stable-id", call.LeagueIdentifier));
+        Assert.Single(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
     public async Task ApplyingNewGlobalLeague_InvalidatesResultsWithoutAutomaticSearch()
     {
         var fixture = SearchFixture.Create();
@@ -4404,6 +4494,15 @@ public sealed class PriceCheckerSearchControllerTests
 
         public static SearchFixture Create(ApplicationLeagueSetting leagueSetting)
         {
+            return Create(
+                leagueSetting,
+                new global::PoEnhance.App.Tests.TestTradeLeagueResolver());
+        }
+
+        public static SearchFixture Create(
+            ApplicationLeagueSetting leagueSetting,
+            IPathOfExileTradeLeagueResolver leagueResolver)
+        {
             var window = new FakeWindow
             {
                 OfferCapacity = 100,
@@ -4413,6 +4512,7 @@ public sealed class PriceCheckerSearchControllerTests
             var controller = new PriceCheckerSearchController(
                 priceCheckService,
                 leagueSetting,
+                leagueResolver,
                 externalUrlLauncher: externalUrlLauncher);
             controller.AttachWindow(window);
             return new SearchFixture(

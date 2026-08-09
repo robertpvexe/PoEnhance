@@ -10,6 +10,7 @@ using System.Windows.Media;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
+using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using DrawingPoint = System.Drawing.Point;
 using FormsScreen = System.Windows.Forms.Screen;
 
@@ -22,16 +23,8 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private const double PreferredMinimumWidth = 1200d;
     private const double PreferredMinimumHeight = 680d;
     private const string SelectLeaguePlaceholder = "Select league";
-    private const string OtherLeagueChoice = "Other";
-    internal static IReadOnlyList<string> BuiltInLeagueChoices { get; } =
-    [
-        "Standard",
-        "Hardcore",
-        "Ruthless",
-        "Hardcore Ruthless",
-    ];
-
     private readonly ApplicationLeagueSetting leagueSetting;
+    private readonly IPathOfExileTradeLeagueCatalogProvider leagueCatalogProvider;
     private readonly ObservableCollection<QuickUseCommandRow> quickUseRows = [];
     private bool allowApplicationClose;
     private bool isRestoringLeagueSelection;
@@ -39,14 +32,24 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private ShortcutBinding? hotkeyBeforeCapture;
 
     public MultitoolMenuWindow(ApplicationLeagueSetting leagueSetting)
+        : this(leagueSetting, new UnavailableLeagueCatalogProvider())
+    {
+    }
+
+    public MultitoolMenuWindow(
+        ApplicationLeagueSetting leagueSetting,
+        IPathOfExileTradeLeagueCatalogProvider leagueCatalogProvider)
     {
         this.leagueSetting = leagueSetting ?? throw new ArgumentNullException(nameof(leagueSetting));
+        this.leagueCatalogProvider = leagueCatalogProvider ??
+            throw new ArgumentNullException(nameof(leagueCatalogProvider));
         InitializeComponent();
         QuickUseCommandsItemsControl.ItemsSource = quickUseRows;
         VersionText.Text = $"Version {GetApplicationVersion()}";
         RestoreLeagueSelection();
         RestoreQuickUseCommands();
         ShowStartView();
+        Loaded += async (_, _) => await RefreshLeagueChoicesAsync();
     }
 
     public event EventHandler? ExitRequested;
@@ -149,6 +152,7 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         SettingsContent.Visibility = Visibility.Visible;
         StartNavigationButton.Tag = null;
         SettingsNavigationButton.Tag = "Active";
+        _ = RefreshLeagueChoicesAsync();
     }
 
     internal void SelectPendingLeague(string choice)
@@ -181,16 +185,16 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
             return false;
         }
 
-        var effectiveLeague = selectedChoice == OtherLeagueChoice
-            ? CustomLeagueTextBox.Text.Trim()
-            : selectedChoice;
-        if (string.IsNullOrWhiteSpace(effectiveLeague))
+        if (LeagueComboBox.SelectedItem is not ComboBoxItem
+            {
+                Tag: PathOfExileTradeLeagueEntry league,
+            })
         {
-            ShowLeagueError("Enter a league name before applying.");
+            ShowLeagueError("Select an official PC league before applying.");
             return false;
         }
 
-        if (!leagueSetting.TrySave(effectiveLeague))
+        if (!leagueSetting.TrySaveResolved(league.ProviderId, league.DisplayText))
         {
             ShowLeagueError("League could not be saved. Try again.");
             return false;
@@ -376,7 +380,7 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
 
     private void LeagueComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        CustomLeagueTextBox.IsEnabled = SelectedLeagueChoice() == OtherLeagueChoice;
+        CustomLeagueTextBox.IsEnabled = false;
         ClearLeagueFeedback();
     }
 
@@ -431,21 +435,7 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         isRestoringLeagueSelection = true;
         try
         {
-            var effectiveLeague = leagueSetting.EffectiveLeague;
-            if (effectiveLeague is null)
-            {
-                SelectPendingLeague(SelectLeaguePlaceholder);
-                return;
-            }
-
-            if (BuiltInLeagueChoices.Contains(effectiveLeague, StringComparer.Ordinal))
-            {
-                SelectPendingLeague(effectiveLeague);
-                return;
-            }
-
-            SelectPendingLeague(OtherLeagueChoice);
-            CustomLeagueTextBox.Text = effectiveLeague;
+            SelectPendingLeague(SelectLeaguePlaceholder);
         }
         finally
         {
@@ -481,6 +471,87 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     {
         LeagueFeedbackText.Text = message;
         LeagueFeedbackText.Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 107));
+    }
+
+    internal async Task RefreshLeagueChoicesAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await leagueCatalogProvider.GetCatalogAsync(cancellationToken);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        isRestoringLeagueSelection = true;
+        try
+        {
+            LeagueComboBox.Items.Clear();
+            LeagueComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = SelectLeaguePlaceholder,
+                IsEnabled = false,
+            });
+
+            if (!result.IsSuccess || result.Catalog is null)
+            {
+                LeagueComboBox.SelectedIndex = 0;
+                ShowLeagueError("Official Trade leagues could not be loaded. Try again later.");
+                return;
+            }
+
+            foreach (var league in result.Catalog.PcEntries.OrderBy(entry => entry.ProviderOrder))
+            {
+                LeagueComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = league.DisplayText,
+                    Tag = league,
+                });
+            }
+
+            var selection = leagueSetting.LeagueSelection;
+            var matches = selection is null
+                ? []
+                : result.Catalog.PcEntries.Where(entry => selection.IsLegacy
+                    ? string.Equals(entry.ProviderId, selection.DisplayText, StringComparison.Ordinal) ||
+                      string.Equals(entry.DisplayText, selection.DisplayText, StringComparison.Ordinal)
+                    : string.Equals(entry.ProviderId, selection.ProviderId, StringComparison.Ordinal))
+                    .ToArray();
+            if (matches.Length == 1)
+            {
+                LeagueComboBox.SelectedItem = LeagueComboBox.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => ReferenceEquals(item.Tag, matches[0]));
+            }
+            else
+            {
+                LeagueComboBox.SelectedIndex = 0;
+                if (selection is not null)
+                {
+                    ShowLeagueError(matches.Length == 0
+                        ? "The saved league is no longer in the current PC Trade catalog."
+                        : "The saved league is ambiguous. Select it again.");
+                }
+            }
+        }
+        finally
+        {
+            isRestoringLeagueSelection = false;
+        }
+    }
+
+    private sealed class UnavailableLeagueCatalogProvider : IPathOfExileTradeLeagueCatalogProvider
+    {
+        public Task<PathOfExileTradeLeagueCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PathOfExileTradeLeagueCatalogProviderResult
+            {
+                IsCancelled = cancellationToken.IsCancellationRequested,
+                Diagnostics =
+                [
+                    new PathOfExileTradeHttpDiagnostic(
+                        PathOfExileTradeLeaguesDiagnosticCodes.CatalogUnavailable,
+                        "The official Trade league catalog is unavailable."),
+                ],
+            });
     }
 
     private void ClearQuickUseFeedback()

@@ -19,11 +19,12 @@ internal sealed class ApplicationLeagueSetting
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         this.filePath = filePath;
         var settings = Load(filePath);
-        EffectiveLeague = settings.League;
+        LeagueSelection = settings.LeagueSelection;
+        EffectiveLeague = LeagueSelection?.DisplayText;
         QuickUseCommands = settings.QuickUseCommands;
         Log.Information(
             "Application settings loaded. LeagueConfigured={LeagueConfigured}; QuickUseRows={QuickUseRows}; QuickUseBindings={QuickUseBindings}",
-            EffectiveLeague is not null,
+            LeagueSelection is not null,
             QuickUseCommands.Count,
             QuickUseCommands.Count(command => command.Hotkey is not null && !string.IsNullOrWhiteSpace(command.Command)));
     }
@@ -37,6 +38,8 @@ internal sealed class ApplicationLeagueSetting
     public event EventHandler? QuickUseCommandsChanged;
 
     public string? EffectiveLeague { get; private set; }
+
+    public ApplicationLeagueSelection? LeagueSelection { get; private set; }
 
     public IReadOnlyList<QuickUseCommandSetting> QuickUseCommands { get; private set; }
         = QuickUseCommandSetting.CreateDefaults();
@@ -53,9 +56,11 @@ internal sealed class ApplicationLeagueSetting
 
     internal static ApplicationLeagueSetting CreateTransient(string? effectiveLeague = null)
     {
+        var selection = CreateLegacySelection(effectiveLeague);
         return new ApplicationLeagueSetting
         {
-            EffectiveLeague = TrimToNull(effectiveLeague),
+            LeagueSelection = selection,
+            EffectiveLeague = selection?.DisplayText,
             QuickUseCommands = QuickUseCommandSetting.CreateDefaults(),
         };
     }
@@ -68,18 +73,53 @@ internal sealed class ApplicationLeagueSetting
             return false;
         }
 
-        if (filePath is not null && !TryWrite(filePath, trimmedLeague, QuickUseCommands))
+        return TrySaveSelection(
+            new ApplicationLeagueSelection(null, trimmedLeague),
+            notifyChanged: true);
+    }
+
+    public bool TrySaveResolved(string? providerId, string? displayText)
+    {
+        var trimmedProviderId = TrimToNull(providerId);
+        var trimmedDisplayText = TrimToNull(displayText);
+        if (trimmedProviderId is null || trimmedDisplayText is null)
         {
             return false;
         }
 
-        if (string.Equals(EffectiveLeague, trimmedLeague, StringComparison.Ordinal))
+        return TrySaveSelection(
+            new ApplicationLeagueSelection(trimmedProviderId, trimmedDisplayText),
+            notifyChanged: true);
+    }
+
+    internal bool TryRevalidateResolved(string providerId, string displayText)
+    {
+        return TrySaveSelection(
+            new ApplicationLeagueSelection(providerId, displayText),
+            notifyChanged: false);
+    }
+
+    private bool TrySaveSelection(
+        ApplicationLeagueSelection selection,
+        bool notifyChanged)
+    {
+        if (filePath is not null && !TryWrite(filePath, selection, QuickUseCommands))
+        {
+            return false;
+        }
+
+        if (Equals(LeagueSelection, selection))
         {
             return true;
         }
 
-        EffectiveLeague = trimmedLeague;
-        Changed?.Invoke(this, trimmedLeague);
+        LeagueSelection = selection;
+        EffectiveLeague = selection.DisplayText;
+        if (notifyChanged)
+        {
+            Changed?.Invoke(this, selection.DisplayText);
+        }
+
         return true;
     }
 
@@ -97,7 +137,7 @@ internal sealed class ApplicationLeagueSetting
             return false;
         }
 
-        if (filePath is not null && !TryWrite(filePath, EffectiveLeague, normalized))
+        if (filePath is not null && !TryWrite(filePath, LeagueSelection, normalized))
         {
             validationError = "Quick Use settings could not be saved. Try again.";
             return false;
@@ -131,7 +171,12 @@ internal sealed class ApplicationLeagueSetting
                 quickUseCommands = QuickUseCommandSetting.CreateDefaults();
             }
 
-            return new LoadedSettings(TrimToNull(settings?.League), quickUseCommands);
+            var providerId = TrimToNull(settings?.TradeLeague?.ProviderId);
+            var displayText = TrimToNull(settings?.TradeLeague?.DisplayText);
+            var selection = providerId is not null && displayText is not null
+                ? new ApplicationLeagueSelection(providerId, displayText)
+                : CreateLegacySelection(settings?.League);
+            return new LoadedSettings(selection, quickUseCommands);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
@@ -143,7 +188,7 @@ internal sealed class ApplicationLeagueSetting
 
     private static bool TryWrite(
         string filePath,
-        string? effectiveLeague,
+        ApplicationLeagueSelection? leagueSelection,
         IReadOnlyList<QuickUseCommandSetting> quickUseCommands)
     {
         string? temporaryPath = null;
@@ -161,7 +206,16 @@ internal sealed class ApplicationLeagueSetting
                 JsonSerializer.Serialize(
                     new ApplicationSettingsFile
                     {
-                        League = effectiveLeague,
+                        League = leagueSelection?.IsLegacy == true
+                            ? leagueSelection.DisplayText
+                            : null,
+                        TradeLeague = leagueSelection is { IsLegacy: false }
+                            ? new TradeLeagueFile
+                            {
+                                ProviderId = leagueSelection.ProviderId,
+                                DisplayText = leagueSelection.DisplayText,
+                            }
+                            : null,
                         QuickUse = quickUseCommands.Select(ToFile).ToArray(),
                     },
                     JsonOptions));
@@ -209,7 +263,16 @@ internal sealed class ApplicationLeagueSetting
     {
         public string? League { get; init; }
 
+        public TradeLeagueFile? TradeLeague { get; init; }
+
         public QuickUseCommandFile[]? QuickUse { get; init; }
+    }
+
+    private sealed class TradeLeagueFile
+    {
+        public string? ProviderId { get; init; }
+
+        public string? DisplayText { get; init; }
     }
 
     private sealed class QuickUseCommandFile
@@ -247,6 +310,12 @@ internal sealed class ApplicationLeagueSetting
     }
 
     private sealed record LoadedSettings(
-        string? League,
+        ApplicationLeagueSelection? LeagueSelection,
         IReadOnlyList<QuickUseCommandSetting> QuickUseCommands);
+
+    private static ApplicationLeagueSelection? CreateLegacySelection(string? value)
+    {
+        var trimmed = TrimToNull(value);
+        return trimmed is null ? null : new ApplicationLeagueSelection(null, trimmed);
+    }
 }

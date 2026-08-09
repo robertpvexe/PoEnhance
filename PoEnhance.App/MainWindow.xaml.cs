@@ -20,13 +20,12 @@ namespace PoEnhance.App;
 public partial class MainWindow : Window, IDeveloperWindow
 {
     private const string NotDetectedText = "Not detected";
-    private static readonly TimeSpan CopyChordDelay = TimeSpan.FromMilliseconds(75);
     private static readonly TimeSpan ClipboardCaptureTimeout = TimeSpan.FromMilliseconds(650);
 
     private readonly ClipboardSequenceNumberReader clipboardSequenceNumberReader = new();
     private readonly ItemTextParser itemTextParser = new();
     private readonly ParsedItemGameDataDisplayService itemGameDataDisplayService = new();
-    private readonly KeyboardInputSender keyboardInputSender = new();
+    private readonly PriceCheckerCopyChordCoordinator priceCheckerCopyChordCoordinator;
     private readonly PathOfExileForegroundWindowDetector pathOfExileForegroundWindowDetector = new();
     private readonly PriceCheckerWindowController priceCheckerWindowController;
     private readonly ProvisionalGameDataRecordingService provisionalGameDataRecordingService;
@@ -63,11 +62,16 @@ public partial class MainWindow : Window, IDeveloperWindow
     internal MainWindow(
         RuntimeGameDataService runtimeGameDataService,
         ProvisionalGameDataRecordingService provisionalGameDataRecordingService,
-        PriceCheckerWindowController priceCheckerWindowController)
+        PriceCheckerWindowController priceCheckerWindowController,
+        PriceCheckerCopyChordCoordinator? priceCheckerCopyChordCoordinator = null)
     {
         this.runtimeGameDataService = runtimeGameDataService;
         this.provisionalGameDataRecordingService = provisionalGameDataRecordingService;
         this.priceCheckerWindowController = priceCheckerWindowController;
+        this.priceCheckerCopyChordCoordinator = priceCheckerCopyChordCoordinator ??
+            new PriceCheckerCopyChordCoordinator(
+                new PriceCheckerCopyChordReleaseWaiter(),
+                new KeyboardInputSender());
 
         InitializeComponent();
         InitializeShortcutControls();
@@ -209,7 +213,9 @@ public partial class MainWindow : Window, IDeveloperWindow
         UpdateShortcutRegistrationStatus(shortcutRegistrationState);
     }
 
-    internal async Task HandlePriceCheckerShortcutAsync(ShortcutBinding shortcut)
+    internal async Task HandlePriceCheckerShortcutAsync(
+        ShortcutBinding shortcut,
+        CancellationToken cancellationToken = default)
     {
         shortcutActivationCount++;
         ShortcutActivationStatusText.Text =
@@ -219,10 +225,12 @@ public partial class MainWindow : Window, IDeveloperWindow
             "Shortcut {ShortcutKey} triggered while Path of Exile is foreground",
             shortcut);
 
-        await CaptureItemTextFromPathOfExileAsync();
+        await CaptureItemTextFromPathOfExileAsync(shortcut, cancellationToken);
     }
 
-    private async Task CaptureItemTextFromPathOfExileAsync()
+    private async Task CaptureItemTextFromPathOfExileAsync(
+        ShortcutBinding shortcut,
+        CancellationToken cancellationToken)
     {
         if (isClipboardCaptureInProgress)
         {
@@ -242,28 +250,52 @@ public partial class MainWindow : Window, IDeveloperWindow
                 return;
             }
 
-            await Task.Delay(CopyChordDelay);
-
-            if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
+            uint sequenceNumberBeforeCopy = 0;
+            var copyResult = await priceCheckerCopyChordCoordinator
+                .CopyAfterTriggerReleaseAsync(
+                    shortcut,
+                    pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow,
+                    () => sequenceNumberBeforeCopy = clipboardSequenceNumberReader.GetCurrentSequenceNumber(),
+                    cancellationToken);
+            if (copyResult.Status == PriceCheckerCopyChordStatus.TriggerReleaseTimedOut)
             {
-                InvalidateClipboardCapture("Path of Exile lost foreground before copy");
-                Log.Warning("Item capture canceled because Path of Exile lost foreground before Ctrl+Alt+C was sent");
+                InvalidateClipboardCapture("Trigger keys were not released");
+                Log.Warning(
+                    "Item capture canceled because shortcut trigger was not released within {ReleaseTimeoutMilliseconds} ms. Shortcut={Shortcut}",
+                    PriceCheckerCopyChordReleaseWaiter.ReleaseTimeout.TotalMilliseconds,
+                    shortcut);
                 return;
             }
 
-            uint sequenceNumberBeforeCopy = clipboardSequenceNumberReader.GetCurrentSequenceNumber();
-            if (!keyboardInputSender.TrySendAdvancedItemDescriptionCopyChord(out uint sentInputCount, out int errorCode))
+            if (copyResult.Status is PriceCheckerCopyChordStatus.Cancelled or
+                PriceCheckerCopyChordStatus.AlreadyInProgress)
+            {
+                Log.Information(
+                    "Item capture ended before copy. Status={CopyStatus}; Shortcut={Shortcut}",
+                    copyResult.Status,
+                    shortcut);
+                return;
+            }
+
+            if (copyResult.Status == PriceCheckerCopyChordStatus.ForegroundLost)
+            {
+                InvalidateClipboardCapture("Path of Exile lost foreground before copy");
+                Log.Warning("Item capture canceled because Path of Exile lost foreground before Ctrl+C was sent");
+                return;
+            }
+
+            if (copyResult.Status != PriceCheckerCopyChordStatus.Copied)
             {
                 InvalidateClipboardCapture("Copy input failed");
                 Log.Warning(
-                    "Ctrl+Alt+C SendInput failed. Sent input count: {SentInputCount}. Win32 error: {Win32ErrorCode}",
-                    sentInputCount,
-                    errorCode);
+                    "Ctrl+C SendInput failed. Sent input count: {SentInputCount}. Win32 error: {Win32ErrorCode}",
+                    copyResult.SentInputCount,
+                    copyResult.ErrorCode);
                 return;
             }
 
             ClipboardCaptureWaitResult waitResult =
-                await WaitForClipboardSequenceChangeAsync(sequenceNumberBeforeCopy);
+                await WaitForClipboardSequenceChangeAsync(sequenceNumberBeforeCopy, cancellationToken);
             if (waitResult == ClipboardCaptureWaitResult.ForegroundLost)
             {
                 InvalidateClipboardCapture("Path of Exile lost foreground during capture");
@@ -287,19 +319,25 @@ public partial class MainWindow : Window, IDeveloperWindow
 
             await ReadClipboardTextAfterCaptureAsync();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Log.Information("Item capture canceled during application shutdown");
+        }
         finally
         {
             isClipboardCaptureInProgress = false;
         }
     }
 
-    private async Task<ClipboardCaptureWaitResult> WaitForClipboardSequenceChangeAsync(uint initialSequenceNumber)
+    private async Task<ClipboardCaptureWaitResult> WaitForClipboardSequenceChangeAsync(
+        uint initialSequenceNumber,
+        CancellationToken cancellationToken)
     {
         DateTimeOffset deadline = DateTimeOffset.UtcNow + ClipboardCaptureTimeout;
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            await Task.Delay(25);
+            await Task.Delay(25, cancellationToken);
 
             if (!pathOfExileForegroundWindowDetector.IsPathOfExileForegroundWindow())
             {

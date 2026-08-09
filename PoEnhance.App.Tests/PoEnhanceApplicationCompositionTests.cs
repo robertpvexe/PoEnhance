@@ -37,11 +37,15 @@ public sealed class PoEnhanceApplicationCompositionTests
         var itemsHttpClient = PrivateField<HttpClient>(
             composition.TradeItemsClient,
             "httpClient");
+        var leaguesHttpClient = PrivateField<HttpClient>(
+            composition.TradeLeaguesClient,
+            "httpClient");
 
         Assert.Same(composition.PathOfExileTradeHttpClient, searchHttpClient);
         Assert.Same(searchHttpClient, fetchHttpClient);
         Assert.Same(searchHttpClient, statsHttpClient);
         Assert.Same(searchHttpClient, itemsHttpClient);
+        Assert.Same(searchHttpClient, leaguesHttpClient);
     }
 
     [Fact]
@@ -86,9 +90,12 @@ public sealed class PoEnhanceApplicationCompositionTests
                 "itemIdentityMapper"));
         Assert.IsType<PathOfExileTradeStatsClient>(composition.TradeStatsClient);
         Assert.IsType<PathOfExileTradeItemsClient>(composition.TradeItemsClient);
+        Assert.IsType<PathOfExileTradeLeaguesClient>(composition.TradeLeaguesClient);
         Assert.IsType<PathOfExileTradeStatMatcher>(composition.TradeStatMatcher);
         Assert.IsType<PathOfExileTradeStatCatalogProvider>(composition.TradeStatCatalogProvider);
         Assert.IsType<PathOfExileTradeItemCatalogProvider>(composition.TradeItemCatalogProvider);
+        Assert.IsType<PathOfExileTradeLeagueCatalogProvider>(composition.TradeLeagueCatalogProvider);
+        Assert.IsType<PathOfExileTradeLeagueResolver>(composition.TradeLeagueResolver);
         Assert.IsType<PathOfExileTradeSelectedModifierMapper>(composition.TradeSelectedModifierMapper);
         Assert.IsType<PathOfExileTradeItemIdentityMapper>(composition.TradeItemIdentityMapper);
         Assert.Same(
@@ -101,6 +108,22 @@ public sealed class PoEnhanceApplicationCompositionTests
             PrivateField<IPathOfExileTradeItemsClient>(
                 composition.TradeItemCatalogProvider,
                 "itemsClient"));
+        Assert.Same(
+            composition.TradeLeaguesClient,
+            PrivateField<IPathOfExileTradeLeaguesClient>(
+                composition.TradeLeagueCatalogProvider,
+                "client"));
+        Assert.Same(
+            composition.TradeLeagueCatalogProvider,
+            PrivateField<IPathOfExileTradeLeagueCatalogProvider>(
+                composition.TradeLeagueResolver,
+                "catalogProvider"));
+        var searchController = PrivateField<PriceCheckerSearchController>(
+            composition.PriceCheckerWindowController,
+            "searchController");
+        Assert.Same(
+            composition.TradeLeagueResolver,
+            PrivateField<IPathOfExileTradeLeagueResolver>(searchController, "leagueResolver"));
     }
 
     [Fact]

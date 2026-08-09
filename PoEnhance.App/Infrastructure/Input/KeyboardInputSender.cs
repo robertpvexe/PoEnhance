@@ -3,35 +3,28 @@ using Serilog;
 
 namespace PoEnhance.App.Infrastructure.Input;
 
-internal sealed class KeyboardInputSender : IQuickUseCommandSender
+internal sealed class KeyboardInputSender : IQuickUseCommandSender, IPriceCheckerCopyChordSender
 {
     private const uint InputKeyboard = 1;
     private const uint KeyEventKeyUp = 0x0002;
     private const uint KeyEventUnicode = 0x0004;
     private const ushort VirtualKeyC = 0x43;
-    private const ushort VirtualKeyLeftAlt = 0xA4;
     private const ushort VirtualKeyLeftControl = 0xA2;
     private const ushort VirtualKeyReturn = 0x0D;
-    private const int ExpectedInputCount = 6;
+    private const int ExpectedCopyInputCount = 4;
 
     public bool TrySendAdvancedItemDescriptionCopyChord(out uint sentInputCount, out int errorCode)
     {
-        var inputs = new[]
-        {
-            CreateKeyboardInput(VirtualKeyLeftControl, keyUp: false),
-            CreateKeyboardInput(VirtualKeyLeftAlt, keyUp: false),
-            CreateKeyboardInput(VirtualKeyC, keyUp: false),
-            CreateKeyboardInput(VirtualKeyC, keyUp: true),
-            CreateKeyboardInput(VirtualKeyLeftAlt, keyUp: true),
-            CreateKeyboardInput(VirtualKeyLeftControl, keyUp: true),
-        };
+        var inputs = BuildAdvancedItemDescriptionCopySequence()
+            .Select(stroke => CreateKeyboardInput(stroke.VirtualKey, stroke.IsKeyUp))
+            .ToArray();
 
         sentInputCount = SendInput(
             (uint)inputs.Length,
             inputs,
             Marshal.SizeOf<INPUT>());
 
-        if (sentInputCount == ExpectedInputCount)
+        if (sentInputCount == ExpectedCopyInputCount)
         {
             errorCode = 0;
             return true;
@@ -40,6 +33,14 @@ internal sealed class KeyboardInputSender : IQuickUseCommandSender
         errorCode = Marshal.GetLastWin32Error();
         return false;
     }
+
+    internal static IReadOnlyList<KeyboardInputStroke> BuildAdvancedItemDescriptionCopySequence() =>
+    [
+        new(VirtualKeyLeftControl, null, IsKeyUp: false),
+        new(VirtualKeyC, null, IsKeyUp: false),
+        new(VirtualKeyC, null, IsKeyUp: true),
+        new(VirtualKeyLeftControl, null, IsKeyUp: true),
+    ];
 
     public bool TrySendQuickUseCommand(
         string command,

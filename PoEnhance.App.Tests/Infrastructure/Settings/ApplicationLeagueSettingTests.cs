@@ -41,6 +41,49 @@ public sealed class ApplicationLeagueSettingTests
     }
 
     [Fact]
+    public void ResolvedProviderIdAndDisplayTextRoundTripWithoutConflation()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "settings.json");
+        var setting = new ApplicationLeagueSetting(path);
+
+        Assert.True(setting.TrySaveResolved("provider-id", "Display text"));
+
+        var restored = new ApplicationLeagueSetting(path);
+        Assert.Equal("provider-id", restored.LeagueSelection?.ProviderId);
+        Assert.Equal("Display text", restored.LeagueSelection?.DisplayText);
+        Assert.False(restored.LeagueSelection?.IsLegacy);
+        var json = File.ReadAllText(path);
+        Assert.Contains("\"ProviderId\": \"provider-id\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"DisplayText\": \"Display text\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LegacySingleStringLoadsAsUnresolvedSelection()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "settings.json");
+        File.WriteAllText(path, "{\"League\":\"Legacy display\"}");
+
+        var setting = new ApplicationLeagueSetting(path);
+
+        Assert.True(setting.LeagueSelection?.IsLegacy);
+        Assert.Null(setting.LeagueSelection?.ProviderId);
+        Assert.Equal("Legacy display", setting.LeagueSelection?.DisplayText);
+    }
+
+    [Fact]
+    public void RevalidationCanUpdateDisplayWhileRetainingProviderIdentity()
+    {
+        var setting = ApplicationLeagueSetting.CreateTransient();
+        Assert.True(setting.TrySaveResolved("stable", "Old"));
+
+        Assert.True(setting.TryRevalidateResolved("stable", "New"));
+
+        Assert.Equal(new ApplicationLeagueSelection("stable", "New"), setting.LeagueSelection);
+    }
+
+    [Fact]
     public void DefaultPath_IsUnderPoEnhanceLocalApplicationData()
     {
         var setting = ApplicationLeagueSetting.CreateDefault();
