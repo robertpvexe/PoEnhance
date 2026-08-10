@@ -118,11 +118,10 @@ public sealed partial class ParsedItemBaseImplicitRecognitionResolver
 
     private bool MechanicallyMatches(ParsedModifier parsed, BaseImplicitMechanicalEffect effect)
     {
-        var package = CreateEffectPackage(effect);
         GameDataCatalog effectCatalog;
         try
         {
-            effectCatalog = GameDataCatalog.FromPackage(package);
+            effectCatalog = BaseImplicitMechanicalEffectCatalogFactory.Create(effect);
         }
         catch (ArgumentException)
         {
@@ -168,34 +167,6 @@ public sealed partial class ParsedItemBaseImplicitRecognitionResolver
         }
 
         return true;
-    }
-
-    private static GameDataPackage CreateEffectPackage(BaseImplicitMechanicalEffect effect)
-    {
-        var sourceIds = effect.Modifier!.Sources
-            .Concat(effect.Stats.SelectMany(stat => stat.Sources))
-            .Concat(effect.StatTranslations.SelectMany(translation => translation.Sources))
-            .Select(source => source.SourceId?.Trim())
-            .Where(sourceId => !string.IsNullOrWhiteSpace(sourceId))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        return new GameDataPackage
-        {
-            Manifest = new GameDataPackageManifest
-            {
-                SchemaVersion = 1,
-                DataVersion = "base-implicit-mechanical-effect",
-                CreatedAtUtc = DateTimeOffset.UnixEpoch,
-                Sources = sourceIds.Select(sourceId => new GameDataPackageSource
-                {
-                    SourceId = sourceId,
-                    RetrievedAtUtc = DateTimeOffset.UnixEpoch,
-                }).ToArray(),
-            },
-            Modifiers = [effect.Modifier],
-            Stats = effect.Stats,
-            StatTranslations = effect.StatTranslations,
-        };
     }
 
     private static BaseImplicitRecognitionResult Collapse(

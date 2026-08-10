@@ -154,6 +154,7 @@ internal static partial class CanonicalModifierEffectAggregator
             IsVeiled = component.IsVeiled,
             IsUnveiled = component.IsUnveiled,
             IsBaseImplicit = component.IsBaseImplicit,
+            BaseImplicitProvenance = component.BaseImplicitProvenance,
             IsHybrid = isHybrid,
             ResolvedModifierId = component.ResolvedModifierId,
             ResolvedModifierName = component.ResolvedModifierName,

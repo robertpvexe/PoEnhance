@@ -1362,6 +1362,220 @@ and they welcomed him.
         Assert.Equal("implicit.stat_4082780964", component.ProviderStatId);
     }
 
+    [Theory]
+    [InlineData(BaseImplicitRecognitionStatus.CurrentExact, BaseImplicitSnapshotRole.CurrentCandidate)]
+    [InlineData(BaseImplicitRecognitionStatus.HistoricalExact, BaseImplicitSnapshotRole.HistoricalObserved)]
+    public void ResolveProviderComponents_RecognizedBaseImplicitMapsOnlyToExactImplicitDomainAndRetainsProvenance(
+        BaseImplicitRecognitionStatus recognitionStatus,
+        BaseImplicitSnapshotRole snapshotRole)
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = RecognizedBaseImplicitDraft(recognitionStatus, snapshotRole);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, ImplicitCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("implicit.stat_4082780964", component.ProviderStatId);
+        Assert.Equal(recognitionStatus, component.BaseImplicitProvenance?.RecognitionStatus);
+        var source = Assert.Single(component.BaseImplicitProvenance!.SourceSnapshots);
+        Assert.Equal(snapshotRole, source.Role);
+        Assert.Equal("source-commit", source.CommitSha);
+        Assert.Equal("source-version", source.DataVersion);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_HistoricalBaseImplicitIsNotRewrittenAsGuaranteedByExactBase()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = RecognizedBaseImplicitDraft(
+            BaseImplicitRecognitionStatus.HistoricalExact,
+            BaseImplicitSnapshotRole.HistoricalObserved,
+            BaseSearchMode.ExactBase);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, ImplicitCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("implicit.stat_4082780964", component.ProviderStatId);
+        Assert.Equal(
+            BaseImplicitRecognitionStatus.HistoricalExact,
+            component.BaseImplicitProvenance?.RecognitionStatus);
+    }
+
+    [Theory]
+    [InlineData("explicit")]
+    [InlineData("crafted")]
+    [InlineData("pseudo")]
+    [InlineData("corrupted")]
+    [InlineData("enchant")]
+    [InlineData("fractured")]
+    [InlineData("rune")]
+    [InlineData("scourge")]
+    public void ResolveProviderComponents_HistoricalBaseImplicitRejectsCrossDomainLookalike(string providerKind)
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = BaseImplicitCatalog(($"{providerKind}.test", providerKind, providerKind));
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            RecognizedBaseImplicitDraft(
+                BaseImplicitRecognitionStatus.HistoricalExact,
+                BaseImplicitSnapshotRole.HistoricalObserved),
+            catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Empty(component.ProviderStatAlternativeIds);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_RecognizedBaseImplicitWithoutProviderCandidateIsUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            RecognizedBaseImplicitDraft(
+                BaseImplicitRecognitionStatus.HistoricalExact,
+                BaseImplicitSnapshotRole.HistoricalObserved),
+            EmptyStatCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_NonEquivalentImplicitCandidatesAreAmbiguous()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = BaseImplicitCatalog(
+            ("implicit.test_a", "implicit-a", "implicit"),
+            ("implicit.test_b", "implicit-b", "implicit"));
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            RecognizedBaseImplicitDraft(
+                BaseImplicitRecognitionStatus.HistoricalExact,
+                BaseImplicitSnapshotRole.HistoricalObserved),
+            catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Equal(["implicit.test_a", "implicit.test_b"], component.ProviderCandidateStatIds);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_EquivalentImplicitCandidatesAreProvenAsASetThenUseExistingCanonicalVariant()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = BaseImplicitCatalog(
+            ("implicit.test_a", "implicit", "implicit"),
+            ("implicit.test_b", "implicit", "implicit"));
+
+        var draft = RecognizedBaseImplicitDraft(
+            BaseImplicitRecognitionStatus.HistoricalExact,
+            BaseImplicitSnapshotRole.HistoricalObserved);
+        var match = new PathOfExileTradeStatMatcher().Match(draft.ModifierFilters[0], catalog);
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, match.Status);
+        Assert.Equal(["implicit.test_a", "implicit.test_b"],
+            match.ExactEquivalentCandidates.Select(candidate => candidate.StatId));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("implicit.test_a", component.ProviderStatId);
+        Assert.Equal(["implicit.test_a"], component.ProviderStatAlternativeIds);
+        var variant = Assert.Single(component.FilterVariants);
+        Assert.Equal("implicit", variant.ProviderKind);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_AmbiguousHistoricalRecognitionDoesNotReachPermissiveProviderMatch()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = RecognizedBaseImplicitDraft(
+            BaseImplicitRecognitionStatus.HistoricalExact,
+            BaseImplicitSnapshotRole.HistoricalObserved);
+        draft = draft with
+        {
+            ModifierFilters =
+            [
+                draft.ModifierFilters[0] with
+                {
+                    IsSearchable = false,
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    ProviderDomainEvidence = [],
+                    BaseImplicitProvenance = draft.ModifierFilters[0].BaseImplicitProvenance! with
+                    {
+                        RecognitionStatus = BaseImplicitRecognitionStatus.Ambiguous,
+                        MechanicalSignatures = [new string('a', 64), new string('b', 64)],
+                        Diagnostic = "Two historical mechanics matched.",
+                    },
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, ImplicitCatalog());
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Equal("Two historical mechanics matched.", component.ProviderDiagnosticMessage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectedUnsupportedOrAmbiguousHistoricalBaseImplicitBlocksMappingWithoutSilentOmission(bool ambiguous)
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = ambiguous
+            ? ImplicitCatalog()
+            : BaseImplicitCatalog(("explicit.test", "explicit", "explicit"));
+        var draft = RecognizedBaseImplicitDraft(
+            BaseImplicitRecognitionStatus.HistoricalExact,
+            BaseImplicitSnapshotRole.HistoricalObserved);
+        if (ambiguous)
+        {
+            draft = draft with
+            {
+                ModifierFilters =
+                [
+                    draft.ModifierFilters[0] with
+                    {
+                        BaseImplicitProvenance = draft.ModifierFilters[0].BaseImplicitProvenance! with
+                        {
+                            RecognitionStatus = BaseImplicitRecognitionStatus.Ambiguous,
+                            MechanicalSignatures = [new string('a', 64), new string('b', 64)],
+                        },
+                    },
+                ],
+            };
+        }
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+        var validation = new TradeSearchDraftValidator().Validate(resolved);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(resolved, catalog);
+
+        Assert.False(validation.IsValid);
+        Assert.Contains(validation.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved &&
+            diagnostic.Severity == TradeSearchValidationSeverity.Error);
+        Assert.False(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+        Assert.Empty(fixture.SearchClient.Calls);
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(
+            ambiguous
+                ? SearchComponentProviderResolutionStatus.Ambiguous
+                : SearchComponentProviderResolutionStatus.Unsupported,
+            component.ProviderResolutionStatus);
+        Assert.True(component.IsSelected);
+    }
+
     [Fact]
     public async Task CheckAsync_CategorySelectedBaseImplicitWithoutProviderStatActivatesExactBaseBeforeMapping()
     {
@@ -2502,6 +2716,56 @@ and they welcomed him.
         };
     }
 
+    private static TradeSearchDraft RecognizedBaseImplicitDraft(
+        BaseImplicitRecognitionStatus recognitionStatus,
+        BaseImplicitSnapshotRole snapshotRole,
+        BaseSearchMode activeMode = BaseSearchMode.Category)
+    {
+        var draft = BaseImplicitDraft(activeMode);
+        var component = draft.ModifierFilters[0];
+        return draft with
+        {
+            ModifierFilters =
+            [
+                component with
+                {
+                    ProviderCanonicalSignature = "Cannot roll Caster Modifiers",
+                    BaseImplicitProvenance = new SearchComponentBaseImplicitProvenance
+                    {
+                        RecognitionStatus = recognitionStatus,
+                        MechanicalSignatures = [new string('a', 64)],
+                        SourceSnapshots =
+                        [
+                            new SearchComponentBaseImplicitSourceSnapshot
+                            {
+                                SnapshotId = "source-snapshot",
+                                Role = snapshotRole,
+                                CommitSha = "source-commit",
+                                DataVersion = "source-version",
+                            },
+                        ],
+                        DiagnosticCode = recognitionStatus == BaseImplicitRecognitionStatus.CurrentExact
+                            ? "base-implicit-current-exact"
+                            : "base-implicit-historical-exact",
+                    },
+                    ProviderDomainEvidence =
+                    [
+                        new SearchComponentProviderDomainEvidence
+                        {
+                            ProviderDomain = "Implicit",
+                            ModifierId = component.ResolvedModifierId!,
+                            GenerationType = ModifierGenerationType.Implicit,
+                            Locality = ModifierLocality.Global,
+                            IsSourceExact = true,
+                            EvidenceStrength = 1000,
+                            ApplicabilityReason = "Exact recognized base-implicit mechanics.",
+                        },
+                    ],
+                },
+            ],
+        };
+    }
+
     private static TradeSearchDraft UniqueDraft(
         string displayName = "Moonbender's Wing",
         string baseType = "Tomahawk")
@@ -2930,6 +3194,21 @@ and they welcomed him.
                 Type = "implicit",
             },
         ]);
+    }
+
+    private static PathOfExileTradeStatCatalog BaseImplicitCatalog(
+        params (string Id, string GroupId, string Type)[] entries)
+    {
+        return new PathOfExileTradeStatCatalog(entries.Select((entry, index) =>
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = index,
+                GroupId = entry.GroupId,
+                GroupLabel = entry.GroupId,
+                Id = entry.Id,
+                Text = "Cannot roll Caster Modifiers",
+                Type = entry.Type,
+            }));
     }
 
     private static PathOfExileTradeStatCatalog EmptyStatCatalog()

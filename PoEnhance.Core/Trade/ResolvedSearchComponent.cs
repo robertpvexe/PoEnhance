@@ -50,6 +50,8 @@ public sealed record ResolvedSearchComponent
 
     public bool IsBaseImplicit { get; init; }
 
+    public SearchComponentBaseImplicitProvenance? BaseImplicitProvenance { get; init; }
+
     public string? GuaranteedExactBaseName { get; init; }
 
     public ModifierCandidateResolutionStatus? ResolutionStatus { get; init; }

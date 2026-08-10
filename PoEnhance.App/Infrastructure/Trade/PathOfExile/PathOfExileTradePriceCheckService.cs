@@ -1,6 +1,7 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
@@ -987,6 +988,23 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 : component;
         }
 
+        if (component.BaseImplicitProvenance?.RecognitionStatus ==
+            BaseImplicitRecognitionStatus.Ambiguous)
+        {
+            return component with
+            {
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Ambiguous,
+                ProviderStatId = null,
+                ProviderStatText = null,
+                ProviderStatAlternativeIds = [],
+                ProviderCandidateStatIds = [],
+                ProviderDiagnosticCode =
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+                ProviderDiagnosticMessage = component.BaseImplicitProvenance.Diagnostic ??
+                    "The recognized base-implicit mechanics are ambiguous.",
+            };
+        }
+
         var hasProviderOwnedUniqueProof = CanResolveProviderOwnedUnique(
             draft,
             component,
@@ -1040,6 +1058,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             PathOfExileTradeStatMatchStatus.NotFound => SearchComponentProviderResolutionStatus.NotFound,
             _ => SearchComponentProviderResolutionStatus.Unsupported,
         };
+        if (component.BaseImplicitProvenance?.RecognitionStatus is (
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact) &&
+            providerStatus == SearchComponentProviderResolutionStatus.NotFound)
+        {
+            providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
+        }
         var exactCandidates = ExactCandidates(match);
         if (hasProviderOwnedUniqueProof &&
             providerStatus is
@@ -1598,7 +1623,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ? "fractured"
             : component.IsVeiled
                 ? "veiled"
-                : null;
+                : component.IsBaseImplicit
+                    ? "implicit"
+                    : null;
     }
 
     private static bool IsUnrevealedVeiledPlaceholder(ResolvedSearchComponent component)
@@ -1675,6 +1702,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static bool CanResolveProviderComponent(ResolvedSearchComponent component)
     {
+        if (component.BaseImplicitProvenance is not null)
+        {
+            return HasExactBaseImplicitProviderProvenance(component);
+        }
+
         if (component.ParsedKind == PoEnhance.Core.Items.Parsing.ParsedModifierKind.Implicit &&
             !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
             !string.IsNullOrWhiteSpace(component.OriginalText))
@@ -1686,6 +1718,35 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
             component.ResolvedStatIds.Count > 0;
+    }
+
+    private static bool HasExactBaseImplicitProviderProvenance(ResolvedSearchComponent component)
+    {
+        var provenance = component.BaseImplicitProvenance!;
+        var expectedSnapshotRole = provenance.RecognitionStatus switch
+        {
+            BaseImplicitRecognitionStatus.CurrentExact => BaseImplicitSnapshotRole.CurrentCandidate,
+            BaseImplicitRecognitionStatus.HistoricalExact => BaseImplicitSnapshotRole.HistoricalObserved,
+            _ => (BaseImplicitSnapshotRole?)null,
+        };
+        return expectedSnapshotRole.HasValue &&
+            component.IsBaseImplicit &&
+            component.ParsedKind == ParsedModifierKind.Implicit &&
+            component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            component.IsSearchable &&
+            !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
+            component.ResolvedStatIds.Count > 0 &&
+            provenance.MechanicalSignatures.Count == 1 &&
+            !string.IsNullOrWhiteSpace(provenance.MechanicalSignatures[0]) &&
+            provenance.SourceSnapshots.Any(snapshot => snapshot.Role == expectedSnapshotRole.Value) &&
+            component.ProviderDomainEvidence.Any(evidence =>
+                evidence.IsSourceExact &&
+                evidence.GenerationType == ModifierGenerationType.Implicit &&
+                string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(
+                    evidence.ModifierId,
+                    component.ResolvedModifierId,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsUnique(TradeSearchDraft draft)
@@ -1777,6 +1838,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             IsVeiled = source.IsVeiled,
             IsUnveiled = source.IsUnveiled,
             IsBaseImplicit = source.IsBaseImplicit,
+            BaseImplicitProvenance = source.BaseImplicitProvenance,
             ResolutionStatus = string.IsNullOrWhiteSpace(source.ResolvedModifierId)
                 ? null
                 : ModifierCandidateResolutionStatus.Exact,
@@ -1809,6 +1871,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         ResolvedSearchComponent component)
     {
         if (!component.IsBaseImplicit ||
+            IsHistoricalBaseImplicit(component) ||
             draft.Base.ActiveCriterion?.Mode != BaseSearchMode.ExactBase)
         {
             return false;
@@ -1826,7 +1889,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         TradeSearchDraft draft,
         ResolvedSearchComponent component)
     {
-        if (string.IsNullOrWhiteSpace(component.GuaranteedExactBaseName))
+        if (IsHistoricalBaseImplicit(component) ||
+            string.IsNullOrWhiteSpace(component.GuaranteedExactBaseName))
         {
             return false;
         }
@@ -1845,6 +1909,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         return IsGuaranteedByAvailableExactBase(draft, component);
     }
+
+    private static bool IsHistoricalBaseImplicit(ResolvedSearchComponent component) =>
+        component.BaseImplicitProvenance?.RecognitionStatus ==
+            BaseImplicitRecognitionStatus.HistoricalExact;
 
     private static TradeSearchDraft ActivateAvailableExactBase(TradeSearchDraft draft)
     {

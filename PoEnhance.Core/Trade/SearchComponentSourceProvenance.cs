@@ -52,6 +52,8 @@ public sealed record SearchComponentSourceProvenance
 
     public bool IsBaseImplicit { get; init; }
 
+    public SearchComponentBaseImplicitProvenance? BaseImplicitProvenance { get; init; }
+
     public bool IsHybrid { get; init; }
 
     public string? ResolvedModifierId { get; init; }

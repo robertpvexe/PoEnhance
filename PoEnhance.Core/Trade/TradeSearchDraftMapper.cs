@@ -689,7 +689,42 @@ public sealed class TradeSearchDraftMapper
 
         if (exactCandidate is null)
         {
-            if (TryResolveParsedBaseImplicit(
+            var baseImplicitProvenance = CreateBaseImplicitProvenance(
+                resolution?.BaseImplicitRecognition);
+            if (TryResolveRecognizedBaseImplicit(
+                    modifier,
+                    valueLines,
+                    resolution?.BaseImplicitRecognition,
+                    out var recognizedBaseImplicitCandidate,
+                    out var recognizedLineStats,
+                    out var recognizedEffectCatalog))
+            {
+                for (var index = 0; index < valueLines.Length; index++)
+                {
+                    yield return CreateComponent(
+                        modifierIndex,
+                        modifier,
+                        resolution,
+                        recognizedBaseImplicitCandidate,
+                        recognizedLineStats[index],
+                        ModifierStatMappingProofStatus.ProvenExact,
+                        sourceLineIndex: index,
+                        sourceComponentIndex: index,
+                        componentLines: [valueLines[index]],
+                        itemBaseResolution,
+                        traditionalInfluences,
+                        recognizedEffectCatalog,
+                        isBaseImplicit: true,
+                        baseImplicitProvenance: baseImplicitProvenance,
+                        baseIdentityCatalog: catalog);
+                }
+
+                yield break;
+            }
+
+            var recognitionIsAmbiguous = resolution?.BaseImplicitRecognition?.Status ==
+                BaseImplicitRecognitionStatus.Ambiguous;
+            if (!recognitionIsAmbiguous && TryResolveParsedBaseImplicit(
                     modifier,
                     valueLines,
                     itemBaseResolution,
@@ -712,7 +747,8 @@ public sealed class TradeSearchDraftMapper
                         itemBaseResolution,
                         traditionalInfluences,
                         catalog,
-                        isBaseImplicit: true);
+                        isBaseImplicit: true,
+                        baseImplicitProvenance: baseImplicitProvenance);
                 }
 
                 yield break;
@@ -732,7 +768,9 @@ public sealed class TradeSearchDraftMapper
                     componentLines: [valueLines[index]],
                     itemBaseResolution,
                     traditionalInfluences,
-                    catalog);
+                    catalog,
+                    isBaseImplicit: baseImplicitProvenance is not null,
+                    baseImplicitProvenance: baseImplicitProvenance);
             }
 
             yield break;
@@ -818,7 +856,9 @@ public sealed class TradeSearchDraftMapper
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyList<string> traditionalInfluences,
         GameDataCatalog? catalog,
-        bool isBaseImplicit = false)
+        bool isBaseImplicit = false,
+        SearchComponentBaseImplicitProvenance? baseImplicitProvenance = null,
+        GameDataCatalog? baseIdentityCatalog = null)
     {
         var statIds = StatIds(stats).ToArray();
         var isSearchable = exactCandidate is not null && statIds.Length > 0;
@@ -877,7 +917,7 @@ public sealed class TradeSearchDraftMapper
             ParsedKind = modifier.Kind,
             ImplicitOrigin = modifier.ImplicitOrigin,
             UniqueOrigin = modifier.UniqueOrigin,
-            GenerationType = resolution?.GenerationType,
+            GenerationType = exactCandidate?.GenerationType ?? resolution?.GenerationType,
             Locality = exactCandidate is null
                 ? ModifierLocality.Unknown
                 : DetermineLocality(stats, catalog) is ModifierLocality.Unknown
@@ -893,13 +933,21 @@ public sealed class TradeSearchDraftMapper
             IsVeiled = modifier.IsUnrevealedVeiledPlaceholder,
             IsUnveiled = modifier.IsNamedUnveiled || IsUnveiledDomain(exactCandidate?.Domain),
             IsBaseImplicit = isBaseImplicit,
+            BaseImplicitProvenance = baseImplicitProvenance,
             GuaranteedExactBaseName = isBaseImplicit &&
+                baseImplicitProvenance?.RecognitionStatus !=
+                    BaseImplicitRecognitionStatus.HistoricalExact &&
                 !supportsValueBounds &&
                 exactCandidate is not null &&
-                catalog is not null
-                ? GuaranteedExactBaseName(exactCandidate, itemBaseResolution, catalog)
+                (baseIdentityCatalog ?? catalog) is { } exactBaseCatalog
+                ? GuaranteedExactBaseName(exactCandidate, itemBaseResolution, exactBaseCatalog)
                 : null,
-            ResolutionStatus = resolution?.Status,
+            ResolutionStatus = exactCandidate is not null &&
+                baseImplicitProvenance?.RecognitionStatus is (
+                    BaseImplicitRecognitionStatus.CurrentExact or
+                    BaseImplicitRecognitionStatus.HistoricalExact)
+                ? ModifierCandidateResolutionStatus.Exact
+                : resolution?.Status,
             ResolvedModifierId = TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
             ResolvedStatIds = statIds,
@@ -1057,6 +1105,105 @@ public sealed class TradeSearchDraftMapper
         candidate = matches[0].Candidate;
         matchedLineStats = matches[0].Stats;
         return true;
+    }
+
+    private static bool TryResolveRecognizedBaseImplicit(
+        ParsedModifier modifier,
+        IReadOnlyList<string> valueLines,
+        BaseImplicitRecognitionResult? recognition,
+        out ModifierDefinition candidate,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats,
+        out GameDataCatalog effectCatalog)
+    {
+        candidate = null!;
+        matchedLineStats = [];
+        effectCatalog = null!;
+        if (modifier.Kind != ParsedModifierKind.Implicit ||
+            recognition?.Status is not (
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact))
+        {
+            return false;
+        }
+
+        var effects = recognition.Matches
+            .Where(match => match.Effect.IsResolved &&
+                match.Effect.Modifier is not null &&
+                !string.IsNullOrWhiteSpace(match.Effect.MechanicalSignature))
+            .GroupBy(match => match.Effect.MechanicalSignature!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First().Effect)
+            .ToArray();
+        if (effects.Length != 1)
+        {
+            return false;
+        }
+
+        try
+        {
+            effectCatalog = BaseImplicitMechanicalEffectCatalogFactory.Create(effects[0]);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        candidate = effects[0].Modifier!;
+        return TryMatchStatsToParsedLines(
+            candidate,
+            valueLines,
+            effectCatalog,
+            preserveSingleLineProofSemantics: false,
+            out matchedLineStats);
+    }
+
+    private static SearchComponentBaseImplicitProvenance? CreateBaseImplicitProvenance(
+        BaseImplicitRecognitionResult? recognition)
+    {
+        if (recognition?.Status is not (
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact or
+                BaseImplicitRecognitionStatus.Ambiguous))
+        {
+            return null;
+        }
+
+        if (recognition.Status is (
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact) &&
+            recognition.Matches.Count == 0)
+        {
+            return null;
+        }
+
+        return new SearchComponentBaseImplicitProvenance
+        {
+            RecognitionStatus = recognition.Status,
+            MechanicalSignatures = recognition.Matches
+                .Select(match => TrimToNull(match.Effect.MechanicalSignature))
+                .Where(signature => signature is not null)
+                .Select(signature => signature!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(signature => signature, StringComparer.Ordinal)
+                .ToArray(),
+            SourceSnapshots = recognition.Matches
+                .Select(match => match.SourceSnapshot)
+                .DistinctBy(snapshot => string.Join(
+                    '\u001f',
+                    snapshot.Id,
+                    snapshot.Role,
+                    snapshot.CommitSha,
+                    snapshot.DataVersion), StringComparer.OrdinalIgnoreCase)
+                .Select(snapshot => new SearchComponentBaseImplicitSourceSnapshot
+                {
+                    SnapshotId = TrimToNull(snapshot.Id),
+                    Role = snapshot.Role,
+                    CommitSha = TrimToNull(snapshot.CommitSha),
+                    DataVersion = TrimToNull(snapshot.DataVersion),
+                })
+                .ToArray(),
+            DiagnosticCode = TrimToNull(recognition.DiagnosticCode),
+            Diagnostic = TrimToNull(recognition.Diagnostic),
+        };
     }
 
     private static bool TryMatchIndividualStatsToParsedLinesUnordered(
