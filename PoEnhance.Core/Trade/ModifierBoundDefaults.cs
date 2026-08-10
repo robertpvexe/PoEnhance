@@ -61,7 +61,8 @@ internal static partial class ModifierBoundDefaults
         ModifierDefinition? modifier,
         IReadOnlyList<ModifierStat> stats,
         IReadOnlyList<string> sourceLines,
-        GameDataCatalog? catalog)
+        GameDataCatalog? catalog,
+        StatTranslationRecognitionEvidence? translationRecognition = null)
     {
         if (modifier is null)
         {
@@ -82,9 +83,12 @@ internal static partial class ModifierBoundDefaults
 
         var observedValues = ExtractObservedValues(sourceLines[0]);
         var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
-        var branches = statIds
-            .SelectMany(catalog.FindStatTranslationsByStatId)
-            .Concat(catalog.FindStatTranslationsByStatIdGroup(statIds))
+        var translations = translationRecognition?.Role == StatTranslationRecognitionRole.HistoricalExact &&
+            translationRecognition.RecognizedTranslation is not null
+                ? [translationRecognition.RecognizedTranslation]
+                : statIds.SelectMany(catalog.FindStatTranslationsByStatId)
+                    .Concat(catalog.FindStatTranslationsByStatIdGroup(statIds));
+        var branches = translations
             .DistinctBy(translation => translation.Id, StringComparer.Ordinal)
             .Where(translation => statIds.All(statId => translation.StatIds.Contains(
                 statId,
@@ -115,7 +119,13 @@ internal static partial class ModifierBoundDefaults
         var translation = branches[0].Translation;
         var variant = branches[0].Variant;
         var numericIndexes = branches[0].NumericIndexes;
-        var translationIdentity = BranchKey(branches[0]);
+        var translationIdentity = translationRecognition?.CanonicalMechanicalSignature ?? BranchKey(branches[0]);
+        var canonicalTranslation = translationRecognition?.CanonicalTranslation ?? translation;
+        var variantIndex = Array.FindIndex(translation.Variants.ToArray(), candidate =>
+            ReferenceEquals(candidate, variant) || candidate == variant);
+        var canonicalVariant = variantIndex >= 0 && variantIndex < canonicalTranslation.Variants.Count
+            ? canonicalTranslation.Variants[variantIndex]
+            : variant;
         observedValues = branches[0].ObservedValues;
 
         var handlers = numericIndexes
@@ -142,8 +152,8 @@ internal static partial class ModifierBoundDefaults
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
-                    translation,
-                    variant,
+                    canonicalTranslation,
+                    canonicalVariant,
                     numericIndexes),
             };
         }
@@ -186,8 +196,8 @@ internal static partial class ModifierBoundDefaults
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
-                    translation,
-                    variant,
+                    canonicalTranslation,
+                    canonicalVariant,
                     numericIndexes),
             };
         }
@@ -208,8 +218,8 @@ internal static partial class ModifierBoundDefaults
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
-                    translation,
-                    variant,
+                    canonicalTranslation,
+                    canonicalVariant,
                     numericIndexes),
             };
         }

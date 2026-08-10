@@ -78,6 +78,8 @@ public sealed record SearchComponentSourceProvenance
 
     public string? TranslationIdentity { get; init; }
 
+    public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
+
     public string? ProviderIdentity { get; init; }
 
     public SearchComponentProviderResolutionStatus ProviderResolutionStatus { get; init; } =

@@ -862,7 +862,13 @@ public sealed class TradeSearchDraftMapper
     {
         var statIds = StatIds(stats).ToArray();
         var isSearchable = exactCandidate is not null && statIds.Length > 0;
-        var boundDefault = ModifierBoundDefaults.Create(exactCandidate, stats, componentLines, catalog);
+        var translationRecognition = resolution?.TranslationRecognition;
+        var boundDefault = ModifierBoundDefaults.Create(
+            exactCandidate,
+            stats,
+            componentLines,
+            catalog,
+            translationRecognition);
         var hasUnscalableValue = sourceLineIndex >= 0 &&
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.HasUnscalableValue == true;
         var providerOnlyUniqueValues = exactCandidate is null &&
@@ -913,7 +919,9 @@ public sealed class TradeSearchDraftMapper
             SourceLineIndex = sourceLineIndex,
             SourceComponentIndex = sourceComponentIndex,
             OriginalText = string.Join(Environment.NewLine, componentLines),
-            CanonicalSignature = NormalizeComponentSignature(componentLines),
+            CanonicalSignature = translationRecognition?.CanonicalSignature.Lines.Count > 0
+                ? string.Join("\n", translationRecognition.CanonicalSignature.Lines)
+                : NormalizeComponentSignature(componentLines),
             ParsedKind = modifier.Kind,
             ImplicitOrigin = modifier.ImplicitOrigin,
             UniqueOrigin = modifier.UniqueOrigin,
@@ -976,6 +984,7 @@ public sealed class TradeSearchDraftMapper
             ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,
+            TranslationRecognition = translationRecognition,
             DefaultBoundDirection = defaultBoundDirection,
             RequestedMinimum = supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Minimum
                 ? observedCanonicalValue

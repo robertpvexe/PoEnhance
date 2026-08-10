@@ -145,6 +145,12 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Contains(result.Package.BaseImplicitHistory.SourceSnapshots, source =>
             source.Role == BaseImplicitSnapshotRole.HistoricalObserved &&
             source.DataVersion == "prior-exact-snapshot");
+        var translationHistory = Assert.IsType<StatTranslationHistoryCatalog>(
+            result.Package.StatTranslationHistory);
+        Assert.Equal(
+            [StatTranslationSnapshotRole.CurrentCandidate, StatTranslationSnapshotRole.HistoricalObserved],
+            translationHistory.SourceSnapshots.Select(source => source.Role));
+        Assert.Empty(translationHistory.Changes);
         Assert.Equal(2, result.Package.Manifest.Sources.Count);
 
         var manifest = DeserializeSnapshotManifest(result.SourceSnapshotManifestPath!);

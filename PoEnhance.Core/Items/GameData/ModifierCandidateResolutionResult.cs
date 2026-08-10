@@ -24,4 +24,6 @@ public sealed record ModifierCandidateResolutionResult(
     BaseImplicitRecognitionResult? BaseImplicitRecognition = null)
 {
     public int CandidateCount => Candidates.Count;
+
+    public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
 }

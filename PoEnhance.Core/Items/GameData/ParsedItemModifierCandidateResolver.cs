@@ -551,7 +551,9 @@ public sealed partial class ParsedItemModifierCandidateResolver
             .Select(candidate => new
             {
                 Candidate = candidate,
-                Result = textSignatureMatcher.Match(candidate, catalog, modifier.ValueLines),
+                Result = ApplyHistoricalOriginRules(
+                    modifier,
+                    textSignatureMatcher.Match(candidate, catalog, modifier.ValueLines)),
             })
             .ToArray();
         var retainedEvaluations = textEvaluations
@@ -611,7 +613,8 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 finalCandidates.Count,
                 textExcludedCandidates.Length,
                 textResults,
-                "One candidate matched both the authentic Advanced Item Description source roll ranges and stat-text signature; unevaluable text candidates were excluded.");
+                "One candidate matched both the authentic Advanced Item Description source roll ranges and stat-text signature; unevaluable text candidates were excluded.",
+                exactTextEvaluations[0].Result.TranslationRecognition);
         }
 
         if (finalCandidates.Count == 1)
@@ -641,7 +644,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 TextSignatureCandidateCount: finalCandidates.Count,
                 ExcludedByTextCandidateCount: textExcludedCandidates.Length,
                 TextSignatureMatches: textResults,
-                Locality: DetermineLocality(retainedEvaluations[0].Candidate, catalog));
+                Locality: DetermineLocality(retainedEvaluations[0].Candidate, catalog))
+            {
+                TranslationRecognition = retainedTextResult.TranslationRecognition,
+            };
         }
 
         if (TrySelectOneByAdvancedRange(
@@ -709,6 +715,25 @@ public sealed partial class ParsedItemModifierCandidateResolver
             textSignatureCandidateCount: finalCandidates.Count,
             excludedByTextCandidateCount: textExcludedCandidates.Length,
             textResults);
+    }
+
+    private static ModifierTextSignatureMatchResult ApplyHistoricalOriginRules(
+        ParsedModifier modifier,
+        ModifierTextSignatureMatchResult result)
+    {
+        if (result.TranslationRecognition?.Role != StatTranslationRecognitionRole.HistoricalExact ||
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified)
+        {
+            return result;
+        }
+
+        return new ModifierTextSignatureMatchResult(
+            Evaluated: true,
+            ModifierTextSignatureMatchOutcome.NoMatch,
+            ModifierTextSignatureMatchReasonCodes.HistoricalTranslationOriginIneligible,
+            "Historical translation fallback cannot reclassify Corrupted, Eldritch, or Synthesis implicit origins.",
+            result.CandidateSignatures,
+            result.ParsedSignatures);
     }
 
     private bool TryResolveStructurally(
@@ -781,7 +806,8 @@ public sealed partial class ParsedItemModifierCandidateResolver
         int textSignatureCandidateCount,
         int excludedByTextCandidateCount,
         IReadOnlyList<ModifierTextSignatureMatchResult> textResults,
-        string reason)
+        string reason,
+        StatTranslationRecognitionEvidence? translationRecognition = null)
     {
         return new ModifierCandidateResolutionResult(
             index,
@@ -800,7 +826,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
             textSignatureCandidateCount,
             excludedByTextCandidateCount,
             textResults,
-            DetermineLocality(candidate, catalog));
+            DetermineLocality(candidate, catalog))
+        {
+            TranslationRecognition = translationRecognition,
+        };
     }
 
     private static bool TrySelectOneByAdvancedRange(

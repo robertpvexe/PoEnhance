@@ -6,4 +6,7 @@ public sealed record ModifierTextSignatureMatchResult(
     string ReasonCode,
     string Reason,
     IReadOnlyList<ModifierTextSignature> CandidateSignatures,
-    IReadOnlyList<ModifierTextSignature> ParsedSignatures);
+    IReadOnlyList<ModifierTextSignature> ParsedSignatures)
+{
+    public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
+}

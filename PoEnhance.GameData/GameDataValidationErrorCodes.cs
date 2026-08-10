@@ -138,6 +138,10 @@ public static class GameDataValidationErrorCodes
     public const string StatTranslationIndexHandlerValueRequired = "statTranslation.indexHandler.value.required";
     public const string StatTranslationValueFormatRequired = "statTranslation.valueFormat.required";
 
+    public const string StatTranslationHistorySourceInvalid = "statTranslationHistory.source.invalid";
+    public const string StatTranslationHistoryObservationInvalid = "statTranslationHistory.observation.invalid";
+    public const string StatTranslationHistoryChangeInvalid = "statTranslationHistory.change.invalid";
+
     public const string ItemPropertySemanticRequired = "itemPropertySemantic.required";
     public const string ItemPropertySemanticIdRequired = "itemPropertySemantic.id.required";
     public const string ItemPropertySemanticIdDuplicate = "itemPropertySemantic.id.duplicate";

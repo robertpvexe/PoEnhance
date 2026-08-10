@@ -13,4 +13,7 @@ public static class ModifierTextSignatureMatchReasonCodes
     public const string TranslationConditionUnsupported = "MODIFIER_TEXT_TRANSLATION_CONDITION_UNSUPPORTED";
     public const string TranslationConditionUnresolved = "MODIFIER_TEXT_TRANSLATION_CONDITION_UNRESOLVED";
     public const string TranslationRenderingUnsupported = "MODIFIER_TEXT_TRANSLATION_RENDERING_UNSUPPORTED";
+    public const string HistoricalTranslationMatch = "MODIFIER_TEXT_HISTORICAL_TRANSLATION_MATCH";
+    public const string HistoricalTranslationAmbiguous = "MODIFIER_TEXT_HISTORICAL_TRANSLATION_AMBIGUOUS";
+    public const string HistoricalTranslationOriginIneligible = "MODIFIER_TEXT_HISTORICAL_TRANSLATION_ORIGIN_INELIGIBLE";
 }

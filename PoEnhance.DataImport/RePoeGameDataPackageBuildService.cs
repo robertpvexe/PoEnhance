@@ -170,6 +170,7 @@ public sealed class RePoeGameDataPackageBuildService
         var manifest = CreateManifest(request, createdAtUtc, inputFiles, reviewedSemanticInput);
 
         BaseImplicitHistoryCatalog? baseImplicitHistory = null;
+        StatTranslationHistoryCatalog? statTranslationHistory = null;
         if (historicalBaseItems is not null &&
             historicalModifiers is not null &&
             historicalStats is not null &&
@@ -190,6 +191,20 @@ public sealed class RePoeGameDataPackageBuildService
                 historicalModifiers.ImportedRecords,
                 historicalStats.ImportedRecords,
                 historicalTranslations.ImportedRecords);
+
+            statTranslationHistory = StatTranslationHistoryBuilder.Build(
+                request.SourceUri!,
+                request.SourceVersion!,
+                request.DataVersion!,
+                modifiers.ImportedRecords,
+                stats.ImportedRecords,
+                translations.ImportedRecords,
+                request.HistoricalSourceUri!,
+                request.HistoricalSourceVersion!,
+                request.HistoricalDataVersion!,
+                historicalModifiers.ImportedRecords,
+                historicalStats.ImportedRecords,
+                historicalTranslations.ImportedRecords);
         }
 
         var packageCreation = _packageBuilder.CreatePackage(
@@ -202,7 +217,8 @@ public sealed class RePoeGameDataPackageBuildService
             itemClasses.ImportedRecords,
             tags.ImportedRecords,
             modsByBase.Evidence!,
-            baseImplicitHistory);
+            baseImplicitHistory,
+            statTranslationHistory);
         diagnostics.AddRange(packageCreation.Diagnostics);
 
         if (packageCreation.Package is null || HasErrors(diagnostics))

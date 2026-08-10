@@ -169,6 +169,7 @@ internal static partial class CanonicalModifierEffectAggregator
                 .Select(handlers => (IReadOnlyList<string>)handlers.ToArray())
                 .ToArray(),
             TranslationIdentity = component.ValueBoundTranslationIdentity,
+            TranslationRecognition = component.TranslationRecognition,
             ProviderIdentity = component.SelectedFilterVariantIdentity,
             ProviderResolutionStatus = component.ProviderResolutionStatus,
         };

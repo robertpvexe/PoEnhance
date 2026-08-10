@@ -67,6 +67,15 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<BaseImplicitSnapshotRole>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<StatTranslationSnapshotRole>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<StatTranslationCompatibilityClassification>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<StatTranslationRuntimeRelevance>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
 
         return options;
     }

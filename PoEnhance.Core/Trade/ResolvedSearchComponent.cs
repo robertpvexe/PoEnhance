@@ -90,6 +90,8 @@ public sealed record ResolvedSearchComponent
 
     public string? ValueBoundTranslationIdentity { get; init; }
 
+    public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
+
     public ModifierBoundDirection DefaultBoundDirection { get; init; } = ModifierBoundDirection.Minimum;
 
     public IReadOnlyList<SearchFilterVariant> FilterVariants { get; init; } = [];

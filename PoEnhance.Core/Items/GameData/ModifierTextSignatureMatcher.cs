@@ -77,22 +77,160 @@ public sealed partial class ModifierTextSignatureMatcher
 
         var candidateSignature = candidateBuild.Signatures[0];
         var matches = SignaturesEqual(candidateSignature, parsedSignature);
+        if (matches)
+        {
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: true,
+                ModifierTextSignatureMatchOutcome.Match,
+                ModifierTextSignatureMatchReasonCodes.Match,
+                "The current translated modifier text signature matches the parsed effect text signature.",
+                candidateBuild.Signatures,
+                parsedSignatures)
+            {
+                TranslationRecognition = CurrentRecognition(candidate, catalog, candidateSignature),
+            };
+        }
+
+        var historicalMatches = FindHistoricalMatches(candidate, catalog, parsedSignature, candidateSignature);
+        if (historicalMatches.Count == 1)
+        {
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: true,
+                ModifierTextSignatureMatchOutcome.Match,
+                ModifierTextSignatureMatchReasonCodes.HistoricalTranslationMatch,
+                "One exact historical source translation matched and is mechanically equivalent to the current canonical translation.",
+                candidateBuild.Signatures,
+                parsedSignatures)
+            {
+                TranslationRecognition = historicalMatches[0],
+            };
+        }
+
+        if (historicalMatches.Count > 1)
+        {
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: false,
+                ModifierTextSignatureMatchOutcome.Unknown,
+                ModifierTextSignatureMatchReasonCodes.HistoricalTranslationAmbiguous,
+                "Multiple exact historical translation observations matched; compatibility failed closed.",
+                candidateBuild.Signatures,
+                parsedSignatures);
+        }
+
         return new ModifierTextSignatureMatchResult(
             Evaluated: true,
-            matches ? ModifierTextSignatureMatchOutcome.Match : ModifierTextSignatureMatchOutcome.NoMatch,
-            matches
-                ? ModifierTextSignatureMatchReasonCodes.Match
-                : ModifierTextSignatureMatchReasonCodes.NoMatch,
-            matches
-                ? "The translated modifier text signature matches the parsed effect text signature."
-                : "The translated modifier text signature differs from the parsed effect text signature.",
+            ModifierTextSignatureMatchOutcome.NoMatch,
+            ModifierTextSignatureMatchReasonCodes.NoMatch,
+            "The current and eligible exact historical translation signatures differ from the parsed effect text signature.",
             candidateBuild.Signatures,
             parsedSignatures);
     }
 
+    private static StatTranslationRecognitionEvidence CurrentRecognition(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog,
+        ModifierTextSignature canonicalSignature)
+    {
+        var statVector = candidate.Stats.OrderBy(stat => stat.Index)
+            .Select(stat => stat.StatId?.Trim())
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Cast<string>()
+            .ToArray();
+        var history = catalog.StatTranslationHistory;
+        var observations = history?.Observations.ToDictionary(
+            observation => observation.Id!, StringComparer.OrdinalIgnoreCase);
+        var current = history?.Changes
+            .Select(change => observations!.GetValueOrDefault(change.CurrentObservationId!))
+            .Where(observation => observation is not null && VectorOccurs(statVector, observation.StatIds))
+            .DistinctBy(observation => observation!.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+        var source = history?.SourceSnapshots.SingleOrDefault(snapshot =>
+            snapshot.Role == StatTranslationSnapshotRole.CurrentCandidate);
+        return new StatTranslationRecognitionEvidence
+        {
+            Role = StatTranslationRecognitionRole.CurrentExact,
+            SourceSnapshotId = source?.Id,
+            SourceRepositoryUri = source?.RepositoryUri,
+            SourceCommitSha = source?.CommitSha,
+            SourceDataVersion = source?.DataVersion,
+            ObservationId = current.Length == 1 ? current[0]!.Id : null,
+            CanonicalObservationId = current.Length == 1 ? current[0]!.Id : null,
+            CanonicalMechanicalSignature = current.Length == 1 ? current[0]!.MechanicalSignature : null,
+            CanonicalSignature = canonicalSignature,
+            RecognizedTranslation = current.Length == 1 ? current[0]!.Translation : null,
+            CanonicalTranslation = current.Length == 1 ? current[0]!.Translation : null,
+        };
+    }
+
+    private static IReadOnlyList<StatTranslationRecognitionEvidence> FindHistoricalMatches(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog,
+        ModifierTextSignature parsedSignature,
+        ModifierTextSignature canonicalSignature)
+    {
+        var history = catalog.StatTranslationHistory;
+        if (history is null)
+        {
+            return [];
+        }
+
+        var observations = history.Observations.ToDictionary(
+            observation => observation.Id!, StringComparer.OrdinalIgnoreCase);
+        var sourceById = history.SourceSnapshots.ToDictionary(
+            source => source.Id!, StringComparer.OrdinalIgnoreCase);
+        var statVector = candidate.Stats.OrderBy(stat => stat.Index)
+            .Select(stat => stat.StatId?.Trim())
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Cast<string>()
+            .ToArray();
+        var matches = new List<StatTranslationRecognitionEvidence>();
+        foreach (var change in history.Changes.Where(change => change.Classification is
+            StatTranslationCompatibilityClassification.MechanicallyEquivalentRendering or
+            StatTranslationCompatibilityClassification.EquivalentWithCanonicalizationChange))
+        {
+            if (!observations.TryGetValue(change.CurrentObservationId!, out var current) ||
+                !observations.TryGetValue(change.HistoricalObservationId!, out var historical) ||
+                current.Translation is null ||
+                historical.Translation is null ||
+                !VectorOccurs(statVector, current.StatIds))
+            {
+                continue;
+            }
+
+            var overrides = new Dictionary<string, StatTranslationDefinition>(StringComparer.OrdinalIgnoreCase)
+            {
+                [VectorKey(historical.StatIds)] = historical.Translation,
+            };
+            var build = TryCreateCandidateSignature(candidate, catalog, overrides);
+            if (!build.IsSuccess || !SignaturesEqual(build.Signatures[0], parsedSignature))
+            {
+                continue;
+            }
+
+            sourceById.TryGetValue(historical.SourceSnapshotId!, out var source);
+            matches.Add(new StatTranslationRecognitionEvidence
+            {
+                Role = StatTranslationRecognitionRole.HistoricalExact,
+                SourceSnapshotId = source?.Id,
+                SourceRepositoryUri = source?.RepositoryUri,
+                SourceCommitSha = source?.CommitSha,
+                SourceDataVersion = source?.DataVersion,
+                ObservationId = historical.Id,
+                CanonicalObservationId = current.Id,
+                CanonicalMechanicalSignature = current.MechanicalSignature,
+                CanonicalSignature = canonicalSignature,
+                RecognizedTranslation = historical.Translation,
+                CanonicalTranslation = current.Translation,
+            });
+        }
+
+        return ToReadOnly(matches);
+    }
+
     private static CandidateSignatureBuildResult TryCreateCandidateSignature(
         ModifierDefinition candidate,
-        GameDataCatalog catalog)
+        GameDataCatalog catalog,
+        IReadOnlyDictionary<string, StatTranslationDefinition>? overrides = null)
     {
         var stats = candidate.Stats
             .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
@@ -109,7 +247,7 @@ public sealed partial class ModifierTextSignatureMatcher
         var position = 0;
         while (position < stats.Length)
         {
-            var group = FindNextTranslationGroup(stats, position, catalog);
+            var group = FindNextTranslationGroup(stats, position, catalog, overrides);
             if (!group.IsSuccess)
             {
                 return CandidateSignatureBuildResult.Unknown(group.ReasonCode, group.Reason, group.Signatures);
@@ -131,12 +269,18 @@ public sealed partial class ModifierTextSignatureMatcher
     private static TranslationGroupResult FindNextTranslationGroup(
         IReadOnlyList<ModifierStat> stats,
         int startIndex,
-        GameDataCatalog catalog)
+        GameDataCatalog catalog,
+        IReadOnlyDictionary<string, StatTranslationDefinition>? overrides)
     {
         for (var length = stats.Count - startIndex; length >= 1; length--)
         {
             var groupStats = stats.Skip(startIndex).Take(length).ToArray();
             var statIds = groupStats.Select(stat => stat.StatId!.Trim()).ToArray();
+            if (overrides?.TryGetValue(VectorKey(statIds), out var overridden) == true)
+            {
+                return TranslationGroupResult.Success(overridden, groupStats);
+            }
+
             var translations = catalog.FindStatTranslationsByStatIdGroup(statIds);
             if (translations.Count == 0)
             {
@@ -361,6 +505,23 @@ public sealed partial class ModifierTextSignatureMatcher
     {
         return first.Lines.SequenceEqual(second.Lines, StringComparer.OrdinalIgnoreCase);
     }
+
+    private static bool VectorOccurs(IReadOnlyList<string> candidate, IReadOnlyList<string> vector)
+    {
+        for (var start = 0; start + vector.Count <= candidate.Count; start++)
+        {
+            if (Enumerable.Range(0, vector.Count).All(offset => string.Equals(
+                    candidate[start + offset], vector[offset], StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string VectorKey(IEnumerable<string> statIds) =>
+        string.Join('\u001f', statIds.Select(statId => statId.Trim()));
 
     private static ModifierTextSignatureMatchResult Unknown(
         bool evaluated,

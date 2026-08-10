@@ -71,8 +71,91 @@ public static class GameDataPackageValidator
         errors.AddRange(ValidateItemPropertySemantics(package.ItemPropertySemantics, package.Stats).Errors);
         errors.AddRange(GameDataPackageEligibilitySourceValidator.Validate(package, manifestSourceIds));
         ValidateBaseImplicitHistory(package.BaseImplicitHistory, manifestSourceIds, errors);
+        ValidateStatTranslationHistory(package.StatTranslationHistory, manifestSourceIds, errors);
 
         return new GameDataValidationResult(errors);
+    }
+
+    private static void ValidateStatTranslationHistory(
+        StatTranslationHistoryCatalog? history,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        if (history is null)
+        {
+            return;
+        }
+
+        var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var roles = new HashSet<StatTranslationSnapshotRole>();
+        foreach (var (source, index) in history.SourceSnapshots.Select((value, index) => (value, index)))
+        {
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.Id) ||
+                !sourceIds.Add(source.Id.Trim()) ||
+                source.Role == StatTranslationSnapshotRole.Unknown ||
+                !roles.Add(source.Role) ||
+                string.IsNullOrWhiteSpace(source.ManifestSourceId) ||
+                !manifestSourceIds.Contains(source.ManifestSourceId.Trim()) ||
+                string.IsNullOrWhiteSpace(source.RepositoryUri) ||
+                source.CommitSha is not { Length: 40 } ||
+                !source.CommitSha.All(Uri.IsHexDigit) ||
+                string.IsNullOrWhiteSpace(source.DataVersion) ||
+                source.Files.Count < 2 ||
+                source.Files.Any(file => file is null ||
+                    string.IsNullOrWhiteSpace(file.LogicalRole) ||
+                    string.IsNullOrWhiteSpace(file.PackageInputLabel)))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationHistorySourceInvalid,
+                    $"statTranslationHistory.sourceSnapshots[{index}]",
+                    "Translation-history snapshots require unique current/historical roles and exact source provenance."));
+            }
+        }
+
+        var observationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (observation, index) in history.Observations.Select((value, index) => (value, index)))
+        {
+            if (observation is null ||
+                string.IsNullOrWhiteSpace(observation.Id) ||
+                !observationIds.Add(observation.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(observation.SourceSnapshotId) ||
+                !sourceIds.Contains(observation.SourceSnapshotId.Trim()) ||
+                observation.StatIds.Count == 0 ||
+                observation.StatIds.Any(string.IsNullOrWhiteSpace) ||
+                observation.Translation is null ||
+                !observation.StatIds.SequenceEqual(observation.Translation.StatIds, StringComparer.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(observation.MechanicalSignature) ||
+                string.IsNullOrWhiteSpace(observation.RenderingSignature) ||
+                string.IsNullOrWhiteSpace(observation.NumericShapeSignature) ||
+                observation.ModifierUsageCount < 0)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationHistoryObservationInvalid,
+                    $"statTranslationHistory.observations[{index}]",
+                    "Each translation observation requires one exact snapshot, ordered stat vector, structured translation, and deterministic signatures."));
+            }
+        }
+
+        var changeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (change, index) in history.Changes.Select((value, index) => (value, index)))
+        {
+            if (change is null ||
+                string.IsNullOrWhiteSpace(change.Id) ||
+                !changeIds.Add(change.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(change.CurrentObservationId) ||
+                !observationIds.Contains(change.CurrentObservationId.Trim()) ||
+                string.IsNullOrWhiteSpace(change.HistoricalObservationId) ||
+                !observationIds.Contains(change.HistoricalObservationId.Trim()) ||
+                change.Classification == StatTranslationCompatibilityClassification.Unresolved ||
+                change.RuntimeRelevance == StatTranslationRuntimeRelevance.Unknown)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.StatTranslationHistoryChangeInvalid,
+                    $"statTranslationHistory.changes[{index}]",
+                    "Each translation change requires distinct exact observations and an explicit classification/relevance."));
+            }
+        }
     }
 
     private static void ValidateBaseImplicitHistory(

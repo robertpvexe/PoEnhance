@@ -31,4 +31,11 @@ public sealed record GameDataPackage
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BaseImplicitHistoryCatalog? BaseImplicitHistory { get; init; }
+
+    /// <summary>
+    /// Exact changed translation observations. Null means compatibility history is unavailable,
+    /// not that no historical forms existed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public StatTranslationHistoryCatalog? StatTranslationHistory { get; init; }
 }
