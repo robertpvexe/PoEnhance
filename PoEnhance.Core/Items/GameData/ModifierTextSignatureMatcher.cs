@@ -503,7 +503,30 @@ public sealed partial class ModifierTextSignatureMatcher
 
     private static bool SignaturesEqual(ModifierTextSignature first, ModifierTextSignature second)
     {
-        return first.Lines.SequenceEqual(second.Lines, StringComparer.OrdinalIgnoreCase);
+        if (first.Lines.Count != second.Lines.Count)
+        {
+            return false;
+        }
+
+        var consumed = new bool[second.Lines.Count];
+        foreach (var line in first.Lines)
+        {
+            var matchIndex = Enumerable.Range(0, second.Lines.Count)
+                .FirstOrDefault(
+                    index => !consumed[index] && string.Equals(
+                        line,
+                        second.Lines[index],
+                        StringComparison.OrdinalIgnoreCase),
+                    -1);
+            if (matchIndex < 0)
+            {
+                return false;
+            }
+
+            consumed[matchIndex] = true;
+        }
+
+        return true;
     }
 
     private static bool VectorOccurs(IReadOnlyList<string> candidate, IReadOnlyList<string> vector)

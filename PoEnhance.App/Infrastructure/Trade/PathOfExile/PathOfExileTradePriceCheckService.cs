@@ -1065,6 +1065,12 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         {
             providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
         }
+        if (component.ParsedKind == ParsedModifierKind.Implicit &&
+            component.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted &&
+            providerStatus == SearchComponentProviderResolutionStatus.NotFound)
+        {
+            providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
+        }
         var exactCandidates = ExactCandidates(match);
         if (hasProviderOwnedUniqueProof &&
             providerStatus is
@@ -1625,6 +1631,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 ? "veiled"
                 : component.IsBaseImplicit
                     ? "implicit"
+                    : component.ParsedKind == ParsedModifierKind.Implicit &&
+                        component.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted
+                        ? "implicit"
                     : null;
     }
 
@@ -1707,6 +1716,16 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             return HasExactBaseImplicitProviderProvenance(component);
         }
 
+        if (component.ParsedKind == ParsedModifierKind.Implicit &&
+            component.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted)
+        {
+            return component.IsSearchable &&
+                component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+                component.GenerationType == ModifierGenerationType.Corrupted &&
+                HasExactSourceModifierIdentity(component) &&
+                component.ResolvedStatIds.Count > 0;
+        }
+
         if (component.ParsedKind == PoEnhance.Core.Items.Parsing.ParsedModifierKind.Implicit &&
             !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
             !string.IsNullOrWhiteSpace(component.OriginalText))
@@ -1716,8 +1735,17 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
         return component.IsSearchable &&
             component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
+            HasExactSourceModifierIdentity(component) &&
             component.ResolvedStatIds.Count > 0;
+    }
+
+    private static bool HasExactSourceModifierIdentity(ResolvedSearchComponent component)
+    {
+        return !string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
+            component.Sources.Count > 0 &&
+            component.Sources.All(source =>
+                !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
+                source.ResolvedStatIds.Count > 0);
     }
 
     private static bool HasExactBaseImplicitProviderProvenance(ResolvedSearchComponent component)
@@ -1764,6 +1792,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ParsedBaseType = draft.ParsedBaseType,
             ModifierLocality = component.Locality,
             ResolvedModifierId = component.ResolvedModifierId,
+            HasExactGameDataSourceProof = HasExactSourceModifierIdentity(component),
             ResolvedModifierName = component.ResolvedModifierName,
             InternalStatIds = component.ResolvedStatIds,
         };

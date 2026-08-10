@@ -1385,6 +1385,72 @@ and they welcomed him.
     }
 
     [Fact]
+    public void ResolveProviderComponents_CorruptedImplicitUsesExactGameDataAndImplicitProviderDomain()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.maximum-life", "+# to maximum Life", "explicit"),
+            Stat("implicit.maximum-life", "+# to maximum Life", "implicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            CorruptedImplicitDraft(exactGameData: true, selected: true),
+            catalog);
+        var component = Assert.Single(resolved.ModifierFilters);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(resolved, catalog);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("implicit.maximum-life", component.ProviderStatId);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, component.ImplicitOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, component.GenerationType);
+        Assert.True(mapping.IsSuccess);
+        Assert.Equal("implicit.maximum-life", Assert.Single(mapping.Filters).StatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_CorruptedImplicitWithoutExactGameDataIsExplicitlyUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("implicit.maximum-life", "+# to maximum Life", "implicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            CorruptedImplicitDraft(exactGameData: false, selected: true),
+            catalog);
+        var component = Assert.Single(resolved.ModifierFilters);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(resolved, catalog);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.False(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+        Assert.Single(mapping.Diagnostics);
+        Assert.True(component.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_CorruptedImplicitRejectsCrossDomainLookalike()
+    {
+        var fixture = ServiceFixture.Create();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.maximum-life", "+# to maximum Life", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            CorruptedImplicitDraft(exactGameData: true, selected: true),
+            catalog);
+        var component = Assert.Single(resolved.ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Empty(component.ProviderStatAlternativeIds);
+    }
+
+    [Fact]
     public void ResolveProviderComponents_HistoricalBaseImplicitIsNotRewrittenAsGuaranteedByExactBase()
     {
         var fixture = ServiceFixture.Create();
@@ -2761,6 +2827,52 @@ and they welcomed him.
                             ApplicabilityReason = "Exact recognized base-implicit mechanics.",
                         },
                     ],
+                },
+            ],
+        };
+    }
+
+    private static TradeSearchDraft CorruptedImplicitDraft(bool exactGameData, bool selected)
+    {
+        return Draft() with
+        {
+            IsCorrupted = true,
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Corrupted = TradeTriState.Yes,
+            },
+            ModifierFilters =
+            [
+                new ResolvedSearchComponent
+                {
+                    ComponentId = "modifier:0:0",
+                    SourceModifierIndex = 0,
+                    SourceLineIndex = 0,
+                    SourceComponentIndex = 0,
+                    OriginalText = "+10 to maximum Life",
+                    CanonicalSignature = "+<number> to maximum Life",
+                    ProviderCanonicalSignature = "+<number> to maximum Life",
+                    ParsedKind = ParsedModifierKind.Implicit,
+                    ImplicitOrigin = ParsedImplicitModifierOrigin.Corrupted,
+                    GenerationType = exactGameData ? ModifierGenerationType.Corrupted : null,
+                    ResolutionStatus = exactGameData
+                        ? ModifierCandidateResolutionStatus.Exact
+                        : ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = exactGameData ? "mod.corrupted.maximum-life" : null,
+                    ResolvedStatIds = exactGameData ? ["maximum_life"] : [],
+                    StatMappingProof = exactGameData
+                        ? ModifierStatMappingProofStatus.WholeVector
+                        : ModifierStatMappingProofStatus.Unknown,
+                    Locality = ModifierLocality.Global,
+                    IsSearchable = exactGameData,
+                    IsSelected = selected,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ObservedNumericValues = [10m],
+                    CanonicalNumericValues = [10m],
+                    ValueBoundTranslationHandlers = [[]],
+                    ValueBoundTranslationIdentity = "corrupted-maximum-life",
+                    RequestedMinimum = 10m,
                 },
             ],
         };

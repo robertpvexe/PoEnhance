@@ -198,7 +198,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         if (expectedLocality is ModifierLocality.Local or ModifierLocality.Global)
         {
             var hasExactGameDataProvenance =
-                !string.IsNullOrWhiteSpace(context?.ResolvedModifierId) &&
+                (context?.HasExactGameDataSourceProof == true ||
+                    !string.IsNullOrWhiteSpace(context?.ResolvedModifierId)) &&
                 context.InternalStatIds.Count > 0 &&
                 context.InternalStatIds.All(statId => !string.IsNullOrWhiteSpace(statId));
             var localityEvaluations = candidatesAfterKind

@@ -323,7 +323,9 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
     {
         diagnostic = null;
-        if (!modifier.IsFractured && !modifier.IsVeiled)
+        var isCorruptedImplicit = modifier.ParsedKind == ParsedModifierKind.Implicit &&
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted;
+        if (!modifier.IsFractured && !modifier.IsVeiled && !isCorruptedImplicit)
         {
             return true;
         }
@@ -363,6 +365,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                     StringComparison.OrdinalIgnoreCase);
             var expectedProviderKind = modifier.IsVeiled
                 ? "veiled"
+                : isCorruptedImplicit
+                    ? "implicit"
                 : modifier.ProviderResolutionStatus ==
                     SearchComponentProviderResolutionStatus.Approximate
                     ? "explicit"
@@ -382,7 +386,11 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     Failed:
         diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
             PathOfExileTradeSelectedModifierMappingDiagnosticCodes.KindMismatch,
-            $"Selected {(modifier.IsFractured ? "Fractured-source" : "Veiled")} modifier requires one catalog-backed provider identity compatible with its structured resolution quality.",
+            $"Selected {(modifier.IsFractured
+                ? "Fractured-source"
+                : modifier.IsVeiled
+                    ? "Veiled"
+                    : "Corrupted implicit")} modifier requires one catalog-backed provider identity compatible with its structured resolution quality.",
             sourceIndex);
         return false;
     }
@@ -503,14 +511,15 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
         var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+            (!string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) ||
+                modifier.Sources.Count > 0 && modifier.Sources.All(source =>
+                    !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
+                    source.ResolvedStatIds.Count > 0)) &&
             modifier.ResolvedStatIds.Count > 0;
         return hasExactGameDataProvenance || hasExactProviderOwnedUniqueProvenance ||
             hasExactProviderOwnedVeiledPresence ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&
-            modifier.ImplicitOrigin is
-                ParsedImplicitModifierOrigin.Unspecified or
-                ParsedImplicitModifierOrigin.Corrupted;
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified;
     }
 
     private static bool CanSerializeProviderResolvedComponent(ResolvedSearchComponent modifier)

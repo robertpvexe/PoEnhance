@@ -1973,6 +1973,90 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task EquivalentSourceSetPresentation_HidesProvenanceChildrenAndPreservesTradeDraft()
+    {
+        const string providerStatId = "implicit.stat_minimum_frenzy";
+        var fixture = SearchFixture.Create();
+        var firstSource = ContributorSource(
+            "modifier:0:0",
+            "+1 to Minimum Frenzy Charges",
+            1m,
+            "Implicit") with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Corrupted,
+            GenerationType = ModifierGenerationType.Corrupted,
+            ResolvedModifierId = "corrupted-observation-a",
+            ResolvedStatIds = ["base_minimum_frenzy_charges"],
+        };
+        var secondSource = firstSource with
+        {
+            ResolvedModifierId = "corrupted-observation-b",
+        };
+        var equivalent = Modifier(
+            "+1 to Minimum Frenzy Charges",
+            ParsedModifierKind.Implicit,
+            resolvedModifierId: "placeholder") with
+        {
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = null,
+            ResolvedStatIds = ["base_minimum_frenzy_charges"],
+            GenerationType = ModifierGenerationType.Corrupted,
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Corrupted,
+            IsEquivalentSourceSet = true,
+            IsSearchable = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = providerStatId,
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = PathOfExileTradeProviderIdentity.Create(providerStatId),
+                    Label = "Implicit",
+                    Description = "+# to Minimum Frenzy Charges",
+                    ProviderKind = "implicit",
+                },
+            ],
+            SelectedFilterVariantIdentity = PathOfExileTradeProviderIdentity.Create(providerStatId),
+            Sources = [firstSource, secondSource],
+            Contributors =
+            [
+                Contributor("equivalent-a", firstSource, 1m, providerStatId),
+                Contributor("equivalent-b", secondSource, 1m, providerStatId),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Replica Dragonfang's Flight", modifiers: [equivalent]),
+            ValidationSuccess());
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.Equal("Implicit (Corrupted)", row.ModTypeLabel);
+        Assert.Equal("Implicit (Corrupted)", row.SectionLabel);
+        Assert.True(row.IsInteractionEnabled);
+        Assert.Equal(1, row.SourceCount);
+        Assert.Null(row.SourceBreakdown);
+        Assert.Empty(row.Contributors);
+        Assert.False(row.ShowsExpansionControl);
+        Assert.False(row.IsExpanded);
+        var retained = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.True(retained.IsEquivalentSourceSet);
+        Assert.Equal(2, retained.Sources.Count);
+        Assert.Equal(2, retained.Contributors.Count);
+
+        fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
+        await fixture.Controller.SearchAsync();
+
+        var submitted = Assert.Single(fixture.PriceCheckService.Calls).Draft;
+        var submittedModifier = Assert.Single(submitted!.ModifierFilters);
+        Assert.True(submittedModifier.IsSelected);
+        Assert.Equal(providerStatId, submittedModifier.ProviderStatId);
+        Assert.Equal(2, submittedModifier.Sources.Count);
+        Assert.Equal(
+            ["corrupted-observation-a", "corrupted-observation-b"],
+            submittedModifier.Sources.Select(source => source.ResolvedModifierId));
+    }
+
+    [Fact]
     public void ModifierContributors_ExpandAndCollapseWithoutChangingStateOrRequests()
     {
         var fixture = SearchFixture.Create();

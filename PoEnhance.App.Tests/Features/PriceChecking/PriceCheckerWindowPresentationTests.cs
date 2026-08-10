@@ -609,7 +609,7 @@ Item Level: 82
             Label = "Explicit",
         };
 
-        foreach (var origin in new[] { "ordinary", "Eldritch", "synthesis", "corrupted" })
+        foreach (var origin in new[] { "ordinary", "Eldritch", "synthesis" })
         {
             var modifier = new PriceCheckerModifierViewModel
             {
@@ -624,6 +624,19 @@ Item Level: 82
             Assert.Equal("Implicit", modifier.ModTypeLabel);
             Assert.False(modifier.CanSelectFilterVariant);
         }
+
+        var corruptedImplicit = new PriceCheckerModifierViewModel
+        {
+            SourceIndex = 6,
+            Text = "corrupted implicit",
+            IsSelected = true,
+            IsCanonicalImplicit = true,
+            IsCorruptedImplicit = true,
+            FilterVariants = [implicitVariant, explicitVariant],
+            SelectedFilterVariant = implicitVariant,
+        };
+        Assert.Equal("Implicit (Corrupted)", corruptedImplicit.ModTypeLabel);
+        Assert.False(corruptedImplicit.CanSelectFilterVariant);
 
         var nonImplicit = new PriceCheckerModifierViewModel
         {

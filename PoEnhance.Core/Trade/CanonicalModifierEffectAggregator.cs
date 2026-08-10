@@ -175,6 +175,13 @@ internal static partial class CanonicalModifierEffectAggregator
         };
     }
 
+    internal static SearchComponentSourceProvenance CreateSourceProvenance(
+        ResolvedSearchComponent component,
+        bool isHybrid = false)
+    {
+        return CreateSource(component, CanonicalValues(component), isHybrid);
+    }
+
     private static IReadOnlyList<decimal> CanonicalValues(ResolvedSearchComponent component)
     {
         if (component.CanonicalNumericValues.Count > 0)

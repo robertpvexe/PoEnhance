@@ -337,6 +337,51 @@ Item Level: 84
         Assert.DoesNotContain("Note: ~price 1 chaos", result.UnclassifiedLines);
     }
 
+    [Theory]
+    [InlineData("{ Corruption Implicit Modifier }")]
+    [InlineData("{ Corruption Implicit Modifier — Speed }")]
+    public void Parse_AuthenticCorruptionImplicitModifier_PreservesCorruptedOrigin(string metadata)
+    {
+        var result = _parser.Parse($"""
+Item Class: Boots
+Rarity: Rare
+Gale Pace
+Antique Greaves
+--------
+Item Level: 83
+--------
+{metadata}
+9(8-10)% increased Movement Speed
+--------
+Corrupted
+""");
+
+        var modifier = Assert.Single(result.Modifiers);
+        Assert.Equal(ParsedModifierKind.Implicit, modifier.Kind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, modifier.ImplicitOrigin);
+        Assert.Equal(metadata, modifier.RawMetadataLine);
+    }
+
+    [Fact]
+    public void Parse_OrdinaryImplicitWithoutExplicitProvenance_RemainsUnspecified()
+    {
+        var result = _parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Gale Knot
+Gold Ring
+--------
+Item Level: 83
+--------
+{ Implicit Modifier }
+15% increased Rarity of Items found
+""");
+
+        var modifier = Assert.Single(result.Modifiers);
+        Assert.Equal(ParsedModifierKind.Implicit, modifier.Kind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Unspecified, modifier.ImplicitOrigin);
+    }
+
     [Fact]
     public void Parse_ItemStateFlagsAreCanonicalForMirroredAndIdentification()
     {

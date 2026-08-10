@@ -1042,7 +1042,8 @@ public sealed partial class ItemTextParser
             return ParsedImplicitModifierOrigin.Synthesis;
         }
 
-        return metadataText.Contains("Corrupted", StringComparison.OrdinalIgnoreCase)
+        return metadataText.Contains("Corruption Implicit Modifier", StringComparison.OrdinalIgnoreCase) ||
+            metadataText.Contains("Corrupted", StringComparison.OrdinalIgnoreCase)
             ? ParsedImplicitModifierOrigin.Corrupted
             : ParsedImplicitModifierOrigin.Unspecified;
     }

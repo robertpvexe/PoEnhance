@@ -70,6 +70,250 @@ Adds 10 to 20 Fire Damage
     }
 
     [Fact]
+    public void Resolve_CorruptedImplicit_UsesCurrentCorruptedGenerationAndExactTranslation()
+    {
+        var modifier = ModifierWithStat(
+            "mod.corrupted.maximum-life",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            "maximum_life",
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation(["maximum_life"], Variant(["+{0} to maximum Life"], ["#"]))],
+            modifier);
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
++10 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, result.ParsedModifier.ImplicitOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, result.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.maximum-life", Assert.Single(result.Candidates).Id);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_ExcludesDisabledSourceRecord()
+    {
+        var eligible = ModifierWithStat(
+            "mod.corrupted.current",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            "maximum_life",
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+        var disabled = eligible with
+        {
+            Id = "mod.corrupted.disabled",
+            GroupId = "group.mod.corrupted.disabled",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+            SpawnWeights = [SpawnWeight("default", 0)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation(["maximum_life"], Variant(["+{0} to maximum Life"], ["#"]))],
+            disabled,
+            eligible);
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
++10 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.current", Assert.Single(result.Candidates).Id);
+        Assert.DoesNotContain(result.Candidates, candidate =>
+            candidate.SourceAvailability == ModifierSourceAvailability.Disabled);
+    }
+
+    [Fact]
+    public void Resolve_AuthenticCorruptionImplicit_ProvesExactEquivalentSourceSetAcrossCompatibleBases()
+    {
+        const string statId = "base_minimum_frenzy_charges";
+        var first = ModifierWithStat(
+            "corrupted-observation-a",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("amulet", 1000),
+            SpawnWeight("default", 0)) with
+        {
+            GroupId = "minimum-frenzy-charges",
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            RequiredLevel = 40,
+            Tags = ["frenzy_charge"],
+            Stats = [StatRef(statId, 1m, 1m)],
+        };
+        var second = first with
+        {
+            Id = "corrupted-observation-b",
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = "corrupted-observation-b",
+                },
+            ],
+        };
+        var bases = new[]
+        {
+            Base("base.onyx", "Onyx Amulet", "Amulets", "item", ["amulet", "default"]),
+            Base("base.onyx-royale", "Onyx Amulet", "Amulets", "item", ["amulet", "default", "not_for_sale"]),
+        };
+        var catalog = CreateCatalogWithTranslations(
+            bases,
+            [Translation([statId], Variant(["+{0} to Minimum Frenzy Charges"], ["#"]))],
+            first,
+            second);
+        var item = parser.Parse("""
+Item Class: Amulets
+Rarity: Unique
+Replica Test
+Onyx Amulet
+--------
+Item Level: 80
+--------
+{ Corruption Implicit Modifier }
++1 to Minimum Frenzy Charges
+--------
+Corrupted
+""");
+        var ambiguousBase = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+            Candidates = bases,
+        };
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ambiguousBase));
+
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, result.ParsedModifier.ImplicitOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, result.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.True(result.IsEquivalentSourceSet);
+        Assert.Equal(
+            ["corrupted-observation-a", "corrupted-observation-b"],
+            result.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactEquivalentSourceSet,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CorruptionObservationsWithDifferentEligibilitySemantics_RemainsAmbiguous()
+    {
+        const string statId = "base_minimum_frenzy_charges";
+        var first = ModifierWithStat(
+            "corrupted-observation-a",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("amulet", 1000),
+            SpawnWeight("default", 0)) with
+        {
+            GroupId = "minimum-frenzy-charges",
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            RequiredLevel = 40,
+            Tags = ["frenzy_charge"],
+            Stats = [StatRef(statId, 1m, 1m)],
+        };
+        var second = first with
+        {
+            Id = "corrupted-observation-b",
+            RequiredLevel = 41,
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = "corrupted-observation-b",
+                },
+            ],
+        };
+        var itemBase = Base("base.onyx", "Onyx Amulet", "Amulets", "item", ["amulet", "default"]);
+        var catalog = CreateCatalogWithTranslations(
+            [itemBase],
+            [Translation([statId], Variant(["+{0} to Minimum Frenzy Charges"], ["#"]))],
+            first,
+            second);
+        var item = parser.Parse("""
+Item Class: Amulets
+Rarity: Unique
+Replica Test
+Onyx Amulet
+--------
+Item Level: 80
+--------
+{ Corruption Implicit Modifier }
++1 to Minimum Frenzy Charges
+--------
+Corrupted
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, Assert.IsType<string>(itemBase.Id))));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.False(result.IsEquivalentSourceSet);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_OrdinaryImplicit_DoesNotReuseCorruptedSourceRecord()
+    {
+        var corrupted = ModifierWithStat(
+            "mod.corrupted.maximum-life",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            "maximum_life",
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation(["maximum_life"], Variant(["+{0} to maximum Life"], ["#"]))],
+            corrupted);
+        var item = ParseWithModifier("""
+{ Implicit Modifier }
++10 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierGenerationType.Implicit, result.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
     public void Resolve_CraftedModifierWithReliableNameAndKind_UsesUnderlyingGenerationKind()
     {
         var catalog = CreateCatalog(Modifier(
@@ -92,7 +336,9 @@ Adds 1 to 2 Physical Damage
     [Fact]
     public void Resolve_FracturedSuffixModifier_UsesUnderlyingSuffixGenerationKind()
     {
-        var catalog = CreateCatalog(Modifier("mod.suffix.order", "of the Order", ModifierGenerationType.Suffix));
+        var catalog = CreateCatalog(
+            Modifier("mod.suffix.order", "of the Order", ModifierGenerationType.Suffix, "misc"),
+            Modifier("mod.crafted.order", "of the Order", ModifierGenerationType.Suffix, "crafted"));
         var item = ParseWithModifier("""
 { Fractured Suffix Modifier "of the Order" (Tier: 4) - Caster }
 12% increased Cast Speed
@@ -103,6 +349,7 @@ Adds 1 to 2 Physical Damage
         Assert.True(result.ParsedModifier.IsFractured);
         Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
         Assert.Equal(ModifierGenerationType.Suffix, result.GenerationType);
+        Assert.Equal("mod.suffix.order", Assert.Single(result.Candidates).Id);
     }
 
     [Fact]

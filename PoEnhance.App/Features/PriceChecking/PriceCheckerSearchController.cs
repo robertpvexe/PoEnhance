@@ -1759,7 +1759,8 @@ internal sealed class PriceCheckerSearchController
         }
         var contributorsEnabled = isInteractionEnabled &&
             SearchComponentContributorActivation.SupportsComposition(modifier);
-        var contributors = modifier.Contributors
+        var equivalentProvenanceOnly = IsEquivalentProvenanceOnly(modifier);
+        var contributors = (equivalentProvenanceOnly ? [] : modifier.Contributors)
             .Select((contributor, contributorIndex) =>
             {
                 var inactiveReason = SearchComponentContributorActivation.GetInactiveReason(
@@ -1798,8 +1799,10 @@ internal sealed class PriceCheckerSearchController
                 sectionLabelOverride ?? SectionLabelWithSources(modifier),
                 requiresExactAvailability,
                 isInteractionEnabled),
-            SourceCount = modifier.SourceCount,
-            SourceBreakdown = CombineSourceBreakdown(SourceBreakdown(modifier), availabilityReason),
+            SourceCount = equivalentProvenanceOnly ? 1 : modifier.SourceCount,
+            SourceBreakdown = CombineSourceBreakdown(
+                equivalentProvenanceOnly ? null : SourceBreakdown(modifier),
+                availabilityReason),
             IsSelected = modifier.IsSelected,
             IsInteractionEnabled = isInteractionEnabled,
             AvailabilityReason = availabilityReason,
@@ -1808,6 +1811,8 @@ internal sealed class PriceCheckerSearchController
             FilterVariants = variants,
             SelectedFilterVariant = selectedVariant,
             IsCanonicalImplicit = IsImplicitPresentationModifier(modifier),
+            IsCorruptedImplicit = modifier.ParsedKind == ParsedModifierKind.Implicit &&
+                modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted,
             IsUniqueModifier = isUniqueModifier,
             IsFoulbornUniqueModifier = isFoulbornUniqueModifier,
             IsFracturedModifier = isFracturedModifier,
@@ -1981,6 +1986,9 @@ internal sealed class PriceCheckerSearchController
         {
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
+            ParsedModifierKind.Implicit when
+                modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
+                "Implicit (Corrupted)",
             ParsedModifierKind.Implicit => "Implicit",
             _ => "modifier",
         };
@@ -2402,6 +2410,9 @@ internal sealed class PriceCheckerSearchController
 
         return modifier.ParsedKind switch
         {
+            ParsedModifierKind.Implicit when
+                modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
+                "Implicit (Corrupted)",
             ParsedModifierKind.Implicit => "Implicit",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
@@ -2416,13 +2427,17 @@ internal sealed class PriceCheckerSearchController
     {
         var section = SectionLabel(modifier);
         var selected = SearchComponentContributorActivation.ActiveSelectionCount(modifier);
-        var label = modifier.SourceCount > 1
+        var label = !IsEquivalentProvenanceOnly(modifier) && modifier.SourceCount > 1
             ? string.IsNullOrWhiteSpace(section)
                 ? $"{modifier.SourceCount} sources"
                 : $"{section} · {modifier.SourceCount} sources"
             : section;
         return selected > 0 ? $"{label} · {selected} selected" : label;
     }
+
+    private static bool IsEquivalentProvenanceOnly(ResolvedSearchComponent modifier) =>
+        modifier.IsEquivalentSourceSet &&
+        modifier.ContributorProjection != SearchComponentContributorProjection.Additive;
 
     private static string ContributorProvenanceLabel(SearchComponentSourceProvenance source)
     {

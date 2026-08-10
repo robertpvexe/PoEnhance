@@ -12,6 +12,8 @@ internal sealed record PathOfExileTradeStatMatchContext
 
     public string? ResolvedModifierId { get; init; }
 
+    public bool HasExactGameDataSourceProof { get; init; }
+
     public string? ResolvedModifierName { get; init; }
 
     public IReadOnlyList<string> InternalStatIds { get; init; } = [];

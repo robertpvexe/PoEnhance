@@ -674,7 +674,7 @@ public sealed class TradeSearchDraftMapper
         GameDataCatalog? catalog)
     {
         var exactCandidate = resolution?.Status == ModifierCandidateResolutionStatus.Exact &&
-            resolution.Candidates.Count == 1
+            (resolution.Candidates.Count == 1 || resolution.IsEquivalentSourceSet)
             ? resolution.Candidates[0]
             : null;
         var valueLines = modifier.ValueLines
@@ -912,6 +912,7 @@ public sealed class TradeSearchDraftMapper
             ? providerOnlyUniqueValues[0]
             : boundDefault.ObservedCanonicalValue;
 
+        var isEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true;
         var component = new ResolvedSearchComponent
         {
             ComponentId = $"modifier:{modifierIndex}:{sourceComponentIndex}",
@@ -941,6 +942,7 @@ public sealed class TradeSearchDraftMapper
             IsVeiled = modifier.IsUnrevealedVeiledPlaceholder,
             IsUnveiled = modifier.IsNamedUnveiled || IsUnveiledDomain(exactCandidate?.Domain),
             IsBaseImplicit = isBaseImplicit,
+            IsEquivalentSourceSet = isEquivalentSourceSet,
             BaseImplicitProvenance = baseImplicitProvenance,
             GuaranteedExactBaseName = isBaseImplicit &&
                 baseImplicitProvenance?.RecognitionStatus !=
@@ -956,7 +958,7 @@ public sealed class TradeSearchDraftMapper
                     BaseImplicitRecognitionStatus.HistoricalExact)
                 ? ModifierCandidateResolutionStatus.Exact
                 : resolution?.Status,
-            ResolvedModifierId = TrimToNull(exactCandidate?.Id),
+            ResolvedModifierId = isEquivalentSourceSet ? null : TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name),
             ResolvedStatIds = statIds,
             IsSearchable = isSearchable,
@@ -1000,17 +1002,39 @@ public sealed class TradeSearchDraftMapper
             ReviewedItemPropertySemantic = FindReviewedItemPropertySemantic(component, catalog),
         };
 
+        if (isEquivalentSourceSet)
+        {
+            component = component with
+            {
+                Sources = resolution!.Candidates
+                    .Select(candidate => CanonicalModifierEffectAggregator.CreateSourceProvenance(
+                        component with
+                        {
+                            ResolvedModifierId = TrimToNull(candidate.Id),
+                            ResolvedModifierName = TrimToNull(candidate.Name),
+                        }))
+                    .ToArray(),
+            };
+        }
+
         return exactCandidate is null || catalog is null
             ? component
             : component with
             {
-                ProviderDomainEvidence = ModifierProviderDomainEvidenceResolver.Resolve(
-                    component,
-                    exactCandidate,
-                    componentLines,
-                    itemBaseResolution,
-                    traditionalInfluences,
-                    catalog),
+            ProviderDomainEvidence = (isEquivalentSourceSet
+                        ? resolution!.Candidates
+                        : (IReadOnlyList<ModifierDefinition>)[exactCandidate])
+                    .SelectMany(candidate => ModifierProviderDomainEvidenceResolver.Resolve(
+                        component,
+                        candidate,
+                        componentLines,
+                        itemBaseResolution,
+                        traditionalInfluences,
+                        catalog))
+                    .DistinctBy(
+                        evidence => string.Join('\u001f', evidence.ProviderDomain, evidence.ModifierId),
+                        StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
             };
     }
 
@@ -1338,35 +1362,41 @@ public sealed class TradeSearchDraftMapper
         }
 
         var partitions = new List<IReadOnlyList<IReadOnlyList<ModifierStat>>>();
-        MatchLineStatPartitions(
-            candidate,
+        CreateStatPartitions(
             stats,
-            valueLines,
-            catalog,
-            lineIndex: 0,
+            remainingGroupCount: valueLines.Count,
             statIndex: 0,
             current: [],
             partitions);
-        if (partitions.Count != 1)
+        var matchedPartitions = partitions
+            .Select(partition => TryMatchPartitionToParsedLines(
+                candidate,
+                partition,
+                valueLines,
+                catalog,
+                out var matched)
+                    ? matched
+                    : null)
+            .Where(matched => matched is not null)
+            .Select(matched => matched!)
+            .ToArray();
+        if (matchedPartitions.Length != 1)
         {
             return false;
         }
 
-        matchedLineStats = partitions[0];
+        matchedLineStats = matchedPartitions[0];
         return true;
     }
 
-    private static void MatchLineStatPartitions(
-        ModifierDefinition candidate,
+    private static void CreateStatPartitions(
         IReadOnlyList<ModifierStat> stats,
-        IReadOnlyList<string> valueLines,
-        GameDataCatalog catalog,
-        int lineIndex,
+        int remainingGroupCount,
         int statIndex,
         IReadOnlyList<IReadOnlyList<ModifierStat>> current,
         ICollection<IReadOnlyList<IReadOnlyList<ModifierStat>>> partitions)
     {
-        if (lineIndex == valueLines.Count)
+        if (remainingGroupCount == 0)
         {
             if (statIndex == stats.Count)
             {
@@ -1376,25 +1406,73 @@ public sealed class TradeSearchDraftMapper
             return;
         }
 
-        var remainingLines = valueLines.Count - lineIndex;
-        var maximumGroupSize = stats.Count - statIndex - (remainingLines - 1);
+        var maximumGroupSize = stats.Count - statIndex - (remainingGroupCount - 1);
         for (var groupSize = 1; groupSize <= maximumGroupSize; groupSize++)
         {
             var group = stats.Skip(statIndex).Take(groupSize).ToArray();
-            if (!IsProvenLineStatAssociation(candidate, group, valueLines[lineIndex], catalog))
-            {
-                continue;
-            }
-
-            MatchLineStatPartitions(
-                candidate,
+            CreateStatPartitions(
                 stats,
-                valueLines,
-                catalog,
-                lineIndex + 1,
+                remainingGroupCount - 1,
                 statIndex + groupSize,
                 current.Append(group).ToArray(),
                 partitions);
+        }
+    }
+
+    private static bool TryMatchPartitionToParsedLines(
+        ModifierDefinition candidate,
+        IReadOnlyList<IReadOnlyList<ModifierStat>> partition,
+        IReadOnlyList<string> valueLines,
+        GameDataCatalog catalog,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats)
+    {
+        matchedLineStats = [];
+        if (partition.Count != valueLines.Count)
+        {
+            return false;
+        }
+
+        var consumedGroups = new bool[partition.Count];
+        var assignments = new IReadOnlyList<ModifierStat>[valueLines.Count];
+        if (!TryAssignLine(0))
+        {
+            return false;
+        }
+
+        matchedLineStats = assignments;
+        return true;
+
+        bool TryAssignLine(int lineIndex)
+        {
+            if (lineIndex == valueLines.Count)
+            {
+                return consumedGroups.All(consumed => consumed);
+            }
+
+            for (var groupIndex = 0; groupIndex < partition.Count; groupIndex++)
+            {
+                if (consumedGroups[groupIndex] ||
+                    !IsProvenLineStatAssociation(
+                        candidate,
+                        partition[groupIndex],
+                        valueLines[lineIndex],
+                        catalog))
+                {
+                    continue;
+                }
+
+                consumedGroups[groupIndex] = true;
+                assignments[lineIndex] = partition[groupIndex];
+                if (TryAssignLine(lineIndex + 1))
+                {
+                    return true;
+                }
+
+                assignments[lineIndex] = [];
+                consumedGroups[groupIndex] = false;
+            }
+
+            return false;
         }
     }
 

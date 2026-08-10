@@ -25,5 +25,8 @@ public sealed record ModifierCandidateResolutionResult(
 {
     public int CandidateCount => Candidates.Count;
 
+    public bool IsEquivalentSourceSet =>
+        Status == ModifierCandidateResolutionStatus.Exact && Candidates.Count > 1;
+
     public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
 }

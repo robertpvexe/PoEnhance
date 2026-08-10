@@ -125,6 +125,12 @@ public sealed record ResolvedSearchComponent
 
     public int SourceCount => Sources.Count == 0 ? 1 : Sources.Count;
 
+    /// <summary>
+    /// Multiple retained sources proved the same canonical effect. They are provenance,
+    /// not separate user-selectable effects.
+    /// </summary>
+    public bool IsEquivalentSourceSet { get; init; }
+
     public IReadOnlyList<SearchComponentContributor> Contributors { get; init; } = [];
 
     public SearchComponentContributorProjection ContributorProjection { get; init; }

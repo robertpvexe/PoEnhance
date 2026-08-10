@@ -127,6 +127,55 @@ public sealed class ModifierTextSignatureMatcherTests
     }
 
     [Fact]
+    public void Match_TwoLineModifier_IsOrderIndependentAndBijective()
+    {
+        var modifier = Modifier(
+            Stat("light_radius_+%", 10, 10),
+            Stat("accuracy_rating_+%", 12, 15));
+        var catalog = CreateCatalog(
+            Translation(["light_radius_+%"], Variant(["{0}% increased Light Radius"], ["#"])),
+            Translation(["accuracy_rating_+%"], Variant(["{0}% increased Global Accuracy Rating"], ["#"])));
+
+        var result = matcher.Match(
+            modifier,
+            catalog,
+            [
+                "12(12-15)% increased Global Accuracy Rating",
+                "10% increased Light Radius",
+            ]);
+
+        Assert.Equal(ModifierTextSignatureMatchOutcome.Match, result.Outcome);
+        Assert.Equal(
+            ["<number>% increased Light Radius", "<number>% increased Global Accuracy Rating"],
+            Assert.Single(result.CandidateSignatures).Lines);
+        Assert.Equal(
+            ["<number>% increased Global Accuracy Rating", "<number>% increased Light Radius"],
+            Assert.Single(result.ParsedSignatures).Lines);
+    }
+
+    [Fact]
+    public void Match_DuplicateLookingLines_ConsumesEachCanonicalEffectExactlyOnce()
+    {
+        var modifier = Modifier(
+            Stat("first_damage_+%", 10, 10),
+            Stat("second_damage_+%", 10, 10));
+        var catalog = CreateCatalog(
+            Translation(["first_damage_+%"], Variant(["{0}% increased Damage"], ["#"])),
+            Translation(["second_damage_+%"], Variant(["{0}% increased Damage"], ["#"])));
+
+        var exact = matcher.Match(modifier, catalog, ["10% increased Damage", "10% increased Damage"]);
+        var missing = matcher.Match(modifier, catalog, ["10% increased Damage"]);
+        var extra = matcher.Match(
+            modifier,
+            catalog,
+            ["10% increased Damage", "10% increased Damage", "10% increased Damage"]);
+
+        Assert.Equal(ModifierTextSignatureMatchOutcome.Match, exact.Outcome);
+        Assert.Equal(ModifierTextSignatureMatchOutcome.NoMatch, missing.Outcome);
+        Assert.Equal(ModifierTextSignatureMatchOutcome.NoMatch, extra.Outcome);
+    }
+
+    [Fact]
     public void Match_MultiStatTranslationCanFormOneDisplayedLine()
     {
         var modifier = Modifier(

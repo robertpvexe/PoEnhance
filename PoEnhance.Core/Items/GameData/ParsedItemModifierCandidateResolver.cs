@@ -32,8 +32,11 @@ public sealed partial class ParsedItemModifierCandidateResolver
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(baseResolution);
 
-        var eligibilityContext = TryGetEligibilityBase(baseResolution, out var itemBase)
-            ? ItemModifierEligibilityContext.Create(itemBase, parsedItem.TraditionalInfluences)
+        var eligibilityContexts = CreateEligibilityContexts(
+            baseResolution,
+            parsedItem.TraditionalInfluences);
+        var eligibilityContext = eligibilityContexts.Count == 1
+            ? eligibilityContexts[0]
             : null;
         var results = new List<ModifierCandidateResolutionResult>();
         for (var index = 0; index < parsedItem.Modifiers.Count; index++)
@@ -44,7 +47,12 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 continue;
             }
 
-            var result = ResolveModifier(index, modifier, catalog, eligibilityContext);
+            var result = ResolveModifier(
+                index,
+                modifier,
+                catalog,
+                eligibilityContext,
+                eligibilityContexts);
             if (eligibilityContext is not null && modifier.Kind == ParsedModifierKind.Implicit)
             {
                 result = result with
@@ -66,9 +74,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
         int index,
         ParsedModifier modifier,
         GameDataCatalog catalog,
-        ItemModifierEligibilityContext? eligibilityContext)
+        ItemModifierEligibilityContext? eligibilityContext,
+        IReadOnlyList<ItemModifierEligibilityContext> eligibilityContexts)
     {
-        if (!TryMapGenerationType(modifier.Kind, out var generationType))
+        if (!TryMapGenerationType(modifier, out var generationType))
         {
             return Unknown(
                 index,
@@ -85,7 +94,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 index,
                 modifier,
                 catalog,
-                eligibilityContext,
+                eligibilityContexts,
                 generationType);
             if (specialImplicitResult is not null)
             {
@@ -103,7 +112,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         var nameCandidates = catalog.FindModifiersByNormalizedName(modifier.Name);
         var kindCandidates = ToReadOnly(
-            nameCandidates.Where(candidate => candidate.GenerationType == generationType));
+            nameCandidates.Where(candidate =>
+                candidate.GenerationType == generationType &&
+                IsCurrentSourceCandidate(candidate, generationType) &&
+                HasCompatibleImmutableProvenance(modifier, candidate)));
         if (kindCandidates.Count == 0)
         {
             if (TryResolveStructurally(
@@ -308,10 +320,12 @@ public sealed partial class ParsedItemModifierCandidateResolver
         int index,
         ParsedModifier modifier,
         GameDataCatalog catalog,
-        ItemModifierEligibilityContext? eligibilityContext,
+        IReadOnlyList<ItemModifierEligibilityContext> eligibilityContexts,
         ModifierGenerationType generationType)
     {
-        if (generationType != ModifierGenerationType.Implicit)
+        if (generationType is not (
+                ModifierGenerationType.Implicit or
+                ModifierGenerationType.Corrupted))
         {
             return null;
         }
@@ -323,6 +337,11 @@ public sealed partial class ParsedItemModifierCandidateResolver
             ParsedImplicitModifierOrigin.EaterOfWorlds => catalog.Modifiers
                 .Where(candidate => IsEldritchSource(candidate, ParsedImplicitModifierOrigin.EaterOfWorlds)),
             ParsedImplicitModifierOrigin.Synthesis => catalog.Modifiers.Where(IsSynthesisImplicitSource),
+            ParsedImplicitModifierOrigin.Corrupted => catalog
+                .FindModifiersByGenerationType(ModifierGenerationType.Corrupted)
+                .Where(candidate => IsCurrentSourceCandidate(
+                    candidate,
+                    ModifierGenerationType.Corrupted)),
             _ => null,
         };
         if (originCandidates is null)
@@ -348,7 +367,8 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 "No GameData modifier matched the parsed implicit source origin, tier, and copied roll values.");
         }
 
-        if (modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Synthesis || eligibilityContext is null)
+        if (modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Synthesis ||
+            eligibilityContexts.Count == 0)
         {
             return ResolveTextSignatures(
                 index,
@@ -365,15 +385,19 @@ public sealed partial class ParsedItemModifierCandidateResolver
             .Select(candidate => new
             {
                 Candidate = candidate,
-                Result = eligibilityEvaluator.Evaluate(candidate, eligibilityContext),
+                Results = eligibilityContexts
+                    .Select(context => eligibilityEvaluator.Evaluate(candidate, context))
+                    .ToArray(),
             })
             .ToArray();
         var retainedCandidates = evaluations
-            .Where(evaluation => evaluation.Result.Outcome != ModifierEligibilityOutcome.Ineligible)
+            .Where(evaluation => eligibilityContexts.Count == 1
+                ? evaluation.Results[0].Outcome != ModifierEligibilityOutcome.Ineligible
+                : evaluation.Results.All(result => result.Outcome == ModifierEligibilityOutcome.Eligible))
             .Select(evaluation => evaluation.Candidate)
             .ToArray();
         var excludedCandidates = evaluations
-            .Where(evaluation => evaluation.Result.Outcome == ModifierEligibilityOutcome.Ineligible)
+            .Where(evaluation => !retainedCandidates.Contains(evaluation.Candidate))
             .Select(evaluation => evaluation.Candidate)
             .ToArray();
         if (retainedCandidates.Length == 0)
@@ -695,6 +719,38 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 "Exactly one candidate remained after displayed tier disambiguation.");
         }
 
+        if (modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted &&
+            exactTextEvaluations.Length == finalCandidates.Count &&
+            TryProveEquivalentSourceSet(
+                finalCandidates,
+                exactTextEvaluations.Select(evaluation => evaluation.Result).ToArray(),
+                out var commonTranslationRecognition))
+        {
+            return new ModifierCandidateResolutionResult(
+                index,
+                modifier,
+                modifier.Name,
+                modifier.Kind,
+                generationType,
+                ModifierCandidateResolutionStatus.Exact,
+                finalCandidates,
+                Diagnostics(
+                    ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactEquivalentSourceSet,
+                    "Multiple current source observations proved one identical provider-neutral mechanical effect; every source observation was retained."),
+                nameCandidateCount,
+                generationKindCandidateCount,
+                eligibleCandidates.Count,
+                allExcludedCandidates.Count,
+                allExcludedCandidates,
+                TextSignatureCandidateCount: finalCandidates.Count,
+                ExcludedByTextCandidateCount: textExcludedCandidates.Length,
+                TextSignatureMatches: textResults,
+                Locality: DetermineLocality(finalCandidates[0], catalog))
+            {
+                TranslationRecognition = commonTranslationRecognition,
+            };
+        }
+
         var allRetainedUnknown = retainedEvaluations.All(evaluation =>
             evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.Unknown);
         return Unknown(
@@ -751,7 +807,10 @@ public sealed partial class ParsedItemModifierCandidateResolver
             return false;
         }
 
-        var kindCandidates = ToReadOnly(catalog.FindModifiersByGenerationType(generationType));
+        var kindCandidates = ToReadOnly(catalog
+            .FindModifiersByGenerationType(generationType)
+            .Where(candidate => IsCurrentSourceCandidate(candidate, generationType) &&
+                HasCompatibleImmutableProvenance(modifier, candidate)));
         if (kindCandidates.Count == 0)
         {
             return false;
@@ -1210,18 +1269,29 @@ public sealed partial class ParsedItemModifierCandidateResolver
     }
 
     private static bool TryMapGenerationType(
-        ParsedModifierKind kind,
+        ParsedModifier modifier,
         out ModifierGenerationType generationType)
     {
-        generationType = kind switch
+        generationType = modifier.Kind switch
         {
             ParsedModifierKind.Prefix => ModifierGenerationType.Prefix,
             ParsedModifierKind.Suffix => ModifierGenerationType.Suffix,
+            ParsedModifierKind.Implicit
+                when modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
+                ModifierGenerationType.Corrupted,
             ParsedModifierKind.Implicit => ModifierGenerationType.Implicit,
             _ => ModifierGenerationType.Unknown,
         };
 
         return generationType != ModifierGenerationType.Unknown;
+    }
+
+    private static bool IsCurrentSourceCandidate(
+        ModifierDefinition candidate,
+        ModifierGenerationType generationType)
+    {
+        return generationType != ModifierGenerationType.Corrupted ||
+            candidate.SourceAvailability != ModifierSourceAvailability.Disabled;
     }
 
     private static bool TryGetEligibilityBase(
@@ -1237,6 +1307,166 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         itemBase = baseResolution.MatchedItemBase;
         return true;
+    }
+
+    private static IReadOnlyList<ItemModifierEligibilityContext> CreateEligibilityContexts(
+        ItemBaseResolutionResult baseResolution,
+        IReadOnlyList<string> traditionalInfluences)
+    {
+        if (TryGetEligibilityBase(baseResolution, out var itemBase))
+        {
+            return [ItemModifierEligibilityContext.Create(itemBase, traditionalInfluences)];
+        }
+
+        return baseResolution.Candidates
+            .Where(candidate => candidate is not null)
+            .DistinctBy(candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => ItemModifierEligibilityContext.Create(candidate, traditionalInfluences))
+            .ToArray();
+    }
+
+    private static bool HasCompatibleImmutableProvenance(
+        ParsedModifier modifier,
+        ModifierDefinition candidate)
+    {
+        var domain = Normalize(candidate.Domain);
+        if (modifier.IsCrafted &&
+            !string.Equals(domain, "crafted", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !modifier.IsFractured ||
+            !string.Equals(domain, "crafted", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryProveEquivalentSourceSet(
+        IReadOnlyList<ModifierDefinition> candidates,
+        IReadOnlyList<ModifierTextSignatureMatchResult> textMatches,
+        out StatTranslationRecognitionEvidence? commonTranslationRecognition)
+    {
+        commonTranslationRecognition = null;
+        if (candidates.Count < 2 ||
+            candidates.Count != textMatches.Count ||
+            textMatches.Any(match => match.Outcome != ModifierTextSignatureMatchOutcome.Match))
+        {
+            return false;
+        }
+
+        var firstCandidate = candidates[0];
+        var firstMatch = textMatches[0];
+        if (firstCandidate.SourceAvailability == ModifierSourceAvailability.Disabled ||
+            firstMatch.TranslationRecognition is null)
+        {
+            return false;
+        }
+
+        for (var index = 1; index < candidates.Count; index++)
+        {
+            if (!HaveEquivalentSourceMechanics(firstCandidate, candidates[index]) ||
+                !HaveEquivalentTranslationProof(firstMatch, textMatches[index]))
+            {
+                return false;
+            }
+        }
+
+        commonTranslationRecognition = firstMatch.TranslationRecognition;
+        return true;
+    }
+
+    private static bool HaveEquivalentSourceMechanics(
+        ModifierDefinition first,
+        ModifierDefinition second)
+    {
+        return first.GenerationType == second.GenerationType &&
+            first.SourceAvailability == second.SourceAvailability &&
+            first.SourceAvailability != ModifierSourceAvailability.Disabled &&
+            first.Tier == second.Tier &&
+            first.RequiredLevel == second.RequiredLevel &&
+            first.IsEssenceOnly == second.IsEssenceOnly &&
+            SameText(first.GroupId, second.GroupId) &&
+            SameText(first.Name, second.Name) &&
+            SameText(first.Domain, second.Domain) &&
+            SameText(first.SourceGenerationType, second.SourceGenerationType) &&
+            SameTextSet(first.Tags, second.Tags) &&
+            SameStats(first.Stats, second.Stats) &&
+            SameSpawnWeights(first.SpawnWeights, second.SpawnWeights);
+    }
+
+    private static bool HaveEquivalentTranslationProof(
+        ModifierTextSignatureMatchResult first,
+        ModifierTextSignatureMatchResult second)
+    {
+        return SameSignatures(first.CandidateSignatures, second.CandidateSignatures) &&
+            first.TranslationRecognition is { } firstRecognition &&
+            second.TranslationRecognition is { } secondRecognition &&
+            firstRecognition.Role == secondRecognition.Role &&
+            SameText(
+                firstRecognition.CanonicalMechanicalSignature,
+                secondRecognition.CanonicalMechanicalSignature) &&
+            SameSignature(firstRecognition.CanonicalSignature, secondRecognition.CanonicalSignature);
+    }
+
+    private static bool SameSignatures(
+        IReadOnlyList<ModifierTextSignature> first,
+        IReadOnlyList<ModifierTextSignature> second)
+    {
+        return first.Count == second.Count &&
+            first.Zip(second).All(pair => SameSignature(pair.First, pair.Second));
+    }
+
+    private static bool SameSignature(
+        ModifierTextSignature first,
+        ModifierTextSignature second)
+    {
+        return first.Lines.SequenceEqual(second.Lines, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool SameStats(
+        IReadOnlyList<ModifierStat> first,
+        IReadOnlyList<ModifierStat> second)
+    {
+        var firstOrdered = first.OrderBy(stat => stat.Index).ToArray();
+        var secondOrdered = second.OrderBy(stat => stat.Index).ToArray();
+        return firstOrdered.Length == secondOrdered.Length &&
+            firstOrdered.Zip(secondOrdered).All(pair =>
+                pair.First.Index == pair.Second.Index &&
+                SameText(pair.First.StatId, pair.Second.StatId) &&
+                pair.First.MinValue == pair.Second.MinValue &&
+                pair.First.MaxValue == pair.Second.MaxValue);
+    }
+
+    private static bool SameSpawnWeights(
+        IReadOnlyList<ModifierSpawnWeight> first,
+        IReadOnlyList<ModifierSpawnWeight> second)
+    {
+        var firstOrdered = first
+            .OrderBy(weight => Normalize(weight.Tag), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(weight => weight.Weight)
+            .ToArray();
+        var secondOrdered = second
+            .OrderBy(weight => Normalize(weight.Tag), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(weight => weight.Weight)
+            .ToArray();
+        return firstOrdered.Length == secondOrdered.Length &&
+            firstOrdered.Zip(secondOrdered).All(pair =>
+                SameText(pair.First.Tag, pair.Second.Tag) &&
+                pair.First.Weight == pair.Second.Weight);
+    }
+
+    private static bool SameTextSet(
+        IReadOnlyList<string> first,
+        IReadOnlyList<string> second)
+    {
+        return first.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .SequenceEqual(
+                second.OrderBy(value => value, StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool SameText(string? first, string? second)
+    {
+        return string.Equals(Normalize(first), Normalize(second), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? Normalize(string? value)
