@@ -49,6 +49,10 @@ public static class RePoeImportDiagnosticCodes
     public const string StatTranslationInvalidCondition = "REPOE_STAT_TRANSLATION_INVALID_CONDITION";
     public const string StatTranslationInvalidFormat = "REPOE_STAT_TRANSLATION_INVALID_FORMAT";
     public const string StatTranslationInvalidIndexHandler = "REPOE_STAT_TRANSLATION_INVALID_INDEX_HANDLER";
+    public const string PoBUniqueFileNotFound = "POB_UNIQUE_FILE_NOT_FOUND";
+    public const string PoBUniqueJsonMalformed = "POB_UNIQUE_JSON_MALFORMED";
+    public const string PoBUniqueSchemaUnsupported = "POB_UNIQUE_SCHEMA_UNSUPPORTED";
+    public const string PoBUniqueRecordUnsupported = "POB_UNIQUE_RECORD_UNSUPPORTED";
 
     public const string PackageManifestInvalid = "PACKAGE_MANIFEST_INVALID";
     public const string PackageRePoeSourceMissing = "PACKAGE_REPOE_SOURCE_MISSING";

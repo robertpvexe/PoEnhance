@@ -1,3 +1,5 @@
+using PoEnhance.Core.Items.GameData;
+
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 internal sealed class PathOfExileTradeStatCatalog
@@ -6,6 +8,8 @@ internal sealed class PathOfExileTradeStatCatalog
     private readonly Dictionary<string, PathOfExileTradeStatEntry> byProviderIdentity;
     private readonly Dictionary<string, IReadOnlyList<PathOfExileTradeStatEntry>> byNormalizedTemplate;
     private readonly Dictionary<string, IReadOnlyList<PathOfExileTradeStatCandidateGroup>> candidateGroupsByTemplate;
+    private readonly Dictionary<string, IReadOnlyList<PathOfExileTradeStatCandidateGroup>>
+        candidateGroupsByItemClassQualifiedTemplate;
     private readonly Dictionary<string, IReadOnlyList<PathOfExileTradeStatMatchCandidate>> candidatesByLogicalEffect;
 
     public PathOfExileTradeStatCatalog(
@@ -73,6 +77,19 @@ internal sealed class PathOfExileTradeStatCatalog
                 group => (IReadOnlyList<PathOfExileTradeStatCandidateGroup>)group.ToArray(),
                 StringComparer.Ordinal);
 
+        candidateGroupsByItemClassQualifiedTemplate = CandidateGroups
+            .Select(group => TryCreateItemClassQualifiedKey(group, out var key)
+                ? new { Key = key, Group = group }
+                : null)
+            .Where(entry => entry is not null)
+            .GroupBy(entry => entry!.Key, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<PathOfExileTradeStatCandidateGroup>)group
+                    .Select(entry => entry!.Group)
+                    .ToArray(),
+                StringComparer.Ordinal);
+
         candidatesByLogicalEffect = Entries
             .Select(PathOfExileTradeStatCandidateClassifier.ToCandidate)
             .GroupBy(
@@ -134,6 +151,24 @@ internal sealed class PathOfExileTradeStatCatalog
             : [];
     }
 
+    public IReadOnlyList<PathOfExileTradeStatCandidateGroup> FindCandidateGroupsByItemClassQualifiedTemplate(
+        string? normalizedTemplate,
+        string? itemClass)
+    {
+        var identity = CanonicalItemClassIdentityResolver.Resolve(itemClass);
+        if (string.IsNullOrWhiteSpace(normalizedTemplate) ||
+            !identity.IsSupported ||
+            string.IsNullOrWhiteSpace(identity.CanonicalItemClass))
+        {
+            return [];
+        }
+
+        var key = ItemClassQualifiedKey(normalizedTemplate, identity.CanonicalItemClass);
+        return candidateGroupsByItemClassQualifiedTemplate.TryGetValue(key, out var groups)
+            ? groups
+            : [];
+    }
+
     public IReadOnlyList<PathOfExileTradeStatMatchCandidate> FindCandidatesByLogicalEffect(
         string? logicalEffect)
     {
@@ -164,4 +199,35 @@ internal sealed class PathOfExileTradeStatCatalog
                     trimmedKind,
                     StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool TryCreateItemClassQualifiedKey(
+        PathOfExileTradeStatCandidateGroup group,
+        out string key)
+    {
+        key = string.Empty;
+        var template = group.Key.NormalizedTemplate;
+        if (!template.EndsWith(')'))
+        {
+            return false;
+        }
+
+        var qualifierStart = template.LastIndexOf(" (", StringComparison.Ordinal);
+        if (qualifierStart <= 0)
+        {
+            return false;
+        }
+
+        var qualifier = template[(qualifierStart + 2)..^1];
+        var identity = CanonicalItemClassIdentityResolver.Resolve(qualifier);
+        if (!identity.IsSupported || string.IsNullOrWhiteSpace(identity.CanonicalItemClass))
+        {
+            return false;
+        }
+
+        key = ItemClassQualifiedKey(template[..qualifierStart], identity.CanonicalItemClass);
+        return true;
+    }
+
+    private static string ItemClassQualifiedKey(string template, string canonicalItemClass) =>
+        $"{template}\u001f{canonicalItemClass}";
 }

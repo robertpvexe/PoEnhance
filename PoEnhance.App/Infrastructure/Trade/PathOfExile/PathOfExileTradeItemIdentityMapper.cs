@@ -42,6 +42,35 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
                 "A Unique item needs a parsed or resolved base type before provider identity can be mapped.");
         }
 
+        if (draft.UniqueItemResolution is
+            {
+                Status: UniqueItemResolutionStatus.ExactIdentity,
+                Identity: { } resolvedIdentity,
+            } uniqueResolution)
+        {
+            var foundationMatches = catalog.FindByExactDisplayText(resolvedIdentity.CanonicalName)
+                .Where(entry => entry.IsUnique && IsCompatibleBase(entry, selectedBaseType))
+                .ToArray();
+            if (foundationMatches.Length == 1)
+            {
+                var match = foundationMatches[0];
+                return PathOfExileTradeItemIdentityMappingResult.Success(new PathOfExileTradeItemIdentity
+                {
+                    CanonicalName = match.Name ?? resolvedIdentity.CanonicalName!,
+                    CanonicalType = match.Type,
+                    Foulborn = ResolveFoulborn(
+                        draft.ItemVariantCriteria.Foulborn,
+                        uniqueResolution.IsFoulborn),
+                });
+            }
+            if (foundationMatches.Length > 1)
+            {
+                return Failure(
+                    PathOfExileTradeItemIdentityMappingDiagnosticCodes.AmbiguousUniqueIdentity,
+                    "The resolved Unique foundation identity matched multiple provider item identities.");
+            }
+        }
+
         var exactMatches = catalog.FindByExactDisplayText(displayName);
         if (exactMatches.Count > 0)
         {

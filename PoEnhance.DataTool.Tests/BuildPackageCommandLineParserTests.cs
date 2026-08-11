@@ -149,6 +149,43 @@ public sealed class BuildPackageCommandLineParserTests
     }
 
     [Fact]
+    public void Parse_CompletePoBUniqueBundle_IsForwardedExplicitly()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(
+        [
+            "--pob-uniques", "pob-uniques.evaluated.json",
+            "--pob-source-root", "pob",
+            "--pob-source-uri", "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+            "--pob-source-tag", "v2.67.2",
+            "--pob-source-version", "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+        ]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.True(result.IsValid);
+        Assert.Equal("pob-uniques.evaluated.json", result.Request!.PoBUniquesPath);
+        Assert.Equal("pob", result.Request.PoBSourceRootPath);
+        Assert.Equal("v2.67.2", result.Request.PoBSourceTag);
+        Assert.Equal("b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+            result.Request.PoBSourceVersion);
+    }
+
+    [Fact]
+    public void Parse_PartialPoBUniqueBundleFailsVisibly()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(["--pob-uniques", "pob-uniques.evaluated.json"]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("--pob-source-root", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("--pob-source-tag", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("--pob-source-version", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void GetUsage_DocumentsRequiredItemPropertySemanticsOption()
     {
         var usage = BuildPackageCommandLineParser.GetUsage();

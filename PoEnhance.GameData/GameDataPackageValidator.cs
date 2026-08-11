@@ -72,8 +72,157 @@ public static class GameDataPackageValidator
         errors.AddRange(GameDataPackageEligibilitySourceValidator.Validate(package, manifestSourceIds));
         ValidateBaseImplicitHistory(package.BaseImplicitHistory, manifestSourceIds, errors);
         ValidateStatTranslationHistory(package.StatTranslationHistory, manifestSourceIds, errors);
+        if (package.Manifest.SchemaVersion >= 2 && package.UniqueItems is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageUniqueItemsRequired,
+                "uniqueItems",
+                "Schema version 2 packages require a Unique catalog."));
+        }
+        ValidateUniqueItems(
+            package.UniqueItems,
+            manifestSourceIds,
+            knownModifierIds,
+            knownStatIds,
+            errors);
 
         return new GameDataValidationResult(errors);
+    }
+
+    private static void ValidateUniqueItems(
+        UniqueItemCatalog? catalog,
+        ISet<string> manifestSourceIds,
+        ISet<string>? knownModifierIds,
+        ISet<string>? knownStatIds,
+        List<GameDataValidationError> errors)
+    {
+        if (catalog is null)
+        {
+            return;
+        }
+
+        var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (source, index) in catalog.SourceObservations.Select((value, index) => (value, index)))
+        {
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.Id) ||
+                !sourceIds.Add(source.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(source.ManifestSourceId) ||
+                !manifestSourceIds.Contains(source.ManifestSourceId.Trim()) ||
+                string.IsNullOrWhiteSpace(source.RepositoryUri) ||
+                string.IsNullOrWhiteSpace(source.Tag) ||
+                source.CommitSha is not { Length: 40 } ||
+                !source.CommitSha.All(Uri.IsHexDigit) ||
+                string.IsNullOrWhiteSpace(source.SourcePath) ||
+                source.ObservedKind == UniqueItemKind.Unknown ||
+                source.RawEntrySha256 is not { Length: 64 } ||
+                !source.RawEntrySha256.All(Uri.IsHexDigit))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueCatalogSourceInvalid,
+                    $"uniqueItems.sourceObservations[{index}]",
+                    "Unique source observations require exact PoB provenance and a content hash."));
+            }
+        }
+
+        var identityIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (identity, identityIndex) in catalog.Items.Select((value, index) => (value, index)))
+        {
+            var identityPath = $"uniqueItems.items[{identityIndex}]";
+            if (identity is null ||
+                string.IsNullOrWhiteSpace(identity.Id) ||
+                !identityIds.Add(identity.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(identity.CanonicalName) ||
+                identity.Kind == UniqueItemKind.Unknown ||
+                identity.BaseTypeEvidence.Count == 0 ||
+                identity.BaseTypeEvidence.Any(string.IsNullOrWhiteSpace) ||
+                identity.SourceObservationIds.Count == 0 ||
+                identity.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
+                identity.Versions.Count == 0)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueCatalogIdentityInvalid,
+                    identityPath,
+                    "Unique identities require a canonical name, kind, base evidence, versions, and source observations."));
+                continue;
+            }
+
+            var versionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (version, versionIndex) in identity.Versions.Select((value, index) => (value, index)))
+            {
+                var versionPath = $"{identityPath}.versions[{versionIndex}]";
+                if (version is null ||
+                    string.IsNullOrWhiteSpace(version.Id) ||
+                    !versionIds.Add(version.Id.Trim()) ||
+                    string.IsNullOrWhiteSpace(version.Label) ||
+                    version.Role == UniqueItemVersionRole.Unknown ||
+                    string.IsNullOrWhiteSpace(version.BaseType) ||
+                    version.SourceObservationIds.Count == 0 ||
+                    version.SourceObservationIds.Any(id => !sourceIds.Contains(id)))
+                {
+                    errors.Add(Error(
+                        GameDataValidationErrorCodes.UniqueCatalogVersionInvalid,
+                        versionPath,
+                        "Unique versions require an id, explicit role, base evidence, and source observations."));
+                    continue;
+                }
+
+                var blockIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (block, blockIndex) in version.ModifierBlocks.Select((value, index) => (value, index)))
+                {
+                    if (block is null ||
+                        string.IsNullOrWhiteSpace(block.Id) ||
+                        !blockIds.Add(block.Id.Trim()) ||
+                        block.Kind == UniqueModifierBlockKind.Unknown ||
+                        block.Lines.Count == 0 ||
+                        block.Lines.Any(string.IsNullOrWhiteSpace) ||
+                        block.CanonicalSignatures.Count != block.Lines.Count ||
+                        block.CanonicalSignatures.Any(string.IsNullOrWhiteSpace) ||
+                        block.SourceObservationIds.Count == 0 ||
+                        block.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
+                        block.MechanicalMapping is null ||
+                        !IsValidUniqueMechanicalMapping(
+                            block.MechanicalMapping,
+                            knownModifierIds,
+                            knownStatIds))
+                    {
+                        errors.Add(Error(
+                            GameDataValidationErrorCodes.UniqueCatalogBlockInvalid,
+                            $"{versionPath}.modifierBlocks[{blockIndex}]",
+                            "Unique blocks require retained lines, signatures, mapping state, and source provenance."));
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool IsValidUniqueMechanicalMapping(
+        UniqueModifierMechanicalMapping mapping,
+        ISet<string>? knownModifierIds,
+        ISet<string>? knownStatIds)
+    {
+        if (mapping.Status == UniqueModifierMechanicalMappingStatus.Unknown ||
+            mapping.ModifierIds.Any(string.IsNullOrWhiteSpace) ||
+            mapping.StatIds.Any(string.IsNullOrWhiteSpace) ||
+            knownModifierIds is not null && mapping.ModifierIds.Any(id => !knownModifierIds.Contains(id)) ||
+            knownStatIds is not null && mapping.StatIds.Any(id => !knownStatIds.Contains(id)))
+        {
+            return false;
+        }
+
+        return mapping.Status switch
+        {
+            UniqueModifierMechanicalMappingStatus.Exact =>
+                mapping.ModifierIds.Count > 0 && mapping.StatIds.Count > 0,
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet =>
+                mapping.ModifierIds.Count > 1 && mapping.StatIds.Count > 0,
+            UniqueModifierMechanicalMappingStatus.Ambiguous =>
+                mapping.ModifierIds.Count > 1 &&
+                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
+            UniqueModifierMechanicalMappingStatus.Unsupported =>
+                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
+            _ => false,
+        };
     }
 
     private static void ValidateStatTranslationHistory(

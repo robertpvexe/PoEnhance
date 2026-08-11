@@ -49,24 +49,39 @@ and they welcomed him.
 """;
 
     [Fact]
-    public void ResolveProviderComponents_SelectedOrdinaryUniqueScalar_PreservesSelectionAndCopiedBound()
+    public void ResolveProviderComponents_SelectedOrdinaryUniqueScalar_UsesExplicitDomainAndMapperPreservesIt()
     {
         var fixture = ServiceFixture.Create();
         var draft = UniqueDraft() with
         {
             ModifierFilters = [UniqueComponent("+69 to maximum Life", "+<number> to maximum Life") with
             {
+                GenerationType = ModifierGenerationType.Implicit,
                 SupportsValueBounds = true,
                 ValueBoundShape = ModifierBoundShape.Scalar,
                 ObservedNumericValues = [69m],
                 CanonicalNumericValues = [69m],
                 RequestedMinimum = 69m,
                 IsSelected = true,
+                ProviderDomainEvidence =
+                [
+                    new SearchComponentProviderDomainEvidence
+                    {
+                        ProviderDomain = "Implicit",
+                        ModifierId = "unique.mod.life",
+                        GenerationType = ModifierGenerationType.Implicit,
+                        Locality = ModifierLocality.Global,
+                        IsSourceExact = true,
+                        EvidenceStrength = 1000,
+                        ApplicabilityReason = "Exact source-generation evidence.",
+                    },
+                ],
             }],
         };
         var catalog = new PathOfExileTradeStatCatalog(
         [
             Stat("explicit.stat_life", "+# to maximum Life", "explicit"),
+            Stat("implicit.stat_life", "+# to maximum Life", "implicit"),
             Stat("pseudo.total_life", "+# to maximum Life", "pseudo"),
         ]);
 
@@ -76,6 +91,7 @@ and they welcomed him.
             UniqueIdentity(TradeTriState.No));
 
         var component = Assert.Single(resolved.ModifierFilters);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(resolved, catalog);
         Assert.True(
             component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
             $"{component.ProviderResolutionStatus}: {component.ProviderDiagnosticCode} {component.ProviderDiagnosticMessage}");
@@ -86,7 +102,11 @@ and they welcomed him.
         Assert.Equal(69m, component.RequestedMinimum);
         Assert.True(component.IsSelected);
         Assert.DoesNotContain(component.FilterVariants, variant =>
+            string.Equals(variant.ProviderKind, "implicit", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(component.FilterVariants, variant =>
             string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+        Assert.True(mapping.IsSuccess);
+        Assert.Equal("explicit.stat_life", Assert.Single(mapping.Filters).StatId);
     }
 
     [Fact]
@@ -119,7 +139,9 @@ and they welcomed him.
             UniqueIdentity(TradeTriState.No));
 
         var component = Assert.Single(resolved.ModifierFilters);
-        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"{component.ProviderResolutionStatus}: {component.ProviderDiagnosticCode} {component.ProviderDiagnosticMessage}");
         Assert.Equal("explicit.stat_arcane_surge", component.ProviderStatId);
         Assert.True(component.IsSearchable);
         Assert.True(component.IsSelected);
@@ -173,6 +195,93 @@ and they welcomed him.
         Assert.Null(exact.RequestedMinimum);
         Assert.Null(exact.RequestedMaximum);
         Assert.False(exact.IsSelected);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_AuthoritativeFoulbornMechanicsBlocker_IsNotReenabledByTextFallback()
+    {
+        var fixture = ServiceFixture.Create();
+        var component = UniqueComponent(
+            "Test Foulborn replacement",
+            "Test Foulborn replacement",
+            ParsedUniqueModifierOrigin.Foulborn) with
+        {
+            UniqueResolutionDiagnosticCode = "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
+            IsSearchable = false,
+        };
+        var draft = UniqueDraft("Foulborn Test Unique") with
+        {
+            ModifierFilters = [component],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.foulborn_replacement", "Test Foulborn replacement", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.Yes));
+
+        var blocked = Assert.Single(resolved.ModifierFilters);
+        Assert.False(blocked.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, blocked.ProviderResolutionStatus);
+        Assert.Null(blocked.ProviderStatId);
+        Assert.Empty(blocked.ProviderStatAlternativeIds);
+        Assert.Equal(
+            "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
+            blocked.UniqueResolutionDiagnosticCode);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_CatalogProvenUniqueEquivalentSet_RemainsOneSearchableRow()
+    {
+        var fixture = ServiceFixture.Create();
+        var component = UniqueComponent("Unique effect is active", "Unique effect is active") with
+        {
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedStatIds = ["unique_effect_stat"],
+            ResolvedStatLocalities = [ModifierLocality.Global],
+            Locality = ModifierLocality.Global,
+            UniqueCatalogBlockIds = ["unique-block:test"],
+            UniqueSourceObservationIds = ["pob-observation:test"],
+            IsSearchable = true,
+        };
+        var draft = UniqueDraft() with { ModifierFilters = [component] };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.unique.one", "Unique effect is active", "explicit"),
+            Stat("explicit.unique.two", "Unique effect is active", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            UniqueIdentity(TradeTriState.No));
+
+        var row = Assert.Single(resolved.ModifierFilters);
+        Assert.True(row.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.ExactEquivalentSet, row.ProviderResolutionStatus);
+        Assert.Null(row.ProviderStatId);
+        Assert.Equal(
+            ["explicit.unique.one", "explicit.unique.two"],
+            row.ProviderStatAlternativeIds);
+        Assert.Single(row.FilterVariants);
+
+        var controllerTimeResolution = fixture.Service.ResolveProviderComponents(
+            resolved,
+            catalog);
+
+        var retained = Assert.Single(controllerTimeResolution.ModifierFilters);
+        Assert.True(retained.IsSearchable);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            retained.ProviderResolutionStatus);
+        Assert.Equal(
+            ["explicit.unique.one", "explicit.unique.two"],
+            retained.ProviderStatAlternativeIds);
+        Assert.Single(retained.FilterVariants);
+        Assert.Null(retained.ProviderDiagnosticCode);
     }
 
     [Fact]
@@ -308,6 +417,74 @@ and they welcomed him.
                     StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(2, unresolved.Length);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_OneCatalogBackedMultiLineBlock_UsesOnlyCompleteProviderRepresentation()
+    {
+        var fixture = ServiceFixture.Create();
+        var text = string.Join(Environment.NewLine,
+        [
+            "+1 to maximum number of Raised Zombies",
+            "+1 to maximum number of Spectres",
+        ]);
+        var providerText = string.Join(Environment.NewLine,
+        [
+            "+# to maximum number of Raised Zombies",
+            "+# to maximum number of Spectres",
+        ]);
+        var draft = UniqueDraft("Foulborn Midnight Bargain", "Calling Wand") with
+        {
+            ModifierFilters =
+            [
+                UniqueComponent(text, providerText) with
+                {
+                    SourceModifierIndex = 0,
+                    SourceLineIndex = -1,
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+                    ResolvedStatIds = ["zombie_stat", "spectre_stat"],
+                    UniqueCatalogBlockIds = ["unique-block:minions"],
+                    UniqueSourceObservationIds = ["pob:first", "pob:second"],
+                    IsEquivalentSourceSet = true,
+                    IsSearchable = true,
+                    IsSelected = true,
+                },
+            ],
+        };
+        var completeCatalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.complete_minion_block", providerText, "explicit"),
+            Stat("explicit.partial_zombies", "+# to maximum number of Raised Zombies", "explicit"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(
+            draft,
+            completeCatalog,
+            UniqueIdentity(TradeTriState.Yes));
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.True(component.IsSelected);
+        Assert.True(component.IsSearchable);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"{component.ProviderResolutionStatus}: {component.ProviderDiagnosticCode} {component.ProviderDiagnosticMessage}");
+        Assert.Equal("explicit.complete_minion_block", component.ProviderStatId);
+        Assert.DoesNotContain("explicit.partial_zombies", component.ProviderStatAlternativeIds);
+        Assert.Equal(2, component.UniqueSourceObservationIds.Count);
+
+        var partialOnly = fixture.Service.ResolveProviderComponents(
+            draft,
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("explicit.partial_zombies", "+# to maximum number of Raised Zombies", "explicit"),
+            ]),
+            UniqueIdentity(TradeTriState.Yes));
+        var unsupported = Assert.Single(partialOnly.ModifierFilters);
+        Assert.True(unsupported.IsSelected);
+        Assert.False(unsupported.IsSearchable);
+        Assert.NotEqual(SearchComponentProviderResolutionStatus.Exact,
+            unsupported.ProviderResolutionStatus);
+        Assert.Null(unsupported.ProviderStatId);
     }
 
     [Fact]
@@ -1800,12 +1977,14 @@ and they welcomed him.
     }
 
     [Fact]
-    public async Task CheckAsync_AlberonsUnsafeMultiLineSourceUnselected_AllowsExactIdentityOnlySearch()
+    public async Task CheckAsync_AlberonsUnsupportedMultiLineBlockUnselected_AllowsExactIdentityOnlySearch()
     {
         var draft = AlberonsWarpathDraft();
         var skeletonComponents = AlberonsSkeletonComponents(draft);
-        Assert.Equal(2, skeletonComponents.Count);
-        Assert.All(skeletonComponents, component => Assert.False(component.IsSelected));
+        var skeletonComponent = Assert.Single(skeletonComponents);
+        Assert.False(skeletonComponent.IsSelected);
+        Assert.Contains("Summoned Skeleton Warriors are Permanent", skeletonComponent.OriginalText);
+        Assert.Contains("Summon Skeletons cannot Summon", skeletonComponent.OriginalText);
         Assert.Single(skeletonComponents.Select(component => component.SourceModifierIndex).Distinct());
 
         var statCatalogProvider = new FakeCatalogProvider();
@@ -1841,7 +2020,7 @@ and they welcomed him.
     }
 
     [Fact]
-    public async Task CheckAsync_AlberonsUnsafeMultiLineSourceSelected_BlocksBeforeSearchWithoutLosingCoverage()
+    public async Task CheckAsync_AlberonsUnsupportedMultiLineBlockSelected_BlocksBeforeSearchWithoutLosingCoverage()
     {
         var draft = AlberonsWarpathDraft();
         var skeletonSourceIndex = Assert
@@ -1856,8 +2035,7 @@ and they welcomed him.
                     : component)
                 .ToArray(),
         };
-        Assert.Equal(2, AlberonsSkeletonComponents(selectedDraft).Count);
-        Assert.All(AlberonsSkeletonComponents(selectedDraft), component => Assert.True(component.IsSelected));
+        Assert.True(Assert.Single(AlberonsSkeletonComponents(selectedDraft)).IsSelected);
 
         var statCatalogProvider = new FakeCatalogProvider();
         statCatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(EmptyStatCatalog()));
@@ -1882,23 +2060,22 @@ and they welcomed him.
         Assert.Empty(fetchClient.Calls);
         var effectiveDraft = Assert.IsType<TradeSearchDraft>(result.EffectiveDraft);
         var effectiveSkeletonComponents = AlberonsSkeletonComponents(effectiveDraft);
-        Assert.Equal(2, effectiveSkeletonComponents.Count);
-        Assert.All(effectiveSkeletonComponents, component =>
-        {
-            Assert.True(component.IsSelected);
-            Assert.False(component.IsSearchable);
-            Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
-            Assert.Equal(
-                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.UniqueMultiLinePartialRepresentation,
-                component.ProviderDiagnosticCode);
-        });
+        var effectiveSkeletonComponent = Assert.Single(effectiveSkeletonComponents);
+        Assert.True(effectiveSkeletonComponent.IsSelected);
+        Assert.False(effectiveSkeletonComponent.IsSearchable);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            effectiveSkeletonComponent.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            effectiveSkeletonComponent.ProviderDiagnosticCode);
 
         var validation = new TradeSearchDraftValidator().Validate(effectiveDraft);
         var unresolved = validation.Diagnostics
             .Where(diagnostic =>
                 diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierVariantUnresolved)
             .ToArray();
-        Assert.Equal(2, unresolved.Length);
+        Assert.Single(unresolved);
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.SourceCode == PathOfExileTradeQueryDiagnosticCodes.LocallyInvalidDraft);
 
@@ -1911,6 +2088,127 @@ and they welcomed him.
         Assert.False(coverageBuild.IsSuccess);
         Assert.Contains(coverageBuild.Diagnostics, diagnostic =>
             diagnostic.Code == PathOfExileTradeQueryDiagnosticCodes.SelectedModifiersMissingProviderMapping);
+    }
+
+    [Fact]
+    public async Task CheckAsync_StagedCandidateDataDerivedFoulbornRaw_UsesUnderlyingIdentityVariantAndSelectedFilter()
+    {
+        var candidatePath = Environment.GetEnvironmentVariable("POENHANCE_UNIQUE_CANDIDATE");
+        if (string.IsNullOrWhiteSpace(candidatePath) || !File.Exists(candidatePath))
+        {
+            return;
+        }
+
+        var load = await GameDataPackageLoader.LoadFromFileAsync(candidatePath);
+        var package = Assert.IsType<GameDataPackage>(load.Package);
+        var gameDataCatalog = GameDataCatalog.FromPackage(package);
+        var uniqueCatalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        TradeSearchDraft? draft = null;
+        UniqueItemIdentity? selectedIdentity = null;
+        string? selectedBaseType = null;
+        foreach (var identity in uniqueCatalog.Items.Where(item => item.Kind == UniqueItemKind.Ordinary))
+        foreach (var version in identity.Versions.Where(itemVersion =>
+            itemVersion.Role == UniqueItemVersionRole.Current))
+        foreach (var block in version.ModifierBlocks.Where(candidateBlock =>
+            candidateBlock.Kind == UniqueModifierBlockKind.Unique &&
+            candidateBlock.Lines.Count == 1 &&
+            candidateBlock.MechanicalMapping.Status == UniqueModifierMechanicalMappingStatus.Exact))
+        {
+            var observedLine = System.Text.RegularExpressions.Regex.Replace(
+                block.Lines[0],
+                @"(?<sign>[+-]?)\(\s*(?<minimum>[+-]?\d+(?:[\.,]\d+)?)\s*-\s*(?<maximum>[+-]?\d+(?:[\.,]\d+)?)\s*\)",
+                match => $"{match.Groups["sign"].Value}{match.Groups["minimum"].Value}" +
+                    $"({match.Groups["minimum"].Value}-{match.Groups["maximum"].Value})");
+            var parsed = new ItemTextParser().Parse(string.Join(Environment.NewLine,
+            [
+                "Item Class: Test Items",
+                "Rarity: Unique",
+                $"Foulborn {identity.CanonicalName}",
+                version.BaseType!,
+                "--------",
+                "Item Level: 80",
+                "--------",
+                "{ Unique Modifier }",
+                observedLine,
+            ]));
+            var mapped = new TradeSearchDraftMapper().CreateDraft(
+                parsed,
+                modifierResolutions: [],
+                gameDataCatalog: gameDataCatalog).Draft;
+            if (mapped?.ModifierFilters is [{ IsSearchable: true, SupportsValueBounds: true }])
+            {
+                draft = mapped;
+                selectedIdentity = identity;
+                selectedBaseType = version.BaseType;
+                break;
+            }
+        }
+
+        var rawDraft = Assert.IsType<TradeSearchDraft>(draft);
+        var rawComponent = Assert.Single(rawDraft.ModifierFilters);
+        Assert.True(rawDraft.UniqueItemResolution?.IsFoulborn);
+        Assert.Equal(TradeTriState.Yes, rawDraft.ItemVariantCriteria.Foulborn);
+        Assert.NotEmpty(rawComponent.UniqueCatalogBlockIds);
+        Assert.NotEmpty(rawComponent.UniqueSourceObservationIds);
+        var selectedDraft = rawDraft with
+        {
+            ModifierFilters = [rawComponent with { IsSelected = true }],
+        };
+        var providerTemplate = PathOfExileTradeStatTemplateNormalizer
+            .NormalizeModifierText(rawComponent.OriginalText)
+            .NormalizedTemplate;
+        var statCatalogProvider = new FakeCatalogProvider();
+        statCatalogProvider.Enqueue(PathOfExileTradeStatCatalogProviderResult.Success(
+            new PathOfExileTradeStatCatalog(
+            [
+                Stat("explicit.unique_candidate", providerTemplate, "explicit"),
+            ])));
+        var itemCatalogProvider = new FakeItemCatalogProvider();
+        itemCatalogProvider.Enqueue(PathOfExileTradeItemCatalogProviderResult.Success(
+            new PathOfExileTradeItemCatalog(
+            [
+                new PathOfExileTradeItemEntry
+                {
+                    ProviderOrder = 0,
+                    GroupId = "candidate",
+                    GroupLabel = "Candidate",
+                    Name = selectedIdentity!.CanonicalName,
+                    Type = selectedBaseType!,
+                    IsUnique = true,
+                },
+            ])));
+        var searchClient = new FakeSearchClient();
+        searchClient.Enqueue(SearchSuccess([], total: 0));
+        var service = CreateProductionUniqueService(
+            statCatalogProvider,
+            itemCatalogProvider,
+            searchClient,
+            new FakeFetchClient());
+
+        var result = await service.CheckAsync(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            League);
+
+        Assert.True(result.IsSuccess, string.Join(Environment.NewLine,
+            result.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}")));
+        var effectiveComponent = Assert.Single(
+            Assert.IsType<TradeSearchDraft>(result.EffectiveDraft).ModifierFilters);
+        Assert.True(effectiveComponent.IsSelected);
+        Assert.True(effectiveComponent.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact,
+            effectiveComponent.ProviderResolutionStatus);
+        Assert.Equal("explicit.unique_candidate", effectiveComponent.ProviderStatId);
+        var search = Assert.Single(searchClient.Calls);
+        Assert.Equal(selectedIdentity.CanonicalName, search.Request?.Query.Name);
+        Assert.Equal(selectedBaseType, search.Request?.Query.Type);
+        Assert.Single(Assert.Single(search.Request!.Query.Stats).Filters);
+        var miscFilters = Assert.IsType<PathOfExileTradeSearchFilterGroup>(
+            search.Request.Query.Filters["misc_filters"]);
+        Assert.Equal(
+            "true",
+            Assert.IsType<PathOfExileTradeSearchOptionFilter>(
+                miscFilters.Filters["mutated"]).Option);
     }
 
     [Fact]

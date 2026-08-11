@@ -13,9 +13,12 @@ public sealed class RefreshGameDataScriptContractTests
         Assert.Contains("[Parameter(Mandatory)] [string]$SourceDataRoot", script, StringComparison.Ordinal);
         Assert.Contains("[Parameter(Mandatory)] [string]$HistoricalSourceRoot", script, StringComparison.Ordinal);
         Assert.Contains("[Parameter(Mandatory)] [string]$HistoricalSourceDataRoot", script, StringComparison.Ordinal);
+        Assert.Contains("[Parameter(Mandatory)] [string]$PoBSourceRoot", script, StringComparison.Ordinal);
+        Assert.Contains("[Parameter(Mandatory)] [string]$PoBSourceTag", script, StringComparison.Ordinal);
         Assert.Contains("'build-package'", script, StringComparison.Ordinal);
         Assert.Contains("'--source-snapshot-dir'", script, StringComparison.Ordinal);
         Assert.Contains("'--historical-source-version'", script, StringComparison.Ordinal);
+        Assert.Contains("'--pob-source-version'", script, StringComparison.Ordinal);
         Assert.Contains("PoEnhance.DataTool", script, StringComparison.Ordinal);
         Assert.Contains("active GameData artifact changed during refresh", script, StringComparison.Ordinal);
         Assert.Contains("Activation: not performed.", script, StringComparison.Ordinal);

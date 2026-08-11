@@ -20,6 +20,7 @@ public sealed class GameDataPackageBuilder
             baseModifierEvidence: null,
             baseImplicitHistory: null,
             statTranslationHistory: null,
+            uniqueItems: null,
             requireCompleteStatReferences: false);
     }
 
@@ -42,6 +43,7 @@ public sealed class GameDataPackageBuilder
             baseModifierEvidence: null,
             baseImplicitHistory: null,
             statTranslationHistory: null,
+            uniqueItems: null,
             requireCompleteStatReferences: true);
     }
 
@@ -65,6 +67,7 @@ public sealed class GameDataPackageBuilder
             baseModifierEvidence: null,
             baseImplicitHistory: null,
             statTranslationHistory: null,
+            uniqueItems: null,
             requireCompleteStatReferences: true);
     }
 
@@ -79,7 +82,8 @@ public sealed class GameDataPackageBuilder
         IEnumerable<TagDefinition> tags,
         BaseModifierSourceEvidence baseModifierEvidence,
         BaseImplicitHistoryCatalog? baseImplicitHistory = null,
-        StatTranslationHistoryCatalog? statTranslationHistory = null)
+        StatTranslationHistoryCatalog? statTranslationHistory = null,
+        UniqueItemCatalog? uniqueItems = null)
     {
         return CreatePackage(
             manifest,
@@ -93,6 +97,7 @@ public sealed class GameDataPackageBuilder
             baseModifierEvidence,
             baseImplicitHistory,
             statTranslationHistory,
+            uniqueItems,
             requireCompleteStatReferences: true);
     }
 
@@ -108,6 +113,7 @@ public sealed class GameDataPackageBuilder
         BaseModifierSourceEvidence? baseModifierEvidence,
         BaseImplicitHistoryCatalog? baseImplicitHistory,
         StatTranslationHistoryCatalog? statTranslationHistory,
+        UniqueItemCatalog? uniqueItems,
         bool requireCompleteStatReferences)
     {
         var diagnostics = new List<ImportDiagnostic>();
@@ -161,6 +167,7 @@ public sealed class GameDataPackageBuilder
             BaseModifierEvidence = baseModifierEvidence,
             BaseImplicitHistory = baseImplicitHistory,
             StatTranslationHistory = statTranslationHistory,
+            UniqueItems = uniqueItems,
         };
 
         if (requireCompleteStatReferences)

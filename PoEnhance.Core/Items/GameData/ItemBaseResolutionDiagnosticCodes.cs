@@ -4,6 +4,7 @@ public static class ItemBaseResolutionDiagnosticCodes
 {
     public const string BaseExactMatch = "BASE_EXACT_MATCH";
     public const string BaseExactImplicitDisambiguationMatch = "BASE_EXACT_IMPLICIT_DISAMBIGUATION_MATCH";
+    public const string BaseCurrentUsableMatch = "BASE_CURRENT_USABLE_MATCH";
     public const string BaseProbableMagicSuffixMatch = "BASE_PROBABLE_MAGIC_SUFFIX_MATCH";
     public const string BaseProbableDecoratedNameMatch = "BASE_PROBABLE_DECORATED_NAME_MATCH";
     public const string BaseProbableStateDecorationMatch = "BASE_PROBABLE_STATE_DECORATION_MATCH";

@@ -19,4 +19,10 @@ public sealed record GameDataPackageBuildRecordCounts
     public int BaseModifierEvidenceGroups { get; init; }
 
     public int BaseModifierRelationships { get; init; }
+
+    public int UniqueItems { get; init; }
+
+    public int UniqueVersions { get; init; }
+
+    public int UniqueModifierBlocks { get; init; }
 }

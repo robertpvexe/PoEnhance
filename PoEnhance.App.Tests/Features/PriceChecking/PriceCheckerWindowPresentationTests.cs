@@ -635,7 +635,7 @@ Item Level: 82
             FilterVariants = [implicitVariant, explicitVariant],
             SelectedFilterVariant = implicitVariant,
         };
-        Assert.Equal("Implicit (Corrupted)", corruptedImplicit.ModTypeLabel);
+        Assert.Equal("Implicit", corruptedImplicit.ModTypeLabel);
         Assert.False(corruptedImplicit.CanSelectFilterVariant);
 
         var nonImplicit = new PriceCheckerModifierViewModel

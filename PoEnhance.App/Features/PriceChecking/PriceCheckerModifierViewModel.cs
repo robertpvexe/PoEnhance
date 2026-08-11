@@ -59,7 +59,7 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
         IsCanonicalImplicit || IsUniqueModifier || IsVeiledModifier;
 
     public string ModTypeLabel => IsCanonicalImplicit
-        ? IsCorruptedImplicit ? "Implicit (Corrupted)" : "Implicit"
+        ? "Implicit"
         : IsVeiledModifier
             ? "Veiled"
             : IsFoulbornUniqueModifier

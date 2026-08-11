@@ -170,6 +170,151 @@ public sealed class TradeSearchDraftMapperTests
         Assert.Equal([14m, 25m], values);
     }
 
+    [Fact]
+    public void BoundDefault_FixedLiteralIsNotProjectedAsAProviderValue()
+    {
+        const string statId = "life_loss_percent";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = 20m,
+            MaxValue = 30m,
+        };
+        var translation = new StatTranslationDefinition
+        {
+            Id = "life-loss-translation",
+            StatIds = [statId],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions = [new StatTranslationCondition { Index = 0 }],
+                    ValueFormats = ["#"],
+                    IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = [] }],
+                    FormatLines = ["When Hit, {0}% of Life loss occurs over 4 seconds instead"],
+                },
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage([statId], translation));
+
+        var result = ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "life-loss-modifier", Stats = [stat] },
+            [stat],
+            ["When Hit, 25% of Life loss occurs over 4 seconds instead"],
+            catalog);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal([25m], result.ObservedValues);
+        Assert.Equal(25m, result.ObservedCanonicalValue);
+        Assert.Equal(
+            "When Hit, <number>% of Life loss occurs over 4 seconds instead",
+            result.ProviderCanonicalSignature);
+    }
+
+    [Fact]
+    public void DamageRangeBoundDefault_VolatileValueAndSingleAdvancedAnnotationUseCopiedValues()
+    {
+        const string minimumStatId = "local_minimum_added_chaos_damage";
+        const string maximumStatId = "local_maximum_added_chaos_damage";
+        var minimumStat = new ModifierStat
+        {
+            Index = 0,
+            StatId = minimumStatId,
+            MinValue = 3m,
+            MaxValue = 5m,
+        };
+        var maximumStat = new ModifierStat
+        {
+            Index = 1,
+            StatId = maximumStatId,
+            MinValue = 7m,
+            MaxValue = 10m,
+        };
+        var translation = new StatTranslationDefinition
+        {
+            Id = "chaos-per-strength-translation",
+            StatIds = [minimumStatId, maximumStatId],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MinValue = 3m, MaxValue = 5m },
+                        new StatTranslationCondition { Index = 1, MinValue = 7m, MaxValue = 10m },
+                    ],
+                    ValueFormats = ["#", "#"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                    ],
+                    FormatLines = ["Adds {0} to {1} Chaos Damage to Attacks per 80 Strength"],
+                },
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage(
+            [minimumStatId, maximumStatId],
+            translation));
+
+        var result = ModifierBoundDefaults.Create(
+            new ModifierDefinition
+            {
+                Id = "chaos-per-strength-modifier",
+                Tags = ["attack", "damage", "chaos"],
+                Stats = [minimumStat, maximumStat],
+            },
+            [minimumStat, maximumStat],
+            ["Adds 1 to 82(80) Chaos Damage to Attacks per 80 Strength"],
+            catalog);
+
+        Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, result.Shape);
+        Assert.Equal([1m, 82m], result.ObservedValues);
+        Assert.Equal(41.5m, result.ObservedCanonicalValue);
+        Assert.Equal(
+            "Adds <number> to <number> Chaos Damage to Attacks per 80 Strength",
+            result.ProviderCanonicalSignature);
+    }
+
+    [Fact]
+    public void ProviderSearchSignatures_PreserveFixedAndNumericSiblingTranslations()
+    {
+        const string statId = "local_socket_count";
+        var stat = new ModifierStat { Index = 0, StatId = statId, MinValue = 3m, MaxValue = 3m };
+        var translation = new StatTranslationDefinition
+        {
+            Id = "socket-count-translation",
+            StatIds = [statId],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions = [new StatTranslationCondition { Index = 0, MinValue = 1m, MaxValue = 1m }],
+                    ValueFormats = ["#"],
+                    IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = [] }],
+                    FormatLines = ["Has 1 Socket"],
+                },
+                new StatTranslationVariant
+                {
+                    Conditions = [new StatTranslationCondition { Index = 0, MinValue = 2m }],
+                    ValueFormats = ["#"],
+                    IndexHandlers = [new StatTranslationIndexHandler { Index = 0, Handlers = [] }],
+                    FormatLines = ["Has {0} Sockets"],
+                },
+            ],
+        };
+        var modifier = new ModifierDefinition { Id = "socket-count-modifier", Stats = [stat] };
+        var catalog = GameDataCatalog.FromPackage(TestPackage([statId], translation));
+
+        var signatures = ModifierBoundDefaults.FindProviderSearchSignatures(
+            modifier,
+            [stat],
+            catalog);
+
+        Assert.Equal(["Has 1 Socket", "Has <number> Sockets"], signatures);
+    }
+
     [Theory]
     [InlineData("cold", "local_")]
     [InlineData("fire", "local_")]
@@ -345,21 +490,19 @@ Item Level: 83
 
         var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
 
-        Assert.Equal(3, draft.ModifierFilters.Count);
-        Assert.All(draft.ModifierFilters, component =>
-        {
-            Assert.Equal(0, component.SourceModifierIndex);
-            Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, component.UniqueOrigin);
-            Assert.False(component.IsSelected);
-        });
-        Assert.Equal([0, 1, 2], draft.ModifierFilters.Select(component => component.SourceLineIndex));
+        var component = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(0, component.SourceModifierIndex);
+        Assert.Equal(-1, component.SourceLineIndex);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, component.UniqueOrigin);
+        Assert.False(component.IsSelected);
         Assert.Equal(
+            string.Join(Environment.NewLine,
             [
                 "+1 to maximum number of Raised Zombies",
                 "+1 to maximum number of Spectres",
                 "+1 to maximum number of Skeletons",
-            ],
-            draft.ModifierFilters.Select(component => component.OriginalText));
+            ]),
+            component.OriginalText);
     }
 
     [Fact]

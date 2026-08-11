@@ -159,6 +159,8 @@ internal static partial class CanonicalModifierEffectAggregator
             ResolvedModifierId = component.ResolvedModifierId,
             ResolvedModifierName = component.ResolvedModifierName,
             ResolvedStatIds = component.ResolvedStatIds.ToArray(),
+            ResolvedStatLocalities = component.ResolvedStatLocalities.ToArray(),
+            ProviderSearchSignatures = component.ProviderSearchSignatures.ToArray(),
             ObservedNumericValues = component.ObservedNumericValues.ToArray(),
             OriginalSourceRollRanges = component.OriginalSourceRollRanges.ToArray(),
             CanonicalNumericValues = canonicalValues.ToArray(),

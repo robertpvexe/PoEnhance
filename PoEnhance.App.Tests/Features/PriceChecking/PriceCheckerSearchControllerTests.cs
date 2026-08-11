@@ -151,8 +151,11 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Empty(fixture.PriceCheckService.Calls);
     }
 
-    [Fact]
-    public void ItemPropertyProjection_UsesCanonicalOrderFlattensAggregatesAndHidesGroupedModifiers()
+    [Theory]
+    [InlineData("Rare")]
+    [InlineData("Unique")]
+    public void ItemPropertyProjection_UsesCanonicalOrderFlattensAggregatesAndHidesGroupedModifiers(
+        string rarity)
     {
         var fixture = SearchFixture.Create();
         var aggregate = ContributorModifier();
@@ -161,6 +164,7 @@ public sealed class PriceCheckerSearchControllerTests
         var dexterity = Modifier("+53 to Dexterity", supportsValueBounds: true, minimum: 53m);
         var draft = Draft("Horror Mangler", modifiers: [aggregate, flatPhysical, fire, dexterity]) with
         {
+            Rarity = rarity,
             ItemProperties = AllItemProperties(),
             ItemPropertyContributionGroups =
             [
@@ -291,8 +295,11 @@ public sealed class PriceCheckerSearchControllerTests
             .Select(entry => entry.index));
     }
 
-    [Fact]
-    public void ArmageddonThirst_PropertyGroupsExpandAndCollapseIndependentlyAndNewItemStartsCollapsed()
+    [Theory]
+    [InlineData("Rare")]
+    [InlineData("Unique")]
+    public void EquipmentRarity_PropertyGroupsExpandAndCollapseIndependentlyAndNewItemStartsCollapsed(
+        string rarity)
     {
         var fixture = SearchFixture.Create();
         var draft = Draft(
@@ -304,6 +311,7 @@ public sealed class PriceCheckerSearchControllerTests
                 Modifier("20% increased Attack Speed"),
             ]) with
         {
+            Rarity = rarity,
             ItemProperties =
             [
                 ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m),
@@ -1047,6 +1055,56 @@ public sealed class PriceCheckerSearchControllerTests
         var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
         Assert.Equal(65m, searched.ModifierFilters[0].RequestedMinimum);
         Assert.Equal(70m, searched.ModifierFilters[0].RequestedMaximum);
+    }
+
+    [Fact]
+    public void CatalogProvenUniqueEquivalentSet_UsesParsedTypeAndCleanPresentationWithoutSingleModifierId()
+    {
+        var fixture = SearchFixture.Create();
+        const string variantIdentity = "provider-equivalent:unique-test";
+        const string rawText = "Pride(Fireball-Mana-Infused Staff) has no Reservation";
+        var unique = Modifier(
+            rawText,
+            ParsedModifierKind.Unique,
+            resolvedModifierId: null) with
+        {
+            PresentationText = "Pride has no Reservation",
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            GenerationType = ModifierGenerationType.Implicit,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedStatIds = ["unique_pride_stat"],
+            StatMappingProof = ModifierStatMappingProofStatus.WholeVector,
+            UniqueCatalogBlockIds = ["unique-block:pride"],
+            UniqueSourceObservationIds = ["generated-observation:pride"],
+            IsSearchable = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            ProviderStatAlternativeIds = ["explicit.pride.one", "explicit.pride.two"],
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = variantIdentity,
+                    Label = "Unique",
+                    Description = "Pride has no Reservation",
+                    ProviderKind = "explicit",
+                },
+            ],
+            SelectedFilterVariantIdentity = variantIdentity,
+        };
+        var draft = Draft("Test Dragonflight", modifiers: [unique]) with { Rarity = "Unique" };
+
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(row.IsInteractionEnabled);
+        Assert.True(row.IsUniqueModifier);
+        Assert.False(row.IsCanonicalImplicit);
+        Assert.Equal("Unique", row.ModTypeLabel);
+        Assert.Equal("Pride has no Reservation", row.Text);
+        var retained = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.Equal(rawText, retained.OriginalText);
+        Assert.Equal("Pride has no Reservation", retained.PresentationText);
+        Assert.Null(retained.ResolvedModifierId);
     }
 
     [Fact]
@@ -2030,8 +2088,8 @@ public sealed class PriceCheckerSearchControllerTests
             ValidationSuccess());
 
         var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
-        Assert.Equal("Implicit (Corrupted)", row.ModTypeLabel);
-        Assert.Equal("Implicit (Corrupted)", row.SectionLabel);
+        Assert.Equal("Implicit", row.ModTypeLabel);
+        Assert.Equal("Corrupted", row.SectionLabel);
         Assert.True(row.IsInteractionEnabled);
         Assert.Equal(1, row.SourceCount);
         Assert.Null(row.SourceBreakdown);

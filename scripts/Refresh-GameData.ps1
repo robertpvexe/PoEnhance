@@ -47,11 +47,15 @@ param(
     [Parameter(Mandatory)] [string]$HistoricalSourceDataRoot,
     [Parameter(Mandatory)] [ValidatePattern('^[0-9a-fA-F]{40}$')] [string]$HistoricalSourceCommit,
     [Parameter(Mandatory)] [string]$HistoricalDataVersion,
+    [Parameter(Mandatory)] [string]$PoBSourceRoot,
+    [Parameter(Mandatory)] [ValidatePattern('^[0-9a-fA-F]{40}$')] [string]$PoBSourceCommit,
+    [Parameter(Mandatory)] [string]$PoBSourceTag,
     [Parameter(Mandatory)] [string]$OutputDirectory,
     [string]$SourceUri = 'https://github.com/repoe-fork/repoe',
     [string]$SourceBranch = 'master',
     [string]$HistoricalSourceUri = 'https://github.com/repoe-fork/repoe',
     [string]$HistoricalSourceBranch = 'historical-snapshot',
+    [string]$PoBSourceUri = 'https://github.com/PathOfBuildingCommunity/PathOfBuilding',
     [string]$League,
     [string]$Patch,
     [switch]$SkipCompatibilityTests
@@ -68,6 +72,7 @@ $sourceRootPath = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd('\')
 $sourceDataRootPath = [System.IO.Path]::GetFullPath($SourceDataRoot).TrimEnd('\')
 $historicalRootPath = [System.IO.Path]::GetFullPath($HistoricalSourceRoot).TrimEnd('\')
 $historicalDataRootPath = [System.IO.Path]::GetFullPath($HistoricalSourceDataRoot).TrimEnd('\')
+$pobRootPath = [System.IO.Path]::GetFullPath($PoBSourceRoot).TrimEnd('\')
 
 if ($outputRoot.Equals($artifactsDirectory, [StringComparison]::OrdinalIgnoreCase))
 {
@@ -119,8 +124,15 @@ Assert-Directory $sourceRootPath 'Current source root'
 Assert-Directory $sourceDataRootPath 'Current source data root'
 Assert-Directory $historicalRootPath 'Historical source root'
 Assert-Directory $historicalDataRootPath 'Historical source data root'
+Assert-Directory $pobRootPath 'Path of Building source root'
 Assert-ExactGitCommit $sourceRootPath $SourceCommit 'Current source'
 Assert-ExactGitCommit $historicalRootPath $HistoricalSourceCommit 'Historical source'
+Assert-ExactGitCommit $pobRootPath $PoBSourceCommit 'Path of Building source'
+$pobTagCommit = (& git -C $pobRootPath rev-list -n 1 $PoBSourceTag 2>$null).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $pobTagCommit.Equals($PoBSourceCommit, [StringComparison]::OrdinalIgnoreCase))
+{
+    throw "Path of Building tag $PoBSourceTag does not resolve to $PoBSourceCommit."
+}
 
 $currentInputs = [ordered]@{
     baseItems = Require-InputFile $sourceDataRootPath 'base_items.json' 'current'
@@ -147,8 +159,9 @@ $buildLogPath = Join-Path $outputRoot 'build.log'
 $readinessPath = Join-Path $outputRoot 'refresh-readiness.json'
 $readinessMarkdownPath = Join-Path $outputRoot 'refresh-readiness.md'
 $shaManifestPath = Join-Path $outputRoot 'sha256-manifest.json'
+$pobEvaluatedPath = Join-Path $outputRoot 'pob-uniques.evaluated.json'
 
-foreach ($path in @($candidatePath, $buildLogPath, $readinessPath, $readinessMarkdownPath, $shaManifestPath, $snapshotDirectory))
+foreach ($path in @($candidatePath, $buildLogPath, $readinessPath, $readinessMarkdownPath, $shaManifestPath, $snapshotDirectory, $pobEvaluatedPath))
 {
     Assert-DirectOutputChild $path
     if (Test-Path -LiteralPath $path)
@@ -158,6 +171,54 @@ foreach ($path in @($candidatePath, $buildLogPath, $readinessPath, $readinessMar
 }
 
 $activeHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $activeArtifact).Hash
+$pobRuntime = Join-Path $pobRootPath 'runtime\Path{space}of{space}Building.exe'
+$pobSourceDirectory = Join-Path $pobRootPath 'src'
+if (-not (Test-Path -LiteralPath $pobRuntime -PathType Leaf))
+{
+    throw "Pinned Path of Building checkout lacks its bundled runtime: $pobRuntime"
+}
+$pobLaunchPath = Join-Path $pobSourceDirectory "PoEnhanceUniqueExtract-$PID.lua"
+if (Test-Path -LiteralPath $pobLaunchPath)
+{
+    throw "Refusing to overwrite an existing Path of Building extraction script: $pobLaunchPath"
+}
+try
+{
+    [System.IO.File]::Copy(
+        (Join-Path $repoRoot 'scripts\Extract-PoBUniqueCatalog.lua'),
+        $pobLaunchPath,
+        $false)
+    $previousOutput = $env:POENHANCE_POB_UNIQUE_OUTPUT
+    $env:POENHANCE_POB_UNIQUE_OUTPUT = $pobEvaluatedPath
+    try
+    {
+        $pobProcess = Start-Process -FilePath $pobRuntime -ArgumentList $pobLaunchPath `
+            -WorkingDirectory $pobSourceDirectory -WindowStyle Hidden -Wait -PassThru
+    }
+    finally
+    {
+        $env:POENHANCE_POB_UNIQUE_OUTPUT = $previousOutput
+    }
+}
+finally
+{
+    if (Test-Path -LiteralPath $pobLaunchPath)
+    {
+        [System.IO.File]::Delete($pobLaunchPath)
+    }
+}
+if ($pobProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $pobEvaluatedPath -PathType Leaf))
+{
+    throw "Path of Building Unique extraction failed with exit code $($pobProcess.ExitCode)."
+}
+$pobEvaluation = Get-Content -LiteralPath $pobEvaluatedPath -Raw | ConvertFrom-Json
+$pobEvaluationErrorProperty = $pobEvaluation.PSObject.Properties['error']
+$pobEvaluationError = if ($null -eq $pobEvaluationErrorProperty) { $null } else { $pobEvaluationErrorProperty.Value }
+if ($pobEvaluationError -or $pobEvaluation.entries.Count -eq 0)
+{
+    throw "Path of Building Unique extraction did not produce evaluated entries: $pobEvaluationError"
+}
+
 $dataToolArguments = @(
     'run', '--project', (Join-Path $repoRoot 'PoEnhance.DataTool'),
     '--configuration', 'Release', '--no-restore', '--', 'build-package',
@@ -186,7 +247,12 @@ $dataToolArguments = @(
     '--historical-source-uri', $HistoricalSourceUri,
     '--historical-source-branch', $HistoricalSourceBranch,
     '--historical-source-version', $HistoricalSourceCommit,
-    '--historical-data-version', $HistoricalDataVersion
+    '--historical-data-version', $HistoricalDataVersion,
+    '--pob-uniques', $pobEvaluatedPath,
+    '--pob-source-root', $pobRootPath,
+    '--pob-source-uri', $PoBSourceUri,
+    '--pob-source-tag', $PoBSourceTag,
+    '--pob-source-version', $PoBSourceCommit
 )
 if (-not [string]::IsNullOrWhiteSpace($League)) { $dataToolArguments += @('--league', $League) }
 if (-not [string]::IsNullOrWhiteSpace($Patch)) { $dataToolArguments += @('--patch', $Patch) }
@@ -256,6 +322,14 @@ $readiness = [ordered]@{
         commitSha = $HistoricalSourceCommit.ToLowerInvariant()
         dataVersion = $HistoricalDataVersion
     }
+    pathOfBuildingSource = [ordered]@{
+        repositoryUri = $PoBSourceUri
+        tag = $PoBSourceTag
+        commitSha = $PoBSourceCommit.ToLowerInvariant()
+        evaluatedEntries = $pobEvaluation.entries.Count
+        evaluatedPath = $pobEvaluatedPath
+        evaluatedSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $pobEvaluatedPath).Hash.ToLowerInvariant()
+    }
     sourceSnapshotManifest = $snapshotManifestPath
     compatibilityChecks = $compatibilityChecks
     activeArtifact = [ordered]@{
@@ -279,6 +353,7 @@ $markdown = @"
 - Candidate SHA-256: ``$($readiness.candidate.sha256)``
 - Current source: ``$SourceCommit`` / ``$DataVersion``
 - Historical source: ``$HistoricalSourceCommit`` / ``$HistoricalDataVersion``
+- Path of Building: ``$PoBSourceTag`` / ``$PoBSourceCommit`` ($($pobEvaluation.entries.Count) evaluated entries)
 - Source snapshot: ``$snapshotManifestPath``
 - Active artifact SHA-256 before/after: ``$($readiness.activeArtifact.sha256Before)`` / ``$($readiness.activeArtifact.sha256After)``
 - Active artifact modified: **no**
@@ -286,7 +361,7 @@ $markdown = @"
 "@
 [System.IO.File]::WriteAllText($readinessMarkdownPath, $markdown, [System.Text.UTF8Encoding]::new($false))
 
-$hashFiles = @($candidatePath, $snapshotManifestPath, $buildLogPath, $readinessPath, $readinessMarkdownPath)
+$hashFiles = @($candidatePath, $pobEvaluatedPath, $snapshotManifestPath, $buildLogPath, $readinessPath, $readinessMarkdownPath)
 $shaManifest = [ordered]@{
     algorithm = 'SHA-256'
     files = @($hashFiles | ForEach-Object {

@@ -4,7 +4,8 @@ namespace PoEnhance.GameData;
 
 public static class GameDataPackageLoader
 {
-    private const int SupportedSchemaVersion = 1;
+    private const int MinimumSupportedSchemaVersion = 1;
+    private const int MaximumSupportedSchemaVersion = 2;
 
     public static async Task<GameDataPackageLoadResult> LoadFromFileAsync(
         string path,
@@ -126,7 +127,7 @@ public static class GameDataPackageLoader
                 sourcePath);
         }
 
-        if (package.Manifest.SchemaVersion != SupportedSchemaVersion)
+        if (package.Manifest.SchemaVersion is < MinimumSupportedSchemaVersion or > MaximumSupportedSchemaVersion)
         {
             return Failure(
                 GameDataPackageLoadDiagnosticCodes.SchemaUnsupported,

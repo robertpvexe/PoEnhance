@@ -58,5 +58,15 @@ public sealed record GameDataPackageBuildRequest
 
     public string? HistoricalDataVersion { get; init; }
 
+    public string? PoBUniquesPath { get; init; }
+
+    public string? PoBSourceRootPath { get; init; }
+
+    public string? PoBSourceUri { get; init; }
+
+    public string? PoBSourceTag { get; init; }
+
+    public string? PoBSourceVersion { get; init; }
+
     public DateTimeOffset? CreatedAtUtc { get; init; }
 }

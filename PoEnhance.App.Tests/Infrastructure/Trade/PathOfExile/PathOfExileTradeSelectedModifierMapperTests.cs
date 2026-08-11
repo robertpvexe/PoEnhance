@@ -84,6 +84,60 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_CanonicalNegatedBoundKeepsProviderMaximumWithoutDoubleNegation()
+    {
+        var component = Modifier(
+            "14% reduced Charges per use",
+            providerStatId: "explicit.charges-used",
+            canonicalSignature: "<number>% reduced Charges per use") with
+        {
+            ProviderCanonicalSignature = "<number>% reduced Charges per use",
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [14m],
+            CanonicalNumericValues = [-14m],
+            RequestedMaximum = -14m,
+            DefaultBoundDirection = ModifierBoundDirection.Maximum,
+            ValueBoundTranslationHandlers = [["negate"]],
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog("explicit.charges-used", "#% increased Charges per use", "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Null(filter.Minimum);
+        Assert.Equal(-14m, filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_FixedProviderTranslationSiblingEmitsExactCopiedScalar()
+    {
+        var component = Modifier(
+            "Has 3 Sockets",
+            providerStatId: "explicit.socket-count",
+            canonicalSignature: "Has <number> Sockets") with
+        {
+            ProviderSearchSignatures = ["Has 1 Socket", "Has <number> Sockets"],
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [3m],
+            CanonicalNumericValues = [3m],
+            RequestedMinimum = 3m,
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog("explicit.socket-count", "Has 1 Socket", "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(3m, filter.Minimum);
+        Assert.Equal(3m, filter.Maximum);
+    }
+
+    [Fact]
     public void Map_FixedPresenceSourceAddsRequiredProviderScalarAtFinalMapping()
     {
         var component = Modifier(

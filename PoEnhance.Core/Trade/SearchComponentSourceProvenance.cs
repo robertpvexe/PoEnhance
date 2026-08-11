@@ -62,6 +62,10 @@ public sealed record SearchComponentSourceProvenance
 
     public IReadOnlyList<string> ResolvedStatIds { get; init; } = [];
 
+    public IReadOnlyList<ModifierLocality> ResolvedStatLocalities { get; init; } = [];
+
+    public IReadOnlyList<string> ProviderSearchSignatures { get; init; } = [];
+
     public IReadOnlyList<decimal> ObservedNumericValues { get; init; } = [];
 
     public IReadOnlyList<ModifierSourceRollRange> OriginalSourceRollRanges { get; init; } = [];

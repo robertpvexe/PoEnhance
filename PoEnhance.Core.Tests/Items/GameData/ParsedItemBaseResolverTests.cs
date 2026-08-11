@@ -34,6 +34,61 @@ Item Level: 85
             Assert.Single(result.Diagnostics).Code);
     }
 
+    [Theory]
+    [InlineData("Unique", "Test Unique")]
+    [InlineData("Rare", "Diagnostic Rare")]
+    public void Resolve_SameNameCurrentAndNotForSaleBase_PrefersCurrentUsableForEveryRarity(
+        string rarity,
+        string displayName)
+    {
+        var catalog = CreateCatalog(
+            Base("item-base.current-heavy", "Test Heavy Belt", "Belt"),
+            Base("item-base.royale-heavy", "Test Heavy Belt", "Belt") with
+            {
+                Tags = ["belt", "not_for_sale"],
+            });
+        var item = _parser.Parse($"""
+Item Class: Belts
+Rarity: {rarity}
+{displayName}
+Test Heavy Belt
+--------
+Item Level: 80
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Exact, result.Status);
+        Assert.Equal("item-base.current-heavy", result.ResolvedBaseId);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseCurrentUsableMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_SameNameMultipleUsableBases_RemainsAmbiguous()
+    {
+        var catalog = CreateCatalog(
+            Base("item-base.first", "Shared Current Belt", "Belt"),
+            Base("item-base.second", "Shared Current Belt", "Belt"));
+        var item = _parser.Parse("""
+Item Class: Belts
+Rarity: Rare
+Diagnostic Rare
+Shared Current Belt
+--------
+Item Level: 80
+""");
+
+        var result = _resolver.Resolve(item, catalog);
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, result.Status);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(
+            ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
     [Fact]
     public void Resolve_ExactNameMultipleClasses_NarrowsByParsedItemClass()
     {

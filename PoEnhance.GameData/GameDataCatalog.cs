@@ -14,6 +14,8 @@ public sealed class GameDataCatalog
         Array.AsReadOnly(Array.Empty<StatTranslationDefinition>());
     private static readonly IReadOnlyList<ItemPropertySemanticDescriptor> EmptyItemPropertySemantics =
         Array.AsReadOnly(Array.Empty<ItemPropertySemanticDescriptor>());
+    private static readonly IReadOnlyList<UniqueItemIdentity> EmptyUniqueItems =
+        Array.AsReadOnly(Array.Empty<UniqueItemIdentity>());
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesById;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesByExactName;
@@ -34,6 +36,8 @@ public sealed class GameDataCatalog
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatIdGroup;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
         _itemPropertySemanticsByOrderedStatVector;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByExactName;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByNormalizedName;
 
     private GameDataCatalog(
         IReadOnlyList<ItemBaseRecord> itemBases,
@@ -56,7 +60,10 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
             itemPropertySemanticsByOrderedStatVector,
         BaseImplicitHistoryCatalog? baseImplicitHistory,
-        StatTranslationHistoryCatalog? statTranslationHistory)
+        StatTranslationHistoryCatalog? statTranslationHistory,
+        UniqueItemCatalog? uniqueItems,
+        IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> uniqueItemsByExactName,
+        IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> uniqueItemsByNormalizedName)
     {
         ItemBases = itemBases;
         _itemBasesById = itemBasesById;
@@ -78,6 +85,9 @@ public sealed class GameDataCatalog
         _itemPropertySemanticsByOrderedStatVector = itemPropertySemanticsByOrderedStatVector;
         BaseImplicitHistory = baseImplicitHistory;
         StatTranslationHistory = statTranslationHistory;
+        UniqueItems = uniqueItems;
+        _uniqueItemsByExactName = uniqueItemsByExactName;
+        _uniqueItemsByNormalizedName = uniqueItemsByNormalizedName;
     }
 
     public static GameDataCatalog FromPackage(GameDataPackage package)
@@ -95,6 +105,7 @@ public sealed class GameDataCatalog
         var itemBases = ToReadOnly(package.ItemBases);
         var modifiers = ToReadOnly(package.Modifiers);
         var itemPropertySemantics = ToReadOnly(package.ItemPropertySemantics);
+        var uniqueIdentities = package.UniqueItems?.Items ?? EmptyUniqueItems;
 
         return new GameDataCatalog(
             itemBases,
@@ -164,7 +175,16 @@ public sealed class GameDataCatalog
                 descriptor => CreateOrderedStatVectorKey(descriptor.OrderedStatIds),
                 StringComparer.OrdinalIgnoreCase),
             package.BaseImplicitHistory,
-            package.StatTranslationHistory);
+            package.StatTranslationHistory,
+            package.UniqueItems,
+            BuildIndex(
+                uniqueIdentities,
+                identity => GameDataLookupNormalizer.NormalizeName(identity.CanonicalName),
+                StringComparer.Ordinal),
+            BuildIndex(
+                uniqueIdentities,
+                identity => GameDataLookupNormalizer.NormalizeName(identity.CanonicalName),
+                StringComparer.OrdinalIgnoreCase));
     }
 
     public IReadOnlyList<ItemBaseRecord> ItemBases { get; }
@@ -176,6 +196,18 @@ public sealed class GameDataCatalog
     public BaseImplicitHistoryCatalog? BaseImplicitHistory { get; }
 
     public StatTranslationHistoryCatalog? StatTranslationHistory { get; }
+
+    public UniqueItemCatalog? UniqueItems { get; }
+
+    public IReadOnlyList<UniqueItemIdentity> FindUniqueItemsByExactName(string? name)
+    {
+        return Find(_uniqueItemsByExactName, GameDataLookupNormalizer.NormalizeName(name), EmptyUniqueItems);
+    }
+
+    public IReadOnlyList<UniqueItemIdentity> FindUniqueItemsByNormalizedName(string? name)
+    {
+        return Find(_uniqueItemsByNormalizedName, GameDataLookupNormalizer.NormalizeName(name), EmptyUniqueItems);
+    }
 
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)
     {

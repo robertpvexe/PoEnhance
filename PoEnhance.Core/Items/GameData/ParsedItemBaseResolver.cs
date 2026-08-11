@@ -151,9 +151,10 @@ public sealed class ParsedItemBaseResolver
 
         if (longestCandidates.Length > 1)
         {
+            var equallyNamedBases = longestCandidates.Select(candidate => candidate.ItemBase).ToArray();
             if (TryDisambiguateByParsedImplicit(
                 parsedItem,
-                longestCandidates.Select(candidate => candidate.ItemBase).ToArray(),
+                equallyNamedBases,
                 catalog,
                 out var implicitMatch))
             {
@@ -164,10 +165,20 @@ public sealed class ParsedItemBaseResolver
                     $"The {sourceDescription} contained an equally named catalog base and the copied base implicit uniquely proved the selected variant.");
             }
 
+            var usableCandidates = PreferCurrentUsableCandidates(equallyNamedBases);
+            if (usableCandidates.Count == 1)
+            {
+                return Matched(
+                    ItemBaseResolutionStatus.Probable,
+                    usableCandidates[0],
+                    ItemBaseResolutionDiagnosticCodes.BaseCurrentUsableMatch,
+                    $"The {sourceDescription} matched one current usable base after legacy/not-for-sale candidates were excluded.");
+            }
+
             return Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
                 $"Multiple equally specific catalog base-name candidates remain in the {sourceDescription}.",
-                longestCandidates.Select(candidate => candidate.ItemBase).ToArray());
+                usableCandidates);
         }
 
         return Matched(
@@ -316,10 +327,21 @@ public sealed class ParsedItemBaseResolver
                 return true;
             }
 
+            var usableCandidates = PreferCurrentUsableCandidates(classMatches);
+            if (usableCandidates.Count == 1)
+            {
+                result = Matched(
+                    successStatus,
+                    usableCandidates[0],
+                    ItemBaseResolutionDiagnosticCodes.BaseCurrentUsableMatch,
+                    "One current usable same-name base remained after legacy/not-for-sale candidates were excluded.");
+                return true;
+            }
+
             result = Unknown(
                 ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
                 ambiguousReason,
-                classMatches);
+                usableCandidates);
             return true;
         }
 
@@ -368,6 +390,17 @@ public sealed class ParsedItemBaseResolver
 
         match = matches[0];
         return true;
+    }
+
+    private static IReadOnlyList<ItemBaseRecord> PreferCurrentUsableCandidates(
+        IReadOnlyList<ItemBaseRecord> candidates)
+    {
+        var usable = candidates
+            .Where(candidate => !candidate.Tags.Contains("not_for_sale", StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        return usable.Length > 0 && usable.Length < candidates.Count
+            ? usable
+            : candidates;
     }
 
     private static string NormalizeWhitespace(string value)

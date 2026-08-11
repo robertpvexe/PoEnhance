@@ -27,12 +27,16 @@ public sealed class TradeSearchDraftMapper
         }
 
         var modifierResolutionByIndex = BuildModifierResolutionIndex(parsedItem, modifierResolutions ?? []);
+        var uniqueItemResolution = gameDataCatalog is null
+            ? null
+            : new ParsedUniqueItemResolver().Resolve(parsedItem, gameDataCatalog, itemBaseResolution);
         var aggregation = CanonicalModifierEffectAggregator.Aggregate(
             CreateSearchComponents(
                     parsedItem,
                     itemBaseResolution,
                     modifierResolutionByIndex,
-                    gameDataCatalog)
+                    gameDataCatalog,
+                    uniqueItemResolution)
                 .ToArray());
         var derivedPropertyCalculator = new DerivedWeaponPropertyCalculator();
         var derivedWeaponProperties = derivedPropertyCalculator.CalculateQ20(
@@ -62,6 +66,13 @@ public sealed class TradeSearchDraftMapper
                 Corrupted = parsedItem.IsCorrupted ? TradeTriState.Yes : TradeTriState.No,
                 Identified = parsedItem.IsIdentified ? TradeTriState.Yes : TradeTriState.No,
             },
+            ItemVariantCriteria = new TradeItemVariantCriteria
+            {
+                Foulborn = uniqueItemResolution?.Status == UniqueItemResolutionStatus.ExactIdentity
+                    ? uniqueItemResolution.IsFoulborn ? TradeTriState.Yes : TradeTriState.No
+                    : TradeTriState.Auto,
+            },
+            UniqueItemResolution = uniqueItemResolution,
             Base = CreateBaseDraft(parsedItem, itemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             SocketText = ReadSocketText(parsedItem),
@@ -599,7 +610,8 @@ public sealed class TradeSearchDraftMapper
         ParsedItem parsedItem,
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyDictionary<int, ModifierCandidateResolutionResult> modifierResolutionByIndex,
-        GameDataCatalog? catalog)
+        GameDataCatalog? catalog,
+        UniqueItemResolutionResult? uniqueItemResolution)
     {
         for (var modifierIndex = 0; modifierIndex < parsedItem.Modifiers.Count; modifierIndex++)
         {
@@ -610,7 +622,9 @@ public sealed class TradeSearchDraftMapper
                          modifierResolutionByIndex.GetValueOrDefault(modifierIndex),
                          itemBaseResolution,
                          parsedItem.TraditionalInfluences,
-                         catalog))
+                         catalog,
+                         uniqueItemResolution?.ModifierBlocks.SingleOrDefault(block =>
+                             block.ParsedModifierIndex == modifierIndex)))
             {
                 yield return component;
             }
@@ -671,7 +685,8 @@ public sealed class TradeSearchDraftMapper
         ModifierCandidateResolutionResult? resolution,
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyList<string> traditionalInfluences,
-        GameDataCatalog? catalog)
+        GameDataCatalog? catalog,
+        UniqueModifierBlockResolution? uniqueBlockResolution)
     {
         var exactCandidate = resolution?.Status == ModifierCandidateResolutionStatus.Exact &&
             (resolution.Candidates.Count == 1 || resolution.IsEquivalentSourceSet)
@@ -684,6 +699,25 @@ public sealed class TradeSearchDraftMapper
             .ToArray();
         if (valueLines.Length == 0)
         {
+            yield break;
+        }
+
+        if (modifier.Kind == ParsedModifierKind.Unique)
+        {
+            yield return CreateComponent(
+                modifierIndex,
+                modifier,
+                resolution,
+                exactCandidate,
+                stats: [],
+                ModifierStatMappingProofStatus.WholeVector,
+                sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
+                sourceComponentIndex: 0,
+                componentLines: valueLines,
+                itemBaseResolution,
+                traditionalInfluences,
+                catalog,
+                uniqueBlockResolution: uniqueBlockResolution);
             yield break;
         }
 
@@ -858,21 +892,42 @@ public sealed class TradeSearchDraftMapper
         GameDataCatalog? catalog,
         bool isBaseImplicit = false,
         SearchComponentBaseImplicitProvenance? baseImplicitProvenance = null,
-        GameDataCatalog? baseIdentityCatalog = null)
+        GameDataCatalog? baseIdentityCatalog = null,
+        UniqueModifierBlockResolution? uniqueBlockResolution = null)
     {
-        var statIds = StatIds(stats).ToArray();
-        var isSearchable = exactCandidate is not null && statIds.Length > 0;
+        var uniqueModifierCandidates = ResolveUniqueModifierCandidates(uniqueBlockResolution, catalog);
+        var uniqueBoundCandidate = ResolveUniqueBoundCandidate(uniqueModifierCandidates);
+        var boundCandidate = exactCandidate ?? uniqueBoundCandidate;
+        var boundStats = exactCandidate is not null
+            ? stats
+            : uniqueBoundCandidate?.Stats
+                .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+                .OrderBy(stat => stat.Index)
+                .ToArray() ?? [];
+        var statIds = exactCandidate is null && uniqueBlockResolution?.IsResolved == true
+            ? uniqueBlockResolution.StatIds.ToArray()
+            : StatIds(stats).ToArray();
+        var statLocalities = uniqueBlockResolution?.IsResolved == true
+            ? uniqueBlockResolution.StatLocalities.ToArray()
+            : ResolveStatLocalities(statIds, catalog);
+        var providerSearchSignatures = ResolveUniqueProviderSearchSignatures(
+            uniqueBlockResolution,
+            uniqueModifierCandidates,
+            componentLines,
+            catalog);
+        var isSearchable = (exactCandidate is not null || uniqueBlockResolution?.IsResolved == true) &&
+            statIds.Length > 0;
         var translationRecognition = resolution?.TranslationRecognition;
         var boundDefault = ModifierBoundDefaults.Create(
-            exactCandidate,
-            stats,
+            boundCandidate,
+            boundStats,
             componentLines,
             catalog,
-            translationRecognition);
+            exactCandidate is null ? null : translationRecognition);
         var hasUnscalableValue = sourceLineIndex >= 0 &&
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.HasUnscalableValue == true;
-        var providerOnlyUniqueValues = exactCandidate is null &&
-            modifier.Kind == ParsedModifierKind.Unique &&
+        var providerOnlyUniqueValues = modifier.Kind == ParsedModifierKind.Unique &&
+            (boundCandidate is null || boundDefault.Shape == ModifierBoundShape.Unsupported) &&
             componentLines.Count == 1
                 ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
                 : [];
@@ -884,10 +939,11 @@ public sealed class TradeSearchDraftMapper
             ? ModifierBoundShape.PresenceOnly
             : hasProviderOnlyUniqueScalar
                 ? ModifierBoundShape.Scalar
-                : exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique && providerOnlyUniqueValues.Count == 0
+                : boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique && providerOnlyUniqueValues.Count == 0
                     ? ModifierBoundShape.PresenceOnly
             : boundDefault.Shape;
-        var observedNumericValues = exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique
+        var observedNumericValues = hasProviderOnlyUniqueScalar ||
+            boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique
             ? providerOnlyUniqueValues
             : boundDefault.ObservedValues;
         var canonicalNumericValues = hasProviderOnlyUniqueScalar
@@ -899,11 +955,11 @@ public sealed class TradeSearchDraftMapper
                 _ => [],
             };
         var providerFallbackNumericValues = valueBoundShape == ModifierBoundShape.PresenceOnly &&
-            stats.Count > 0 &&
-            stats.All(stat => stat.MinValue.HasValue &&
+            boundStats.Count > 0 &&
+            boundStats.All(stat => stat.MinValue.HasValue &&
                 stat.MaxValue.HasValue &&
                 stat.MinValue == stat.MaxValue)
-                ? stats.Select(stat => stat.MinValue!.Value).ToArray()
+                ? boundStats.Select(stat => stat.MinValue!.Value).ToArray()
                 : [];
         var defaultBoundDirection = hasProviderOnlyUniqueScalar
             ? providerOnlyUniqueDirection
@@ -912,7 +968,8 @@ public sealed class TradeSearchDraftMapper
             ? providerOnlyUniqueValues[0]
             : boundDefault.ObservedCanonicalValue;
 
-        var isEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true;
+        var isEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true ||
+            uniqueBlockResolution?.IsEquivalentSourceSet == true;
         var component = new ResolvedSearchComponent
         {
             ComponentId = $"modifier:{modifierIndex}:{sourceComponentIndex}",
@@ -920,14 +977,21 @@ public sealed class TradeSearchDraftMapper
             SourceLineIndex = sourceLineIndex,
             SourceComponentIndex = sourceComponentIndex,
             OriginalText = string.Join(Environment.NewLine, componentLines),
+            PresentationText = uniqueBlockResolution?.PresentationLines.Count > 0
+                ? string.Join(Environment.NewLine, uniqueBlockResolution.PresentationLines)
+                : null,
             CanonicalSignature = translationRecognition?.CanonicalSignature.Lines.Count > 0
                 ? string.Join("\n", translationRecognition.CanonicalSignature.Lines)
                 : NormalizeComponentSignature(componentLines),
             ParsedKind = modifier.Kind,
             ImplicitOrigin = modifier.ImplicitOrigin,
             UniqueOrigin = modifier.UniqueOrigin,
-            GenerationType = exactCandidate?.GenerationType ?? resolution?.GenerationType,
-            Locality = exactCandidate is null
+            GenerationType = exactCandidate?.GenerationType ??
+                resolution?.GenerationType ??
+                CommonGenerationType(uniqueModifierCandidates),
+            Locality = uniqueBlockResolution?.IsResolved == true
+                ? AggregateLocality(statLocalities)
+                : exactCandidate is null
                 ? ModifierLocality.Unknown
                 : DetermineLocality(stats, catalog) is ModifierLocality.Unknown
                     ? resolution?.Locality ?? ModifierLocality.Unknown
@@ -952,25 +1016,42 @@ public sealed class TradeSearchDraftMapper
                 (baseIdentityCatalog ?? catalog) is { } exactBaseCatalog
                 ? GuaranteedExactBaseName(exactCandidate, itemBaseResolution, exactBaseCatalog)
                 : null,
-            ResolutionStatus = exactCandidate is not null &&
+            ResolutionStatus = uniqueBlockResolution?.IsResolved == true
+                ? ModifierCandidateResolutionStatus.Exact
+                : exactCandidate is not null &&
                 baseImplicitProvenance?.RecognitionStatus is (
                     BaseImplicitRecognitionStatus.CurrentExact or
                     BaseImplicitRecognitionStatus.HistoricalExact)
                 ? ModifierCandidateResolutionStatus.Exact
                 : resolution?.Status,
-            ResolvedModifierId = isEquivalentSourceSet ? null : TrimToNull(exactCandidate?.Id),
-            ResolvedModifierName = TrimToNull(exactCandidate?.Name),
+            ResolvedModifierId = uniqueBlockResolution?.ModifierIds.Count == 1
+                ? uniqueBlockResolution.ModifierIds[0]
+                : isEquivalentSourceSet ? null : TrimToNull(exactCandidate?.Id),
+            ResolvedModifierName = TrimToNull(exactCandidate?.Name) ?? CommonModifierName(uniqueModifierCandidates),
             ResolvedStatIds = statIds,
+            ResolvedStatLocalities = statLocalities,
+            ProviderSearchSignatures = providerSearchSignatures,
+            UniqueCatalogBlockIds = uniqueBlockResolution?.CatalogBlocks
+                .Select(block => block.Id)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray() ?? [],
+            UniqueSourceObservationIds = uniqueBlockResolution?.SourceObservationIds ?? [],
+            UniqueResolutionDiagnosticCode = uniqueBlockResolution?.DiagnosticCode,
             IsSearchable = isSearchable,
             NotSearchableReason = isSearchable
                 ? null
+                : modifier.Kind == ParsedModifierKind.Unique && uniqueBlockResolution is { IsResolved: false }
+                    ? uniqueBlockResolution.Diagnostic
                 : exactCandidate is null
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
             SupportsValueBounds = supportsValueBounds,
             ValueBoundsUnsupportedReason = hasUnscalableValue
                 ? "The copied modifier is a presence-only value and has no numeric Trade bound."
-                : exactCandidate is null && modifier.Kind == ParsedModifierKind.Unique &&
+                : hasProviderOnlyUniqueScalar
+                    ? null
+                : boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique &&
                     !hasProviderOnlyUniqueScalar
                     ? providerOnlyUniqueValues.Count > 1
                         ? "The provider-owned Unique modifier has multiple numeric values without a proven scalar projection."
@@ -1002,11 +1083,16 @@ public sealed class TradeSearchDraftMapper
             ReviewedItemPropertySemantic = FindReviewedItemPropertySemantic(component, catalog),
         };
 
-        if (isEquivalentSourceSet)
+        var provenanceCandidates = uniqueModifierCandidates.Count > 0
+            ? uniqueModifierCandidates
+            : resolution?.IsEquivalentSourceSet == true
+                ? resolution.Candidates
+                : [];
+        if (provenanceCandidates.Count > 0)
         {
             component = component with
             {
-                Sources = resolution!.Candidates
+                Sources = provenanceCandidates
                     .Select(candidate => CanonicalModifierEffectAggregator.CreateSourceProvenance(
                         component with
                         {
@@ -1017,13 +1103,18 @@ public sealed class TradeSearchDraftMapper
             };
         }
 
-        return exactCandidate is null || catalog is null
+        var providerEvidenceCandidates = uniqueModifierCandidates.Count > 0
+            ? uniqueModifierCandidates
+            : exactCandidate is null
+                ? []
+                : isEquivalentSourceSet
+                    ? resolution!.Candidates
+                    : [exactCandidate];
+        return providerEvidenceCandidates.Count == 0 || catalog is null
             ? component
             : component with
             {
-            ProviderDomainEvidence = (isEquivalentSourceSet
-                        ? resolution!.Candidates
-                        : (IReadOnlyList<ModifierDefinition>)[exactCandidate])
+                ProviderDomainEvidence = providerEvidenceCandidates
                     .SelectMany(candidate => ModifierProviderDomainEvidenceResolver.Resolve(
                         component,
                         candidate,
@@ -1538,6 +1629,129 @@ public sealed class TradeSearchDraftMapper
             .Select(stat => TrimToNull(stat.StatId))
             .Where(statId => statId is not null)
             .Select(statId => statId!);
+    }
+
+    private static IReadOnlyList<ModifierDefinition> ResolveUniqueModifierCandidates(
+        UniqueModifierBlockResolution? resolution,
+        GameDataCatalog? catalog)
+    {
+        if (resolution?.IsResolved != true || catalog is null)
+        {
+            return [];
+        }
+
+        return resolution.ModifierIds
+            .SelectMany(catalog.FindModifiersById)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Id))
+            .DistinctBy(candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(candidate => candidate.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ResolveUniqueProviderSearchSignatures(
+        UniqueModifierBlockResolution? resolution,
+        IReadOnlyList<ModifierDefinition> candidates,
+        IReadOnlyList<string> componentLines,
+        GameDataCatalog? catalog)
+    {
+        if (resolution?.IsResolved != true)
+        {
+            return [];
+        }
+
+        var signatures = new List<string>(resolution.CanonicalSignatures);
+        if (catalog is not null)
+        {
+            var matcher = new ModifierTextSignatureMatcher();
+            foreach (var candidate in candidates)
+            {
+                var stats = candidate.Stats
+                    .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+                    .OrderBy(stat => stat.Index)
+                    .ToArray();
+                signatures.AddRange(ModifierBoundDefaults.FindProviderSearchSignatures(
+                    candidate,
+                    stats,
+                    catalog));
+                var match = matcher.Match(candidate, catalog, componentLines);
+                if (match.CandidateSignatures.Count == 1)
+                {
+                    signatures.Add(string.Join("\n", match.CandidateSignatures[0].Lines));
+                }
+            }
+        }
+
+        return signatures
+            .Select(TrimToNull)
+            .Where(signature => signature is not null)
+            .Select(signature => signature!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(signature => signature, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static ModifierDefinition? ResolveUniqueBoundCandidate(
+        IReadOnlyList<ModifierDefinition> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var statVectors = candidates
+            .Select(candidate => candidate.Stats
+                .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+                .OrderBy(stat => stat.Index)
+                .Select(stat => stat.StatId!.Trim())
+                .ToArray())
+            .ToArray();
+        return statVectors.All(vector => vector.Length > 0 && vector.SequenceEqual(
+                statVectors[0],
+                StringComparer.Ordinal))
+            ? candidates[0]
+            : null;
+    }
+
+    private static ModifierGenerationType? CommonGenerationType(
+        IReadOnlyList<ModifierDefinition> candidates)
+    {
+        var values = candidates.Select(candidate => candidate.GenerationType).Distinct().ToArray();
+        return values.Length == 1 ? values[0] : null;
+    }
+
+    private static string? CommonModifierName(IReadOnlyList<ModifierDefinition> candidates)
+    {
+        var values = candidates
+            .Select(candidate => TrimToNull(candidate.Name))
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return values.Length == 1 ? values[0] : null;
+    }
+
+    private static IReadOnlyList<ModifierLocality> ResolveStatLocalities(
+        IReadOnlyList<string> statIds,
+        GameDataCatalog? catalog)
+    {
+        if (catalog is null)
+        {
+            return statIds.Select(_ => ModifierLocality.Unknown).ToArray();
+        }
+
+        return statIds.Select(statId =>
+        {
+            var matches = catalog.FindStatsById(statId);
+            return matches.Count == 1
+                ? matches[0].IsLocal ? ModifierLocality.Local : ModifierLocality.Global
+                : ModifierLocality.Unknown;
+        }).ToArray();
+    }
+
+    private static ModifierLocality AggregateLocality(IReadOnlyList<ModifierLocality> localities)
+    {
+        var proven = localities.Distinct().ToArray();
+        return proven.Length == 1 ? proven[0] : ModifierLocality.Unknown;
     }
 
     private static ModifierLocality DetermineLocality(

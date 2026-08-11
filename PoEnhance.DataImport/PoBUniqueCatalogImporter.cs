@@ -1,0 +1,1103 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using PoEnhance.GameData;
+
+namespace PoEnhance.DataImport;
+
+public sealed partial class PoBUniqueCatalogImporter
+{
+    public const string SourceId = "path-of-building";
+
+    public PoBUniqueCatalogImportResult Import(
+        string filePath,
+        string repositoryUri,
+        string tag,
+        string commitSha,
+        IReadOnlyList<ModifierDefinition> modifiers,
+        IReadOnlyList<StatTranslationDefinition> translations,
+        IReadOnlyList<ItemBaseRecord>? baseItems = null)
+    {
+        if (!File.Exists(filePath))
+        {
+            return Failure(RePoeImportDiagnosticCodes.PoBUniqueFileNotFound,
+                $"Evaluated Path of Building Unique input was not found: {filePath}");
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            using var document = JsonDocument.Parse(stream);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("entries", out var entries) ||
+                entries.ValueKind != JsonValueKind.Array)
+            {
+                return Failure(RePoeImportDiagnosticCodes.PoBUniqueSchemaUnsupported,
+                    "Evaluated Path of Building Unique input must contain an entries array.");
+            }
+
+            return ImportEntries(
+                entries,
+                repositoryUri,
+                tag,
+                commitSha,
+                modifiers,
+                translations,
+                baseItems ?? []);
+        }
+        catch (JsonException exception)
+        {
+            return Failure(RePoeImportDiagnosticCodes.PoBUniqueJsonMalformed,
+                $"Evaluated Path of Building Unique input is invalid JSON: {exception.Message}");
+        }
+    }
+
+    private static PoBUniqueCatalogImportResult ImportEntries(
+        JsonElement entries,
+        string repositoryUri,
+        string tag,
+        string commitSha,
+        IReadOnlyList<ModifierDefinition> modifiers,
+        IReadOnlyList<StatTranslationDefinition> translations,
+        IReadOnlyList<ItemBaseRecord> baseItems)
+    {
+        var diagnostics = new List<ImportDiagnostic>();
+        var observations = new List<UniqueCatalogSourceObservation>();
+        var parsed = new List<ParsedSourceItem>();
+        var read = 0;
+        var skipped = 0;
+
+        foreach (var entry in entries.EnumerateArray())
+        {
+            read++;
+            if (!TryReadString(entry, "sourcePath", out var sourcePath) ||
+                !TryReadString(entry, "raw", out var raw))
+            {
+                skipped++;
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                    ImportDiagnosticSeverity.Warning,
+                    read.ToString(CultureInfo.InvariantCulture),
+                    "Evaluated Unique entry lacks sourcePath or raw text and was skipped."));
+                continue;
+            }
+
+            var generated = entry.TryGetProperty("generated", out var generatedElement) &&
+                generatedElement.ValueKind == JsonValueKind.True;
+            if (!TryParseSourceItem(raw, out var sourceItem))
+            {
+                skipped++;
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                    ImportDiagnosticSeverity.Warning,
+                    sourcePath,
+                    "Evaluated Unique entry has no reliable name/base header and was skipped."));
+                continue;
+            }
+
+            var kind = ClassifyKind(sourceItem.Name);
+            var observationId = StableId("pob-observation", sourcePath, Sha256(raw));
+            observations.Add(new UniqueCatalogSourceObservation
+            {
+                Id = observationId,
+                ManifestSourceId = SourceId,
+                RepositoryUri = repositoryUri.Trim(),
+                Tag = tag.Trim(),
+                CommitSha = commitSha.Trim().ToLowerInvariant(),
+                SourcePath = sourcePath.Trim().Replace('\\', '/'),
+                IsGenerated = generated,
+                ObservedKind = kind,
+                RawEntrySha256 = Sha256(raw),
+            });
+            parsed.Add(sourceItem with
+            {
+                ObservationId = observationId,
+                Kind = kind,
+                IsGenerated = generated,
+            });
+        }
+
+        var mechanicalIndex = BuildMechanicalIndex(modifiers, translations, baseItems);
+        var identities = parsed
+            .GroupBy(item => new IdentityKey(item.Name, item.Kind))
+            .Select(group => BuildIdentity(group, mechanicalIndex))
+            .OrderBy(identity => identity.CanonicalName, StringComparer.Ordinal)
+            .ThenBy(identity => identity.Kind)
+            .ThenBy(identity => identity.Id, StringComparer.Ordinal)
+            .ToArray();
+
+        return new PoBUniqueCatalogImportResult
+        {
+            Catalog = new UniqueItemCatalog
+            {
+                SourceObservations = observations.OrderBy(source => source.Id, StringComparer.Ordinal).ToArray(),
+                Items = identities,
+            },
+            Diagnostics = diagnostics,
+            SourceRecordsRead = read,
+            RecordsImported = parsed.Count,
+            RecordsSkipped = skipped,
+        };
+    }
+
+    private static UniqueItemIdentity BuildIdentity(
+        IGrouping<IdentityKey, ParsedSourceItem> group,
+        MechanicalIndex mechanicalIndex)
+    {
+        var identityId = StableId("unique", group.Key.Name, group.Key.Kind.ToString());
+        var versions = group
+            .SelectMany(item => BuildVersions(identityId, item, mechanicalIndex))
+            .GroupBy(version => new
+            {
+                version.Label,
+                version.Role,
+                version.BaseType,
+                Signature = string.Join('\u001f', version.ModifierBlocks.Select(block => block.Id)),
+            })
+            .Select(versionGroup => versionGroup.First() with
+            {
+                SourceObservationIds = versionGroup
+                    .SelectMany(version => version.SourceObservationIds)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray(),
+                ModifierBlocks = MergeBlockProvenance(versionGroup.SelectMany(version => version.ModifierBlocks)),
+            })
+            .OrderBy(version => version.Role)
+            .ThenBy(version => version.Label, StringComparer.Ordinal)
+            .ThenBy(version => version.Id, StringComparer.Ordinal)
+            .ToArray();
+
+        return new UniqueItemIdentity
+        {
+            Id = identityId,
+            CanonicalName = group.Key.Name,
+            Kind = group.Key.Kind,
+            BaseTypeEvidence = group.SelectMany(item => item.BaseTypes)
+                .Select(baseType => baseType.Text)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray(),
+            Versions = versions,
+            SourceObservationIds = group.Select(item => item.ObservationId!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray(),
+        };
+    }
+
+    private static IReadOnlyList<UniqueModifierBlock> MergeBlockProvenance(
+        IEnumerable<UniqueModifierBlock> blocks)
+    {
+        return blocks
+            .GroupBy(block => block.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First() with
+            {
+                SourceObservationIds = group.SelectMany(block => block.SourceObservationIds)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray(),
+            })
+            .OrderBy(block => block.Kind)
+            .ThenBy(block => block.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IEnumerable<UniqueItemVersionObservation> BuildVersions(
+        string identityId,
+        ParsedSourceItem item,
+        MechanicalIndex mechanicalIndex)
+    {
+        var primaryVariants = item.Variants
+            .Where(variant => ClassifyVersionRole(variant.Label) != UniqueItemVersionRole.Unknown)
+            .ToArray();
+        var optionIndices = item.Variants
+            .Where(variant => ClassifyVersionRole(variant.Label) == UniqueItemVersionRole.Unknown)
+            .Select(variant => variant.Index)
+            .ToHashSet();
+        var baseVariantIndices = item.BaseTypes.SelectMany(baseType => baseType.Variants).ToHashSet();
+        var specs = BuildVersionSpecs(item, primaryVariants);
+
+        foreach (var spec in specs)
+        {
+            var implicitLines = item.EffectLines.Take(item.ImplicitCount)
+                .Where(line => IsApplicable(line, spec, optionIndices, baseVariantIndices))
+                .Select(line => new SelectedEffectLine(
+                    line.Text,
+                    item.IsGenerated && line.Variants.Any(index =>
+                        optionIndices.Contains(index) && !baseVariantIndices.Contains(index))))
+                .ToArray();
+            var uniqueLines = item.EffectLines.Skip(item.ImplicitCount)
+                .Where(line => IsApplicable(line, spec, optionIndices, baseVariantIndices))
+                .Select(line => new SelectedEffectLine(
+                    line.Text,
+                    item.IsGenerated && line.Variants.Any(index =>
+                        optionIndices.Contains(index) && !baseVariantIndices.Contains(index))))
+                .ToArray();
+            var blocks = GroupBlocks(
+                    implicitLines,
+                    UniqueModifierBlockKind.Implicit,
+                    identityId,
+                    spec.Label,
+                    spec.BaseType,
+                    item.ObservationId!,
+                    item.IsGenerated,
+                    mechanicalIndex)
+                .Concat(GroupBlocks(
+                    uniqueLines,
+                    UniqueModifierBlockKind.Unique,
+                    identityId,
+                    spec.Label,
+                    spec.BaseType,
+                    item.ObservationId!,
+                    item.IsGenerated,
+                    mechanicalIndex))
+                .ToArray();
+            yield return new UniqueItemVersionObservation
+            {
+                Id = StableId("unique-version", identityId, spec.Label, spec.BaseType,
+                    string.Join('\u001f', blocks.Select(block => block.Id))),
+                Label = spec.Label,
+                Role = spec.Role,
+                BaseType = spec.BaseType,
+                ModifierBlocks = blocks,
+                SourceObservationIds = [item.ObservationId!],
+            };
+        }
+    }
+
+    private static IReadOnlyList<VersionSpec> BuildVersionSpecs(
+        ParsedSourceItem item,
+        IReadOnlyList<SourceVariant> primaryVariants)
+    {
+        if (primaryVariants.Count > 0)
+        {
+            return primaryVariants.Select(variant => new VersionSpec(
+                    variant.Label,
+                    ClassifyVersionRole(variant.Label),
+                    variant.Index,
+                    SelectBaseType(item.BaseTypes, variant.Index)))
+                .ToArray();
+        }
+
+        var variantBases = item.BaseTypes
+            .SelectMany(baseType => baseType.Variants.Select(variantIndex => new
+            {
+                BaseType = baseType.Text,
+                VariantIndex = variantIndex,
+            }))
+            .ToArray();
+        if (variantBases.Length == 0)
+        {
+            return
+            [
+                new VersionSpec(
+                    "Observed",
+                    UniqueItemVersionRole.Current,
+                    VariantIndex: null,
+                    item.BaseTypes[0].Text),
+            ];
+        }
+
+        return variantBases.Select(baseVariant => new VersionSpec(
+                $"Observed: {baseVariant.BaseType}",
+                UniqueItemVersionRole.Current,
+                baseVariant.VariantIndex,
+                baseVariant.BaseType))
+            .ToArray();
+    }
+
+    private static string SelectBaseType(
+        IReadOnlyList<SourceBaseType> baseTypes,
+        int variantIndex)
+    {
+        return baseTypes.FirstOrDefault(baseType => baseType.Variants.Contains(variantIndex))?.Text ??
+            baseTypes.FirstOrDefault(baseType => baseType.Variants.Count == 0)?.Text ??
+            baseTypes[0].Text;
+    }
+
+    private static bool IsApplicable(
+        SourceEffectLine line,
+        VersionSpec spec,
+        ISet<int> optionIndices,
+        ISet<int> baseVariantIndices)
+    {
+        return line.Variants.Count == 0 ||
+            spec.VariantIndex.HasValue && line.Variants.Contains(spec.VariantIndex.Value) ||
+            line.Variants.Any(index => optionIndices.Contains(index) && !baseVariantIndices.Contains(index));
+    }
+
+    private static IEnumerable<UniqueModifierBlock> GroupBlocks(
+        IReadOnlyList<SelectedEffectLine> lines,
+        UniqueModifierBlockKind kind,
+        string identityId,
+        string versionLabel,
+        string baseType,
+        string observationId,
+        bool isGenerated,
+        MechanicalIndex mechanicalIndex)
+    {
+        for (var index = 0; index < lines.Count;)
+        {
+            var maximumLength = Math.Min(8, lines.Count - index);
+            var selectedLength = 1;
+            for (var length = maximumLength; length > 1; length--)
+            {
+                if (mechanicalIndex.HasMatch(
+                        lines.Skip(index).Take(length).Select(line => line.Text).ToArray(),
+                        baseType,
+                        lines.Skip(index).Take(length).Any(line => line.HasGeneratedOptionEvidence)))
+                {
+                    selectedLength = length;
+                    break;
+                }
+            }
+
+            yield return BuildBlock(
+                identityId,
+                versionLabel,
+                lines.Skip(index).Take(selectedLength).Select(line => line.Text).ToArray(),
+                kind,
+                observationId,
+                isGenerated,
+                baseType,
+                lines.Skip(index).Take(selectedLength).Any(line => line.HasGeneratedOptionEvidence),
+                mechanicalIndex);
+            index += selectedLength;
+        }
+    }
+
+    private static UniqueModifierBlock BuildBlock(
+        string identityId,
+        string versionLabel,
+        IReadOnlyList<string> lines,
+        UniqueModifierBlockKind kind,
+        string observationId,
+        bool isGenerated,
+        string baseType,
+        bool hasGeneratedOptionEvidence,
+        MechanicalIndex mechanicalIndex)
+    {
+        var signatures = lines.Select(NormalizeSignature).ToArray();
+        var signature = string.Join("\n", signatures);
+        var resolution = mechanicalIndex.Resolve(lines, baseType, hasGeneratedOptionEvidence);
+        var candidates = resolution.Candidates;
+        var statVectors = candidates
+            .Select(candidate => string.Join('\u001f', candidate.StatIds))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var status = candidates.Count switch
+        {
+            0 => UniqueModifierMechanicalMappingStatus.Unsupported,
+            1 => UniqueModifierMechanicalMappingStatus.Exact,
+            _ when statVectors.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
+        };
+        return new UniqueModifierBlock
+        {
+            Id = StableId("unique-block", identityId, versionLabel, kind.ToString(), signature),
+            Kind = kind,
+            Lines = lines,
+            CanonicalSignatures = signatures,
+            MechanicalMapping = new UniqueModifierMechanicalMapping
+            {
+                Status = status,
+                ModifierIds = candidates.Select(candidate => candidate.ModifierId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray(),
+                StatIds = statVectors.Length == 1 ? candidates[0].StatIds : [],
+                DiagnosticCode = status switch
+                {
+                    UniqueModifierMechanicalMappingStatus.Unsupported when isGenerated =>
+                        "UNIQUE_GENERATED_MECHANICS_NOT_FOUND",
+                    UniqueModifierMechanicalMappingStatus.Unsupported => "UNIQUE_MECHANICS_NOT_FOUND",
+                    UniqueModifierMechanicalMappingStatus.Ambiguous when resolution.UsedStrictEvidence =>
+                        "UNIQUE_MECHANICS_EXACT_CONFLICT",
+                    UniqueModifierMechanicalMappingStatus.Ambiguous => "UNIQUE_MECHANICS_CONFLICT",
+                    _ => null,
+                },
+                Diagnostic = status switch
+                {
+                    UniqueModifierMechanicalMappingStatus.Unsupported when isGenerated =>
+                        "No exact or safely equivalent Unique-generation RePoE translation matched this evaluated generated PoB source block.",
+                    UniqueModifierMechanicalMappingStatus.Unsupported =>
+                        "No exact Unique-generation evidence or broader RePoE stat-translation signature matched this PoB Unique source block.",
+                    UniqueModifierMechanicalMappingStatus.Ambiguous when resolution.UsedStrictEvidence =>
+                        "Exact Unique-generation text and value evidence matched conflicting RePoE mechanical stat vectors.",
+                    UniqueModifierMechanicalMappingStatus.Ambiguous =>
+                        "The PoB Unique line matched conflicting RePoE mechanical stat vectors.",
+                    _ => null,
+                },
+            },
+            SourceObservationIds = [observationId],
+        };
+    }
+
+    private static MechanicalIndex BuildMechanicalIndex(
+        IReadOnlyList<ModifierDefinition> modifiers,
+        IReadOnlyList<StatTranslationDefinition> translations,
+        IReadOnlyList<ItemBaseRecord> baseItems)
+    {
+        var translationByVector = translations
+            .GroupBy(translation => VectorKey(translation.StatIds), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var broadIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.OrdinalIgnoreCase);
+        var exactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
+        var dynamicPatterns = new List<DynamicMechanicalCandidate>();
+        foreach (var modifier in modifiers)
+        {
+            var statIds = modifier.Stats.OrderBy(stat => stat.Index)
+                .Select(stat => stat.StatId?.Trim())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray();
+            if (statIds.Length == 0)
+            {
+                continue;
+            }
+
+            if (translationByVector.TryGetValue(VectorKey(statIds), out var matches))
+            {
+                foreach (var translation in matches)
+                foreach (var variant in translation.Variants)
+                {
+                    if (variant.FormatLines.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var signatures = variant.FormatLines
+                        .Select(line => NormalizeSignature(Render(line, variant.ValueFormats)))
+                        .Where(signature => signature.Length > 0)
+                        .ToArray();
+                    var signature = string.Join("\n", signatures);
+                    if (signature.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    if (!broadIndex.TryGetValue(signature, out var candidates))
+                    {
+                        candidates = [];
+                        broadIndex.Add(signature, candidates);
+                    }
+                    candidates.Add(new MechanicalCandidate(modifier.Id!, statIds, modifier.Domain));
+                }
+            }
+
+            if (!string.Equals(
+                    modifier.SourceGenerationType?.Trim(),
+                    "unique",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var strictCandidate = new MechanicalCandidate(modifier.Id!, statIds, modifier.Domain);
+            foreach (var rendering in BuildStrictRenderings(
+                         modifier,
+                         translationByVector))
+            {
+                if (rendering.DynamicPatternText is not null)
+                {
+                    dynamicPatterns.Add(new DynamicMechanicalCandidate(
+                        strictCandidate,
+                        new Regex(
+                            $"\\A{rendering.DynamicPatternText}\\z",
+                            RegexOptions.CultureInvariant)));
+                    continue;
+                }
+
+                if (!exactIndex.TryGetValue(rendering.ExactText!, out var exactCandidates))
+                {
+                    exactCandidates = [];
+                    exactIndex.Add(rendering.ExactText!, exactCandidates);
+                }
+                exactCandidates.Add(strictCandidate);
+            }
+        }
+
+        return new MechanicalIndex(
+            FreezeIndex(broadIndex, StringComparer.OrdinalIgnoreCase),
+            FreezeIndex(exactIndex, StringComparer.Ordinal),
+            dynamicPatterns
+                .DistinctBy(candidate => string.Join(
+                    '\u001f',
+                    candidate.Candidate.ModifierId,
+                    candidate.Pattern.ToString()), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(candidate => candidate.Candidate.ModifierId, StringComparer.Ordinal)
+                .ToArray(),
+            baseItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Name) &&
+                    !string.IsNullOrWhiteSpace(item.Domain))
+                .GroupBy(item => item.Name!.Trim(), StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlySet<string>)group
+                        .Select(item => item.Domain!.Trim())
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.Ordinal));
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> FreezeIndex(
+        IReadOnlyDictionary<string, List<MechanicalCandidate>> source,
+        IEqualityComparer<string> comparer) => source.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<MechanicalCandidate>)pair.Value
+                .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                .ToArray(),
+            comparer);
+
+    private static IReadOnlyList<StrictRendering> BuildStrictRenderings(
+        ModifierDefinition modifier,
+        IReadOnlyDictionary<string, StatTranslationDefinition[]> translationsByVector)
+    {
+        var stats = modifier.Stats.OrderBy(stat => stat.Index).ToArray();
+        var groups = new List<IReadOnlyList<StrictRendering>>();
+        for (var position = 0; position < stats.Length;)
+        {
+            IReadOnlyList<StrictRendering> renderings = [];
+            var selectedLength = 0;
+            for (var length = stats.Length - position; length >= 1; length--)
+            {
+                var groupStats = stats.Skip(position).Take(length).ToArray();
+                if (!translationsByVector.TryGetValue(
+                        VectorKey(groupStats.Select(stat => stat.StatId!)),
+                        out var translations))
+                {
+                    continue;
+                }
+
+                renderings = translations
+                    .SelectMany(translation => translation.Variants
+                        .Where(variant => VariantContainsRanges(variant, groupStats))
+                        .Select(variant => TryCreateStrictRendering(variant, groupStats)))
+                    .Where(rendering => rendering is not null)
+                    .Select(rendering => rendering!)
+                    .DistinctBy(rendering => rendering.Key, StringComparer.Ordinal)
+                    .ToArray();
+                selectedLength = length;
+                break;
+            }
+
+            if (selectedLength == 0 || renderings.Count == 0)
+            {
+                return [];
+            }
+
+            groups.Add(renderings);
+            position += selectedLength;
+        }
+
+        IReadOnlyList<StrictRendering> combined = [StrictRendering.Static(string.Empty)];
+        foreach (var group in groups)
+        {
+            combined = combined.SelectMany(left => group.Select(right =>
+                    StrictRendering.Combine(left, right)))
+                .DistinctBy(rendering => rendering.Key, StringComparer.Ordinal)
+                .Take(64)
+                .ToArray();
+        }
+        return combined;
+    }
+
+    private static bool VariantContainsRanges(
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat> stats)
+    {
+        if (variant.Conditions.Count != stats.Count ||
+            variant.Conditions.Any(condition => condition.IsNegated))
+        {
+            return false;
+        }
+
+        var conditions = variant.Conditions
+            .GroupBy(condition => condition.Index)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var stat = stats[index];
+            if (!stat.MinValue.HasValue ||
+                !stat.MaxValue.HasValue ||
+                !conditions.TryGetValue(index, out var indexed) ||
+                indexed.Length != 1)
+            {
+                return false;
+            }
+            var minimum = stat.MinValue.GetValueOrDefault();
+            var maximum = stat.MaxValue.GetValueOrDefault();
+            if (indexed[0].MinValue is not null &&
+                    minimum < indexed[0].MinValue.GetValueOrDefault() ||
+                indexed[0].MaxValue is not null &&
+                    maximum > indexed[0].MaxValue.GetValueOrDefault())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static StrictRendering? TryCreateStrictRendering(
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat> stats)
+    {
+        if (variant.ValueFormats.Count != stats.Count ||
+            variant.IndexHandlers.Count != stats.Count)
+        {
+            return null;
+        }
+
+        var replacements = new Dictionary<int, StrictValue>();
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var handlers = variant.IndexHandlers
+                .Where(handler => handler.Index == index)
+                .ToArray();
+            if (handlers.Length != 1 ||
+                !TryCreateStrictValue(
+                    stats[index],
+                    variant.ValueFormats[index],
+                    handlers[0].Handlers,
+                    out var replacement))
+            {
+                return null;
+            }
+            replacements[index] = replacement;
+        }
+
+        var exactLines = new List<string>();
+        var patternLines = new List<string>();
+        var hasDynamicValue = false;
+        foreach (var sourceLine in variant.FormatLines)
+        {
+            var exactLine = sourceLine;
+            var pattern = Regex.Escape(sourceLine);
+            foreach (var replacement in replacements)
+            {
+                var placeholder = $"{{{replacement.Key}}}";
+                if (!sourceLine.Contains(placeholder, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (replacement.Value.IsDynamic)
+                {
+                    hasDynamicValue = true;
+                    exactLine = exactLine.Replace(placeholder, "<dynamic>", StringComparison.Ordinal);
+                    pattern = pattern.Replace(Regex.Escape(placeholder), "[^\\r\\n]+?", StringComparison.Ordinal);
+                }
+                else
+                {
+                    exactLine = exactLine.Replace(placeholder, replacement.Value.Text, StringComparison.Ordinal);
+                    pattern = pattern.Replace(
+                        Regex.Escape(placeholder),
+                        Regex.Escape(replacement.Value.Text),
+                        StringComparison.Ordinal);
+                }
+            }
+
+            if (UnresolvedPlaceholderPattern().IsMatch(exactLine))
+            {
+                return null;
+            }
+
+            exactLines.Add(NormalizeExactEvidence(exactLine));
+            patternLines.Add(NormalizePatternWhitespace(pattern));
+        }
+
+        var exactText = string.Join("\n", exactLines);
+        return hasDynamicValue
+            ? StrictRendering.Dynamic(string.Join("\\n", patternLines))
+            : StrictRendering.Static(exactText);
+    }
+
+    private static bool TryCreateStrictValue(
+        ModifierStat stat,
+        string format,
+        IReadOnlyList<string> handlers,
+        out StrictValue value)
+    {
+        value = default;
+        if (handlers.Count == 1 && handlers[0].Trim().StartsWith(
+                "display_indexable_",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            value = StrictValue.Dynamic;
+            return format.Trim() == "#";
+        }
+
+        if (format.Trim() is not ("#" or "+#") ||
+            !stat.MinValue.HasValue ||
+            !stat.MaxValue.HasValue ||
+            !TryProjectValue(stat.MinValue.Value, handlers, out var minimum) ||
+            !TryProjectValue(stat.MaxValue.Value, handlers, out var maximum))
+        {
+            return false;
+        }
+
+        if (minimum > maximum)
+        {
+            (minimum, maximum) = (maximum, minimum);
+        }
+        var prefix = format.Trim() == "+#" && minimum >= 0m ? "+" : string.Empty;
+        value = new StrictValue(
+            prefix + (minimum == maximum
+                ? FormatDecimal(minimum)
+                : $"({FormatDecimal(minimum)}-{FormatDecimal(maximum)})"),
+            IsDynamic: false);
+        return true;
+    }
+
+    private static bool TryProjectValue(
+        decimal source,
+        IReadOnlyList<string> handlers,
+        out decimal projected)
+    {
+        projected = source;
+        foreach (var rawHandler in handlers)
+        {
+            var handler = rawHandler.Trim().ToLowerInvariant();
+            projected = handler switch
+            {
+                "" => projected,
+                "negate" => -projected,
+                "double" => projected * 2m,
+                "negate_and_double" => -projected * 2m,
+                "divide_by_one_hundred" or
+                    "divide_by_one_hundred_2dp" or
+                    "divide_by_one_hundred_2dp_if_required" => projected / 100m,
+                "old_leech_percent" => projected / 5m,
+                "old_leech_permyriad" => projected / 500m,
+                _ => decimal.MinValue,
+            };
+            if (projected == decimal.MinValue)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static string FormatDecimal(decimal value) =>
+        value.ToString("0.############################", CultureInfo.InvariantCulture);
+
+    private static string NormalizeExactEvidence(string value) =>
+        WhitespacePattern().Replace(value.Trim(), " ");
+
+    private static string NormalizePatternWhitespace(string value) =>
+        Regex.Replace(value.Trim(), @"(?:\\ )+", @"\s+", RegexOptions.CultureInvariant);
+
+    private static bool TryParseSourceItem(string raw, out ParsedSourceItem item)
+    {
+        item = default!;
+        var lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToList();
+        while (lines.Count > 0 && (lines[0].StartsWith("Item Class:", StringComparison.Ordinal) ||
+            lines[0].StartsWith("Rarity:", StringComparison.Ordinal)))
+        {
+            lines.RemoveAt(0);
+        }
+        if (lines.Count < 2)
+        {
+            return false;
+        }
+
+        var name = StripDirectives(lines[0], out _);
+        var firstBaseType = StripDirectives(lines[1], out var firstBaseVariants);
+        if (name.Length == 0 || firstBaseType.Length == 0)
+        {
+            return false;
+        }
+
+        var baseTypes = new List<SourceBaseType>
+        {
+            new(firstBaseType, firstBaseVariants),
+        };
+        var contentStart = 2;
+        while (contentStart < lines.Count &&
+            VariantDirectivePattern().IsMatch(lines[contentStart]))
+        {
+            var baseType = StripDirectives(lines[contentStart], out var baseVariants);
+            if (baseType.Length == 0 || baseVariants.Count == 0)
+            {
+                break;
+            }
+            baseTypes.Add(new SourceBaseType(baseType, baseVariants));
+            contentStart++;
+        }
+
+        var variants = new List<SourceVariant>();
+        var effects = new List<SourceEffectLine>();
+        var implicitCount = 0;
+        for (var index = contentStart; index < lines.Count; index++)
+        {
+            var line = lines[index];
+            if (line.StartsWith("Variant:", StringComparison.Ordinal))
+            {
+                variants.Add(new SourceVariant(variants.Count + 1, line["Variant:".Length..].Trim()));
+                continue;
+            }
+            if (line.StartsWith("Implicits:", StringComparison.Ordinal) &&
+                int.TryParse(line["Implicits:".Length..].Trim(), NumberStyles.None,
+                    CultureInfo.InvariantCulture, out var parsedImplicitCount))
+            {
+                implicitCount = Math.Max(0, parsedImplicitCount);
+                continue;
+            }
+            if (IsMetadataLine(line))
+            {
+                continue;
+            }
+
+            var text = StripDirectives(line, out var selectedVariants);
+            if (text.Length > 0)
+            {
+                effects.Add(new SourceEffectLine(text, selectedVariants));
+            }
+        }
+
+        item = new ParsedSourceItem(name, baseTypes, variants, effects, implicitCount, null, UniqueItemKind.Unknown);
+        return true;
+    }
+
+    private static bool IsMetadataLine(string line)
+    {
+        string[] prefixes =
+        [
+            "Requires Level ", "LevelReq:", "League:", "Source:", "Limited to:",
+            "Has Alt Variant", "Selected Variant:", "Selected Alt Variant", "Requirements:",
+            "Level:", "Item Level:", "DropLevel:", "Sockets:", "Armour:", "Evasion Rating:",
+            "Energy Shield:", "Ward:", "Physical Damage:", "Critical Strike Chance:",
+            "Attacks per Second:", "Weapon Range:", "Shaper Item", "Elder Item", "Synthesised Item",
+        ];
+        return prefixes.Any(prefix => line.StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    private static string StripDirectives(string line, out IReadOnlyList<int> variants)
+    {
+        var selected = new List<int>();
+        foreach (Match match in VariantDirectivePattern().Matches(line))
+        {
+            foreach (var value in match.Groups[1].Value.Split(','))
+            {
+                if (int.TryParse(value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+                {
+                    selected.Add(index);
+                }
+            }
+        }
+        variants = selected;
+        return DirectivePattern().Replace(line, string.Empty).Trim();
+    }
+
+    internal static string NormalizeSignature(string value)
+    {
+        var normalized = RangePattern().Replace(value.Trim(), match =>
+            match.Groups["sign"].Value + "<number>");
+        normalized = NumberPattern().Replace(normalized, match =>
+            match.Groups["sign"].Value + "<number>");
+        normalized = WhitespacePattern().Replace(normalized, " ");
+        return normalized.Trim();
+    }
+
+    private static string Render(string format, IReadOnlyList<string> valueFormats)
+    {
+        var rendered = format;
+        for (var index = 0; index < valueFormats.Count; index++)
+        {
+            var replacement = valueFormats[index] == "+#" ? "+<number>" : "<number>";
+            rendered = rendered.Replace($"{{{index}}}", replacement, StringComparison.Ordinal);
+        }
+        return rendered;
+    }
+
+    private static UniqueItemKind ClassifyKind(string name) =>
+        name.StartsWith("Replica ", StringComparison.Ordinal)
+            ? UniqueItemKind.Replica
+            : name.StartsWith("Foulborn ", StringComparison.Ordinal)
+                ? UniqueItemKind.FoulbornObserved
+                : UniqueItemKind.Ordinary;
+
+    private static UniqueItemVersionRole ClassifyVersionRole(string label) =>
+        label.Equals("Current", StringComparison.OrdinalIgnoreCase)
+            ? UniqueItemVersionRole.Current
+            : label.StartsWith("Pre ", StringComparison.OrdinalIgnoreCase) ||
+              label.Contains("Legacy", StringComparison.OrdinalIgnoreCase)
+                ? UniqueItemVersionRole.Historical
+                : UniqueItemVersionRole.Unknown;
+
+    private static bool TryReadString(JsonElement element, string property, out string value)
+    {
+        value = string.Empty;
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(property, out var propertyElement) &&
+            propertyElement.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(value = propertyElement.GetString()!);
+    }
+
+    private static string VectorKey(IEnumerable<string> values) => string.Join('\u001f', values);
+
+    private static string StableId(string prefix, params string[] values) =>
+        $"{prefix}:{Sha256(string.Join('\u001f', values))[..24]}";
+
+    private static string Sha256(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static PoBUniqueCatalogImportResult Failure(string code, string message) => new()
+    {
+        Diagnostics = [Diagnostic(code, ImportDiagnosticSeverity.Error, null, message)],
+    };
+
+    private static ImportDiagnostic Diagnostic(
+        string code, ImportDiagnosticSeverity severity, string? sourceRecordId, string message) =>
+        new(code, severity, sourceRecordId, message);
+
+    [GeneratedRegex(@"\{variant:([^}]+)\}", RegexOptions.CultureInvariant)]
+    private static partial Regex VariantDirectivePattern();
+
+    [GeneratedRegex(@"\{[^}]+\}", RegexOptions.CultureInvariant)]
+    private static partial Regex DirectivePattern();
+
+    [GeneratedRegex(@"(?<sign>[+-]?)\(\s*[+-]?\d+(?:[\.,]\d+)?\s*-\s*[+-]?\d+(?:[\.,]\d+)?\s*\)", RegexOptions.CultureInvariant)]
+    private static partial Regex RangePattern();
+
+    [GeneratedRegex(@"(?<![A-Za-z<])(?<sign>[+-]?)\d+(?:[\.,]\d+)?", RegexOptions.CultureInvariant)]
+    private static partial Regex NumberPattern();
+
+    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex WhitespacePattern();
+
+    [GeneratedRegex(@"\{\d+\}", RegexOptions.CultureInvariant)]
+    private static partial Regex UnresolvedPlaceholderPattern();
+
+    private sealed record IdentityKey(string Name, UniqueItemKind Kind);
+    private sealed record SourceBaseType(string Text, IReadOnlyList<int> Variants);
+    private sealed record SourceVariant(int Index, string Label);
+    private sealed record SourceEffectLine(string Text, IReadOnlyList<int> Variants);
+    private sealed record SelectedEffectLine(string Text, bool HasGeneratedOptionEvidence);
+    private sealed record VersionSpec(
+        string Label,
+        UniqueItemVersionRole Role,
+        int? VariantIndex,
+        string BaseType);
+    private sealed record MechanicalCandidate(
+        string ModifierId,
+        IReadOnlyList<string> StatIds,
+        string? Domain);
+    private sealed record MechanicalResolution(
+        IReadOnlyList<MechanicalCandidate> Candidates,
+        bool UsedStrictEvidence);
+    private sealed record DynamicMechanicalCandidate(
+        MechanicalCandidate Candidate,
+        Regex Pattern);
+    private readonly record struct StrictValue(string Text, bool IsDynamic)
+    {
+        public static StrictValue Dynamic => new(string.Empty, IsDynamic: true);
+    }
+    private sealed record StrictRendering(string? ExactText, string? DynamicPatternText)
+    {
+        public string Key => ExactText ?? DynamicPatternText!;
+
+        public static StrictRendering Static(string text) => new(text, null);
+
+        public static StrictRendering Dynamic(string patternText) => new(null, patternText);
+
+        public static StrictRendering Combine(StrictRendering left, StrictRendering right)
+        {
+            if (left.DynamicPatternText is null && right.DynamicPatternText is null)
+            {
+                return Static(Join(left.ExactText!, right.ExactText!));
+            }
+
+            var leftPattern = left.DynamicPatternText ?? Regex.Escape(left.ExactText!);
+            var rightPattern = right.DynamicPatternText ?? Regex.Escape(right.ExactText!);
+            return Dynamic(Join(leftPattern, rightPattern));
+        }
+
+        private static string Join(string left, string right) => left.Length == 0
+            ? right
+            : right.Length == 0
+                ? left
+                : left + "\n" + right;
+    }
+    private sealed class MechanicalIndex(
+        IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> broad,
+        IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> exact,
+        IReadOnlyList<DynamicMechanicalCandidate> dynamic,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains)
+    {
+        public bool HasMatch(
+            IReadOnlyList<string> lines,
+            string baseType,
+            bool hasGeneratedOptionEvidence) =>
+            Resolve(lines, baseType, hasGeneratedOptionEvidence).Candidates.Count > 0;
+
+        public MechanicalResolution Resolve(
+            IReadOnlyList<string> lines,
+            string baseType,
+            bool hasGeneratedOptionEvidence)
+        {
+            var exactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
+            var staticStrict = Array.Empty<MechanicalCandidate>();
+            if (exact.TryGetValue(exactText, out var staticMatches))
+            {
+                staticStrict = staticMatches
+                    .Where(candidate => IsDomainCompatible(candidate, baseType))
+                    .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                    .ToArray();
+            }
+            var dynamicStrict = dynamic
+                .Where(candidate => candidate.Pattern.IsMatch(exactText))
+                .Select(candidate => candidate.Candidate)
+                .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                .Where(candidate => IsDomainCompatible(candidate, baseType))
+                .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                .ToArray();
+            if (hasGeneratedOptionEvidence && dynamicStrict.Length > 0)
+            {
+                return new MechanicalResolution(dynamicStrict, UsedStrictEvidence: true);
+            }
+            if (staticStrict.Length > 0)
+            {
+                return new MechanicalResolution(staticStrict, UsedStrictEvidence: true);
+            }
+            if (dynamicStrict.Length > 0)
+            {
+                return new MechanicalResolution(dynamicStrict, UsedStrictEvidence: true);
+            }
+
+            var signature = string.Join("\n", lines.Select(NormalizeSignature));
+            return new MechanicalResolution(
+                broad.GetValueOrDefault(signature) ?? [],
+                UsedStrictEvidence: false);
+        }
+
+        private bool IsDomainCompatible(MechanicalCandidate candidate, string baseType)
+        {
+            if (!baseDomains.TryGetValue(baseType.Trim(), out var domains))
+            {
+                return true;
+            }
+            return !string.IsNullOrWhiteSpace(candidate.Domain) &&
+                domains.Contains(candidate.Domain.Trim());
+        }
+    }
+    private sealed record ParsedSourceItem(
+        string Name,
+        IReadOnlyList<SourceBaseType> BaseTypes,
+        IReadOnlyList<SourceVariant> Variants,
+        IReadOnlyList<SourceEffectLine> EffectLines,
+        int ImplicitCount,
+        string? ObservationId,
+        UniqueItemKind Kind,
+        bool IsGenerated = false);
+}

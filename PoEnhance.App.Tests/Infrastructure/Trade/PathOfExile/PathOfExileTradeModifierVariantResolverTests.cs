@@ -315,7 +315,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
     }
 
     [Fact]
-    public void Apply_ExactSourceWithoutProjectableBoundsRemainsAValidPresenceSearch()
+    public void Apply_ExactSourceWithoutProjectableBoundsIsNotSelectableAsPresence()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -338,10 +338,43 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
         var option = Assert.Single(result.FilterVariants);
         Assert.Equal("Explicit", option.Label);
         Assert.Equal("explicit.unsupported", result.ProviderStatId);
+        Assert.False(result.IsSearchable);
+        Assert.Contains("incompatible numeric semantics", result.NotSearchableReason);
         Assert.False(result.SupportsValueBounds);
         Assert.Null(result.RequestedMinimum);
         Assert.Null(result.RequestedMaximum);
         Assert.Equal("Provider confirmation required.", result.ValueBoundsUnsupportedReason);
+    }
+
+    [Fact]
+    public void Apply_ExactProviderPresenceConvertsUnsupportedSourceToPresenceOnly()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.presence", "Hits are always Critical Strikes", "Explicit"),
+        ]);
+        var component = Component() with
+        {
+            OriginalText = "Hits are always Critical Strikes",
+            CanonicalSignature = "Hits are always Critical Strikes",
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.Unsupported,
+            ObservedNumericValues = [],
+            CanonicalNumericValues = [],
+            RequestedMinimum = null,
+            ValueBoundsUnsupportedReason = "Provider confirmation required.",
+        };
+
+        var result = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.presence"));
+
+        Assert.True(result.IsSearchable);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
+        Assert.False(result.SupportsValueBounds);
+        Assert.Null(result.RequestedMinimum);
+        Assert.Null(result.RequestedMaximum);
     }
 
     [Fact]

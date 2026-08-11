@@ -55,6 +55,11 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(providerStat);
 
+        if (TryGetExactFixedLiteralValue(component, providerStat, out _))
+        {
+            return true;
+        }
+
         var projectedTemplates = ProjectedLookupTemplates(component);
         return projectedTemplates.Contains(providerStat.LookupTemplate, StringComparer.Ordinal) &&
             (HasSingleNegateProjection(component) &&
@@ -70,9 +75,33 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(providerStat);
 
+        if (TryGetExactFixedLiteralValue(component, providerStat, out var exactValue))
+        {
+            return new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                Minimum = exactValue,
+                Maximum = exactValue,
+                ProjectionKind = "ExactFixedLiteralScalar",
+            };
+        }
+
         if (CanProjectSemanticBridge(component, providerStat) &&
             HasSingleNegateProjection(component))
         {
+            if (component.CanonicalNumericValues.Count == 1)
+            {
+                return new PathOfExileTradeProviderBoundProjection
+                {
+                    IsFaithful = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    Minimum = component.RequestedMinimum,
+                    Maximum = component.RequestedMaximum,
+                    ProjectionKind = "CanonicalNegatedScalar",
+                };
+            }
+
             return new PathOfExileTradeProviderBoundProjection
             {
                 IsFaithful = true,
@@ -122,6 +151,18 @@ internal static partial class PathOfExileTradeModifierBoundProjector
 
         var providerArity = PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
             providerStat.Text);
+        if (TryGetExactFixedLiteralValue(component, providerStat, out var exactValue))
+        {
+            return component with
+            {
+                SupportsValueBounds = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                RequestedMinimum = exactValue,
+                RequestedMaximum = exactValue,
+                ValueBoundsUnsupportedReason = null,
+            };
+        }
+
         if (component.ValueBoundShape == ModifierBoundShape.Unsupported &&
             component.ObservedNumericValues.Count == 2 &&
             providerArity == 2 &&
@@ -193,6 +234,41 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         component.ProviderFallbackNumericValues.Count == 1 &&
         component.ProviderFallbackNumericValues[0] == 1m;
 
+    private static bool TryGetExactFixedLiteralValue(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out decimal value)
+    {
+        value = default;
+        if (component.ValueBoundShape != ModifierBoundShape.Scalar ||
+            component.CanonicalNumericValues.Count != 1 ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 0)
+        {
+            return false;
+        }
+
+        var hasMechanicallyRetainedFixedSignature = component.ProviderSearchSignatures.Any(signature =>
+        {
+            var providerTemplate = signature
+                .Replace("+<number>", "+#", StringComparison.Ordinal)
+                .Replace("-<number>", "-#", StringComparison.Ordinal)
+                .Replace("<number>", "#", StringComparison.Ordinal);
+            return PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerTemplate) == 0 &&
+                FixedNumericLiteralRegex().IsMatch(providerTemplate) &&
+                string.Equals(
+                    PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(providerTemplate),
+                    providerStat.LookupTemplate,
+                    StringComparison.Ordinal);
+        });
+        if (!hasMechanicallyRetainedFixedSignature)
+        {
+            return false;
+        }
+
+        value = component.CanonicalNumericValues[0];
+        return true;
+    }
+
     private static string Pluralize(string noun) =>
         noun.EndsWith('s') ? noun : $"{noun}s";
 
@@ -206,6 +282,9 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         @"\ban additional (?<noun>[A-Za-z]+)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex SingularAdditionalRegex();
+
+    [GeneratedRegex(@"(?<![\w#])[+-]?\d+(?:\.\d+)?(?![\w#])", RegexOptions.CultureInvariant)]
+    private static partial Regex FixedNumericLiteralRegex();
 }
 
 internal sealed record PathOfExileTradeProviderBoundProjection

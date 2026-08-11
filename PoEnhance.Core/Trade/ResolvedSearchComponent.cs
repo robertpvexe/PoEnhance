@@ -16,6 +16,12 @@ public sealed record ResolvedSearchComponent
 
     public string OriginalText { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Optional display-only text derived from catalog-backed export cleanup. The original
+    /// clipboard text remains authoritative in <see cref="OriginalText"/> and provenance.
+    /// </summary>
+    public string? PresentationText { get; init; }
+
     public string CanonicalSignature { get; init; } = string.Empty;
 
     public ParsedModifierKind ParsedKind { get; init; }
@@ -61,6 +67,20 @@ public sealed record ResolvedSearchComponent
     public string? ResolvedModifierName { get; init; }
 
     public IReadOnlyList<string> ResolvedStatIds { get; init; } = [];
+
+    public IReadOnlyList<ModifierLocality> ResolvedStatLocalities { get; init; } = [];
+
+    /// <summary>
+    /// Provider-neutral, mechanically backed renderings that may be used for provider
+    /// candidate discovery. They are evidence inputs, not provider identities.
+    /// </summary>
+    public IReadOnlyList<string> ProviderSearchSignatures { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueCatalogBlockIds { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueSourceObservationIds { get; init; } = [];
+
+    public string? UniqueResolutionDiagnosticCode { get; init; }
 
     public bool IsSearchable { get; init; }
 

@@ -872,6 +872,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             if (retainedCandidates.Length == component.ProviderStatAlternativeIds.Count &&
                 retainedCandidates.Length > 1)
             {
+                if (HasExactUniqueCatalogBlockProof(component))
+                {
+                    return PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
+                        component,
+                        retainedCandidates);
+                }
+
                 return PathOfExileTradeModifierVariantResolver.Apply(
                     component,
                     catalog,
@@ -896,7 +903,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             HasExpectedSpecialProviderKind(component, previouslyResolvedEntry))
         {
             if (component.ParsedKind == ParsedModifierKind.Unique &&
-                component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact)
+                (component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
+                    HasExactUniqueCatalogBlockProof(component)))
             {
                 return PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
                     component,
@@ -1013,6 +1021,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         {
             return component with
             {
+                IsSearchable = false,
+                NotSearchableReason = component.NotSearchableReason ??
+                    "This modifier is not recognized by the current GameData.",
                 ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
                 ProviderDiagnosticCode = PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
             };
@@ -1072,17 +1083,6 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
         }
         var exactCandidates = ExactCandidates(match);
-        if (hasProviderOwnedUniqueProof &&
-            providerStatus is
-                SearchComponentProviderResolutionStatus.Exact or
-                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
-            exactCandidates.Any(candidate => !string.Equals(
-                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
-                "explicit",
-                StringComparison.Ordinal)))
-        {
-            providerStatus = SearchComponentProviderResolutionStatus.Unsupported;
-        }
         var expectedSpecialProviderKind = ExpectedSpecialProviderKind(component);
         if (expectedSpecialProviderKind is not null &&
             providerStatus is
@@ -1101,15 +1101,24 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
         var resolved = component with
         {
-            StatMappingProof = hasProviderOwnedUniqueProof && providerStatus == SearchComponentProviderResolutionStatus.Exact
+            StatMappingProof = hasProviderOwnedUniqueProof && providerStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
                 ? ModifierStatMappingProofStatus.ProviderExact
                 : component.StatMappingProof,
-            IsSearchable = component.IsSearchable ||
-                hasProviderOwnedUniqueProof && providerStatus == SearchComponentProviderResolutionStatus.Exact,
-            NotSearchableReason = hasProviderOwnedUniqueProof &&
-                providerStatus == SearchComponentProviderResolutionStatus.Exact
+            IsSearchable = component.ParsedKind == ParsedModifierKind.Unique
+                ? hasProviderOwnedUniqueProof &&
+                    providerStatus is SearchComponentProviderResolutionStatus.Exact or
+                        SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                : component.IsSearchable,
+            NotSearchableReason = component.ParsedKind == ParsedModifierKind.Unique
+                ? hasProviderOwnedUniqueProof &&
+                    providerStatus is SearchComponentProviderResolutionStatus.Exact or
+                        SearchComponentProviderResolutionStatus.ExactEquivalentSet
                     ? null
-                    : component.NotSearchableReason,
+                    : component.NotSearchableReason ??
+                        "Trade does not provide a safe equivalent for this modifier."
+                : component.NotSearchableReason,
             ProviderResolutionStatus = providerStatus,
             ProviderStatId = providerStatus == SearchComponentProviderResolutionStatus.Exact
                 ? exactCandidates.SingleOrDefault()?.StatId
@@ -1145,21 +1154,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         ResolvedSearchComponent applied;
         if (hasProviderOwnedUniqueProof)
         {
-            if (exactCandidates.Count != 1)
-            {
-                return resolved with
-                {
-                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
-                    ProviderStatAlternativeIds = [],
-                    ProviderDiagnosticCode =
-                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
-                    ProviderDiagnosticMessage =
-                        "Provider-owned Unique modifiers require one exact provider identity.",
-                };
-            }
             applied = PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
                 resolved,
-                exactCandidates[0]);
+                exactCandidates);
         }
         else if (component.IsFractured)
         {
@@ -1194,8 +1191,12 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 Sources = applied.Sources.Select(source => source with
                 {
                     StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
-                    ProviderIdentity = PathOfExileTradeProviderIdentity.Create(exactCandidates[0].StatId),
-                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                    ProviderIdentity = exactCandidates.Count == 1
+                        ? PathOfExileTradeProviderIdentity.Create(exactCandidates[0].StatId)
+                        : null,
+                    ProviderResolutionStatus = exactCandidates.Count == 1
+                        ? SearchComponentProviderResolutionStatus.Exact
+                        : SearchComponentProviderResolutionStatus.ExactEquivalentSet,
                 }).ToArray(),
             }
             : applied;
@@ -1604,9 +1605,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             !string.IsNullOrWhiteSpace(uniqueIdentity.CanonicalType) &&
             component.ParsedKind == ParsedModifierKind.Unique &&
             component.UniqueOrigin is ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
-            component.SourceLineIndex >= 0 &&
-            !component.OriginalText.Contains(Environment.NewLine, StringComparison.Ordinal) &&
-            !string.IsNullOrWhiteSpace(component.CanonicalSignature) &&
+            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
+            (HasExactUniqueCatalogBlockProof(component) ||
+                component.SourceLineIndex >= 0 &&
+                !component.OriginalText.Contains(Environment.NewLine, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(component.CanonicalSignature)) &&
             (component.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn ||
                 uniqueIdentity.Foulborn == TradeTriState.Yes);
     }
@@ -1741,11 +1744,22 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static bool HasExactSourceModifierIdentity(ResolvedSearchComponent component)
     {
-        return !string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
+        return HasExactUniqueCatalogBlockProof(component) ||
+            !string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
             component.Sources.Count > 0 &&
             component.Sources.All(source =>
                 !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
                 source.ResolvedStatIds.Count > 0);
+    }
+
+    private static bool HasExactUniqueCatalogBlockProof(ResolvedSearchComponent component)
+    {
+        return component.ParsedKind == ParsedModifierKind.Unique &&
+            component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            component.UniqueCatalogBlockIds.Count > 0 &&
+            component.UniqueSourceObservationIds.Count > 0 &&
+            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
+            component.ResolvedStatIds.Count > 0;
     }
 
     private static bool HasExactBaseImplicitProviderProvenance(ResolvedSearchComponent component)
@@ -1795,6 +1809,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             HasExactGameDataSourceProof = HasExactSourceModifierIdentity(component),
             ResolvedModifierName = component.ResolvedModifierName,
             InternalStatIds = component.ResolvedStatIds,
+            InternalStatLocalities = component.ResolvedStatLocalities,
         };
     }
 

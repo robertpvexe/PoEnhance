@@ -12,6 +12,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
 {
     private static readonly Lazy<GameDataCatalog> GameData = new(LoadGameData);
     private static readonly PathOfExileTradeStatCatalog TradeCatalog = CreateTradeCatalog();
+    private static readonly PathOfExileTradeItemCatalog TradeItemCatalog = CreateTradeItemCatalog();
     private static readonly PathOfExileTradeSelectedModifierMapper SelectedMapper = new();
     private static readonly MethodInfo InteractionReadyMethod = typeof(PriceCheckerSearchController)
         .GetMethod("IsModifierInteractionReady", BindingFlags.Static | BindingFlags.NonPublic) ??
@@ -104,6 +105,88 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         AssertSelectionMapsExactly(runtime.ProviderDraft, accuracy, lightRadius);
     }
 
+    [Fact]
+    public void ResolveRawCopiedItem_ProgenesisProjectsNegateAndFixedLiteralValues()
+    {
+        var runtime = Resolve(ProgenesisText);
+        var charges = FindComponent(runtime.ProviderDraft, "14(20-10)% reduced Charges per use");
+        var lifeLoss = FindComponent(
+            runtime.ProviderDraft,
+            "When Hit during effect, 25% of Life loss from Damage taken occurs over 4 seconds instead");
+
+        AssertExactSelectable(charges, "explicit.stat_388617051");
+        Assert.Equal([14m], charges.ObservedNumericValues);
+        Assert.Equal([-14m], charges.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Maximum, charges.DefaultBoundDirection);
+        Assert.Null(charges.RequestedMinimum);
+        Assert.Equal(-14m, charges.RequestedMaximum);
+        var chargesFilter = MapSingle(runtime.ProviderDraft, charges);
+        Assert.Null(chargesFilter.Minimum);
+        Assert.Equal(-14m, chargesFilter.Maximum);
+
+        AssertExactSelectable(lifeLoss, "explicit.stat_41860024");
+        Assert.Equal([25m], lifeLoss.ObservedNumericValues);
+        Assert.Equal(25m, lifeLoss.RequestedMinimum);
+        Assert.Null(lifeLoss.RequestedMaximum);
+        var lifeLossFilter = MapSingle(runtime.ProviderDraft, lifeLoss);
+        Assert.Equal(25m, lifeLossFilter.Minimum);
+        Assert.Null(lifeLossFilter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_ReplicaAlberonsPreservesVvoValuesAndPresence()
+    {
+        var runtime = Resolve(ReplicaAlberonsText);
+        var chaosDamage = FindComponent(
+            runtime.ProviderDraft,
+            "Adds 1 to 82(80) Chaos Damage to Attacks per 80 Strength");
+        var presence = FindComponent(runtime.ProviderDraft, "Cannot deal non-Chaos Damage");
+
+        AssertExactSelectable(chaosDamage, "explicit.stat_117885424");
+        Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, chaosDamage.ValueBoundShape);
+        Assert.Equal([1m, 82m], chaosDamage.ObservedNumericValues);
+        Assert.Equal(41.5m, chaosDamage.RequestedMinimum);
+        var chaosFilter = MapSingle(runtime.ProviderDraft, chaosDamage);
+        Assert.Equal(41.5m, chaosFilter.Minimum);
+        Assert.Null(chaosFilter.Maximum);
+
+        AssertExactSelectable(presence, "explicit.stat_3180152291");
+        Assert.Equal(ModifierBoundShape.PresenceOnly, presence.ValueBoundShape);
+        Assert.False(presence.SupportsValueBounds);
+        var presenceFilter = MapSingle(runtime.ProviderDraft, presence);
+        Assert.Null(presenceFilter.Minimum);
+        Assert.Null(presenceFilter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_SquireSocketCountUsesExactProviderBounds()
+    {
+        var runtime = Resolve(SquireText);
+        var sockets = FindComponent(runtime.ProviderDraft, "Has 3 Sockets");
+
+        AssertExactSelectable(sockets, "explicit.stat_4077843608");
+        Assert.Equal([3m], sockets.ObservedNumericValues);
+        Assert.Equal(3m, sockets.RequestedMinimum);
+        Assert.Equal(3m, sockets.RequestedMaximum);
+        var filter = MapSingle(runtime.ProviderDraft, sockets);
+        Assert.Equal(3m, filter.Minimum);
+        Assert.Equal(3m, filter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_FoulbornMagebloodPresenceHasNoFakeBounds()
+    {
+        var runtime = Resolve(FoulbornMagebloodText);
+        var presence = FindComponent(runtime.ProviderDraft, "Magic Utility Flasks cannot be Used");
+
+        AssertExactSelectable(presence, "explicit.stat_3986704288");
+        Assert.Equal(ModifierBoundShape.PresenceOnly, presence.ValueBoundShape);
+        Assert.False(presence.SupportsValueBounds);
+        var filter = MapSingle(runtime.ProviderDraft, presence);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
     private static RuntimeResult Resolve(string rawText)
     {
         var parsed = new ItemTextParser().Parse(rawText);
@@ -118,7 +201,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             sourceResolutions,
             GameData.Value);
         var draft = Assert.IsType<TradeSearchDraft>(draftResult.Draft);
-        var providerDraft = CreatePriceCheckService().ResolveProviderComponents(draft, TradeCatalog);
+        var uniqueIdentity = new PathOfExileTradeItemIdentityMapper()
+            .Map(draft, TradeItemCatalog)
+            .Identity;
+        var providerDraft = CreatePriceCheckService().ResolveProviderComponents(
+            draft,
+            TradeCatalog,
+            uniqueIdentity);
         return new RuntimeResult(parsed, baseResolution, sourceResolutions, providerDraft);
     }
 
@@ -127,8 +216,14 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
         Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
         Assert.Equal(providerStatId, component.ProviderStatId);
-        Assert.True(component.IsSearchable);
-        Assert.True(IsInteractionReady(component));
+        Assert.True(
+            component.IsSearchable,
+            $"{component.NotSearchableReason} | {component.UniqueResolutionDiagnosticCode}");
+        Assert.True(
+            IsInteractionReady(component),
+            $"blocks={component.UniqueCatalogBlockIds.Count}; sources={component.UniqueSourceObservationIds.Count}; " +
+            $"proof={component.StatMappingProof}; diagnostic={component.UniqueResolutionDiagnosticCode}; " +
+            $"bounds={component.SupportsValueBounds}/{component.CanonicalNumericValues.Count}");
     }
 
     private static void AssertSelectionMapsExactly(
@@ -157,6 +252,27 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             mapping.Filters.Select(filter => filter.StatId).OrderBy(id => id, StringComparer.Ordinal));
     }
 
+    private static PathOfExileTradeSelectedModifierFilter MapSingle(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component)
+    {
+        var selectedDraft = draft with
+        {
+            ModifierFilters = draft.ModifierFilters
+                .Select(candidate => candidate with
+                {
+                    IsSelected = string.Equals(
+                        candidate.ComponentId,
+                        component.ComponentId,
+                        StringComparison.Ordinal),
+                })
+                .ToArray(),
+        };
+        var mapping = SelectedMapper.Map(selectedDraft, TradeCatalog);
+        Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        return Assert.Single(mapping.Filters);
+    }
+
     private static ResolvedSearchComponent FindComponent(TradeSearchDraft draft, string originalText)
     {
         return Assert.Single(draft.ModifierFilters, component =>
@@ -174,7 +290,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             new PathOfExileTradeQueryBuilder(),
             new PathOfExileTradeStatMatcher(),
             new StaticStatProvider(TradeCatalog),
-            new EmptyItemProvider(),
+            new StaticItemProvider(TradeItemCatalog),
             SelectedMapper,
             new PathOfExileTradeItemIdentityMapper(),
             new NoSearchClient(),
@@ -190,6 +306,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Entry(2, "implicit.stat_2250533757", "#% increased Movement Speed", "implicit"),
             Entry(3, "fractured.stat_624954515", "#% increased Global Accuracy Rating", "fractured"),
             Entry(4, "fractured.stat_1263695895", "#% increased Light Radius", "fractured"),
+            Entry(5, "explicit.stat_388617051", "#% increased Charges per use", "explicit"),
+            Entry(6, "explicit.stat_1256719186", "#% increased Duration", "explicit"),
+            Entry(7, "explicit.stat_41860024", "When Hit during effect, #% of Life loss from Damage taken occurs over 4 seconds instead", "explicit"),
+            Entry(8, "explicit.stat_117885424", "Adds # to # Chaos Damage to Attacks per 80 Strength", "explicit"),
+            Entry(9, "explicit.stat_3180152291", "Cannot deal non-Chaos Damage", "explicit"),
+            Entry(10, "explicit.stat_4077843608", "Has 1 Socket", "explicit"),
+            Entry(11, "explicit.stat_3986704288", "Magic Utility Flasks cannot be Used", "explicit"),
         ]);
     }
 
@@ -203,6 +326,36 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Id = id,
             Text = text,
             Type = type,
+        };
+    }
+
+    private static PathOfExileTradeItemCatalog CreateTradeItemCatalog()
+    {
+        return new PathOfExileTradeItemCatalog(
+        [
+            UniqueItem(0, "Replica Dragonfang's Flight", "Onyx Amulet", "accessory"),
+            UniqueItem(1, "Torchoak Step", "Antique Greaves", "armour"),
+            UniqueItem(2, "Progenesis", "Amethyst Flask", "flask"),
+            UniqueItem(3, "Replica Alberon's Warpath", "Soldier Boots", "armour"),
+            UniqueItem(4, "The Squire", "Elegant Round Shield", "armour"),
+            UniqueItem(5, "Mageblood", "Heavy Belt", "accessory"),
+        ]);
+    }
+
+    private static PathOfExileTradeItemEntry UniqueItem(
+        int order,
+        string name,
+        string type,
+        string groupId)
+    {
+        return new PathOfExileTradeItemEntry
+        {
+            ProviderOrder = order,
+            GroupId = groupId,
+            GroupLabel = groupId,
+            Name = name,
+            Type = type,
+            IsUnique = true,
         };
     }
 
@@ -246,11 +399,12 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Task.FromResult(PathOfExileTradeStatCatalogProviderResult.Success(catalog));
     }
 
-    private sealed class EmptyItemProvider : IPathOfExileTradeItemCatalogProvider
+    private sealed class StaticItemProvider(PathOfExileTradeItemCatalog catalog) :
+        IPathOfExileTradeItemCatalogProvider
     {
         public Task<PathOfExileTradeItemCatalogProviderResult> GetCatalogAsync(
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PathOfExileTradeItemCatalogProviderResult());
+            CancellationToken cancellationToken = default) => Task.FromResult(
+            PathOfExileTradeItemCatalogProviderResult.Success(catalog));
     }
 
     private sealed class NoSearchClient : IPathOfExileTradeSearchClient
@@ -325,5 +479,149 @@ Item Level: 85
 10% increased Light Radius
 --------
 Fractured Item
+""";
+
+    private const string ProgenesisText = """
+Item Class: Utility Flasks
+Rarity: Unique
+Progenesis
+Amethyst Flask
+--------
+Quality: +20% (augmented)
+Lasts 10,50 (augmented) Seconds
+Consumes 30 (augmented) of 65 Charges on use
+Currently has 65 Charges
+Intangibility: 8%
++35% to Chaos Resistance
+--------
+Requirements:
+Level: 60
+--------
+Item Level: 84
+--------
+Used when Charges reach full (enchant)
+--------
+{ Unique Modifier }
+14(20-10)% reduced Charges per use
+{ Unique Modifier }
+34(-35-35)% increased Duration
+{ Unique Modifier }
+When Hit during effect, 25% of Life loss from Damage taken occurs over 4 seconds instead
+--------
+They were bred in a cosmic ocean of raw creation.
+Feasting and drinking of the milk of the mother,
+they fought to the death for every last drop.
+--------
+Right click to drink. Can only hold charges while in belt. Refills as you kill monsters.
+--------
+Foil Unique (Celestial Quartz)
+""";
+
+    private const string ReplicaAlberonsText = """
+Item Class: Boots
+Rarity: Unique
+Replica Alberon's Warpath
+Soldier Boots
+--------
+Quality: +20% (augmented)
+Armour: 377 (augmented)
+Energy Shield: 22 (augmented)
+--------
+Requirements:
+Level: 70
+Str: 155
+Int: 47
+--------
+Sockets: R-W-W-R
+--------
+Item Level: 84
+--------
+{ Unique Modifier — Attribute }
+19(15-18)% increased Strength
+{ Unique Modifier — Defences, Armour }
++226(180-220) to Armour
+{ Unique Modifier — Chaos, Resistance }
++13(13-19)% to Chaos Resistance
+{ Unique Modifier — Speed }
+20(25)% increased Movement Speed
+{ Unique Modifier — Damage, Chaos }
+Cannot deal non-Chaos Damage
+{ Unique Modifier — Damage, Chaos, Attack }
+Adds 1 to 82(80) Chaos Damage to Attacks per 80 Strength
+--------
+"Starving test subject became completely incapable of exerting force.
+However, after being fed, he began to poison everything he touched..."
+--------
+Corrupted
+""";
+
+    private const string SquireText = """
+Item Class: Shields
+Rarity: Unique
+The Squire
+Elegant Round Shield
+--------
+Quality: +20% (augmented)
+Chance to Block: 30% (augmented)
+Armour: 420 (augmented)
+Evasion Rating: 420 (augmented)
+--------
+Requirements:
+Level: 76
+Str: 111
+Dex: 120
+--------
+Sockets: R-G-G
+--------
+Item Level: 84
+--------
+{ Implicit Modifier }
+120% increased Block Recovery
+--------
+{ Unique Modifier }
+Has 3 Sockets
+{ Unique Modifier — Gem }
++8(5-8)% to Quality of Socketed Support Gems
+{ Unique Modifier }
+Socketed Support Gems can also Support Skills from your Main Hand
+{ Unique Modifier — Defences, Armour, Evasion }
+107(100-150)% increased Armour and Evasion
+{ Unique Modifier }
++5(3-5)% Chance to Block
+--------
+Judge not the weak, for
+they empower the strong.
+""";
+
+    private const string FoulbornMagebloodText = """
+Item Class: Belts
+Rarity: Unique
+Foulborn Mageblood
+Heavy Belt
+--------
+Quality (Attribute Modifiers): +20% (augmented)
+--------
+Requirements:
+Level: 44
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Attribute  — 20% Increased }
++35(25-35) to Strength
+--------
+{ Unique Modifier — Attribute  — 20% Increased }
++49(30-50) to Dexterity
+{ Unique Modifier — Elemental, Fire, Resistance }
++25(15-25)% to Fire Resistance
+{ Unique Modifier — Elemental, Cold, Resistance }
++15(15-25)% to Cold Resistance
+{ Unique Modifier }
+Magic Utility Flasks cannot be Used
+{ Unique Modifier }
+Magic Utility Flask Effects cannot be removed
+{ Foulborn Unique Modifier }
+Rightmost 4(2-4) Magic Utility Flasks constantly apply their Flask Effects to you
+--------
+Rivers of power course through your veins.
 """;
 }

@@ -1694,8 +1694,7 @@ internal sealed class PriceCheckerSearchController
 
     private static bool IsImplicitPresentationModifier(ResolvedSearchComponent component) =>
         component.IsBaseImplicit ||
-        component.ParsedKind == ParsedModifierKind.Implicit ||
-        component.GenerationType == ModifierGenerationType.Implicit;
+        component.ParsedKind == ParsedModifierKind.Implicit;
 
     private PriceCheckerModifierViewModel CreateModifierRow(
         TradeSearchDraft draft,
@@ -1794,7 +1793,7 @@ internal sealed class PriceCheckerSearchController
         return new PriceCheckerModifierViewModel
         {
             SourceIndex = index,
-            Text = SafeModifierText(modifier.OriginalText),
+            Text = SafeModifierText(modifier.PresentationText ?? modifier.OriginalText),
             SectionLabel = FormatModifierSectionLabel(
                 sectionLabelOverride ?? SectionLabelWithSources(modifier),
                 requiresExactAvailability,
@@ -1895,9 +1894,16 @@ internal sealed class PriceCheckerSearchController
                     StringComparison.Ordinal);
         }
 
-        var hasExactGameDataProof =
+        var hasExactModifierProof =
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
+            modifier.ResolvedStatIds.Count > 0;
+        var hasExactUniqueCatalogBlockProof =
+            modifier.ParsedKind == ParsedModifierKind.Unique &&
+            modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            modifier.UniqueCatalogBlockIds.Count > 0 &&
+            modifier.UniqueSourceObservationIds.Count > 0 &&
+            string.IsNullOrWhiteSpace(modifier.UniqueResolutionDiagnosticCode) &&
             modifier.ResolvedStatIds.Count > 0;
         return modifier.ProviderResolutionStatus is
                 SearchComponentProviderResolutionStatus.Exact or
@@ -1905,7 +1911,8 @@ internal sealed class PriceCheckerSearchController
             modifier.IsSearchable &&
             HasResolvedProviderRepresentation(modifier) &&
             (modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
-                hasExactGameDataProof);
+                hasExactModifierProof ||
+                hasExactUniqueCatalogBlockProof);
     }
 
     private static bool IsModifierInteractionReady(ResolvedSearchComponent modifier)
@@ -1988,7 +1995,7 @@ internal sealed class PriceCheckerSearchController
             ParsedModifierKind.Suffix => "Suffix",
             ParsedModifierKind.Implicit when
                 modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
-                "Implicit (Corrupted)",
+                "Implicit",
             ParsedModifierKind.Implicit => "Implicit",
             _ => "modifier",
         };
@@ -2412,7 +2419,7 @@ internal sealed class PriceCheckerSearchController
         {
             ParsedModifierKind.Implicit when
                 modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
-                "Implicit (Corrupted)",
+                "Corrupted",
             ParsedModifierKind.Implicit => "Implicit",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",

@@ -1,6 +1,7 @@
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -63,6 +64,32 @@ public sealed class PathOfExileTradeItemIdentityMapperTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TradeTriState.No, result.Identity?.Foulborn);
+    }
+
+    [Fact]
+    public void Map_ResolvedFoundationIdentity_DrivesProviderNameAndFoulbornCriterion()
+    {
+        var draft = Draft("Foulborn Historical Presentation", "Tomahawk") with
+        {
+            UniqueItemResolution = new UniqueItemResolutionResult
+            {
+                Status = UniqueItemResolutionStatus.ExactIdentity,
+                Identity = new UniqueItemIdentity
+                {
+                    Id = "unique:moonbender",
+                    CanonicalName = "Moonbender's Wing",
+                    Kind = UniqueItemKind.Ordinary,
+                    BaseTypeEvidence = ["Tomahawk"],
+                },
+                IsFoulborn = true,
+            },
+        };
+
+        var result = Map(draft, Catalog(Unique("Moonbender's Wing", "Tomahawk", "weapon")));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Moonbender's Wing", result.Identity?.CanonicalName);
+        Assert.Equal(TradeTriState.Yes, result.Identity?.Foulborn);
     }
 
     [Theory]

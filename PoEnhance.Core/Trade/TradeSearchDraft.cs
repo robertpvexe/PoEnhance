@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PoEnhance.Core.Items.GameData;
 
 namespace PoEnhance.Core.Trade;
 
@@ -35,6 +36,8 @@ public sealed record TradeSearchDraft
     public IReadOnlyList<string> EldritchInfluences { get; init; } = [];
 
     public TradeItemVariantCriteria ItemVariantCriteria { get; init; } = new();
+
+    public UniqueItemResolutionResult? UniqueItemResolution { get; init; }
 
     public ImmutableArray<TradeSearchItemProperty> ItemProperties { get; init; } = [];
 

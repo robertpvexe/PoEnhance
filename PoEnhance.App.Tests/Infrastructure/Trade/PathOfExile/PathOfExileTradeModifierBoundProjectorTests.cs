@@ -51,6 +51,52 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
         Assert.Contains("presence-only", result.ValueBoundsUnsupportedReason);
     }
 
+    [Fact]
+    public void Project_FixedProviderTranslationSiblingUsesExactCopiedScalar()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.Project(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [3m],
+                CanonicalNumericValues = [3m],
+                ProviderSearchSignatures = ["Has 1 Socket", "Has <number> Sockets"],
+                RequestedMinimum = 3m,
+            },
+            Candidate("Has 1 Socket"));
+
+        Assert.True(result.SupportsValueBounds);
+        Assert.Equal(3m, result.RequestedMinimum);
+        Assert.Equal(3m, result.RequestedMaximum);
+    }
+
+    [Fact]
+    public void ProjectBounds_CanonicalNegatedScalarIsNotNegatedTwice()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "<number>% reduced Charges per use",
+                ProviderCanonicalSignature = "<number>% reduced Charges per use",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [14m],
+                CanonicalNumericValues = [-14m],
+                ValueBoundTranslationHandlers = [["negate"]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -14m,
+            },
+            Candidate("#% increased Charges per use"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Null(result.Minimum);
+        Assert.Equal(-14m, result.Maximum);
+        Assert.Equal("CanonicalNegatedScalar", result.ProjectionKind);
+    }
+
     private static ResolvedSearchComponent DamageRangeComponent(IReadOnlyList<decimal> values)
     {
         return new ResolvedSearchComponent

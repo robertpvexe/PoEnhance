@@ -272,6 +272,37 @@ internal static partial class ModifierBoundDefaults
             .ToArray();
     }
 
+    internal static IReadOnlyList<string> FindProviderSearchSignatures(
+        ModifierDefinition modifier,
+        IReadOnlyList<ModifierStat> stats,
+        GameDataCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(modifier);
+        ArgumentNullException.ThrowIfNull(stats);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (stats.Count == 0 || stats.Any(stat => string.IsNullOrWhiteSpace(stat.StatId)))
+        {
+            return [];
+        }
+
+        var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
+        return statIds
+            .SelectMany(catalog.FindStatTranslationsByStatId)
+            .Concat(catalog.FindStatTranslationsByStatIdGroup(statIds))
+            .DistinctBy(translation => translation.Id, StringComparer.Ordinal)
+            .Where(translation => translation.StatIds.SequenceEqual(
+                statIds,
+                StringComparer.Ordinal))
+            .SelectMany(translation => translation.Variants)
+            .Select(RenderCanonicalSignature)
+            .Where(signature => !string.IsNullOrWhiteSpace(signature))
+            .Select(signature => signature!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(signature => signature, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     internal static IReadOnlyList<decimal> ExtractObservedValues(string? source)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -410,21 +441,6 @@ internal static partial class ModifierBoundDefaults
         IReadOnlyList<ModifierStat> componentStats,
         string sourceLine)
     {
-        if (!TranslationVariantMatches(
-                translation,
-                variant,
-                translationStats,
-                componentStats) &&
-            !TranslationVariantMatchesOriginalRanges(
-                translation,
-                variant,
-                translationStats,
-                componentStats,
-                sourceLine))
-        {
-            return null;
-        }
-
         var allNumericIndexes = variant.ValueFormats
             .Select((format, index) => new { format, index })
             .Where(candidate => candidate.format is "#" or "+#")
@@ -482,43 +498,6 @@ internal static partial class ModifierBoundDefaults
             translationStats,
             componentStats);
         return componentNumericIndexes.Length == allNumericIndexes.Length;
-    }
-
-    private static bool TranslationVariantMatchesOriginalRanges(
-        StatTranslationDefinition translation,
-        StatTranslationVariant variant,
-        IReadOnlyList<ModifierStat?> translationStats,
-        IReadOnlyList<ModifierStat> componentStats,
-        string sourceLine)
-    {
-        if (translation.StatIds.Count != variant.ValueFormats.Count ||
-            translation.StatIds.Count != variant.Conditions.Count ||
-            translation.StatIds.Count != translationStats.Count)
-        {
-            return false;
-        }
-
-        var numericIndexes = NumericIndexesForComponent(variant, translationStats, componentStats);
-        var ranges = ExtractOriginalSourceRollRanges([sourceLine]);
-        if (numericIndexes.Length == 0 || ranges.Count != numericIndexes.Length)
-        {
-            return false;
-        }
-
-        for (var position = 0; position < numericIndexes.Length; position++)
-        {
-            var index = numericIndexes[position];
-            var range = ranges[position];
-            if (!VariantConditionMatches(
-                    variant.Conditions[index],
-                    range.Minimum,
-                    range.Maximum))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static int[] NumericIndexesForComponent(
@@ -646,7 +625,7 @@ internal static partial class ModifierBoundDefaults
             rendered = rendered.Replace($"{{{index}}}", replacement, StringComparison.Ordinal);
         }
 
-        return ModifierTextSignatureNormalizer.NormalizeLine(rendered);
+        return WhitespaceRegex().Replace(rendered.Trim(), " ");
     }
 
     private static bool IsDamageRange(
@@ -763,7 +742,7 @@ internal static partial class ModifierBoundDefaults
         IReadOnlyList<int> NumericIndexes,
         IReadOnlyList<decimal> ObservedValues);
 
-    [GeneratedRegex(@"(?<![\w#])(?<roll>[\+\-]?\d+(?:\.\d+)?)\(\s*[\+\-]?\d+(?:\.\d+)?\s*[-–—]\s*[\+\-]?\d+(?:\.\d+)?\s*\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\w#])(?<roll>[\+\-]?\d+(?:\.\d+)?)\(\s*[\+\-]?\d+(?:\.\d+)?(?:\s*[-–—]\s*[\+\-]?\d+(?:\.\d+)?)?\s*\)", RegexOptions.CultureInvariant)]
     private static partial Regex AttachedRangeRegex();
 
     [GeneratedRegex(@"(?<![\w#])[\+\-]?\d+(?:\.\d+)?\(\s*(?<minimum>[\+\-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<maximum>[\+\-]?\d+(?:\.\d+)?)\s*\)", RegexOptions.CultureInvariant)]
@@ -771,6 +750,9 @@ internal static partial class ModifierBoundDefaults
 
     [GeneratedRegex(@"(?<![\w#])[\+\-]?\d+(?:\.\d+)?(?![\w#])", RegexOptions.CultureInvariant)]
     private static partial Regex NumberRegex();
+
+    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex WhitespaceRegex();
 }
 
 internal readonly record struct ModifierBoundDefaultResult(

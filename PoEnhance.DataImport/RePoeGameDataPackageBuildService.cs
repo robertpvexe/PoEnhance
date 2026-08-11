@@ -6,7 +6,8 @@ namespace PoEnhance.DataImport;
 
 public sealed class RePoeGameDataPackageBuildService
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int LegacySchemaVersion = 1;
+    private const int UniqueCatalogSchemaVersion = 2;
     private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
@@ -18,6 +19,7 @@ public sealed class RePoeGameDataPackageBuildService
     private readonly RePoeModsByBaseImporter _modsByBaseImporter = new();
     private readonly ReviewedItemPropertySemanticImporter _itemPropertySemanticImporter = new();
     private readonly GameDataPackageBuilder _packageBuilder = new();
+    private readonly PoBUniqueCatalogImporter _uniqueCatalogImporter = new();
 
     public GameDataPackageBuildResult Build(GameDataPackageBuildRequest request)
     {
@@ -48,6 +50,10 @@ public sealed class RePoeGameDataPackageBuildService
                 },
                 historicalInputFiles,
                 diagnostics);
+        }
+        if (HasPoBUniqueInputs(request))
+        {
+            ValidatePoBSourceGuard(request, diagnostics);
         }
         if (HasErrors(diagnostics))
         {
@@ -85,6 +91,14 @@ public sealed class RePoeGameDataPackageBuildService
                 ImportDiagnosticSeverity.Error,
                 "--item-property-semantics",
                 "Required reviewed item-property semantic input file is missing."));
+        }
+        if (HasPoBUniqueInputs(request) && !File.Exists(request.PoBUniquesPath!))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildInputFileMissing,
+                ImportDiagnosticSeverity.Error,
+                "--pob-uniques",
+                "Required evaluated Path of Building Unique input file is missing."));
         }
 
         if (HasErrors(diagnostics))
@@ -126,6 +140,16 @@ public sealed class RePoeGameDataPackageBuildService
         var itemPropertySemantics = _itemPropertySemanticImporter.Import(
             semanticInputStream,
             stats.ImportedRecords);
+        var uniqueItems = HasPoBUniqueInputs(request)
+            ? _uniqueCatalogImporter.Import(
+                request.PoBUniquesPath!,
+                request.PoBSourceUri!,
+                request.PoBSourceTag!,
+                request.PoBSourceVersion!,
+                modifiers.ImportedRecords,
+                translations.ImportedRecords,
+                baseItems.ImportedRecords)
+            : null;
 
         diagnostics.AddRange(baseItems.Diagnostics);
         diagnostics.AddRange(modifiers.Diagnostics);
@@ -135,8 +159,12 @@ public sealed class RePoeGameDataPackageBuildService
         diagnostics.AddRange(tags.Diagnostics);
         diagnostics.AddRange(modsByBase.Diagnostics);
         diagnostics.AddRange(itemPropertySemantics.Diagnostics);
+        if (uniqueItems is not null)
+        {
+            diagnostics.AddRange(uniqueItems.Diagnostics);
+        }
 
-        var summaries = new[]
+        var summaries = new List<GameDataPackageBuildSourceSummary>
         {
             Summary("ItemBases", baseItems),
             Summary("Modifiers", modifiers),
@@ -153,6 +181,16 @@ public sealed class RePoeGameDataPackageBuildService
             },
             Summary("ItemPropertySemantics", itemPropertySemantics),
         };
+        if (uniqueItems is not null)
+        {
+            summaries.Add(new GameDataPackageBuildSourceSummary
+            {
+                SourceName = "UniqueItems",
+                SourceRecordsRead = uniqueItems.SourceRecordsRead,
+                RecordsImported = uniqueItems.RecordsImported,
+                RecordsSkipped = uniqueItems.RecordsSkipped,
+            });
+        }
 
         if (HasErrors(diagnostics))
         {
@@ -218,7 +256,8 @@ public sealed class RePoeGameDataPackageBuildService
             tags.ImportedRecords,
             modsByBase.Evidence!,
             baseImplicitHistory,
-            statTranslationHistory);
+            statTranslationHistory,
+            uniqueItems?.Catalog);
         diagnostics.AddRange(packageCreation.Diagnostics);
 
         if (packageCreation.Package is null || HasErrors(diagnostics))
@@ -377,6 +416,22 @@ public sealed class RePoeGameDataPackageBuildService
             }
         }
 
+        var pobValues = new (string? Value, string Name)[]
+        {
+            (request.PoBUniquesPath, "--pob-uniques"),
+            (request.PoBSourceRootPath, "--pob-source-root"),
+            (request.PoBSourceUri, "--pob-source-uri"),
+            (request.PoBSourceTag, "--pob-source-tag"),
+            (request.PoBSourceVersion, "--pob-source-version"),
+        };
+        if (pobValues.Any(value => !string.IsNullOrWhiteSpace(value.Value)))
+        {
+            foreach (var value in pobValues)
+            {
+                AddRequiredArgumentDiagnostic(value.Value, value.Name, diagnostics);
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(request.OutputPath) && IsInsidePoEnhanceAppDirectory(request.OutputPath))
         {
             diagnostics.Add(Diagnostic(
@@ -422,6 +477,9 @@ public sealed class RePoeGameDataPackageBuildService
     private static bool HasHistoricalInputs(GameDataPackageBuildRequest request) =>
         !string.IsNullOrWhiteSpace(request.HistoricalBaseItemsPath);
 
+    private static bool HasPoBUniqueInputs(GameDataPackageBuildRequest request) =>
+        !string.IsNullOrWhiteSpace(request.PoBUniquesPath);
+
     private static IReadOnlyList<(string LogicalRole, string Label, string Path)> BuildHistoricalInputFileList(
         GameDataPackageBuildRequest request)
     {
@@ -442,7 +500,7 @@ public sealed class RePoeGameDataPackageBuildService
     {
         return new GameDataPackageManifest
         {
-            SchemaVersion = CurrentSchemaVersion,
+            SchemaVersion = HasPoBUniqueInputs(request) ? UniqueCatalogSchemaVersion : LegacySchemaVersion,
             DataVersion = request.DataVersion!.Trim(),
             CreatedAtUtc = createdAtUtc,
             League = TrimToNull(request.League),
@@ -481,8 +539,78 @@ public sealed class RePoeGameDataPackageBuildService
                         },
                     }
                     : []),
+                ..(HasPoBUniqueInputs(request)
+                    ? new[]
+                    {
+                        new GameDataPackageSource
+                        {
+                            SourceId = PoBUniqueCatalogImporter.SourceId,
+                            RetrievedAtUtc = createdAtUtc,
+                            SourceVersion = TrimToNull(request.PoBSourceVersion),
+                            DataVersion = TrimToNull(request.PoBSourceTag),
+                            SourceUri = TrimToNull(request.PoBSourceUri),
+                            SourceBranch = TrimToNull(request.PoBSourceTag),
+                            SourceRoot = NormalizePathOrNull(request.PoBSourceRootPath),
+                            SourceDataRoot = Path.GetDirectoryName(Path.GetFullPath(request.PoBUniquesPath!)),
+                            InputFiles = CreateInputFingerprints(
+                                Path.GetDirectoryName(Path.GetFullPath(request.PoBUniquesPath!))!,
+                                [("uniqueItems", "pob-uniques.evaluated.json", request.PoBUniquesPath!)]),
+                        },
+                    }
+                    : []),
             ],
         };
+    }
+
+    private static void ValidatePoBSourceGuard(
+        GameDataPackageBuildRequest request,
+        List<ImportDiagnostic> diagnostics)
+    {
+        var sourceRoot = Path.GetFullPath(request.PoBSourceRootPath!);
+        if (!Directory.Exists(sourceRoot))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-source-root",
+                "Path of Building source root directory does not exist."));
+            return;
+        }
+
+        var remote = RunGit(sourceRoot, "remote get-url origin", diagnostics, "--pob-source-uri");
+        if (remote is not null && !string.Equals(
+                NormalizeRepositoryUri(remote),
+                NormalizeRepositoryUri(request.PoBSourceUri!),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-source-uri",
+                $"Path of Building repository mismatch. Expected '{request.PoBSourceUri}', actual '{remote}'."));
+        }
+
+        var head = RunGit(sourceRoot, "rev-parse HEAD", diagnostics, "--pob-source-version");
+        if (head is not null && !string.Equals(
+                head.Trim(), request.PoBSourceVersion!.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-source-version",
+                $"Path of Building source SHA mismatch. Expected '{request.PoBSourceVersion}', actual '{head}'."));
+        }
+
+        var tagCommit = RunGit(sourceRoot, $"rev-list -n 1 {request.PoBSourceTag}", diagnostics, "--pob-source-tag");
+        if (tagCommit is not null && !string.Equals(
+                tagCommit.Trim(), request.PoBSourceVersion!.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-source-tag",
+                $"Path of Building tag '{request.PoBSourceTag}' does not resolve to the declared source SHA."));
+        }
     }
 
     private static void ValidateSourceGuard(
@@ -810,6 +938,10 @@ public sealed class RePoeGameDataPackageBuildService
             Tags = package?.Tags?.Count ?? 0,
             BaseModifierEvidenceGroups = package?.BaseModifierEvidence?.Groups.Count ?? 0,
             BaseModifierRelationships = package?.BaseModifierEvidence?.RelationshipsRepresented ?? 0,
+            UniqueItems = package?.UniqueItems?.Items.Count ?? 0,
+            UniqueVersions = package?.UniqueItems?.Items.Sum(item => item.Versions.Count) ?? 0,
+            UniqueModifierBlocks = package?.UniqueItems?.Items.Sum(item =>
+                item.Versions.Sum(version => version.ModifierBlocks.Count)) ?? 0,
         };
     }
 

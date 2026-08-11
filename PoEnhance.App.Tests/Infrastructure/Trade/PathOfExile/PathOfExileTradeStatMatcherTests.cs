@@ -2,6 +2,7 @@ using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
+using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
@@ -392,6 +393,109 @@ public sealed class PathOfExileTradeStatMatcherTests
         Assert.Null(result.ExactCandidate);
         Assert.Equal(
             ["explicit.suppress.one", "explicit.suppress.two"],
+            result.ExactEquivalentCandidates.Select(candidate => candidate.StatId));
+    }
+
+    [Fact]
+    public void Match_ExactUniqueShieldBlock_DiscoversProviderBaseClassQualifiedCandidate()
+    {
+        var catalog = Catalog(
+            Entry("explicit.shield_block", "+#% Chance to Block (Shields)", "explicit"));
+        var component = ExactUniqueComponent(
+            "+3% Chance to Block",
+            "+<number>% Chance to Block",
+            "local_additional_block_chance_%",
+            ModifierLocality.Local);
+
+        var result = matcher.Match(component, catalog, Context(
+            itemClass: "Shields",
+            parsedBaseType: "Test Round Shield",
+            locality: ModifierLocality.Local,
+            internalStatIds: ["local_additional_block_chance_%"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.shield_block", result.ExactCandidate?.StatId);
+    }
+
+    [Fact]
+    public void Match_ExactOrdinaryUniqueBlockWithoutExplicitCandidate_FailsClosed()
+    {
+        var catalog = Catalog(
+            Entry("implicit.unique_effect", "Unique effect is active", "implicit"));
+        var component = ExactUniqueComponent(
+            "Unique effect is active",
+            "Unique effect is active",
+            "unique_effect_stat",
+            ModifierLocality.Global);
+
+        var result = matcher.Match(component, catalog, Context(
+            locality: ModifierLocality.Global,
+            internalStatIds: ["unique_effect_stat"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.ModifierKindMismatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Match_ExactOrdinaryUniqueBlock_UsesExplicitDomainDespiteImplicitSourceGenerationEvidence()
+    {
+        var catalog = Catalog(
+            Entry("implicit.unique_effect", "Unique effect is active", "implicit"),
+            Entry("explicit.unique_effect", "Unique effect is active", "explicit"));
+        var component = ExactUniqueComponent(
+            "Unique effect is active",
+            "Unique effect is active",
+            "unique_effect_stat",
+            ModifierLocality.Global) with
+        {
+            GenerationType = ModifierGenerationType.Implicit,
+            ProviderDomainEvidence =
+            [
+                new SearchComponentProviderDomainEvidence
+                {
+                    ProviderDomain = "Implicit",
+                    ModifierId = "unique.mod.test",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    Locality = ModifierLocality.Global,
+                    IsSourceExact = true,
+                    EvidenceStrength = 1000,
+                    ApplicabilityReason = "Exact source-generation evidence.",
+                },
+            ],
+        };
+
+        var result = matcher.Match(component, catalog, Context(
+            locality: ModifierLocality.Global,
+            internalStatIds: ["unique_effect_stat"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.unique_effect", result.ExactCandidate?.StatId);
+        Assert.Contains(result.RejectedCandidates, candidate =>
+            candidate.StatId == "implicit.unique_effect");
+    }
+
+    [Fact]
+    public void Match_ExactUniqueBlock_ProvesEquivalentProviderSetFromCatalogProvenance()
+    {
+        var catalog = Catalog(
+            Entry("explicit.unique.one", "Unique effect is active", "explicit"),
+            Entry("explicit.unique.two", "Unique effect is active", "explicit"));
+        var component = ExactUniqueComponent(
+            "Unique effect is active",
+            "Unique effect is active",
+            "unique_effect_stat",
+            ModifierLocality.Global);
+
+        var result = matcher.Match(component, catalog, Context(
+            locality: ModifierLocality.Global,
+            internalStatIds: ["unique_effect_stat"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, result.Status);
+        Assert.Equal(
+            ["explicit.unique.one", "explicit.unique.two"],
             result.ExactEquivalentCandidates.Select(candidate => candidate.StatId));
     }
 
@@ -1026,5 +1130,32 @@ public sealed class PathOfExileTradeStatMatcherTests
             IsCrafted: isCrafted,
             IsFractured: isFractured,
             IsVeiled: false);
+    }
+
+    private static ResolvedSearchComponent ExactUniqueComponent(
+        string originalText,
+        string canonicalSignature,
+        string statId,
+        ModifierLocality locality)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ProviderSearchSignatures = [canonicalSignature],
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedStatIds = [statId],
+            ResolvedStatLocalities = [locality],
+            Locality = locality,
+            UniqueCatalogBlockIds = ["unique-block:test"],
+            UniqueSourceObservationIds = ["pob-observation:test"],
+            IsSearchable = true,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
     }
 }

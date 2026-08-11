@@ -17,4 +17,6 @@ internal sealed record PathOfExileTradeStatMatchContext
     public string? ResolvedModifierName { get; init; }
 
     public IReadOnlyList<string> InternalStatIds { get; init; } = [];
+
+    public IReadOnlyList<ModifierLocality> InternalStatLocalities { get; init; } = [];
 }

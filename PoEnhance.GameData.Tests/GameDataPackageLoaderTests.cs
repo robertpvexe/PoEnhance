@@ -38,7 +38,7 @@ public sealed class GameDataPackageLoaderTests
     }
 
     [Fact]
-    public async Task LoadFromFileAsync_Active326Artifact_RemainsCompatible()
+    public async Task LoadFromFileAsync_Active329Artifact_RemainsCompatible()
     {
         var activePackagePath = FindRepositoryFile(
             "artifacts",
@@ -48,11 +48,9 @@ public sealed class GameDataPackageLoaderTests
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
-        Assert.Equal("Mercenaries", result.Package.Manifest.League);
-        Assert.Equal("3.26.0", result.Package.Manifest.Patch);
-        Assert.All(
-            result.Package.Modifiers,
-            modifier => Assert.Equal(ModifierSourceAvailability.Unknown, modifier.SourceAvailability));
+        Assert.Equal("3.29.1.2.2-unique-stage2", result.Package.Manifest.DataVersion);
+        Assert.Null(result.Package.Manifest.Patch);
+        Assert.Equal(2, result.Package.Manifest.SchemaVersion);
     }
 
     [Fact]
@@ -113,7 +111,7 @@ public sealed class GameDataPackageLoaderTests
         {
             Manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest() with
             {
-                SchemaVersion = 2,
+                SchemaVersion = 3,
             },
         };
         using var stream = CreatePackageStream(package);

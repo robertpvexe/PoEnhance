@@ -38,4 +38,11 @@ public sealed record GameDataPackage
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public StatTranslationHistoryCatalog? StatTranslationHistory { get; init; }
+
+    /// <summary>
+    /// Provider-neutral, versioned Unique identity and modifier-block evidence evaluated
+    /// from Path of Building. Null means the package predates Unique catalog support.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public UniqueItemCatalog? UniqueItems { get; init; }
 }

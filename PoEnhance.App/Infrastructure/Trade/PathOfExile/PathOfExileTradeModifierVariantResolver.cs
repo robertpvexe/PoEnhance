@@ -32,23 +32,46 @@ internal static class PathOfExileTradeModifierVariantResolver
         ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate exactCandidate)
     {
-        ArgumentNullException.ThrowIfNull(component);
-        ArgumentNullException.ThrowIfNull(exactCandidate);
+        return ApplyProviderOwnedUniqueExact(component, [exactCandidate]);
+    }
 
-        var option = CreateOption(component, exactCandidate, exactCandidate);
+    public static ResolvedSearchComponent ApplyProviderOwnedUniqueExact(
+        ResolvedSearchComponent component,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> exactCandidates)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(exactCandidates);
+        if (exactCandidates.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact provider-owned Unique candidate is required.",
+                nameof(exactCandidates));
+        }
+
+        var exactCandidate = exactCandidates[0];
+        var option = CreateOption(component, exactCandidate, exactCandidates);
         var resolved = component with
         {
             FilterVariants = [option],
             SelectedFilterVariantIdentity = option.Identity,
-            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
-            ProviderStatId = exactCandidate.StatId,
+            ProviderResolutionStatus = exactCandidates.Count == 1
+                ? SearchComponentProviderResolutionStatus.Exact
+                : SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            ProviderStatId = exactCandidates.Count == 1 ? exactCandidate.StatId : null,
             ProviderStatText = exactCandidate.Text,
-            ProviderStatAlternativeIds = [exactCandidate.StatId],
+            ProviderStatAlternativeIds = exactCandidates
+                .Select(candidate => candidate.StatId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+            ProviderCandidateStatIds = exactCandidates
+                .Select(candidate => candidate.StatId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
             ProviderDiagnosticCode = null,
             ProviderDiagnosticMessage = null,
             Contributors = [],
         };
-        return ApplyBounds(resolved, option, exactCandidate);
+        return ApplyBounds(resolved, option, exactCandidates);
     }
 
     public static ResolvedSearchComponent ApplyProviderOwnedPresenceExact(
@@ -707,15 +730,31 @@ internal static class PathOfExileTradeModifierVariantResolver
         SearchFilterVariant option,
         IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates)
     {
-        if (!option.SupportsValueBounds || component.ValueBoundShape == ModifierBoundShape.PresenceOnly)
+        var presenceProjections = candidates
+            .Select(candidate => PathOfExileTradeModifierBoundProjector.Project(component, candidate))
+            .ToArray();
+        var isFaithfulPresence = component.ValueBoundShape == ModifierBoundShape.PresenceOnly ||
+            presenceProjections.All(projection =>
+                projection.ValueBoundShape == ModifierBoundShape.PresenceOnly);
+        if (!option.SupportsValueBounds || isFaithfulPresence)
         {
             return component with
             {
+                IsSearchable = isFaithfulPresence && component.IsSearchable,
+                NotSearchableReason = isFaithfulPresence
+                    ? component.NotSearchableReason
+                    : option.ValueBoundsUnsupportedReason ?? UnsupportedBoundsMessage,
                 SupportsValueBounds = false,
+                ValueBoundShape = isFaithfulPresence
+                    ? ModifierBoundShape.PresenceOnly
+                    : component.ValueBoundShape,
                 RequestedMinimum = null,
                 RequestedMaximum = null,
-                ValueBoundsUnsupportedReason = component.ValueBoundsUnsupportedReason ??
-                    option.ValueBoundsUnsupportedReason,
+                ValueBoundsUnsupportedReason = isFaithfulPresence
+                    ? presenceProjections.FirstOrDefault()?.ValueBoundsUnsupportedReason ??
+                        component.ValueBoundsUnsupportedReason
+                    : component.ValueBoundsUnsupportedReason ??
+                        option.ValueBoundsUnsupportedReason,
             };
         }
 

@@ -97,11 +97,12 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             };
         }
 
-        var lookupTemplate = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
-            normalization.NormalizedTemplate);
-        var groups = catalog
-            .FindCandidateGroupsByNormalizedTemplate(lookupTemplate)
-            .ToArray();
+        var (lookupTemplate, discoveredGroups) = DiscoverCandidateGroups(
+            source,
+            normalization,
+            catalog,
+            context);
+        var groups = discoveredGroups;
         if (groups.Length == 0 && source.Component is not null)
         {
             groups = PathOfExileTradeModifierBoundProjector
@@ -274,6 +275,73 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             context,
             group.Key.ToString(),
             source.CanProveEquivalentSet);
+    }
+
+    private static (string LookupTemplate, PathOfExileTradeStatCandidateGroup[] Groups)
+        DiscoverCandidateGroups(
+            StatMatchSource source,
+            PathOfExileTradeStatModifierNormalization normalization,
+            PathOfExileTradeStatCatalog catalog,
+            PathOfExileTradeStatMatchContext? context)
+    {
+        var templates = new List<string> { normalization.NormalizedTemplate };
+        if (HasExactUniqueEvidence(source.Component))
+        {
+            templates.AddRange(source.Component!.ProviderSearchSignatures);
+            templates.Add(source.Component.CanonicalSignature);
+            if (!string.IsNullOrWhiteSpace(source.Component.OriginalText))
+            {
+                templates.Add(PathOfExileTradeStatTemplateNormalizer
+                    .NormalizeModifierText(source.Component.OriginalText)
+                    .NormalizedTemplate);
+            }
+        }
+
+        var lookups = templates
+            .Where(template => !string.IsNullOrWhiteSpace(template))
+            .Select(template => PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                ToProviderTemplate(template)))
+            .Where(template => !string.IsNullOrWhiteSpace(template))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        foreach (var lookup in lookups)
+        {
+            var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+            if (direct.Length > 0)
+            {
+                return (lookup, direct);
+            }
+
+            var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+            if (qualified.Length > 0)
+            {
+                return (lookup, qualified);
+            }
+        }
+
+        var fallbackLookup = lookups.FirstOrDefault() ?? string.Empty;
+        return (fallbackLookup, []);
+    }
+
+    private static PathOfExileTradeStatCandidateGroup[] FindItemClassQualifiedGroups(
+        PathOfExileTradeStatCatalog catalog,
+        string lookupTemplate,
+        string? itemClass)
+    {
+        return catalog.FindCandidateGroupsByItemClassQualifiedTemplate(lookupTemplate, itemClass).ToArray();
+    }
+
+    private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component)
+    {
+        return component is
+        {
+            ParsedKind: ParsedModifierKind.Unique,
+            ResolutionStatus: ModifierCandidateResolutionStatus.Exact,
+        } &&
+            component.ResolvedStatIds.Count > 0 &&
+            component.UniqueCatalogBlockIds.Count > 0 &&
+            component.UniqueSourceObservationIds.Count > 0 &&
+            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode);
     }
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
@@ -450,6 +518,38 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         out bool mismatchWasCertain)
     {
         mismatchWasCertain = false;
+        if (source.Kind == ParsedModifierKind.Unique &&
+            source.UniqueOrigin != ParsedUniqueModifierOrigin.Ordinary)
+        {
+            var evidenceKinds = EvidenceBackedProviderKinds(source.Component);
+            if (evidenceKinds.Count > 0)
+            {
+                var evidenced = groups
+                    .Where(group => evidenceKinds.Contains(group.Key.ProviderKind))
+                    .ToArray();
+                if (evidenced.Length > 0)
+                {
+                    return evidenced;
+                }
+            }
+
+            // A copied Unique source block is not intrinsically a provider "explicit" stat.
+            // Prefer that adapter family when it exists, but fall back to the complete
+            // provider evidence instead of rejecting other provider kinds up front.
+            var explicitGroups = groups
+                .Where(group => string.Equals(group.Key.ProviderKind, "explicit", StringComparison.Ordinal))
+                .ToArray();
+            if (explicitGroups.Length > 0)
+            {
+                return explicitGroups;
+            }
+
+            return groups
+                .Where(group => group.Key.ProviderKind is not (
+                    "pseudo" or PathOfExileTradeStatCandidateClassifier.UnknownProviderKind))
+                .ToArray();
+        }
+
         var requiredKind = RequiredKind(source);
         if (requiredKind is null)
         {
@@ -469,6 +569,36 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             .ToArray();
         mismatchWasCertain = compatible.Length == 0;
         return compatible;
+    }
+
+    private static IReadOnlySet<string> EvidenceBackedProviderKinds(ResolvedSearchComponent? component)
+    {
+        if (component is null)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var supported = new HashSet<string>(
+            ["crafted", "enchant", "explicit", "fractured", "implicit", "scourge", "veiled"],
+            StringComparer.Ordinal);
+        var evidence = component.ProviderDomainEvidence
+            .Select(entry => new
+            {
+                Kind = entry.ProviderDomain.Trim().ToLowerInvariant(),
+                entry.EvidenceStrength,
+            })
+            .Where(entry => supported.Contains(entry.Kind))
+            .ToArray();
+        if (evidence.Length == 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var strongest = evidence.Max(entry => entry.EvidenceStrength);
+        return evidence
+            .Where(entry => entry.EvidenceStrength == strongest)
+            .Select(entry => entry.Kind)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private static string? RequiredKind(StatMatchSource source)
@@ -492,7 +622,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         {
             ParsedModifierKind.Implicit => "implicit",
             ParsedModifierKind.Prefix or ParsedModifierKind.Suffix => "explicit",
-            ParsedModifierKind.Unique => "explicit",
+            ParsedModifierKind.Unique when source.UniqueOrigin == ParsedUniqueModifierOrigin.Ordinary => "explicit",
             _ => null,
         };
     }
@@ -616,6 +746,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
     {
         public required ParsedModifierKind Kind { get; init; }
 
+        public ParsedUniqueModifierOrigin UniqueOrigin { get; init; }
+
         public bool IsCrafted { get; init; }
 
         public bool IsFractured { get; init; }
@@ -631,6 +763,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             return new StatMatchSource
             {
                 Kind = modifier.Kind,
+                UniqueOrigin = modifier.UniqueOrigin,
                 IsCrafted = modifier.IsCrafted,
                 IsFractured = modifier.IsFractured,
                 IsVeiled = modifier.IsVeiled,
@@ -644,6 +777,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             return new StatMatchSource
             {
                 Kind = component.ParsedKind,
+                UniqueOrigin = component.UniqueOrigin,
                 IsCrafted = component.IsCrafted,
                 IsFractured = component.IsFractured,
                 IsVeiled = component.IsVeiled,
@@ -652,6 +786,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                     (component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
                         !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
                         component.ResolvedStatIds.Count > 0 ||
+                    HasExactUniqueEvidence(component) ||
                     component.Sources.Count > 0 &&
                         component.Sources.All(source =>
                             !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&

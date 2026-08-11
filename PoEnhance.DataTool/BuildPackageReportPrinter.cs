@@ -65,6 +65,9 @@ public static class BuildPackageReportPrinter
         writer.WriteLine($"  Tags: {result.FinalCounts.Tags}");
         writer.WriteLine($"  BaseModifierEvidenceGroups: {result.FinalCounts.BaseModifierEvidenceGroups}");
         writer.WriteLine($"  BaseModifierRelationships: {result.FinalCounts.BaseModifierRelationships}");
+        writer.WriteLine($"  UniqueItems: {result.FinalCounts.UniqueItems}");
+        writer.WriteLine($"  UniqueVersions: {result.FinalCounts.UniqueVersions}");
+        writer.WriteLine($"  UniqueModifierBlocks: {result.FinalCounts.UniqueModifierBlocks}");
 
         if (result.BaseModifierEvidenceAudit is { } audit)
         {
