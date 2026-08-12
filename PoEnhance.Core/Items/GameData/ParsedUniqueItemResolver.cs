@@ -65,13 +65,20 @@ public sealed partial class ParsedUniqueItemResolver
             .Where(observation => observation.IsGenerated && !string.IsNullOrWhiteSpace(observation.Id))
             .Select(observation => observation.Id!)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var compatibleVersions = identity.Versions
+        var fullyCompatibleVersions = identity.Versions
             .Where(version => VersionContainsEveryCopiedBlock(
                 version,
                 parsedItem.UniqueModifiers,
                 isFoulborn,
                 generatedSourceObservationIds))
             .ToArray();
+        var compatibleVersions = fullyCompatibleVersions.Length > 0
+            ? fullyCompatibleVersions
+            : SelectBestPartialVersions(
+                identity.Versions,
+                parsedItem.UniqueModifiers,
+                isFoulborn,
+                generatedSourceObservationIds);
         var blockResolutions = ResolveBlocks(
             parsedItem,
             compatibleVersions,
@@ -253,6 +260,42 @@ public sealed partial class ParsedUniqueItemResolver
                 block,
                 modifier,
                 generatedSourceObservationIds).IsMatch));
+    }
+
+    private static UniqueItemVersionObservation[] SelectBestPartialVersions(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<ParsedModifier> modifiers,
+        bool isFoulborn,
+        IReadOnlySet<string> generatedSourceObservationIds)
+    {
+        if (versions.Count < 2)
+        {
+            return [];
+        }
+
+        var scored = versions.Select(version => new
+        {
+            Version = version,
+            MatchCount = modifiers.Count(modifier =>
+                modifier.Kind == ParsedModifierKind.Unique &&
+                (isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn ||
+                    version.ModifierBlocks.Any(block =>
+                        block.Kind == UniqueModifierBlockKind.Unique &&
+                        MatchParsedModifier(
+                            block,
+                            modifier,
+                            generatedSourceObservationIds).IsMatch))),
+        }).ToArray();
+        var maximum = scored.Max(candidate => candidate.MatchCount);
+        if (maximum == 0 || scored.All(candidate => candidate.MatchCount == maximum))
+        {
+            return [];
+        }
+
+        return scored
+            .Where(candidate => candidate.MatchCount == maximum)
+            .Select(candidate => candidate.Version)
+            .ToArray();
     }
 
     private static UniqueBlockTextMatch MatchParsedModifier(

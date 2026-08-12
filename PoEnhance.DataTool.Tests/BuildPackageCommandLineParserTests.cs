@@ -186,6 +186,32 @@ public sealed class BuildPackageCommandLineParserTests
     }
 
     [Fact]
+    public void Parse_FixedCreationTimestamp_IsForwardedForDeterministicPackages()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(["--created-at-utc", "2026-08-12T12:00:00Z"]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(
+            new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero),
+            result.Request!.CreatedAtUtc);
+    }
+
+    [Fact]
+    public void Parse_InvalidCreationTimestamp_FailsVisibly()
+    {
+        var args = CreateValidArguments();
+        args.AddRange(["--created-at-utc", "not-a-timestamp"]);
+
+        var result = BuildPackageCommandLineParser.Parse(args);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("--created-at-utc", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void GetUsage_DocumentsRequiredItemPropertySemanticsOption()
     {
         var usage = BuildPackageCommandLineParser.GetUsage();
@@ -206,6 +232,7 @@ public sealed class BuildPackageCommandLineParserTests
         var usage = BuildPackageCommandLineParser.GetUsage();
 
         Assert.Contains("--source-snapshot-dir <path>", usage, StringComparison.Ordinal);
+        Assert.Contains("--created-at-utc <ISO-8601>", usage, StringComparison.Ordinal);
     }
 
     [Fact]

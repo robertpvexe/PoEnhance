@@ -19,6 +19,8 @@ public sealed class StageC3CorpusContractTests
     {
         var liveDirectory = Environment.GetEnvironmentVariable("POENHANCE_STAGE_C_LIVE_DATA_DIR");
         var reportPath = Environment.GetEnvironmentVariable("POENHANCE_STAGE_C3_REPORT_PATH");
+        var doublePassReportPath = Environment.GetEnvironmentVariable(
+            "POENHANCE_STAGE_C3_DOUBLE_PASS_REPORT_PATH");
         if (string.IsNullOrWhiteSpace(liveDirectory) || string.IsNullOrWhiteSpace(reportPath))
         {
             return;
@@ -44,12 +46,14 @@ public sealed class StageC3CorpusContractTests
         var selectedMapper = new PathOfExileTradeSelectedModifierMapper();
         var identityMapper = new PathOfExileTradeItemIdentityMapper();
         var queryBuilder = new PathOfExileTradeQueryBuilder();
-        var providerService = CreatePriceCheckService(statCatalog, itemCatalog);
+        var providerService = CreatePriceCheckService(statCatalog, itemCatalog, filterCatalog);
+        var controllerService = new RecordingPriceCheckService(providerService);
         var controller = new PriceCheckerSearchController(
-            new AcceptancePriceCheckService(),
+            controllerService,
             ApplicationLeagueSetting.CreateTransient("Allflame"),
             new TestTradeLeagueResolver());
         var rows = new List<CorpusRow>();
+        var doublePassTransitions = new List<DoublePassTransition>();
 
         foreach (var rawText in corpus)
         {
@@ -63,20 +67,34 @@ public sealed class StageC3CorpusContractTests
             Assert.True(draftResult.IsSuccess);
             var draft = Assert.IsType<TradeSearchDraft>(draftResult.Draft);
             var identity = identityMapper.Map(draft, itemCatalog).Identity;
-            var propertyDraft = propertyResolver.Resolve(draft, filterCatalog);
-            var providerDraft = providerService.ResolveProviderComponents(
-                propertyDraft,
-                statCatalog,
-                identity,
-                filterCatalog);
-            controller.UpdateCurrentDraft(providerDraft, validator.Validate(providerDraft));
+            var firstPassDraft = await controller.PrepareDraftAsync(draft);
+            controller.UpdateCurrentDraft(firstPassDraft, validator.Validate(firstPassDraft));
+            var providerDraft = Assert.IsType<TradeSearchDraft>(controllerService.LastResolvedDraft);
+            var itemName = parsed.DisplayName ?? parsed.BaseType ?? "<unknown>";
+            for (var index = 0; index < firstPassDraft.ModifierFilters.Count; index++)
+            {
+                var first = DoublePassComponentSnapshot.From(firstPassDraft.ModifierFilters[index]);
+                var second = DoublePassComponentSnapshot.From(providerDraft.ModifierFilters[index]);
+                if (first != second)
+                {
+                    doublePassTransitions.Add(new DoublePassTransition(
+                        itemName,
+                        firstPassDraft.ModifierFilters[index].OriginalText,
+                        first,
+                        second,
+                        first.ProviderStatus == SearchComponentProviderResolutionStatus.Exact.ToString() &&
+                            first.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact.ToString()
+                            ? "UnsafeExactProofMutation"
+                            : second.ProviderStatus == SearchComponentProviderResolutionStatus.Exact.ToString()
+                                ? "ReverseTransition"
+                                : "OtherMutation"));
+                }
+            }
             var view = controller.CurrentViewState;
             var modifierRows = view.Modifiers
                 .Concat(view.ItemProperties.SelectMany(property => property.Children))
                 .GroupBy(row => row.SourceIndex)
                 .ToDictionary(group => group.Key, group => group.First());
-            var itemName = parsed.DisplayName ?? parsed.BaseType ?? "<unknown>";
-
             for (var index = 0; index < providerDraft.ItemProperties.Length; index++)
             {
                 var property = providerDraft.ItemProperties[index];
@@ -174,8 +192,16 @@ public sealed class StageC3CorpusContractTests
                         [])
                     : null;
                 var unsafeQuery = mapping.IsSuccess && build?.IsSuccess == true &&
+                    (mapping.Filters.SelectMany(FilterStatIds)
+                        .Any(statId => !ContainsJsonString(build.SerializedJson, statId)) ||
+                    component.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
+                    (mapping.Filters.Any(filter =>
+                        filter.Minimum is not null ||
+                        filter.Maximum is not null ||
+                        filter.Alternatives.Any(alternative =>
+                            alternative.Minimum is not null || alternative.Maximum is not null)) ||
                     mapping.Filters.SelectMany(FilterStatIds)
-                        .Any(statId => !ContainsJsonString(build.SerializedJson, statId));
+                        .Any(statId => QueryStatHasValue(build.SerializedJson, statId))));
                 var selectable = row?.IsInteractionEnabled == true;
                 var state = parserFalse
                     ? "PARSER_FALSE_ROW"
@@ -232,11 +258,60 @@ public sealed class StageC3CorpusContractTests
         {
             WriteIndented = true,
         }));
+        if (!string.IsNullOrWhiteSpace(doublePassReportPath))
+        {
+            File.WriteAllText(
+                doublePassReportPath,
+                JsonSerializer.Serialize(doublePassTransitions, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                }));
+        }
 
         Assert.Equal(0, Count(stateCounts, "DISABLED_WITHOUT_VISIBLE_REASON"));
         Assert.Equal(0, Count(stateCounts, "PARSER_FALSE_ROW"));
         Assert.Equal(0, Count(stateCounts, "SELECTABLE_BUT_LATE_REJECT"));
         Assert.Equal(0, Count(stateCounts, "SELECTABLE_BUT_UNSAFE_QUERY"));
+        Assert.DoesNotContain(doublePassTransitions, transition =>
+            transition.Classification == "UnsafeExactProofMutation");
+        var reverseTransition = Assert.Single(doublePassTransitions, transition =>
+            transition.Classification == "ReverseTransition");
+        Assert.Equal("Skull Band", reverseTransition.Item);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported.ToString(),
+            reverseTransition.FirstPass.ProviderStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact.ToString(),
+            reverseTransition.SecondPass.ProviderStatus);
+        Assert.Equal("fractured", reverseTransition.SecondPass.RequestedVariantKind);
+        var diagnosticCleanup = Assert.Single(doublePassTransitions, transition =>
+            transition.Classification == "OtherMutation");
+        Assert.Equal("Corruption Bond", diagnosticCleanup.Item);
+        Assert.Equal(diagnosticCleanup.FirstPass.ProviderStatus, diagnosticCleanup.SecondPass.ProviderStatus);
+        Assert.Equal(diagnosticCleanup.FirstPass.ProviderStatId, diagnosticCleanup.SecondPass.ProviderStatId);
+        Assert.NotNull(diagnosticCleanup.FirstPass.DiagnosticCode);
+        Assert.Null(diagnosticCleanup.SecondPass.DiagnosticCode);
+        AssertItemStateCounts(rows, "Megalomaniac", ("SELECTABLE_SAFE", 5));
+        Assert.Equal(3, rows.Count(row =>
+            row.Item == "Megalomaniac" &&
+            row.Text.StartsWith("1 Added Passive Skill is ", StringComparison.Ordinal) &&
+            row.State == "SELECTABLE_SAFE" &&
+            row.ProviderStatus == SearchComponentProviderResolutionStatus.Exact.ToString() &&
+            row.ValueShape == ModifierBoundShape.PresenceOnly.ToString()));
+        AssertItemStateCounts(
+            rows,
+            "Yriel's Fostering",
+            ("SELECTABLE_SAFE", 6),
+            ("DISABLED_EXPLICIT_AMBIGUOUS", 2));
+        Assert.All(
+            rows.Where(row => row.Item is "The Squire" or "Progenesis"),
+            row => Assert.Equal("SELECTABLE_SAFE", row.State));
+        Assert.Contains(rows, row =>
+            row.Item == "Foulborn The Bringer of Rain" &&
+            row.Text.Contains("Sadism", StringComparison.Ordinal) &&
+            row.State == "DISABLED_EXPLICIT_UNSUPPORTED");
+        Assert.Contains(rows, row =>
+            row.Item == "Foulborn The Green Dream" &&
+            row.Text.Contains("Lucky", StringComparison.Ordinal) &&
+            row.State == "DISABLED_EXPLICIT_UNSUPPORTED");
     }
 
     private static bool HasVisibleDisabledDiagnostic(PriceCheckerModifierViewModel row) =>
@@ -262,6 +337,37 @@ public sealed class StageC3CorpusContractTests
 
     private static bool ContainsJsonString(string? json, string value) =>
         json?.Contains($"\"{value}\"", StringComparison.Ordinal) == true;
+
+    private static bool QueryStatHasValue(string? json, string statId)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray())
+            .Any(filter =>
+                string.Equals(filter.GetProperty("id").GetString(), statId, StringComparison.Ordinal) &&
+                filter.TryGetProperty("value", out _));
+    }
+
+    private static void AssertItemStateCounts(
+        IReadOnlyList<CorpusRow> rows,
+        string item,
+        params (string State, int Count)[] expected)
+    {
+        var itemRows = rows.Where(row => row.Item == item).ToArray();
+        Assert.Equal(expected.Sum(entry => entry.Count), itemRows.Length);
+        foreach (var (state, count) in expected)
+        {
+            Assert.Equal(count, itemRows.Count(row => row.State == state));
+        }
+    }
 
     private static int Count(IReadOnlyDictionary<string, int> counts, string state) =>
         counts.TryGetValue(state, out var count) ? count : 0;
@@ -350,7 +456,8 @@ public sealed class StageC3CorpusContractTests
 
     private static PathOfExileTradePriceCheckService CreatePriceCheckService(
         PathOfExileTradeStatCatalog statCatalog,
-        PathOfExileTradeItemCatalog itemCatalog) => new(
+        PathOfExileTradeItemCatalog itemCatalog,
+        PathOfExileTradeFilterCatalog filterCatalog) => new(
         new PathOfExileTradeQueryBuilder(),
         new PathOfExileTradeStatMatcher(),
         new StaticStatProvider(statCatalog),
@@ -358,7 +465,8 @@ public sealed class StageC3CorpusContractTests
         new PathOfExileTradeSelectedModifierMapper(),
         new PathOfExileTradeItemIdentityMapper(),
         new NoSearchClient(),
-        new NoFetchClient());
+        new NoFetchClient(),
+        new StaticFilterProvider(filterCatalog));
 
     private static string FindRepoFile(params string[] relativeParts)
     {
@@ -407,39 +515,103 @@ public sealed class StageC3CorpusContractTests
         IReadOnlyList<string> MapperDiagnostics,
         IReadOnlyList<string> QueryDiagnostics);
 
-    private sealed class AcceptancePriceCheckService : IPathOfExileTradePriceCheckService
+    private sealed record DoublePassTransition(
+        string Item,
+        string Text,
+        DoublePassComponentSnapshot FirstPass,
+        DoublePassComponentSnapshot SecondPass,
+        string Classification);
+
+    private sealed record DoublePassComponentSnapshot(
+        string ProviderStatus,
+        string? ProviderStatId,
+        string StatMappingProof,
+        string? SelectedVariantIdentity,
+        string? RequestedVariantIdentity,
+        string? RequestedVariantKind,
+        string? SelectedProviderKind,
+        string ProviderDomains,
+        string ValueBoundShape,
+        bool SupportsValueBounds,
+        decimal? RequestedMinimum,
+        decimal? RequestedMaximum,
+        bool IsSearchable,
+        string? DiagnosticCode,
+        string? DiagnosticMessage)
     {
+        public static DoublePassComponentSnapshot From(ResolvedSearchComponent component) => new(
+            component.ProviderResolutionStatus.ToString(),
+            component.ProviderStatId,
+            component.StatMappingProof.ToString(),
+            component.SelectedFilterVariantIdentity,
+            component.RequestedFilterVariantIdentity,
+            component.RequestedFilterVariantKind,
+            component.FilterVariants.FirstOrDefault(variant => string.Equals(
+                variant.Identity,
+                component.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal))?.ProviderKind,
+            string.Join(",", component.Sources
+                .Select(source => source.ProviderDomain)
+                .Where(domain => !string.IsNullOrWhiteSpace(domain))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(domain => domain, StringComparer.OrdinalIgnoreCase)),
+            component.ValueBoundShape.ToString(),
+            component.SupportsValueBounds,
+            component.RequestedMinimum,
+            component.RequestedMaximum,
+            component.IsSearchable,
+            component.ProviderDiagnosticCode,
+            component.ProviderDiagnosticMessage);
+    }
+
+    private sealed class RecordingPriceCheckService(
+        PathOfExileTradePriceCheckService inner) : IPathOfExileTradePriceCheckService
+    {
+        public TradeSearchDraft? LastResolvedDraft { get; private set; }
+
         public Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PathOfExileTradeFilterCatalogProviderResult());
+            inner.InitializeFilterCatalogAsync(cancellationToken);
 
-        public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft) => draft;
+        public TradeSearchDraft ResolveEffectiveDraft(TradeSearchDraft draft)
+        {
+            LastResolvedDraft = inner.ResolveEffectiveDraft(draft);
+            return LastResolvedDraft;
+        }
+
+        public Task<TradeSearchDraft> PrepareEffectiveDraftAsync(
+            TradeSearchDraft draft,
+            CancellationToken cancellationToken = default) =>
+            inner.PrepareEffectiveDraftAsync(draft, cancellationToken);
 
         public Task<string?> LoadCategoryDisplayLabelAsync(
             TradeSearchDraft draft,
-            CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+            CancellationToken cancellationToken = default) =>
+            inner.LoadCategoryDisplayLabelAsync(draft, cancellationToken);
 
         public Task<PathOfExileTradePriceCheckResult> CheckAsync(
             TradeSearchDraft? draft,
             TradeSearchValidationResult? validationResult,
             string? leagueIdentifier,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PathOfExileTradePriceCheckResult
-            {
-                IsSuccess = true,
-                Stage = PathOfExileTradePriceCheckStage.Completed,
-                EffectiveDraft = draft,
-            });
+            inner.CheckAsync(draft, validationResult, leagueIdentifier, cancellationToken);
 
         public Task<PathOfExileTradePriceCheckResult> FetchMoreAsync(
             string? searchQueryId,
             IReadOnlyList<string?>? resultIds,
-            CancellationToken cancellationToken = default) => throw new InvalidOperationException();
+            CancellationToken cancellationToken = default) =>
+            inner.FetchMoreAsync(searchQueryId, resultIds, cancellationToken);
     }
 
     private sealed class StaticStatProvider(PathOfExileTradeStatCatalog catalog) :
         IPathOfExileTradeStatCatalogProvider
     {
+        public bool TryGetCachedCatalog(out PathOfExileTradeStatCatalog cachedCatalog)
+        {
+            cachedCatalog = catalog;
+            return true;
+        }
+
         public Task<PathOfExileTradeStatCatalogProviderResult> GetCatalogAsync(
             CancellationToken cancellationToken = default) =>
             Task.FromResult(PathOfExileTradeStatCatalogProviderResult.Success(catalog));
@@ -451,6 +623,20 @@ public sealed class StageC3CorpusContractTests
         public Task<PathOfExileTradeItemCatalogProviderResult> GetCatalogAsync(
             CancellationToken cancellationToken = default) =>
             Task.FromResult(PathOfExileTradeItemCatalogProviderResult.Success(catalog));
+    }
+
+    private sealed class StaticFilterProvider(PathOfExileTradeFilterCatalog catalog) :
+        IPathOfExileTradeFilterCatalogProvider
+    {
+        public bool TryGetCachedCatalog(out PathOfExileTradeFilterCatalog cachedCatalog)
+        {
+            cachedCatalog = catalog;
+            return true;
+        }
+
+        public Task<PathOfExileTradeFilterCatalogProviderResult> GetCatalogAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(PathOfExileTradeFilterCatalogProviderResult.Success(catalog));
     }
 
     private sealed class NoSearchClient : IPathOfExileTradeSearchClient

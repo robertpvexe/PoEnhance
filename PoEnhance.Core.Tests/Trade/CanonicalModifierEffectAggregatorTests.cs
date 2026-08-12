@@ -168,6 +168,38 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_UniqueSourceWithImplicitMechanicalGeneration_RemainsIndependentFromItemImplicit()
+    {
+        var uniqueComponent = Scalar(
+            "modifier:0:0",
+            0,
+            "58% increased Minion Damage",
+            58m,
+            "unique-minion-damage") with
+        {
+            ParsedKind = ParsedModifierKind.Unique,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+        var implicitComponent = Scalar(
+            "modifier:1:0",
+            1,
+            "14% increased Minion Damage",
+            14m,
+            "implicit-minion-damage") with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([uniqueComponent, implicitComponent]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal([58m, 14m], result.Components.Select(component => component.RequestedMinimum));
+        Assert.Equal("Unique", CanonicalModifierEffectAggregator.ProviderDomainFor(uniqueComponent));
+        Assert.Equal("Implicit", CanonicalModifierEffectAggregator.ProviderDomainFor(implicitComponent));
+    }
+
+    [Fact]
     public void Aggregate_EldritchImplicitOriginsRemainIndependent()
     {
         var eater = Scalar(

@@ -136,6 +136,261 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_MetadataBeforeBaseAndItemStateLines_DoNotBecomeModifierBlocks()
+    {
+        var result = ImportSingle(
+            """
+                Test Crown
+                Shaper Item
+                League: Test League
+                Source: Test Source
+                Iron Hat
+                Requires Level: 20
+                Implicits: 0
+                +(10-20) to maximum Life
+                {variant:1}Corrupted
+                """,
+            generated: false,
+            modifiers: [Modifier("unique.life", "maximum_life", 10, 20, "unique")],
+            translations: [Translation("life", "maximum_life", "{0} to maximum Life", "+#")]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal("Iron Hat", version.BaseType);
+        var block = Assert.Single(version.ModifierBlocks);
+        Assert.Equal(["+(10-20) to maximum Life"], block.Lines);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Single(block.SourceObservationIds);
+    }
+
+    [Fact]
+    public void Import_NonContiguousTranslationVectorsAndIgnoredStats_KeepAuthenticBlockAtomic()
+    {
+        var modifier = new ModifierDefinition
+        {
+            Id = "unique.timeless",
+            GroupId = "Timeless",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "misc",
+            Stats =
+            [
+                new ModifierStat { Index = 0, StatId = "version", MinValue = 2, MaxValue = 2 },
+                new ModifierStat { Index = 1, StatId = "seed", MinValue = 10000, MaxValue = 18000 },
+                new ModifierStat { Index = 2, StatId = "keystone", MinValue = 1, MaxValue = 3 },
+                new ModifierStat { Index = 3, StatId = "radius", MinValue = 1500, MaxValue = 1500 },
+                new ModifierStat { Index = 4, StatId = "historic", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 5, StatId = "revision", MinValue = 1, MaxValue = 1 },
+            ],
+        };
+        var result = ImportSingle(
+            """
+                Test Pride
+                Timeless Jewel
+                Radius: Large
+                Implicits: 0
+                Commanded leadership over (10000-18000) warriors under Akoya
+                Passives in radius are Conquered by the Karui
+                Historic
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-seed",
+                    StatIds = ["version", "seed", "keystone", "revision"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 2, MaxValue = 2 },
+                                new StatTranslationCondition { Index = 1 },
+                                new StatTranslationCondition { Index = 2, MinValue = 3, MaxValue = 3 },
+                                new StatTranslationCondition { Index = 3 },
+                            ],
+                            ValueFormats = ["ignore", "#", "ignore", "ignore"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                                new StatTranslationIndexHandler { Index = 2 },
+                                new StatTranslationIndexHandler { Index = 3 },
+                            ],
+                            FormatLines =
+                            [
+                                "Commanded leadership over {1} warriors under Akoya",
+                                "Passives in radius are Conquered by the Karui",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-historic",
+                    StatIds = ["historic"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Timeless Jewel", Domain = "misc" },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(3, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.timeless"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["version", "seed", "keystone", "radius", "historic", "revision"],
+            block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_ExactNumericValueEvidence_PrecedesEquivalentLiteralIgnoredRendering()
+    {
+        var literal = Modifier(
+            "unique.literal-bleed",
+            "fixed_bleed_chance",
+            1,
+            1,
+            "unique");
+        var numeric = Modifier(
+            "unique.numeric-bleed",
+            "bleed_chance_percent",
+            50,
+            50,
+            "unique");
+        var result = ImportSingle(
+            """
+                Test Axe
+                Headsman Axe
+                Implicits: 0
+                50% chance to cause Bleeding on Hit
+                """,
+            generated: false,
+            modifiers: [literal, numeric],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "literal-bleed",
+                    StatIds = ["fixed_bleed_chance"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["50% chance to cause Bleeding on Hit"],
+                        },
+                    ],
+                },
+                Translation(
+                    "numeric-bleed",
+                    "bleed_chance_percent",
+                    "{0}% chance to cause Bleeding on Hit",
+                    "#"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.numeric-bleed"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["bleed_chance_percent"], block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_CompositeCurrentAndPreLabels_SelectOnlyCurrentVariants()
+    {
+        var result = ImportSingle(
+            """
+                Test Fostering
+                Test Armour
+                Variant: Rhoa Pre 3.26
+                Variant: Snake Pre 3.26
+                Variant: Rhoa Current
+                Variant: Snake Current
+                Implicits: 0
+                {variant:1}10% increased Rhoa Damage
+                {variant:2}10% increased Snake Damage
+                {variant:3}20% increased Rhoa Damage
+                {variant:4}20% increased Snake Damage
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.rhoa-current", "rhoa_damage", 20, 20, "unique"),
+                Modifier("unique.snake-current", "snake_damage", 20, 20, "unique"),
+                Modifier("unique.rhoa-old", "rhoa_damage", 10, 10, "unique"),
+                Modifier("unique.snake-old", "snake_damage", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                Translation("rhoa", "rhoa_damage", "{0}% increased Rhoa Damage", "#"),
+                Translation("snake", "snake_damage", "{0}% increased Snake Damage", "#"),
+            ]);
+
+        var versions = Assert.Single(result.Catalog!.Items).Versions;
+        Assert.Equal(2, versions.Count(version => version.Role == UniqueItemVersionRole.Current));
+        Assert.Equal(2, versions.Count(version => version.Role == UniqueItemVersionRole.Historical));
+        Assert.All(versions, version => Assert.Single(version.ModifierBlocks));
+        Assert.Equal(
+            ["20% increased Rhoa Damage", "20% increased Snake Damage"],
+            versions.Where(version => version.Role == UniqueItemVersionRole.Current)
+                .SelectMany(version => version.ModifierBlocks)
+                .SelectMany(block => block.Lines)
+                .OrderBy(line => line, StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    [Fact]
+    public void Import_UnlabelledNonGeneratedAlternatives_AreDistinctCurrentVersions()
+    {
+        var result = ImportSingle(
+            """
+                Test Voices
+                Large Cluster Jewel
+                Variant: Adds 1 Small Passive Skill
+                Variant: Adds 3 Small Passive Skills
+                Implicits: 0
+                {variant:1}Adds 1 Small Passive Skill which grants nothing
+                {variant:2}Adds 3 Small Passive Skills which grant nothing
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.one", "small_passives", 1, 1, "unique"),
+                Modifier("unique.three", "small_passives", 3, 3, "unique"),
+            ],
+            translations:
+            [
+                Translation("passives", "small_passives",
+                    "Adds {0} Small Passive Skills which grants nothing", "#"),
+            ]);
+
+        var versions = Assert.Single(result.Catalog!.Items).Versions;
+        Assert.Equal(2, versions.Count);
+        Assert.All(versions, version =>
+        {
+            Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+            Assert.Single(version.ModifierBlocks);
+        });
+    }
+
+    [Fact]
     public void Import_GeneratedDisplayIndexedMechanic_UsesEvaluatedConcreteTextAndUniqueStatVector()
     {
         var dynamicModifiers = new ModifierDefinition[]
@@ -338,6 +593,58 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
         Assert.Equal(["unique.random-skill"], block.MechanicalMapping.ModifierIds);
         Assert.Equal(["random_skill_level", "random_skill_index"], block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedOptions_RetainExplicitCurrentAndHistoricalObservations()
+    {
+        var result = ImportSingle(
+            """
+                Replica Test Flight
+                Onyx Amulet
+                Variant: Pre 3.23.0
+                Variant: Current
+                Variant: Absolution
+                Implicits: 0
+                {variant:1}10% increased Reservation Efficiency of Skills
+                {variant:2}5% increased Reservation Efficiency of Skills
+                {variant:3}+3 to Level of all Absolution Gems
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier("unique.old-reservation", "reservation", 10, 10, "unique"),
+                Modifier("unique.current-reservation", "reservation", 5, 5, "unique"),
+                new ModifierDefinition
+                {
+                    Id = "unique.random-skill",
+                    GroupId = "RandomSkill",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "random_skill_level", MinValue = 3, MaxValue = 3 },
+                        new ModifierStat { Index = 1, StatId = "random_skill_index", MinValue = 1, MaxValue = 287 },
+                    ],
+                },
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation",
+                    "reservation",
+                    "{0}% increased Reservation Efficiency of Skills",
+                    "#"),
+                DynamicSkillTranslation(),
+            ]);
+
+        var versions = Assert.Single(result.Catalog!.Items).Versions;
+        Assert.Equal(2, versions.Count);
+        Assert.Contains(versions, version => version.Role == UniqueItemVersionRole.Current);
+        Assert.Contains(versions, version => version.Role == UniqueItemVersionRole.Historical);
+        Assert.All(versions, version => Assert.Contains(version.ModifierBlocks, block =>
+            block.Lines.Contains("+3 to Level of all Absolution Gems")));
     }
 
     [Fact]

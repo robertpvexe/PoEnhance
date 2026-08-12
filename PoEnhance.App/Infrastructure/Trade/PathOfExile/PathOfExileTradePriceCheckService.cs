@@ -902,13 +902,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             catalog.TryGetById(component.ProviderStatId, out var previouslyResolvedEntry) &&
             HasExpectedSpecialProviderKind(component, previouslyResolvedEntry))
         {
+            var previouslyResolvedCandidate =
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry);
             if (component.ParsedKind == ParsedModifierKind.Unique &&
                 (component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
                     HasExactUniqueCatalogBlockProof(component)))
             {
                 return PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
                     component,
-                    PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry));
+                    previouslyResolvedCandidate);
+            }
+
+            if (CanRetainProviderOwnedPresenceExact(component, previouslyResolvedCandidate))
+            {
+                return component;
             }
 
             var discoverySource = component.Sources
@@ -1652,6 +1659,55 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 PathOfExileTradeStatCandidateClassifier.ToCandidate(entry)),
             expected,
             StringComparison.Ordinal);
+    }
+
+    private static bool CanRetainProviderOwnedPresenceExact(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate candidate)
+    {
+        var providerIdentity = PathOfExileTradeProviderIdentity.Create(candidate.StatId);
+        var providerKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
+        var selectedVariant = component.FilterVariants.Count == 1
+            ? component.FilterVariants[0]
+            : null;
+        return HasStructuredAdvancedExplicitProof(component) &&
+            component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+            component.IsSearchable &&
+            component.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
+            !component.SupportsValueBounds &&
+            component.RequestedMinimum is null &&
+            component.RequestedMaximum is null &&
+            string.Equals(component.ProviderStatId, candidate.StatId, StringComparison.Ordinal) &&
+            string.Equals(component.ProviderStatText, candidate.Text, StringComparison.Ordinal) &&
+            component.ProviderStatAlternativeIds.Count == 1 &&
+            string.Equals(component.ProviderStatAlternativeIds[0], candidate.StatId, StringComparison.Ordinal) &&
+            component.ProviderCandidateStatIds.Count == 1 &&
+            string.Equals(component.ProviderCandidateStatIds[0], candidate.StatId, StringComparison.Ordinal) &&
+            selectedVariant is not null &&
+            !selectedVariant.SupportsValueBounds &&
+            string.Equals(selectedVariant.Identity, providerIdentity, StringComparison.Ordinal) &&
+            string.Equals(selectedVariant.ProviderKind, providerKind, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                component.SelectedFilterVariantIdentity,
+                providerIdentity,
+                StringComparison.Ordinal) &&
+            (string.IsNullOrWhiteSpace(component.RequestedFilterVariantIdentity) ||
+                string.Equals(
+                    component.RequestedFilterVariantIdentity,
+                    providerIdentity,
+                    StringComparison.Ordinal)) &&
+            (string.IsNullOrWhiteSpace(component.RequestedFilterVariantKind) ||
+                string.Equals(
+                    component.RequestedFilterVariantKind,
+                    providerKind,
+                    StringComparison.OrdinalIgnoreCase)) &&
+            component.Sources.Count > 0 &&
+            component.Sources.All(source =>
+                source.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+                source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                string.Equals(source.ProviderIdentity, providerIdentity, StringComparison.Ordinal) &&
+                (string.IsNullOrWhiteSpace(source.ProviderDomain) ||
+                    string.Equals(source.ProviderDomain, providerKind, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static string? ExpectedSpecialProviderKind(ResolvedSearchComponent component)

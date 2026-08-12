@@ -85,12 +85,14 @@ internal static partial class CanonicalModifierEffectAggregator
 
         if (component.IsBaseImplicit ||
             component.ParsedKind == ParsedModifierKind.Implicit ||
+            component.ParsedKind == ParsedModifierKind.Unknown &&
             component.GenerationType == ModifierGenerationType.Implicit)
         {
             return "Implicit";
         }
 
         return component.ParsedKind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix ||
+            component.ParsedKind == ParsedModifierKind.Unknown &&
             component.GenerationType is ModifierGenerationType.Prefix or ModifierGenerationType.Suffix
                 ? "Explicit"
                 : component.ParsedKind == ParsedModifierKind.Unique
@@ -538,6 +540,7 @@ internal static partial class CanonicalModifierEffectAggregator
     private static bool IsImplicit(ResolvedSearchComponent component) =>
         component.IsBaseImplicit ||
         component.ParsedKind == ParsedModifierKind.Implicit ||
+        component.ParsedKind == ParsedModifierKind.Unknown &&
         component.GenerationType == ModifierGenerationType.Implicit;
 
     private sealed record AggregationKey(

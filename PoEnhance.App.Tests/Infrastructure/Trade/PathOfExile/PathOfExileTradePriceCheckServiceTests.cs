@@ -94,6 +94,200 @@ and they welcomed him.
     }
 
     [Fact]
+    public void ResolveProviderComponents_ExactProviderOwnedPresenceIsIdempotent()
+    {
+        var fixture = ServiceFixture.Create();
+        var source = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            OriginalText = "Non-Channelling Skills have -7(-7--6) to Total Mana Cost",
+            CanonicalSignature = "Non-Channelling Skills have -<number> to Total Mana Cost",
+            ParsedKind = ParsedModifierKind.Suffix,
+            ProviderDomain = "Crafted",
+            IsCrafted = true,
+            ResolvedModifierId = "mod.special.test",
+            ResolvedStatIds = ["stat.special.test"],
+            ValueBoundShape = ModifierBoundShape.Unsupported,
+        };
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent(source.OriginalText, source.CanonicalSignature) with
+                {
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsCrafted = true,
+                    IsSearchable = false,
+                    ValueBoundShape = ModifierBoundShape.Unsupported,
+                    Sources = [source],
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "crafted.stat_mana_cost",
+                "Non-Channelling Skills have +# to Total Mana Cost",
+                "crafted"),
+        ]);
+
+        var first = Assert.Single(fixture.Service.ResolveProviderComponents(draft, catalog).ModifierFilters);
+        var second = Assert.Single(fixture.Service.ResolveProviderComponents(
+            draft with { ModifierFilters = [first] },
+            catalog).ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, second.ProviderResolutionStatus);
+        Assert.Equal(first.ProviderStatId, second.ProviderStatId);
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, second.StatMappingProof);
+        Assert.Equal(first.SelectedFilterVariantIdentity, second.SelectedFilterVariantIdentity);
+        Assert.Equal(first.RequestedFilterVariantIdentity, second.RequestedFilterVariantIdentity);
+        Assert.Equal(first.RequestedFilterVariantKind, second.RequestedFilterVariantKind);
+        Assert.Equal(
+            Assert.Single(first.FilterVariants).ProviderKind,
+            Assert.Single(second.FilterVariants).ProviderKind);
+        Assert.Equal(
+            Assert.Single(first.Sources).ProviderDomain,
+            Assert.Single(second.Sources).ProviderDomain);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, second.ValueBoundShape);
+        Assert.False(second.SupportsValueBounds);
+        Assert.Null(second.RequestedMinimum);
+        Assert.Null(second.RequestedMaximum);
+        Assert.True(second.IsSearchable);
+        Assert.Equal(first.ProviderDiagnosticCode, second.ProviderDiagnosticCode);
+        Assert.Equal(first.ProviderDiagnosticMessage, second.ProviderDiagnosticMessage);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_UnresolvedPresenceLikeTextWithoutExactProofStaysUnsupported()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent(
+                    "1 Added Passive Skill is Test Notable",
+                    "<number> Added Passive Skill is Test Notable") with
+                {
+                    SourceModifierIndex = -1,
+                    SourceLineIndex = -1,
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsSearchable = false,
+                    ValueBoundShape = ModifierBoundShape.Unsupported,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_presence_like",
+                "1 Added Passive Skill is Test Notable",
+                "explicit"),
+        ]);
+
+        var resolved = Assert.Single(fixture.Service.ResolveProviderComponents(draft, catalog).ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, resolved.ProviderResolutionStatus);
+        Assert.NotEqual(ModifierStatMappingProofStatus.ProviderExact, resolved.StatMappingProof);
+        Assert.Null(resolved.ProviderStatId);
+        Assert.False(resolved.IsSearchable);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_ExactProviderOwnedPresenceDoesNotRetainMissingIdentity()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent(
+                    "1 Added Passive Skill is Test Notable",
+                    "<number> Added Passive Skill is Test Notable") with
+                {
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsSearchable = false,
+                    ValueBoundShape = ModifierBoundShape.Unsupported,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_presence_like",
+                "1 Added Passive Skill is Test Notable",
+                "explicit"),
+        ]);
+        var first = Assert.Single(fixture.Service.ResolveProviderComponents(draft, catalog).ModifierFilters);
+
+        var second = Assert.Single(fixture.Service.ResolveProviderComponents(
+            draft with { ModifierFilters = [first] },
+            new PathOfExileTradeStatCatalog([])).ModifierFilters);
+
+        Assert.NotEqual(SearchComponentProviderResolutionStatus.Exact, second.ProviderResolutionStatus);
+        Assert.Null(second.ProviderStatId);
+        Assert.NotEqual(first.ProviderStatId, second.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_ExactProviderOwnedPresenceDoesNotRetainChangedVariantRequest()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent(
+                    "1 Added Passive Skill is Test Notable",
+                    "<number> Added Passive Skill is Test Notable") with
+                {
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsSearchable = false,
+                    ValueBoundShape = ModifierBoundShape.Unsupported,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_presence_like",
+                "1 Added Passive Skill is Test Notable",
+                "explicit"),
+        ]);
+        var first = Assert.Single(fixture.Service.ResolveProviderComponents(draft, catalog).ModifierFilters);
+        var requestedIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat.other");
+
+        var second = Assert.Single(fixture.Service.ResolveProviderComponents(
+            draft with
+            {
+                ModifierFilters =
+                [
+                    first with
+                    {
+                        SelectedFilterVariantIdentity = requestedIdentity,
+                        RequestedFilterVariantIdentity = requestedIdentity,
+                        RequestedFilterVariantKind = "explicit",
+                    },
+                ],
+            },
+            catalog).ModifierFilters);
+
+        Assert.NotEqual(SearchComponentProviderResolutionStatus.Exact, second.ProviderResolutionStatus);
+        Assert.Null(second.ProviderStatId);
+        Assert.Equal(requestedIdentity, second.SelectedFilterVariantIdentity);
+    }
+
+    [Fact]
     public void ResolveProviderComponents_SelectedOrdinaryUniqueScalar_UsesExplicitDomainAndMapperPreservesIt()
     {
         var fixture = ServiceFixture.Create();

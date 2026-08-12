@@ -382,6 +382,46 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", incompatible.DiagnosticCode);
     }
 
+    [Fact]
+    public void Resolve_NoFullyMatchingVersion_UsesStrictlyBestExactBlockEvidenceWithoutRepairingUnmatchedRows()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Body Armours
+            Rarity: Unique
+            Test Fostering
+            Exquisite Leather
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +100 to maximum Life
+            { Unique Modifier }
+            Grants Level 20 Summon Bestial Ursa Skill
+            { Unique Modifier }
+            Projectiles inflict Bleeding while you have a Bestial Minion
+            """);
+        var catalog = CreateCatalog("Test Fostering", "Exquisite Leather", UniqueItemKind.Ordinary,
+            Version("Rhoa Current", UniqueItemVersionRole.Current,
+                Block("shared-life-rhoa", "+<number> to maximum Life", "life_stat"),
+                Block("rhoa-skill", "Grants Level 20 Summon Bestial Rhoa Skill", "rhoa_stat")),
+            Version("Ursa Current", UniqueItemVersionRole.Current,
+                Block("shared-life-ursa", "+<number> to maximum Life", "life_stat"),
+                Block("ursa-skill", "Grants Level 20 Summon Bestial Ursa Skill", "ursa_stat"),
+                Block(
+                    "ursa-bleed-source",
+                    "Projectiles have 100% chance to inflict Bleeding while you have a Bestial Minion",
+                    "ursa_bleed_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var version = Assert.Single(result.CompatibleVersions);
+        Assert.Equal("Ursa Current", version.Label);
+        Assert.Equal(3, result.ModifierBlocks.Count);
+        Assert.Equal(2, result.ModifierBlocks.Count(block => block.IsResolved));
+        var unmatched = Assert.Single(result.ModifierBlocks, block => !block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unmatched.DiagnosticCode);
+    }
+
     [Theory]
     [InlineData("Pride(Fireball-Mana-Infused Staff) has no Reservation", "Pride has no Reservation")]
     [InlineData("Socketed Gems are Supported by Level 35 Ice Bite(Greater Multiple Projectiles-Hallow)", "Socketed Gems are Supported by Level 35 Ice Bite")]

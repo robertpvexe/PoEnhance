@@ -26,6 +26,7 @@ public static class BuildPackageCommandLineParser
         "--league",
         "--patch",
         "--source-version",
+        "--created-at-utc",
         "--historical-base-items",
         "--historical-mods",
         "--historical-stats",
@@ -153,6 +154,27 @@ public static class BuildPackageCommandLineParser
             }
         }
 
+        DateTimeOffset? createdAtUtc = null;
+        if (values.TryGetValue("--created-at-utc", out var rawCreatedAtUtc))
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(
+                    rawCreatedAtUtc,
+                    @"(?:Z|[+-]\d{2}:\d{2})$",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant) &&
+                DateTimeOffset.TryParse(
+                    rawCreatedAtUtc,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var parsedCreatedAtUtc))
+            {
+                createdAtUtc = parsedCreatedAtUtc;
+            }
+            else
+            {
+                errors.Add("Option '--created-at-utc' must be an ISO-8601 timestamp with an explicit offset.");
+            }
+        }
+
         if (errors.Count > 0)
         {
             return new BuildPackageCommandLineParseResult
@@ -198,6 +220,7 @@ public static class BuildPackageCommandLineParser
                 PoBSourceUri = values.GetValueOrDefault("--pob-source-uri"),
                 PoBSourceTag = values.GetValueOrDefault("--pob-source-tag"),
                 PoBSourceVersion = values.GetValueOrDefault("--pob-source-version"),
+                CreatedAtUtc = createdAtUtc,
             },
             VerboseDiagnostics = flags.Contains("--verbose-diagnostics"),
         };
@@ -215,7 +238,7 @@ public static class BuildPackageCommandLineParser
     {
         return """
             Usage:
-              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-classes <path> --tags <path> --mods-by-base <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--historical-base-items <path> --historical-mods <path> --historical-stats <path> --historical-translations <path> --historical-source-root <git-checkout> --historical-source-data-root <data-root> --historical-source-uri <uri> --historical-source-branch <branch> --historical-source-version <sha> --historical-data-version <value>] [--pob-uniques <evaluated-json> --pob-source-root <git-checkout> --pob-source-uri <uri> --pob-source-tag <tag> --pob-source-version <sha>] [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
+              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-classes <path> --tags <path> --mods-by-base <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--created-at-utc <ISO-8601>] [--historical-base-items <path> --historical-mods <path> --historical-stats <path> --historical-translations <path> --historical-source-root <git-checkout> --historical-source-data-root <data-root> --historical-source-uri <uri> --historical-source-branch <branch> --historical-source-version <sha> --historical-data-version <value>] [--pob-uniques <evaluated-json> --pob-source-root <git-checkout> --pob-source-uri <uri> --pob-source-tag <tag> --pob-source-version <sha>] [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
 
             Example:
               dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --item-classes .\data\repoe\item_classes.json --tags .\data\repoe\tags.json --mods-by-base .\data\repoe\mods_by_base.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.json --source-snapshot-dir .\artifacts\source-snapshots\dev-001 --source-root .\local-data\repoe --source-data-root .\data\repoe --source-uri https://github.com/repoe-fork/repoe --source-branch master --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 --data-version dev-001
