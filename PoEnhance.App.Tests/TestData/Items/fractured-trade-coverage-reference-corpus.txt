@@ -1,0 +1,479 @@
+Item Class: Shields
+Rarity: Magic
+Lithomancer's Fossilised Spirit Shield
+--------
+Quality: +30% (augmented)
+Chance to Block: 22%
+Energy Shield: 68 (augmented)
+--------
+Requirements:
+Level: 59
+Int: 141 (unmet)
+--------
+Sockets: B-B-G
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Damage, Minion }
+Minions deal 6(5-10)% increased Damage
+--------
+{ Fractured Prefix Modifier "Lithomancer's" (Tier: 1) — Physical, Caster, Gem }
++1 to Level of all Physical Spell Skill Gems
+--------
+Fractured Item
+
+Item Class: Boots
+Rarity: Rare
+Skull Track
+Ambush Boots
+--------
+Quality: +20% (augmented)
+Evasion Rating: 103 (augmented)
+Energy Shield: 22 (augmented)
+--------
+Requirements:
+Level: 70
+Str: 155
+Dex: 155
+Int: 73
+--------
+Sockets: R-R-B-G
+--------
+Item Level: 85
+--------
+0.6% of Damage Leeched as Life if you've Killed Recently (enchant)
+(Leeched Life is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate) (enchant)
+(Recently refers to the past 4 seconds) (enchant)
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) — Damage, Elemental, Fire, Ailment }
+Ignites you inflict deal Damage 5% faster
+(They will deal the same total damage over a shorter duration)
+{ Searing Exarch Implicit Modifier (Lesser) }
+Drops Scorched Ground while moving, lasting 2 seconds
+(Enemies on your Scorched Ground are Scorched. They have -10% to Elemental Resistances)
+--------
+{ Prefix Modifier "Rotund" (Tier: 3) — Life }
++69(85-99) to maximum Life
+{ Prefix Modifier "Gazelle's" (Tier: 3) — Speed }
+25% increased Movement Speed
+{ Prefix Modifier "Azure" (Tier: 10) — Mana }
++28(25-29) to maximum Mana
+{ Fractured Suffix Modifier "of Abjuration" (Tier: 2) }
++12(11-12)% chance to Suppress Spell Damage
+(40% of Damage from Suppressed Hits and Ailments they inflict is prevented)
+{ Suffix Modifier "of the Essence" — Elemental, Lightning, Ailment }
+56(56-60)% chance to Avoid being Shocked
+{ Suffix Modifier "of the Flatworm" (Tier: 6) — Life }
+Regenerate 12.5(8.1-16) Life per second
+Searing Exarch Item
+Eater of Worlds Item
+--------
+Fractured Item
+
+Item Class: Rings
+Rarity: Rare
+Golem Grip
+Iolite Ring
+--------
+Quality (Physical and Chaos Damage Modifiers): +20% (augmented)
+--------
+Requirements:
+Level: 80
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Damage, Chaos  — 20% Increased }
+23(17-23)% increased Chaos Damage
+--------
+{ Prefix Modifier "Radiating" (Tier: 7) — Defences, Energy Shield }
++16(16-19) to maximum Energy Shield
+{ Fractured Suffix Modifier "of the Genius" (Tier: 1) — Attribute }
++52(51-55) to Intelligence
+{ Suffix Modifier "of the Essence" — Damage }
++12(12-15)% to Damage over Time Multiplier
+{ Suffix Modifier "of Archaeology" (Tier: 2) — Drop }
+15(15-20)% increased Rarity of Items found
+--------
+Fractured Item
+
+Item Class: Rings
+Rarity: Rare
+Agony Finger
+Ruby Ring
+--------
+Requirements:
+Level: 67
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Elemental, Fire, Resistance }
++30(20-30)% to Fire Resistance
+--------
+{ Prefix Modifier "Glittering" (Tier: 9) — Defences, Energy Shield }
++11(9-12) to maximum Energy Shield
+{ Prefix Modifier "Dancer's" (Tier: 6) — Defences, Evasion }
++32(11-35) to Evasion Rating
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 2) — Damage, Elemental, Fire, Attack }
+Adds 17(12-17) to 30(26-30) Fire Damage to Attacks
+{ Fractured Suffix Modifier "of Exile" (Tier: 2) — Chaos, Resistance }
++27(26-30)% to Chaos Resistance
+{ Suffix Modifier "of the Essence" — Damage, Elemental, Fire }
+32(31-34)% increased Fire Damage
+{ Suffix Modifier "of Haast" (Tier: 1) — Elemental, Cold, Resistance }
++48(46-48)% to Cold Resistance
+--------
+Fractured Item
+
+Item Class: Gloves
+Rarity: Rare
+Chimeric Claw
+Soldier Gloves
+--------
+Armour: 103
+Energy Shield: 21
+--------
+Requirements:
+Level: 60
+Str: 40
+Int: 40
+--------
+Sockets: B
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Virile" (Tier: 2) — Life }
++107(100-114) to maximum Life
+{ Prefix Modifier "Azure" (Tier: 10) — Mana }
++27(25-29) to maximum Mana
+{ Fractured Suffix Modifier "of Grandmastery" (Tier: 1) — Attack, Speed }
+16(14-16)% increased Attack Speed
+{ Suffix Modifier "of the Falcon" (Tier: 7) — Attribute }
++27(23-27) to Dexterity
+--------
+Fractured Item
+
+Item Class: Jewels
+Rarity: Rare
+Viper Ornament
+Cobalt Jewel
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Vivid" (Tier: 1) — Life }
+7(5-7)% increased maximum Life
+{ Prefix Modifier "Warding" (Tier: 1) — Caster, Speed }
+5(3-5)% increased Cast Speed while holding a Shield
+{ Fractured Suffix Modifier "of Zealousness" (Tier: 1) — Damage, Elemental, Fire }
++8(6-8)% to Fire Damage over Time Multiplier
+{ Suffix Modifier "of Cunning" (Tier: 1) — Attribute }
++8(8-10) to Dexterity and Intelligence
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+--------
+Fractured Item
+
+Item Class: Jewels
+Rarity: Rare
+Glyph Ruin
+Viridian Jewel
+--------
+Item Level: 83
+--------
+{ Prefix Modifier "Gladiator's" (Tier: 1) — Damage, Attack }
+12(12-14)% increased Attack Damage while Dual Wielding
+{ Prefix Modifier "Infernal" (Tier: 1) — Damage, Elemental, Fire, Critical }
++16(15-18)% to Critical Strike Multiplier with Fire Skills
+{ Fractured Suffix Modifier "of Dexterity" (Tier: 1) — Attribute }
++16(12-16) to Dexterity
+{ Suffix Modifier "of Strength" (Tier: 1) — Attribute }
++14(12-16) to Strength
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+--------
+Fractured Item
+
+Item Class: Wands
+Rarity: Rare
+Chimeric Gnarl
+Imbued Wand
+--------
+Wand
+Physical Damage: 27-50
+Critical Strike Chance: 8.00%
+Attacks per Second: 1.60
+--------
+Requirements:
+Level: 64
+Int: 188 (unmet)
+--------
+Sockets: B-R
+--------
+Item Level: 86
+--------
+{ Implicit Modifier — Damage, Caster }
+36(33-37)% increased Spell Damage
+--------
+{ Fractured Prefix Modifier "Zaffre" (Tier: 1) — Mana }
++153(140-159) to maximum Mana
+{ Suffix Modifier "of Unmaking" (Tier: 1) — Caster, Critical }
+104(100-109)% increased Spell Critical Strike Chance
+{ Suffix Modifier "of the Volcano" — Elemental, Fire, Resistance }
++40(36-41)% to Fire Resistance
+{ Suffix Modifier "of the Inuit" — Elemental, Cold, Resistance }
++7(6-11)% to Cold Resistance
+--------
+Fractured Item
+
+Item Class: Gloves
+Rarity: Magic
+Assassin's Mitts of the Genius
+--------
+Evasion Rating: 119
+Energy Shield: 24
+--------
+Requirements:
+Level: 65
+Dex: 45
+Int: 45
+--------
+Sockets: G-G B-G
+--------
+Item Level: 84
+--------
+{ Fractured Suffix Modifier "of the Genius" (Tier: 1) — Attribute }
++52(51-55) to Intelligence
+--------
+Fractured Item
+
+Item Class: Helmets
+Rarity: Rare
+Fate Keep
+Faithful Helmet
+--------
+Quality: +20% (augmented)
+Armour: 622 (augmented)
+Energy Shield: 167 (augmented)
+--------
+Requirements:
+Level: 73
+Str: 148
+Dex: 106
+Int: 101
+--------
+Sockets: G-R-R-G
+--------
+Item Level: 75
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) — Mana }
+7% increased Mana Reservation Efficiency of Skills
+--------
+{ Prefix Modifier "Fecund" (Tier: 1) — Life }
++135(130-144) to maximum Life
+{ Prefix Modifier "Abbot's" (Tier: 1) — Life, Defences, Energy Shield }
++21(16-25) to maximum Energy Shield
++29(29-33) to maximum Life
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 3) — Defences, Armour, Energy Shield }
+70(56-74)% increased Armour and Energy Shield
+{ Fractured Suffix Modifier "of the Tempest" (Tier: 4) — Elemental, Lightning, Resistance }
++32(30-35)% to Lightning Resistance
+{ Suffix Modifier "of the Volcano" (Tier: 3) — Elemental, Fire, Resistance }
++41(36-41)% to Fire Resistance
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++41(36-41)% to Cold Resistance
+Eater of Worlds Item
+--------
+Fractured Item
+
+Item Class: Body Armours
+Rarity: Rare
+Rune Keep
+Saintly Chainmail
+--------
+Quality: +20% (augmented)
+Armour: 1283 (augmented)
+Energy Shield: 306 (augmented)
+--------
+Requirements:
+Level: 70
+Str: 99
+Dex: 70
+Int: 155 (unmet)
+--------
+Sockets: B-B-B-G-R-B
+--------
+Item Level: 78
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) }
+5% Chance to Block Spell Damage
+--------
+{ Fractured Prefix Modifier "Interpolated" (Tier: 3) — Defences, Armour, Energy Shield }
+91(80-91)% increased Armour and Energy Shield
+{ Prefix Modifier "Seraphim's" (Tier: 1) — Defences, Armour, Energy Shield }
+41(39-42)% increased Armour and Energy Shield
+17(16-17)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Walrus" (Tier: 4) — Elemental, Cold, Resistance }
++34(30-35)% to Cold Resistance
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) — Elemental, Lightning, Resistance }
++34(29-35)% to Lightning Resistance
+Eater of Worlds Item
+--------
+Fractured Item
+
+Item Class: Belts
+Rarity: Rare
+Eagle Twine
+Heavy Belt
+--------
+Requirements:
+Level: 60
+--------
+Item Level: 83
+--------
+{ Implicit Modifier — Attribute }
++30(25-35) to Strength
+--------
+{ Prefix Modifier "Stout" (Tier: 6) — Life }
++48(55-69) to maximum Life
+{ Prefix Modifier "Glowing" (Tier: 9) — Defences, Energy Shield }
++14(13-15) to maximum Energy Shield
+{ Master Crafted Prefix Modifier "Upgraded" }
+33% reduced Flask Charges gained
+Flasks applied to you have 13(11-14)% increased Effect
+{ Fractured Suffix Modifier "of Brimming" (Tier: 2) }
+32(29-34)% increased Flask Charges gained
+{ Suffix Modifier "of the Lightning" (Tier: 2) — Elemental, Lightning, Resistance }
++42(42-45)% to Lightning Resistance
+{ Suffix Modifier "of the Leviathan" (Tier: 4) — Attribute }
++38(38-42) to Strength
+--------
+Fractured Item
+
+Item Class: Amulets
+Rarity: Magic
+Turquoise Amulet of the Jaguar
+--------
+Requirements:
+Level: 52
+--------
+Item Level: 84
+--------
+{ Implicit Modifier — Attribute }
++23(16-24) to Dexterity and Intelligence
+--------
+{ Fractured Suffix Modifier "of the Jaguar" (Tier: 3) — Attribute }
++38(38-42) to Dexterity
+--------
+Fractured Item
+
+Item Class: Amulets
+Rarity: Rare
+Vortex Collar
+Amber Amulet
+--------
+Requirements:
+Level: 65
+--------
+Item Level: 84
+--------
+{ Implicit Modifier — Attribute }
++29(20-30) to Strength
+--------
+{ Prefix Modifier "Stout" (Tier: 5) — Life }
++40(55-69) to maximum Life
+{ Prefix Modifier "Sapphire" (Tier: 10) — Mana }
++33(30-34) to maximum Mana
+{ Fractured Suffix Modifier "of the Gods" (Tier: 1) — Attribute }
++55(51-55) to Strength
+{ Suffix Modifier "of Ferocity" (Tier: 2) — Damage, Critical }
++32(30-34)% to Global Critical Strike Multiplier
+--------
+Fractured Item
+
+Item Class: Gloves
+Rarity: Magic
+Thirsty Stealth Gloves
+--------
+Evasion Rating: 264
+--------
+Requirements:
+Level: 62
+Dex: 97
+--------
+Sockets: G
+--------
+Item Level: 83
+--------
+{ Fractured Prefix Modifier "Thirsty" — Mana, Physical, Attack }
+0.34(0.2-0.4)% of Physical Attack Damage Leeched as Mana
+(Leeched Mana is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+--------
+Fractured Item
+
+Item Class: Gloves
+Rarity: Rare
+Miracle Touch
+Slink Gloves
+--------
+Quality: +20% (augmented)
+Evasion Rating: 326 (augmented)
+--------
+Requirements:
+Level: 70
+Dex: 95
+--------
+Sockets: G-R-R-G
+--------
+Item Level: 85
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) — Damage, Physical, Elemental, Cold }
+10% of Physical Damage Converted to Cold Damage
+{ Searing Exarch Implicit Modifier (Lesser) — Attack, Speed }
+8% increased Attack Speed
+--------
+{ Fractured Prefix Modifier "Virile" (Tier: 2) — Life }
++76(100-114) to maximum Life
+{ Prefix Modifier "Pirate's" (Tier: 1) — Drop }
+15(13-18)% increased Rarity of Items found
+{ Master Crafted Prefix Modifier "Upgraded" — Damage, Physical, Elemental, Cold }
+23(20-25)% of Physical Damage Converted to Cold Damage
+{ Fractured Suffix Modifier "of Haunting" — Attack }
+Attacks have 21(15-25)% chance to Maim on Hit
+(Maimed enemies have 30% reduced Movement Speed)
+{ Suffix Modifier "of the Essence" — Attack, Speed }
+18(17-18)% increased Attack Speed
+{ Suffix Modifier "of Abjuration" (Tier: 2) }
++12(11-12)% chance to Suppress Spell Damage
+(40% of Damage from Suppressed Hits and Ailments they inflict is prevented)
+Searing Exarch Item
+Eater of Worlds Item
+--------
+Fractured Item
+Item Class: Amulets
+Rarity: Rare
+Honour Gorget
+Turquoise Amulet
+--------
+Requirements:
+Level: 61
+--------
+Item Level: 85
+--------
+Allocates Watchtowers (enchant)
+--------
+{ Implicit Modifier — Attribute }
++16(16-24) to Dexterity and Intelligence
+--------
+{ Prefix Modifier "Vulcanist's" (Tier: 1) — Elemental, Fire, Gem }
++1 to Level of all Fire Skill Gems
+{ Prefix Modifier "Impregnable" (Tier: 1) — Defences, Armour }
+36(33-36)% increased Armour
+{ Master Crafted Prefix Modifier "Upgraded" (Rank: 3) — Life }
++48(41-55) to maximum Life
+{ Fractured Suffix Modifier "of Melting" (Tier: 2) — Damage }
++23(20-23)% to Damage over Time Multiplier
+{ Master Crafted Suffix Modifier "of Crafting" }
+Can have up to 3 Crafted Modifiers — Unscalable Value
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 2) — Damage, Elemental, Fire }
+16(13-16)% increased Fire Damage
+--------
+Fractured Item

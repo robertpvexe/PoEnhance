@@ -12,6 +12,8 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 public sealed class PathOfExileTradeFracturedCoverageAuditTests
 {
+    private const int ReviewedFracturedFixtureItemCount = 17;
+
     [Fact]
     public async Task FrozenOfficialStats_ConfirmedCurrentCoverageAndAppendedCorpusHaveNoLockedModifier()
     {
@@ -74,7 +76,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             productionAuditSource.Contains("Fishing", StringComparison.OrdinalIgnoreCase),
             "Coverage scope must be derived from the reviewed canonical item-class contract.");
 
-        var corpusCount = await AuditAppendedFracturedCorpusAsync(
+        var corpusCount = await AuditReviewedFracturedFixtureAsync(
             statResult.Catalog!,
             filterCatalog,
             gameDataCatalog);
@@ -158,7 +160,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
 
         Assert.True(report.ConfirmedCurrentFracturedRecords > 0);
         Assert.True(report.CanonicalFamilies > 0);
-        var corpusCount = await AuditAppendedFracturedCorpusAsync(
+        var corpusCount = await AuditReviewedFracturedFixtureAsync(
             statResult.Catalog!,
             filterResult.Catalog!,
             gameDataCatalog);
@@ -207,27 +209,31 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
         }));
     }
 
-    private static async Task<int> AuditAppendedFracturedCorpusAsync(
+    private static async Task<int> AuditReviewedFracturedFixtureAsync(
         PathOfExileTradeStatCatalog statCatalog,
         PathOfExileTradeFilterCatalog filterCatalog,
         GameDataCatalog gameDataCatalog)
     {
-        var corpusPath = Path.Combine(
-            Directory.GetParent(FindRepoDirectory())!.FullName,
-            "zfortests_v2.txt");
-        Assert.True(File.Exists(corpusPath), $"Fractured corpus was not found at '{corpusPath}'.");
-        var blocks = Regex.Split(
-                await File.ReadAllTextAsync(corpusPath),
+        var fixturePath = FindRepoFile(
+            "PoEnhance.App.Tests",
+            "TestData",
+            "Items",
+            "fractured-trade-coverage-reference-corpus.txt");
+        var fixtureItems = Regex.Split(
+                await File.ReadAllTextAsync(fixturePath),
                 @"(?m)(?=^Item Class:)")
             .Where(block => block.TrimStart().StartsWith("Item Class:", StringComparison.Ordinal))
             .ToArray();
-        var appendedStart = Array.FindLastIndex(
-            blocks,
-            block => !block.Contains("Fractured Item", StringComparison.Ordinal)) + 1;
-        var appended = blocks
-            .Skip(appendedStart)
-            .Where(block => block.Contains("Fractured Item", StringComparison.Ordinal))
+        Assert.Equal(ReviewedFracturedFixtureItemCount, fixtureItems.Length);
+        var nonFracturedItems = fixtureItems
+            .Select((block, index) => new { Block = block, Index = index })
+            .Where(item => !item.Block.Contains("Fractured Item", StringComparison.Ordinal))
             .ToArray();
+        Assert.True(
+            nonFracturedItems.Length == 0,
+            $"Reviewed Fractured fixture contains non-Fractured blocks at one-based indexes: " +
+            string.Join(", ", nonFracturedItems.Select(item => item.Index + 1)));
+
         var searchClient = new CorpusRecordingSearchClient();
         var service = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
@@ -241,10 +247,17 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             new StaticFilterCatalogProvider(filterCatalog));
         var displayService = new ParsedItemGameDataDisplayService();
         var failures = new List<string>();
-        foreach (var copiedText in appended)
+        foreach (var (copiedText, fixtureIndex) in fixtureItems.Select((text, index) => (text, index)))
         {
             var parsed = new ItemTextParser().Parse(copiedText);
             var label = $"{parsed.DisplayName ?? parsed.BaseType} / {parsed.BaseType}";
+            if (parsed.InputFormat != ParsedItemInputFormat.Advanced)
+            {
+                failures.Add(
+                    $"Fixture item {fixtureIndex + 1} ({label}) did not parse as Advanced Item Description text.");
+                continue;
+            }
+
             var baseResolution = Assert.IsType<ItemBaseResolutionResult>(
                 displayService.ResolveItemBase(parsed, gameDataCatalog).Result);
             var modifierResolutions = displayService
@@ -350,10 +363,10 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
         }
 
         Console.WriteLine(
-            $"Appended Fractured corpus: {searchClient.Requests.Count}/{appended.Length} full items reached final query JSON.");
+            $"Reviewed Fractured fixture: {searchClient.Requests.Count}/{fixtureItems.Length} full items reached final query JSON.");
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
-        Assert.Equal(appended.Length, searchClient.Requests.Count);
-        return appended.Length;
+        Assert.Equal(fixtureItems.Length, searchClient.Requests.Count);
+        return fixtureItems.Length;
     }
 
     private static bool IsUsable(ResolvedSearchComponent component) =>
