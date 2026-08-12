@@ -89,13 +89,18 @@ public sealed partial class ItemTextParser
             classifiedLines,
             isFlask);
         var hasAdvancedModifierMetadata = ContainsAdvancedModifierMetadata(sections);
+        var lastAdvancedModifierSectionIndex = sections
+            .Where(section => section.Lines.Any(line => IsModifierMetadataLine(line.Trim())))
+            .Select(section => (int?)section.Index)
+            .LastOrDefault();
         var flavourTextLines = ReadFlavourTextLines(
             sections,
             raritySectionIndex,
             itemLevelSectionIndex,
             classifiedLines,
             rarity,
-            hasAdvancedModifierMetadata);
+            hasAdvancedModifierMetadata,
+            lastAdvancedModifierSectionIndex);
         var properties = new List<ParsedItemProperty>();
         var enchantments = new List<ParsedEnchantment>();
         var modifiers = new List<ParsedModifier>();
@@ -107,7 +112,11 @@ public sealed partial class ItemTextParser
         {
             var isModifierSection = itemLevelSectionIndex.HasValue
                 && section.Index > itemLevelSectionIndex.Value
-                && !IsFlavourTextSection(section, rarity, hasAdvancedModifierMetadata);
+                && !IsFlavourTextSection(
+                    section,
+                    rarity,
+                    hasAdvancedModifierMetadata,
+                    lastAdvancedModifierSectionIndex);
             PendingAdvancedModifier? pendingAdvancedModifier = null;
 
             for (var lineIndex = 0; lineIndex < section.Lines.Count; lineIndex++)
@@ -565,7 +574,8 @@ public sealed partial class ItemTextParser
         int? itemLevelSectionIndex,
         ISet<LineLocation> classifiedLines,
         string? rarity,
-        bool hasAdvancedModifierMetadata)
+        bool hasAdvancedModifierMetadata,
+        int? lastAdvancedModifierSectionIndex)
     {
         var firstCandidateSectionIndex = itemLevelSectionIndex ?? raritySectionIndex;
         if (!firstCandidateSectionIndex.HasValue)
@@ -576,7 +586,11 @@ public sealed partial class ItemTextParser
         var flavourTextLines = new List<string>();
         foreach (var section in sections.Where(section => section.Index > firstCandidateSectionIndex.Value))
         {
-            if (!IsFlavourTextSection(section, rarity, hasAdvancedModifierMetadata))
+            if (!IsFlavourTextSection(
+                    section,
+                    rarity,
+                    hasAdvancedModifierMetadata,
+                    lastAdvancedModifierSectionIndex))
             {
                 continue;
             }
@@ -954,9 +968,11 @@ public sealed partial class ItemTextParser
             return false;
         }
 
+        var startsWithSignedNumber = line.Length > 1 &&
+            line[0] is '+' or '-' &&
+            char.IsDigit(line[1]);
         return char.IsDigit(line[0])
-            || line[0] == '+'
-            || line[0] == '-'
+            || startsWithSignedNumber
             || line.Contains("(implicit)", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1268,14 +1284,18 @@ public sealed partial class ItemTextParser
     private static bool IsFlavourTextSection(
         ItemTextSection section,
         string? rarity,
-        bool hasAdvancedModifierMetadata)
+        bool hasAdvancedModifierMetadata,
+        int? lastAdvancedModifierSectionIndex)
     {
         if (LooksLikeFlavorText(section))
         {
             return true;
         }
 
-        if (hasAdvancedModifierMetadata && LooksLikeAdvancedTerminalFlavourText(section))
+        var isAfterAdvancedModifiers = lastAdvancedModifierSectionIndex.HasValue &&
+            section.Index > lastAdvancedModifierSectionIndex.Value;
+        if (hasAdvancedModifierMetadata &&
+            LooksLikeAdvancedTerminalFlavourText(section, isAfterAdvancedModifiers))
         {
             return true;
         }
@@ -1287,14 +1307,16 @@ public sealed partial class ItemTextParser
                 .All(line =>
                 {
                     var trimmedLine = line.Trim();
-                    return !trimmedLine.Contains(':')
+                    return (!trimmedLine.Contains(':') || isAfterAdvancedModifiers)
                         && !IsModifierMetadataLine(trimmedLine)
                         && !IsEnchantmentLine(trimmedLine)
                         && !IsClearlyNumericModifierLine(trimmedLine);
                 });
     }
 
-    private static bool LooksLikeAdvancedTerminalFlavourText(ItemTextSection section)
+    private static bool LooksLikeAdvancedTerminalFlavourText(
+        ItemTextSection section,
+        bool allowProseColon)
     {
         var nonEmptyLines = section.Lines
             .Select(line => line.Trim())
@@ -1302,7 +1324,7 @@ public sealed partial class ItemTextParser
             .ToArray();
         return nonEmptyLines.Length > 0 &&
             nonEmptyLines.All(line =>
-                !line.Contains(':') &&
+                (!line.Contains(':') || allowProseColon) &&
                 !IsDescriptionLine(line) &&
                 !IsItemStateLine(line) &&
                 !IsTraditionalInfluenceLine(line) &&

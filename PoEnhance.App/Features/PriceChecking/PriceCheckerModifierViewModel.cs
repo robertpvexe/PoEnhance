@@ -24,6 +24,8 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public string? AvailabilityReason { get; init; }
 
+    public string? AvailabilityStatus { get; init; }
+
     public bool SupportsValueBounds { get; init; }
 
     public string? ValueBoundsUnsupportedReason { get; init; }
@@ -58,16 +60,17 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
     public bool HasStaticModType =>
         IsCanonicalImplicit || IsUniqueModifier || IsVeiledModifier;
 
-    public string ModTypeLabel => IsCanonicalImplicit
-        ? "Implicit"
-        : IsVeiledModifier
-            ? "Veiled"
-            : IsFoulbornUniqueModifier
-                ? "Foulborn"
-                : IsUniqueModifier
-                    ? "Unique"
-                    : SelectedFilterVariant?.Label ??
-                        (IsInteractionEnabled ? string.Empty : "Unsupported");
+    public string ModTypeLabel => !IsInteractionEnabled && !string.IsNullOrWhiteSpace(AvailabilityStatus)
+        ? AvailabilityStatus
+        : IsCanonicalImplicit
+            ? "Implicit"
+            : IsVeiledModifier
+                ? "Veiled"
+                : IsFoulbornUniqueModifier
+                    ? "Foulborn"
+                    : IsUniqueModifier
+                        ? "Unique"
+                        : SelectedFilterVariant?.Label ?? string.Empty;
 
     public bool HasSingleFilterVariant => FilterVariants.Count == 1;
 

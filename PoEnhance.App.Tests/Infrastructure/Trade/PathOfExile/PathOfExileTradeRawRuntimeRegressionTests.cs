@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -13,7 +14,10 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static readonly Lazy<GameDataCatalog> GameData = new(LoadGameData);
     private static readonly PathOfExileTradeStatCatalog TradeCatalog = CreateTradeCatalog();
     private static readonly PathOfExileTradeItemCatalog TradeItemCatalog = CreateTradeItemCatalog();
+    private static readonly PathOfExileTradeFilterCatalog FilterCatalog =
+        PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
     private static readonly PathOfExileTradeSelectedModifierMapper SelectedMapper = new();
+    private static readonly PathOfExileTradeItemPropertyResolver ItemPropertyResolver = new();
     private static readonly MethodInfo InteractionReadyMethod = typeof(PriceCheckerSearchController)
         .GetMethod("IsModifierInteractionReady", BindingFlags.Static | BindingFlags.NonPublic) ??
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "IsModifierInteractionReady");
@@ -174,6 +178,108 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_SquireDisplayedPropertiesUseFirstClassFiltersAndCoexistWithUniqueModifier()
+    {
+        var runtime = Resolve(SquireText);
+        var armour = FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.Armour);
+        var evasion = FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.EvasionRating);
+        var block = FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.ChanceToBlock);
+
+        AssertDisplayedProperty(armour, 420m);
+        AssertDisplayedProperty(evasion, 420m);
+        AssertDisplayedProperty(block, 30m);
+        Assert.Null(armour.CalculationBasisLabel);
+        Assert.Null(evasion.CalculationBasisLabel);
+        Assert.Null(block.CalculationBasisLabel);
+
+        var sockets = FindComponent(runtime.ProviderDraft, "Has 3 Sockets");
+        var socketsIndex = runtime.ProviderDraft.ModifierFilters
+            .Select((component, index) => new { component, index })
+            .Single(entry => ReferenceEquals(entry.component, sockets))
+            .index;
+        var armourIndex = runtime.ProviderDraft.ItemProperties.IndexOf(armour);
+        var selectedDraft = runtime.ProviderDraft with
+        {
+            ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                .Select((component, index) => component with { IsSelected = index == socketsIndex })
+                .ToArray(),
+            ItemProperties = runtime.ProviderDraft.ItemProperties
+                .Select((property, index) => property with { IsSelected = index == armourIndex })
+                .ToImmutableArray(),
+        };
+        var modifierMapping = SelectedMapper.Map(selectedDraft, TradeCatalog);
+        var propertyMapping = ItemPropertyResolver.MapSelected(selectedDraft, FilterCatalog);
+        Assert.True(modifierMapping.IsSuccess);
+        Assert.True(propertyMapping.IsSuccess);
+        Assert.Equal("explicit.stat_4077843608", Assert.Single(modifierMapping.Filters).StatId);
+        var propertyFilter = Assert.Single(propertyMapping.Filters);
+        Assert.Equal("armour_filters", propertyFilter.ProviderGroupId);
+        Assert.Equal("ar", propertyFilter.ProviderFilterId);
+
+        var query = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            "Allflame",
+            modifierMapping.Filters,
+            runtime.UniqueIdentity,
+            FilterCatalog,
+            propertyMapping.Filters);
+        Assert.True(query.IsSuccess, string.Join(" | ", query.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Contains("\"armour_filters\"", query.SerializedJson, StringComparison.Ordinal);
+        Assert.Contains("\"ar\"", query.SerializedJson, StringComparison.Ordinal);
+        Assert.Contains("\"explicit.stat_4077843608\"", query.SerializedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_ReplicaAlberonsDisplayedArmourAndEnergyShieldRemainSearchable()
+    {
+        var runtime = Resolve(ReplicaAlberonsText);
+
+        AssertDisplayedProperty(
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.Armour),
+            377m);
+        AssertDisplayedProperty(
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.EnergyShield),
+            22m);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_LastResortIncreasedPhysicalDamageUsesCanonicalProviderMechanic()
+    {
+        var runtime = Resolve(LastResortText);
+        var physical = FindComponent(runtime.ProviderDraft, "94(80-100)% increased Physical Damage");
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, physical.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_1509134228", physical.ProviderStatId);
+        Assert.True(physical.IsSearchable, physical.NotSearchableReason);
+        Assert.True(IsInteractionReady(physical));
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, physical.StatMappingProof);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", physical.UniqueResolutionDiagnosticCode);
+        Assert.Equal([94m], physical.CanonicalNumericValues);
+        var filter = MapSingle(runtime.ProviderDraft, physical);
+        Assert.Equal(94m, filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_DragonfangReducedAttributeRequirementsUsesSignedCanonicalProjection()
+    {
+        var runtime = Resolve(DragonfangAttributeRequirementsText);
+        var requirements = FindComponent(
+            runtime.ProviderDraft,
+            "Items and Gems have 5(10-5)% reduced Attribute Requirements");
+
+        AssertExactSelectable(requirements, "explicit.stat_752930724");
+        Assert.Equal([5m], requirements.ObservedNumericValues);
+        Assert.Equal([-5m], requirements.CanonicalNumericValues);
+        Assert.Null(requirements.RequestedMinimum);
+        Assert.Equal(-5m, requirements.RequestedMaximum);
+        var filter = MapSingle(runtime.ProviderDraft, requirements);
+        Assert.Null(filter.Minimum);
+        Assert.Equal(-5m, filter.Maximum);
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_FoulbornMagebloodPresenceHasNoFakeBounds()
     {
         var runtime = Resolve(FoulbornMagebloodText);
@@ -204,11 +310,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         var uniqueIdentity = new PathOfExileTradeItemIdentityMapper()
             .Map(draft, TradeItemCatalog)
             .Identity;
+        var propertyDraft = ItemPropertyResolver.Resolve(draft, FilterCatalog);
         var providerDraft = CreatePriceCheckService().ResolveProviderComponents(
-            draft,
+            propertyDraft,
             TradeCatalog,
-            uniqueIdentity);
-        return new RuntimeResult(parsed, baseResolution, sourceResolutions, providerDraft);
+            uniqueIdentity,
+            FilterCatalog);
+        return new RuntimeResult(parsed, baseResolution, sourceResolutions, providerDraft, uniqueIdentity);
     }
 
     private static void AssertExactSelectable(ResolvedSearchComponent component, string providerStatId)
@@ -279,6 +387,19 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             string.Equals(component.OriginalText, originalText, StringComparison.Ordinal));
     }
 
+    private static TradeSearchItemProperty FindProperty(
+        TradeSearchDraft draft,
+        TradeSearchItemPropertyKind kind) =>
+        Assert.Single(draft.ItemProperties, property => property.Kind == kind);
+
+    private static void AssertDisplayedProperty(TradeSearchItemProperty property, decimal expected)
+    {
+        Assert.Equal(expected, property.ObservedValue);
+        Assert.Equal(expected, property.RequestedMinimum);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable, property.NotSearchableReason);
+    }
+
     private static bool IsInteractionReady(ResolvedSearchComponent component)
     {
         return (bool)(InteractionReadyMethod.Invoke(null, [component]) ?? false);
@@ -313,6 +434,8 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Entry(9, "explicit.stat_3180152291", "Cannot deal non-Chaos Damage", "explicit"),
             Entry(10, "explicit.stat_4077843608", "Has 1 Socket", "explicit"),
             Entry(11, "explicit.stat_3986704288", "Magic Utility Flasks cannot be Used", "explicit"),
+            Entry(12, "explicit.stat_1509134228", "#% increased Physical Damage", "explicit"),
+            Entry(13, "explicit.stat_752930724", "Items and Gems have #% increased Attribute Requirements", "explicit"),
         ]);
     }
 
@@ -339,6 +462,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(3, "Replica Alberon's Warpath", "Soldier Boots", "armour"),
             UniqueItem(4, "The Squire", "Elegant Round Shield", "armour"),
             UniqueItem(5, "Mageblood", "Heavy Belt", "accessory"),
+            UniqueItem(6, "Last Resort", "Nailed Fist", "weapon"),
         ]);
     }
 
@@ -389,7 +513,8 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         ParsedItem Parsed,
         ItemBaseResolutionResult BaseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> SourceResolutions,
-        TradeSearchDraft ProviderDraft);
+        TradeSearchDraft ProviderDraft,
+        PathOfExileTradeItemIdentity? UniqueIdentity);
 
     private sealed class StaticStatProvider(PathOfExileTradeStatCatalog catalog) :
         IPathOfExileTradeStatCatalogProvider
@@ -623,5 +748,45 @@ Magic Utility Flask Effects cannot be removed
 Rightmost 4(2-4) Magic Utility Flasks constantly apply their Flask Effects to you
 --------
 Rivers of power course through your veins.
+""";
+
+    private const string LastResortText = """
+Item Class: Claws
+Rarity: Unique
+Last Resort
+Nailed Fist
+--------
+Claw
+Quality: +20% (augmented)
+Physical Damage: 14-49 (augmented)
+Critical Strike Chance: 8.39% (augmented)
+Attacks per Second: 1.60
+Weapon Range: 1.1 metres
+--------
+Item Level: 80
+--------
+{ Unique Modifier â€” Damage, Physical, Attack }
+94(80-100)% increased Physical Damage
+{ Unique Modifier â€” Damage, Physical, Attack }
+Adds 2 to 10 Physical Damage
+--------
+Desperate times demand desperate measures.
+""";
+
+    private const string DragonfangAttributeRequirementsText = """
+Item Class: Amulets
+Rarity: Unique
+Replica Dragonfang's Flight
+Onyx Amulet
+--------
+Item Level: 80
+--------
+{ Unique Modifier }
+Items and Gems have 5(10-5)% reduced Attribute Requirements
+(Attributes are Strength, Dexterity, and Intelligence)
+--------
+"Did we make this? Why do we have no record of it?
+We were warned that there would be consequences..."
+- Administrator Qotra
 """;
 }

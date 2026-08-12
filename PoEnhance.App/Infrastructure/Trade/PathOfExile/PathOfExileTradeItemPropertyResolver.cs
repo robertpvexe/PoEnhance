@@ -137,16 +137,6 @@ internal sealed class PathOfExileTradeItemPropertyResolver
             };
         }
 
-        if (!string.IsNullOrWhiteSpace(property.DerivationUnsupportedReason))
-        {
-            return property with
-            {
-                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
-                IsSearchable = false,
-                NotSearchableReason = property.DerivationUnsupportedReason,
-            };
-        }
-
         var categoryMatches = property.Kind == TradeSearchItemPropertyKind.ChanceToBlock
             ? isArmourDraft || isWeaponDraft
             : IsDefensive(property.Kind) ? isArmourDraft : isWeaponDraft;

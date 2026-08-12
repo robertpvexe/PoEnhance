@@ -50,6 +50,7 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
         {
             var foundationMatches = catalog.FindByExactDisplayText(resolvedIdentity.CanonicalName)
                 .Where(entry => entry.IsUnique && IsCompatibleBase(entry, selectedBaseType))
+                .DistinctBy(LogicalIdentityKey, StringComparer.Ordinal)
                 .ToArray();
             if (foundationMatches.Length == 1)
             {
@@ -95,6 +96,7 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
     {
         var compatibleUniqueMatches = exactMatches
             .Where(entry => entry.IsUnique && IsCompatibleBase(entry, selectedBaseType))
+            .DistinctBy(LogicalIdentityKey, StringComparer.Ordinal)
             .ToArray();
 
         if (compatibleUniqueMatches.Length == 1)
@@ -137,6 +139,7 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
         var candidateMatches = catalog
             .FindByExactDisplayText(underlyingName)
             .Where(entry => entry.IsUnique && IsCompatibleBase(entry, selectedBaseType))
+            .DistinctBy(LogicalIdentityKey, StringComparer.Ordinal)
             .ToArray();
 
         if (candidateMatches.Length == 1)
@@ -190,6 +193,11 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
         string selectedBaseType)
     {
         return string.Equals(entry.Type.Trim(), selectedBaseType.Trim(), StringComparison.Ordinal);
+    }
+
+    private static string LogicalIdentityKey(PathOfExileTradeItemEntry entry)
+    {
+        return $"{entry.Name?.Trim()}\u001f{entry.Type.Trim()}";
     }
 
     private static bool IsRarity(TradeSearchDraft draft, string rarity)

@@ -22,6 +22,18 @@ public sealed class PathOfExileTradeItemIdentityMapperTests
     }
 
     [Fact]
+    public void Map_CurrentAndLegacyCatalogRowsWithSameNameAndTypeAreOneLogicalIdentity()
+    {
+        var result = Map(Draft("The Shattered Divinity", "Blunt Arrow Quiver"), Catalog(
+            Unique("The Shattered Divinity", "Blunt Arrow Quiver", "armour"),
+            Unique("The Shattered Divinity", "Blunt Arrow Quiver", "armour")));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("The Shattered Divinity", result.Identity?.CanonicalName);
+        Assert.Equal("Blunt Arrow Quiver", result.Identity?.CanonicalType);
+    }
+
+    [Fact]
     public void Map_MoonbendersWingMatchesExactCanonicalNameAndTomahawk()
     {
         var result = Map(Draft("Moonbender's Wing", "Tomahawk"), Catalog(

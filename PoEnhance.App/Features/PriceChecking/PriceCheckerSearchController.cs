@@ -1708,9 +1708,10 @@ internal sealed class PriceCheckerSearchController
             modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn;
         var isFracturedModifier = modifier.IsFractured;
         var isVeiledModifier = modifier.IsVeiled;
-        var requiresExactAvailability =
-            isUniqueModifier || isFracturedModifier || isVeiledModifier;
         var isInteractionEnabled = IsModifierInteractionReady(modifier);
+        var availabilityStatus = isInteractionEnabled
+            ? null
+            : ModifierAvailabilityStatus(modifier);
         var availabilityReason = isInteractionEnabled
             ? null
             : modifier.ProviderDiagnosticMessage ?? modifier.NotSearchableReason ??
@@ -1796,8 +1797,7 @@ internal sealed class PriceCheckerSearchController
             Text = SafeModifierText(modifier.PresentationText ?? modifier.OriginalText),
             SectionLabel = FormatModifierSectionLabel(
                 sectionLabelOverride ?? SectionLabelWithSources(modifier),
-                requiresExactAvailability,
-                isInteractionEnabled),
+                availabilityStatus),
             SourceCount = equivalentProvenanceOnly ? 1 : modifier.SourceCount,
             SourceBreakdown = CombineSourceBreakdown(
                 equivalentProvenanceOnly ? null : SourceBreakdown(modifier),
@@ -1805,6 +1805,7 @@ internal sealed class PriceCheckerSearchController
             IsSelected = modifier.IsSelected,
             IsInteractionEnabled = isInteractionEnabled,
             AvailabilityReason = availabilityReason,
+            AvailabilityStatus = availabilityStatus,
             SupportsValueBounds = exposesValueBounds && modifier.SupportsValueBounds,
             ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
             FilterVariants = variants,
@@ -1922,15 +1923,6 @@ internal sealed class PriceCheckerSearchController
             return true;
         }
 
-        var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
-            variant.Identity,
-            modifier.SelectedFilterVariantIdentity,
-            StringComparison.Ordinal));
-        if (selectedVariant is null)
-        {
-            return false;
-        }
-
         var providerReady = modifier.ProviderResolutionStatus is
                 SearchComponentProviderResolutionStatus.Exact or
                 SearchComponentProviderResolutionStatus.ExactEquivalentSet or
@@ -1949,7 +1941,22 @@ internal sealed class PriceCheckerSearchController
             return false;
         }
 
-        return !selectedVariant.SupportsValueBounds ||
+        var selectedVariant = modifier.FilterVariants.FirstOrDefault(variant => string.Equals(
+            variant.Identity,
+            modifier.SelectedFilterVariantIdentity,
+            StringComparison.Ordinal));
+        var requiresSelectedVariant = modifier.IsFractured ||
+            modifier.IsVeiled ||
+            modifier.ParsedKind == ParsedModifierKind.Implicit &&
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted;
+        if (requiresSelectedVariant && selectedVariant is null)
+        {
+            return false;
+        }
+
+        return selectedVariant is null
+            ? !modifier.SupportsValueBounds || modifier.CanonicalNumericValues.Count > 0
+            : !selectedVariant.SupportsValueBounds ||
             modifier.SupportsValueBounds &&
             modifier.CanonicalNumericValues.Count > 0;
     }
@@ -2001,14 +2008,28 @@ internal sealed class PriceCheckerSearchController
         };
     }
 
-    private static string FormatModifierSectionLabel(
-        string sectionLabel,
-        bool requiresExactStaticAvailability,
-        bool isInteractionEnabled)
+    private static string FormatModifierSectionLabel(string sectionLabel, string? availabilityStatus)
     {
-        return requiresExactStaticAvailability && !isInteractionEnabled
-            ? $"{sectionLabel} · Unsupported"
+        return !string.IsNullOrWhiteSpace(availabilityStatus)
+            ? $"{sectionLabel} · {availabilityStatus}"
             : sectionLabel;
+    }
+
+    private static string ModifierAvailabilityStatus(ResolvedSearchComponent modifier)
+    {
+        return modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Ambiguous ||
+            ContainsAmbiguityMarker(modifier.ProviderDiagnosticCode) ||
+            ContainsAmbiguityMarker(modifier.UniqueResolutionDiagnosticCode)
+            ? "Ambiguous"
+            : "Unsupported";
+    }
+
+    private static bool ContainsAmbiguityMarker(string? value)
+    {
+        return value?.Contains("AMBIG", StringComparison.OrdinalIgnoreCase) == true ||
+            value?.Contains("VERSION", StringComparison.OrdinalIgnoreCase) == true ||
+            value?.Contains("CONFLICT", StringComparison.OrdinalIgnoreCase) == true ||
+            value?.Contains("INDEPENDENT_DIMENSIONS", StringComparison.OrdinalIgnoreCase) == true;
     }
 
     private static string? CombineSourceBreakdown(string? sourceBreakdown, string? availabilityReason)

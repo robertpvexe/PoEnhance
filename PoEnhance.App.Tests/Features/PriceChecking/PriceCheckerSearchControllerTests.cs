@@ -1133,7 +1133,7 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(row.IsInteractionEnabled);
         Assert.False(row.IsSelected);
         Assert.True(row.IsFoulbornUniqueModifier);
-        Assert.Equal("Foulborn", row.ModTypeLabel);
+        Assert.Equal("Unsupported", row.ModTypeLabel);
         Assert.Contains("Unsupported", row.SectionLabel, StringComparison.Ordinal);
         Assert.Contains("No exact provider representation", row.SourceBreakdown, StringComparison.Ordinal);
 
@@ -1565,7 +1565,7 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.True(unresolved.IsSelected);
         Assert.False(unresolved.IsInteractionEnabled);
         Assert.True(unresolved.CanToggleSelection);
-        Assert.Equal("Explicit", unresolved.ModTypeLabel);
+        Assert.Equal("Unsupported", unresolved.ModTypeLabel);
         Assert.Equal(2, unresolved.FilterVariants.Count);
         Assert.True(unresolved.CanSelectFilterVariant);
         Assert.Contains("Unsupported", unresolved.SectionLabel, StringComparison.Ordinal);
@@ -1661,7 +1661,7 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(row.IsInteractionEnabled);
         Assert.False(row.IsSelected);
         Assert.True(row.IsVeiledModifier);
-        Assert.Equal("Veiled", row.ModTypeLabel);
+        Assert.Equal("Unsupported", row.ModTypeLabel);
         Assert.True(row.HasStaticModType);
         Assert.False(row.SupportsValueBounds);
         Assert.False(row.CanEditBounds);
@@ -1711,6 +1711,75 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.False(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
         Assert.DoesNotContain(fixture.Controller.CurrentDeveloperDiagnostics.Diagnostics, diagnostic =>
             diagnostic.Code == "MODIFIER_BOUNDS_UNSUPPORTED");
+    }
+
+    [Fact]
+    public void UnsupportedImplicitAndAmbiguousVariant_AlwaysExposeStatusAndReason()
+    {
+        var fixture = SearchFixture.Create();
+        var unsupportedImplicit = Modifier(
+            "+22% Chance to Block Attack Damage while wielding a Staff",
+            ParsedModifierKind.Implicit,
+            resolvedModifierId: null) with
+        {
+            IsSearchable = false,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.NotFound,
+            ProviderDiagnosticMessage = "No compatible implicit Trade stat identity exists.",
+        };
+        var ambiguousSuffix = Modifier(
+            "25% chance to Freeze",
+            ParsedModifierKind.Suffix,
+            resolvedModifierId: null) with
+        {
+            IsSearchable = false,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Ambiguous,
+            ProviderDiagnosticCode = PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+            ProviderDiagnosticMessage = "Multiple Trade stat identities remain possible.",
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Gloom Knell", modifiers: [unsupportedImplicit, ambiguousSuffix]),
+            ValidationSuccess());
+
+        Assert.Collection(
+            fixture.Window.CurrentSearchState!.Modifiers,
+            implicitRow =>
+            {
+                Assert.False(implicitRow.IsInteractionEnabled);
+                Assert.Equal("Unsupported", implicitRow.AvailabilityStatus);
+                Assert.Equal("Unsupported", implicitRow.ModTypeLabel);
+                Assert.Contains("Unsupported", implicitRow.SectionLabel, StringComparison.Ordinal);
+                Assert.Contains("No compatible implicit", implicitRow.AvailabilityReason, StringComparison.Ordinal);
+            },
+            ambiguousRow =>
+            {
+                Assert.False(ambiguousRow.IsInteractionEnabled);
+                Assert.Equal("Ambiguous", ambiguousRow.AvailabilityStatus);
+                Assert.Equal("Ambiguous", ambiguousRow.ModTypeLabel);
+                Assert.Contains("Ambiguous", ambiguousRow.SectionLabel, StringComparison.Ordinal);
+                Assert.Contains("Multiple Trade stat", ambiguousRow.AvailabilityReason, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public void ExactOrdinaryImplicit_DoesNotRequireIrrelevantSelectedVariant()
+    {
+        var fixture = SearchFixture.Create();
+        var providerReadyImplicit = Modifier(
+            "+25% Chance to Block Spell Damage",
+            ParsedModifierKind.Implicit) with
+        {
+            FilterVariants = [],
+            SelectedFilterVariantIdentity = null,
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Beast Roar", modifiers: [providerReadyImplicit]),
+            ValidationSuccess());
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(row.IsInteractionEnabled);
+        Assert.Null(row.AvailabilityStatus);
+        Assert.Equal("Implicit", row.ModTypeLabel);
+        Assert.DoesNotContain("Unsupported", row.SectionLabel, StringComparison.Ordinal);
     }
 
     [Fact]

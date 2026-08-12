@@ -315,7 +315,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
     }
 
     [Fact]
-    public void Apply_ExactSourceWithoutProjectableBoundsIsNotSelectableAsPresence()
+    public void Apply_ExactSourceWithoutProjectableBoundsFallsBackToSafePresence()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -338,12 +338,13 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
         var option = Assert.Single(result.FilterVariants);
         Assert.Equal("Explicit", option.Label);
         Assert.Equal("explicit.unsupported", result.ProviderStatId);
-        Assert.False(result.IsSearchable);
-        Assert.Contains("incompatible numeric semantics", result.NotSearchableReason);
+        Assert.True(result.IsSearchable);
+        Assert.Null(result.NotSearchableReason);
         Assert.False(result.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
         Assert.Null(result.RequestedMinimum);
         Assert.Null(result.RequestedMaximum);
-        Assert.Equal("Provider confirmation required.", result.ValueBoundsUnsupportedReason);
+        Assert.Contains("incompatible numeric semantics", result.ValueBoundsUnsupportedReason);
     }
 
     [Fact]

@@ -30,6 +30,54 @@ public sealed class DerivedDefensivePropertyCalculatorTests
     }
 
     [Fact]
+    public void Q20DisplayedArmour_IsNotQualityScaledTwice()
+    {
+        var item = parser.Parse(Item("Armour", 120, quality: 20));
+
+        var result = calculator.CalculateDefensiveQ20(item, Base(armour: (100, 100)), []);
+
+        var armour = Assert.Single(result.Properties);
+        Assert.Equal(120m, armour.Value);
+        Assert.True(armour.IsQ20);
+        Assert.Equal(100, armour.ReconstructedBaseValue);
+    }
+
+    [Fact]
+    public void IncompleteHybridReconstruction_FallsBackToCurrentDisplayedValuesWithoutQ20Claim()
+    {
+        var item = parser.Parse("""
+            Item Class: Body Armours
+            Rarity: Rare
+            Hybrid Fallback
+            Test Base
+            --------
+            Quality: +20% (augmented)
+            Armour: 420 (augmented)
+            Evasion Rating: 420 (augmented)
+            --------
+            Item Level: 85
+            """);
+
+        var result = calculator.CalculateDefensiveQ20(item, itemBase: null, []);
+
+        Assert.Collection(result.Properties,
+            armour =>
+            {
+                Assert.Equal(ItemPropertyTarget.Armour, armour.Target);
+                Assert.Equal(420m, armour.Value);
+                Assert.False(armour.IsQ20);
+                Assert.NotNull(armour.UnsupportedReason);
+            },
+            evasion =>
+            {
+                Assert.Equal(ItemPropertyTarget.Evasion, evasion.Target);
+                Assert.Equal(420m, evasion.Value);
+                Assert.False(evasion.IsQ20);
+                Assert.NotNull(evasion.UnsupportedReason);
+            });
+    }
+
+    [Fact]
     public void SlinkBoots_ReconstructsQ10RollAndNormalizesToQ20()
     {
         var item = parser.Parse(Item("Evasion Rating", 445, quality: 10));

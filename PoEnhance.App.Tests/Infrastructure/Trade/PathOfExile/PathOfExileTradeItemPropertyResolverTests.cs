@@ -50,7 +50,7 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
     }
 
     [Fact]
-    public void Resolve_DefensiveUnsupportedDerivationCannotBecomeSearchable()
+    public void Resolve_DefensiveQ20UnavailableUsesAuthoritativeDisplayedValue()
     {
         var source = PathOfExileTradeItemPropertyTestFixtures.Property(
             TradeSearchItemPropertyKind.Armour, 100m) with
@@ -63,9 +63,10 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
             PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
 
         var property = Assert.Single(result.ItemProperties);
-        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unsupported, property.ProviderResolutionStatus);
-        Assert.False(property.IsSearchable);
-        Assert.Equal(source.DerivationUnsupportedReason, property.NotSearchableReason);
+        Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
+        Assert.True(property.IsSearchable);
+        Assert.Null(property.NotSearchableReason);
+        Assert.Equal(source.DerivationUnsupportedReason, property.DerivationUnsupportedReason);
     }
 
     [Fact]

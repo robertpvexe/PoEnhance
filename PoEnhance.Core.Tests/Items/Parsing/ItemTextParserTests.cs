@@ -1119,6 +1119,78 @@ Item Level: 84
     }
 
     [Fact]
+    public void Parse_AdvancedUniqueTerminalDashAttribution_ClassifiesFlavourWithoutLosingSignedModifiers()
+    {
+        const string rawText = """
+Item Class: One Hand Swords
+Rarity: Unique
+Foulborn Rebuke of the Vaal
+Vaal Blade
+--------
+Item Level: 85
+--------
+{ Unique Modifier - Elemental, Lightning, Resistance }
+-60% to Lightning Resistance
+{ Unique Modifier }
+-1 to Maximum Power Charges
+{ Foulborn Unique Modifier - Speed }
+38(20-40)% increased Trap Throwing Speed
+--------
+Though the Vaal revered peace, it would have
+been suicide for any culture to rouse them to war.
+- Icius Perandus, Scholar to the Empire.
+""";
+
+        var result = _parser.Parse(rawText);
+
+        Assert.Equal(3, result.Modifiers.Count);
+        Assert.Contains(result.Modifiers, modifier => modifier.Text == "-60% to Lightning Resistance");
+        Assert.Contains(result.Modifiers, modifier => modifier.Text == "-1 to Maximum Power Charges");
+        Assert.Contains(result.Modifiers, modifier =>
+            modifier.Text == "38(20-40)% increased Trap Throwing Speed");
+        Assert.Equal(
+            [
+                "Though the Vaal revered peace, it would have",
+                "been suicide for any culture to rouse them to war.",
+                "- Icius Perandus, Scholar to the Empire.",
+            ],
+            result.FlavourTextLines);
+        Assert.DoesNotContain(result.Modifiers, modifier =>
+            modifier.Text.Contains("Icius Perandus", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Parse_AdvancedUniqueTerminalColonProse_IsFlavourOnlyAfterLastModifierSection()
+    {
+        const string rawText = """
+Item Class: Helmets
+Rarity: Unique
+Mask of the Tribunal
+Synthesised Magistrate Crown
+--------
+Limited to: 1
+Radius: Large
+--------
+Item Level: 84
+--------
+{ Unique Modifier - Attribute }
++5(5-15) to all Attributes
+--------
+The judge determines worthiness by comparison to the paragon: himself.
+""";
+
+        var result = _parser.Parse(rawText);
+
+        var modifier = Assert.Single(result.Modifiers);
+        Assert.Equal("+5(5-15) to all Attributes", modifier.Text);
+        Assert.Equal(
+            ["The judge determines worthiness by comparison to the paragon: himself."],
+            result.FlavourTextLines);
+        Assert.Contains("Limited to: 1", result.PropertyLines);
+        Assert.Contains("Radius: Large", result.PropertyLines);
+    }
+
+    [Fact]
     public void Parse_NormalRaritySingleHeaderLine_TreatsHeaderAsBaseTypeAndUsesDisplayNameFallback()
     {
         var rawText = ReadSample("normal-full-wyrmscale.txt");

@@ -736,25 +736,33 @@ internal static class PathOfExileTradeModifierVariantResolver
         var isFaithfulPresence = component.ValueBoundShape == ModifierBoundShape.PresenceOnly ||
             presenceProjections.All(projection =>
                 projection.ValueBoundShape == ModifierBoundShape.PresenceOnly);
-        if (!option.SupportsValueBounds || isFaithfulPresence)
+        if (!option.SupportsValueBounds)
         {
             return component with
             {
-                IsSearchable = isFaithfulPresence && component.IsSearchable,
-                NotSearchableReason = isFaithfulPresence
-                    ? component.NotSearchableReason
-                    : option.ValueBoundsUnsupportedReason ?? UnsupportedBoundsMessage,
+                IsSearchable = component.IsSearchable,
+                NotSearchableReason = component.IsSearchable ? null : component.NotSearchableReason,
                 SupportsValueBounds = false,
-                ValueBoundShape = isFaithfulPresence
-                    ? ModifierBoundShape.PresenceOnly
-                    : component.ValueBoundShape,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
                 RequestedMinimum = null,
                 RequestedMaximum = null,
-                ValueBoundsUnsupportedReason = isFaithfulPresence
-                    ? presenceProjections.FirstOrDefault()?.ValueBoundsUnsupportedReason ??
-                        component.ValueBoundsUnsupportedReason
-                    : component.ValueBoundsUnsupportedReason ??
-                        option.ValueBoundsUnsupportedReason,
+                ValueBoundsUnsupportedReason = option.ValueBoundsUnsupportedReason ??
+                    UnsupportedBoundsMessage,
+            };
+        }
+
+        if (isFaithfulPresence)
+        {
+            return component with
+            {
+                IsSearchable = component.IsSearchable,
+                NotSearchableReason = component.NotSearchableReason,
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason = presenceProjections.FirstOrDefault()?.ValueBoundsUnsupportedReason ??
+                    component.ValueBoundsUnsupportedReason,
             };
         }
 

@@ -344,9 +344,51 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
-    public void CreateDraft_GeneratedAttachedAnnotation_UsesCleanPresentationAndPreservesRawEvidence()
+    public void Resolve_NoCoherentVersion_StillResolvesACommonBlockProvenAcrossEveryIdentityVersion()
     {
-        const string rawLine = "Pride(Fireball-Mana-Infused Staff) has no Reservation";
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Generated Crown
+            Onyx Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Cannot be Stunned
+            { Unique Modifier }
+            +9(8-10) to Dexterity
+            """);
+        var catalog = CreateCatalog("Test Generated Crown", "Onyx Amulet", UniqueItemKind.Ordinary,
+            Version("Generated", UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "stable-stun",
+                    "Cannot be Stunned",
+                    "Cannot be Stunned",
+                    "stun_stat"),
+                EvidenceBlock(
+                    "incompatible-dexterity",
+                    "+(1-5) to Dexterity",
+                    "+<number> to Dexterity",
+                    "dexterity_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        Assert.Equal(2, result.ModifierBlocks.Count);
+        var stable = Assert.Single(result.ModifierBlocks, block => block.IsResolved);
+        Assert.Equal(["stun_stat"], stable.StatIds);
+        var incompatible = Assert.Single(result.ModifierBlocks, block => !block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", incompatible.DiagnosticCode);
+    }
+
+    [Theory]
+    [InlineData("Pride(Fireball-Mana-Infused Staff) has no Reservation", "Pride has no Reservation")]
+    [InlineData("Socketed Gems are Supported by Level 35 Ice Bite(Greater Multiple Projectiles-Hallow)", "Socketed Gems are Supported by Level 35 Ice Bite")]
+    public void CreateDraft_GeneratedAttachedAnnotation_UsesCleanPresentationAndPreservesRawEvidence(
+        string rawLine,
+        string presentationLine)
+    {
         var parsed = parser.Parse($$"""
             Item Class: Amulets
             Rarity: Unique
@@ -362,15 +404,15 @@ public sealed class ParsedUniqueItemResolverTests
             Version("Generated", UniqueItemVersionRole.Current,
                 EvidenceBlock(
                     "generated-pride",
-                    "Pride has no Reservation",
-                    "Pride has no Reservation",
+                    presentationLine,
+                    presentationLine,
                     "pride_stat",
                     "generated-observation:test")),
             Version("Non-generated", UniqueItemVersionRole.Historical,
                 EvidenceBlock(
                     "non-generated-pride",
-                    "Pride has no Reservation",
-                    "Pride has no Reservation",
+                    presentationLine,
+                    presentationLine,
                     "other_pride_stat")));
 
         var resolution = resolver.Resolve(parsed, catalog);
@@ -378,7 +420,7 @@ public sealed class ParsedUniqueItemResolverTests
         var version = Assert.Single(resolution.CompatibleVersions);
         Assert.Equal("Generated", version.Label);
         var block = Assert.Single(resolution.ModifierBlocks);
-        Assert.Equal(["Pride has no Reservation"], block.PresentationLines);
+        Assert.Equal([presentationLine], block.PresentationLines);
 
         var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
             parsed,
@@ -386,7 +428,50 @@ public sealed class ParsedUniqueItemResolverTests
             gameDataCatalog: catalog).Draft);
         var row = Assert.Single(draft.ModifierFilters);
         Assert.Equal(rawLine, row.OriginalText);
-        Assert.Equal("Pride has no Reservation", row.PresentationText);
+        Assert.Equal(presentationLine, row.PresentationText);
+        Assert.Equal(rawLine, Assert.Single(row.Sources).OriginalText);
+    }
+
+    [Fact]
+    public void CreateDraft_GeneratedAttachedAnnotation_CleansPresentationWhenRollEvidenceKeepsMechanicsUnresolved()
+    {
+        const string rawLine = "Socketed Gems are Supported by Level 26(25-35) Inspiration(Greater Multiple Projectiles-Hallow)";
+        const string presentationLine = "Socketed Gems are Supported by Level 26(25-35) Inspiration";
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Shako
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+        var catalog = CreateCatalog("Test Shako", "Great Crown", UniqueItemKind.Ordinary,
+            Version("Generated", UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "generated-inspiration",
+                    "Socketed Gems are Supported by Level (1-10) Inspiration",
+                    "Socketed Gems are Supported by Level <number> Inspiration",
+                    "inspiration_stat",
+                    "generated-observation:test")));
+
+        var resolution = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(resolution.CompatibleVersions);
+        var block = Assert.Single(resolution.ModifierBlocks);
+        Assert.False(block.IsResolved);
+        Assert.Equal([presentationLine], block.PresentationLines);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.False(row.IsSearchable);
+        Assert.Equal(rawLine, row.OriginalText);
+        Assert.Equal(presentationLine, row.PresentationText);
         Assert.Equal(rawLine, Assert.Single(row.Sources).OriginalText);
     }
 

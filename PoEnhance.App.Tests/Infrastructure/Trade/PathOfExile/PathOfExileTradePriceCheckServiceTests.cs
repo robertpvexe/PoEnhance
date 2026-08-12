@@ -49,6 +49,51 @@ and they welcomed him.
 """;
 
     [Fact]
+    public void ResolveProviderComponents_StructuredAdvancedNegativeScalarUsesExactProviderPresenceWhenGameDataValueProjectionIsUnavailable()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ModifierFilters =
+            [
+                SpecialComponent(
+                    "Non-Channelling Skills have -7(-7--6) to Total Mana Cost",
+                    "Non-Channelling Skills have -<number> to Total Mana Cost") with
+                {
+                    ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+                    ResolvedModifierId = null,
+                    ResolvedStatIds = [],
+                    IsCrafted = true,
+                    IsSearchable = false,
+                    NotSearchableReason = "The source modifier did not resolve to one exact GameData modifier.",
+                    ValueBoundShape = ModifierBoundShape.Unsupported,
+                    IsSelected = true,
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "crafted.stat_mana_cost",
+                "Non-Channelling Skills have +# to Total Mana Cost",
+                "crafted"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+
+        var component = Assert.Single(resolved.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+        Assert.Equal("crafted.stat_mana_cost", component.ProviderStatId);
+        Assert.True(component.IsSearchable);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.Null(component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.True(new PathOfExileTradeSelectedModifierMapper().Map(resolved, catalog).IsSuccess);
+    }
+
+    [Fact]
     public void ResolveProviderComponents_SelectedOrdinaryUniqueScalar_UsesExplicitDomainAndMapperPreservesIt()
     {
         var fixture = ServiceFixture.Create();

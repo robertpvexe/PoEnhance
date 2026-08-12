@@ -454,20 +454,17 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private static bool HasUnsupportedSpecialItemSignal(TradeSearchDraft draft)
     {
         var itemClass = draft.ItemClass?.Trim();
-        var isUnique = IsRarity(draft, RarityUnique);
         if (EqualsOrdinalIgnoreCase(itemClass, "Currency") ||
             EqualsOrdinalIgnoreCase(itemClass, "Stackable Currency") ||
             EqualsOrdinalIgnoreCase(itemClass, "Gems") ||
             EqualsOrdinalIgnoreCase(itemClass, "Maps") ||
             EqualsOrdinalIgnoreCase(itemClass, "Map Fragments") ||
-            EqualsOrdinalIgnoreCase(itemClass, "Divination Cards") ||
-            (!isUnique && EqualsOrdinalIgnoreCase(itemClass, "Cluster Jewels")))
+            EqualsOrdinalIgnoreCase(itemClass, "Divination Cards"))
         {
             return true;
         }
 
-        return (!isUnique && ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Cluster Jewel")) ||
-            ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Timeless Jewel");
+        return ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Timeless Jewel");
     }
 
     private static string? SelectBaseType(

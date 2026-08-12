@@ -75,6 +75,7 @@ public sealed partial class ParsedUniqueItemResolver
         var blockResolutions = ResolveBlocks(
             parsedItem,
             compatibleVersions,
+            identity.Versions,
             catalog,
             generatedSourceObservationIds);
         return new UniqueItemResolutionResult
@@ -95,6 +96,7 @@ public sealed partial class ParsedUniqueItemResolver
     private static IReadOnlyList<UniqueModifierBlockResolution> ResolveBlocks(
         ParsedItem parsedItem,
         IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<UniqueItemVersionObservation> identityVersions,
         GameDataCatalog catalog,
         IReadOnlySet<string> generatedSourceObservationIds)
     {
@@ -119,17 +121,25 @@ public sealed partial class ParsedUniqueItemResolver
                 continue;
             }
 
-            var matchedBlocks = versions.SelectMany(version => version.ModifierBlocks)
-                .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
-                .Select(block => new
-                {
-                    Block = block,
-                    Match = MatchParsedModifier(
-                        block,
-                        parsedModifier,
-                        generatedSourceObservationIds),
-                })
-                .Where(candidate => candidate.Match.IsMatch)
+            var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
+            var matchedByVersion = blockScopeVersions.Select(version => new
+            {
+                Version = version,
+                Matches = version.ModifierBlocks
+                    .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                    .Select(block => new
+                    {
+                        Block = block,
+                        Match = MatchParsedModifier(
+                            block,
+                            parsedModifier,
+                            generatedSourceObservationIds),
+                    })
+                    .Where(candidate => candidate.Match.IsMatch)
+                    .ToArray(),
+            }).ToArray();
+            var matchedBlocks = matchedByVersion
+                .SelectMany(version => version.Matches)
                 .ToArray();
             var blocks = matchedBlocks
                 .Select(candidate => candidate.Block)
@@ -138,9 +148,20 @@ public sealed partial class ParsedUniqueItemResolver
             var presentationLines = matchedBlocks
                 .Where(candidate => candidate.Match.PresentationLines.Count > 0)
                 .Select(candidate => string.Join('\u001f', candidate.Match.PresentationLines))
+                .Concat(identityVersions.SelectMany(version => version.ModifierBlocks)
+                    .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                    .Select(block => MatchGeneratedPresentation(
+                        block,
+                        parsedModifier,
+                        generatedSourceObservationIds))
+                    .Where(match => match.Count > 0)
+                    .Select(match => string.Join('\u001f', match)))
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            var coversEveryLine = parsedModifier.ValueLines.Count > 0 && blocks.Length > 0;
+            var coversEveryLine = parsedModifier.ValueLines.Count > 0 &&
+                blocks.Length > 0 &&
+                matchedByVersion.Length > 0 &&
+                matchedByVersion.All(version => version.Matches.Length > 0);
             var mappings = blocks.Select(block => block.MechanicalMapping).ToArray();
             var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
                 mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
@@ -278,6 +299,34 @@ public sealed partial class ParsedUniqueItemResolver
                 HasSignedCanonicalRollAnnotation(rawLines))
             ? new UniqueBlockTextMatch(true, presentationLines)
             : UniqueBlockTextMatch.NoMatch;
+    }
+
+    private static IReadOnlyList<string> MatchGeneratedPresentation(
+        UniqueModifierBlock block,
+        ParsedModifier modifier,
+        IReadOnlySet<string> generatedSourceObservationIds)
+    {
+        if (modifier.ValueLines.Count == 0 || block.Lines.Count != modifier.ValueLines.Count ||
+            !block.SourceObservationIds.Any(generatedSourceObservationIds.Contains))
+        {
+            return [];
+        }
+
+        var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
+        var presentationLines = rawLines.Select(RemoveGeneratedAttachedAnnotation).ToArray();
+        if (presentationLines.SequenceEqual(rawLines, StringComparer.Ordinal))
+        {
+            return [];
+        }
+
+        var projectedPresentationLines = ProjectCanonicalRollAnnotations(presentationLines);
+        return LinesMatch(block, presentationLines, allowPolarityInversion: false) ||
+            LinesMatch(
+                block,
+                projectedPresentationLines,
+                HasSignedCanonicalRollAnnotation(rawLines))
+            ? presentationLines
+            : [];
     }
 
     private static bool LinesMatch(
@@ -472,7 +521,7 @@ public sealed partial class ParsedUniqueItemResolver
     [GeneratedRegex(@"\b(?:increased|reduced)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PolarityPattern();
 
-    [GeneratedRegex(@"(?<=[A-Za-z])\((?=[^()]*[A-Za-z])[^()]+\)(?=\s)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<=[A-Za-z])\((?=[^()]*[A-Za-z])[^()]+\)(?=\s|$)", RegexOptions.CultureInvariant)]
     private static partial Regex GeneratedAttachedAnnotationPattern();
 
     private static string? SelectBaseName(ParsedItem item, ItemBaseResolutionResult? resolution)

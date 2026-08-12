@@ -90,6 +90,25 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_RareClusterJewelWithExactBaseAndProviderModifier_UsesIndividualItemPath()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Rare",
+                displayName: "Hypnotic Shine",
+                parsedBaseType: "Medium Cluster Jewel",
+                resolvedBaseName: "Medium Cluster Jewel",
+                itemClass: "Cluster Jewels",
+                modifiers: [Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact)]),
+            [ProviderFilter(0, "explicit.stat_4036575250", [2m])]);
+
+        Assert.Null(result.Request?.Query.Name);
+        Assert.Equal("Medium Cluster Jewel", result.Request?.Query.Type);
+        Assert.Contains("\"explicit.stat_4036575250\"", result.SerializedJson, StringComparison.Ordinal);
+        AssertRarityFilter(result.SerializedJson!, "rare");
+    }
+
+    [Fact]
     public void Build_OrdinaryMoonbendersWing_ProducesProviderAcceptedNameAndBaseType()
     {
         var result = BuildSuccessful(Draft(

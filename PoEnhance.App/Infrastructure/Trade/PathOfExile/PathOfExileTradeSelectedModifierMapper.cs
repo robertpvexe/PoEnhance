@@ -509,6 +509,18 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
             modifier.IsSearchable &&
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
+        var hasExactProviderOwnedAdvancedExplicit =
+            modifier.ParsedKind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix &&
+            modifier.SourceModifierIndex >= 0 &&
+            modifier.SourceLineIndex >= 0 &&
+            !modifier.IsFractured &&
+            !modifier.IsVeiled &&
+            modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
+            modifier.ProviderResolutionStatus is SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
+            modifier.IsSearchable &&
+            (!string.IsNullOrWhiteSpace(modifier.ProviderStatId) ||
+                modifier.ProviderStatAlternativeIds.Count > 0);
         var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             (!string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) ||
@@ -522,6 +534,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             modifier.ResolvedStatIds.Count > 0;
         return hasExactGameDataProvenance || hasExactProviderOwnedUniqueProvenance ||
             hasExactProviderOwnedVeiledPresence ||
+            hasExactProviderOwnedAdvancedExplicit ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&
             modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified;
     }

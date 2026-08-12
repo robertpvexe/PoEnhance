@@ -63,6 +63,49 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_NegativeEvaluatedScalarUsesOfficialPositivePlaceholderWhenNoDirectTemplateExists()
+    {
+        var catalog = Catalog(Entry(
+            "crafted.mana_cost",
+            "Non-Channelling Skills have +# to Total Mana Cost",
+            "crafted"));
+
+        var result = matcher.Match(
+            Modifier(
+                "Non-Channelling Skills have -7(-7--6) to Total Mana Cost",
+                ParsedModifierKind.Suffix,
+                isCrafted: true),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("crafted.mana_cost", result.ExactCandidate?.StatId);
+        Assert.Equal([-7m], result.ExtractedNumericValues);
+    }
+
+    [Fact]
+    public void Match_UnresolvedComponentUsesRawNegativeValueToProvePositiveProviderPlaceholderLookup()
+    {
+        var catalog = Catalog(Entry(
+            "crafted.mana_cost",
+            "Non-Channelling Skills have +# to Total Mana Cost",
+            "crafted"));
+        var component = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            OriginalText = "Non-Channelling Skills have -7(-7--6) to Total Mana Cost",
+            CanonicalSignature = "Non-Channelling Skills have -<number> to Total Mana Cost",
+            ParsedKind = ParsedModifierKind.Suffix,
+            IsCrafted = true,
+            ValueBoundShape = ModifierBoundShape.Unsupported,
+        };
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("crafted.mana_cost", result.ExactCandidate?.StatId);
+    }
+
+    [Fact]
     public void Match_LiveShapeSyntheticCatalogMatchesAdvancedRangeSamplesExactly()
     {
         var catalog = Catalog(

@@ -319,8 +319,69 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             }
         }
 
+        foreach (var lookup in lookups)
+        {
+            var signedValueLookup = NegativeEvaluatedValueProviderLookup(
+                source,
+                normalization,
+                lookup);
+            if (signedValueLookup is null)
+            {
+                continue;
+            }
+
+            var direct = catalog.FindCandidateGroupsByNormalizedTemplate(signedValueLookup).ToArray();
+            if (direct.Length > 0)
+            {
+                return (signedValueLookup, direct);
+            }
+
+            var qualified = FindItemClassQualifiedGroups(
+                catalog,
+                signedValueLookup,
+                context?.ItemClass);
+            if (qualified.Length > 0)
+            {
+                return (signedValueLookup, qualified);
+            }
+        }
+
         var fallbackLookup = lookups.FirstOrDefault() ?? string.Empty;
         return (fallbackLookup, []);
+    }
+
+    private static string? NegativeEvaluatedValueProviderLookup(
+        StatMatchSource source,
+        PathOfExileTradeStatModifierNormalization normalization,
+        string lookupTemplate)
+    {
+        if (PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(lookupTemplate) != 1 ||
+            !lookupTemplate.Contains("-#", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var values = normalization.ExtractedNumericValues.Count > 0
+            ? normalization.ExtractedNumericValues
+            : source.Component?.ObservedNumericValues.Count > 0
+                ? source.Component.ObservedNumericValues
+                : source.Component?.CanonicalNumericValues ?? [];
+        if (values.Count == 0 && !string.IsNullOrWhiteSpace(source.Component?.OriginalText))
+        {
+            var original = PathOfExileTradeStatTemplateNormalizer.NormalizeModifierText(
+                source.Component.OriginalText);
+            if (original.Diagnostic is null && string.Equals(
+                    PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                        original.NormalizedTemplate),
+                    lookupTemplate,
+                    StringComparison.Ordinal))
+            {
+                values = original.ExtractedNumericValues;
+            }
+        }
+        return values.Count == 1 && values[0] < 0m
+            ? lookupTemplate.Replace("-#", "+#", StringComparison.Ordinal)
+            : null;
     }
 
     private static PathOfExileTradeStatCandidateGroup[] FindItemClassQualifiedGroups(
