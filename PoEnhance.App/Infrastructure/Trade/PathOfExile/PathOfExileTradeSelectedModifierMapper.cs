@@ -525,7 +525,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             (!string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) ||
                 modifier.ParsedKind == ParsedModifierKind.Unique &&
-                modifier.UniqueCatalogBlockIds.Count > 0 &&
+                (modifier.UniqueCatalogBlockIds.Count > 0 ||
+                    modifier.UniqueFoulbornRelationshipIds.Count > 0) &&
                 modifier.UniqueSourceObservationIds.Count > 0 &&
                 string.IsNullOrWhiteSpace(modifier.UniqueResolutionDiagnosticCode) ||
                 modifier.Sources.Count > 0 && modifier.Sources.All(source =>

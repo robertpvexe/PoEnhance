@@ -169,6 +169,46 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetString());
     }
 
+    [Fact]
+    public void Build_SafeFoulbornReplacement_ReachesFinalQueryWithFoulbornIdentity()
+    {
+        var modifier = Modifier(
+            isSelected: true,
+            status: ModifierCandidateResolutionStatus.Exact) with
+        {
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Foulborn,
+            UniqueFoulbornRelationshipIds = ["foulborn-relationship:test"],
+            UniqueNormalCounterpartModifierIds = ["normal.modifier.test"],
+            UniqueSourceObservationIds = ["pob-foulborn-source:test"],
+        };
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Unique",
+                displayName: "Foulborn Test Unique",
+                parsedBaseType: "Test Base",
+                resolvedBaseName: "Test Base",
+                modifiers: [modifier]),
+            [ProviderFilter(0, "explicit.foulborn_replacement")],
+            new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Test Unique",
+                CanonicalType = "Test Base",
+                Foulborn = TradeTriState.Yes,
+            });
+
+        Assert.Equal("explicit.foulborn_replacement", result.Request?.Query.Stats[0].Filters[0].Id);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal("true", document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("misc_filters")
+            .GetProperty("filters")
+            .GetProperty("mutated")
+            .GetProperty("option")
+            .GetString());
+    }
+
     [Theory]
     [InlineData(TradeTriState.Any, false, null)]
     [InlineData(TradeTriState.Yes, true, "true")]

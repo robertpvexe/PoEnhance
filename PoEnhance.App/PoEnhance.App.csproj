@@ -43,12 +43,16 @@
 
   <ItemGroup>
     <Content Include="..\artifacts\poenhance-game-data.json"
-             Link="poenhance-game-data.json"
-             Condition="Exists('..\artifacts\poenhance-game-data.json')">
+             Link="poenhance-game-data.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+
+  <Target Name="EnsureGameDataPackageExists" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('..\artifacts\poenhance-game-data.json')"
+           Text="Required GameData package is missing. From the repository root run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-StageE2-GameData.ps1" />
+  </Target>
 
   <ItemGroup>
     <EmbeddedResource Include="Infrastructure\Trade\PathOfExile\Data\item-property-filter-mappings.json"

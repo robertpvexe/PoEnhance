@@ -78,6 +78,10 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<string> UniqueCatalogBlockIds { get; init; } = [];
 
+    public IReadOnlyList<string> UniqueFoulbornRelationshipIds { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueNormalCounterpartModifierIds { get; init; } = [];
+
     public IReadOnlyList<string> UniqueSourceObservationIds { get; init; } = [];
 
     public string? UniqueResolutionDiagnosticCode { get; init; }

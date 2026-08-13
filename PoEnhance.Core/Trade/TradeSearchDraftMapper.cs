@@ -1036,6 +1036,8 @@ public sealed class TradeSearchDraftMapper
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Cast<string>()
                 .ToArray() ?? [],
+            UniqueFoulbornRelationshipIds = uniqueBlockResolution?.FoulbornRelationshipIds ?? [],
+            UniqueNormalCounterpartModifierIds = uniqueBlockResolution?.NormalCounterpartModifierIds ?? [],
             UniqueSourceObservationIds = uniqueBlockResolution?.SourceObservationIds ?? [],
             UniqueResolutionDiagnosticCode = uniqueBlockResolution?.DiagnosticCode,
             IsSearchable = isSearchable,

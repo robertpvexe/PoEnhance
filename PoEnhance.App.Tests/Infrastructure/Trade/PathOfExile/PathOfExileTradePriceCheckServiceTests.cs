@@ -400,6 +400,13 @@ and they welcomed him.
             ParsedUniqueModifierOrigin.Foulborn) with
         {
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = "foulborn.modifier.test",
+            ResolvedStatIds = ["foulborn_stat"],
+            UniqueFoulbornRelationshipIds = ["foulborn-relationship:test"],
+            UniqueNormalCounterpartModifierIds = ["normal.modifier.test"],
+            UniqueSourceObservationIds = ["pob-foulborn-source:test"],
+            IsSearchable = true,
         };
         var draft = UniqueDraft("Foulborn Moonbender's Wing") with
         {
@@ -430,6 +437,8 @@ and they welcomed him.
             $"{exact.ProviderResolutionStatus}: {exact.ProviderDiagnosticCode} {exact.ProviderDiagnosticMessage}");
         Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, exact.StatMappingProof);
         Assert.Equal("explicit.foulborn_presence", exact.ProviderStatId);
+        Assert.Equal(["foulborn-relationship:test"], exact.UniqueFoulbornRelationshipIds);
+        Assert.Equal(["normal.modifier.test"], exact.UniqueNormalCounterpartModifierIds);
         Assert.False(exact.SupportsValueBounds);
         Assert.Null(exact.RequestedMinimum);
         Assert.Null(exact.RequestedMaximum);

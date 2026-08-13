@@ -82,6 +82,72 @@ public sealed class UniqueItemCatalogTests
             error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid);
     }
 
+    [Fact]
+    public void JsonRoundTrip_SchemaThreeRelationship_PreservesDirectionalProvenance()
+    {
+        var package = CreateFoulbornPackage();
+
+        var roundTripped = Assert.IsType<GameDataPackage>(
+            GameDataPackageJson.Deserialize(GameDataPackageJson.Serialize(package)));
+
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+        var catalog = Assert.IsType<UniqueItemCatalog>(roundTripped.UniqueItems);
+        var source = Assert.Single(catalog.FoulbornRelationshipSources);
+        Assert.Equal("src/Data/ModFoulbornMap.jsonc", source.SourcePath);
+        var relationship = Assert.Single(catalog.FoulbornModifierRelationships);
+        Assert.Equal("mod.prefix.maximum-life.t5", relationship.NormalModifierId);
+        Assert.Equal("mod.suffix.fire-resistance.t4", relationship.FoulbornModifierId);
+        Assert.Equal(["unique-block:test"], relationship.NormalModifierBlockIds);
+        Assert.Equal(UniqueItemVersionRole.Current, relationship.AppliesToRole);
+        Assert.Equal(UniqueFoulbornModifierRelationshipStatus.Exact, relationship.Status);
+        Assert.Equal(
+            relationship.Id,
+            Assert.Single(GameDataCatalog.FromPackage(roundTripped)
+                .FindFoulbornRelationshipsByUniqueItemId(relationship.UniqueItemId)).Id);
+    }
+
+    [Fact]
+    public void Validate_SchemaThreeWithoutRelationshipEvidence_FailsClosed()
+    {
+        var package = CreatePackage() with
+        {
+            Manifest = CreatePackage().Manifest with { SchemaVersion = 3 },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.PackageFoulbornRelationshipsRequired);
+    }
+
+    [Fact]
+    public void Validate_ConflictingItemScopedRelationship_FailsClosed()
+    {
+        var package = CreateFoulbornPackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var relationship = Assert.Single(catalog.FoulbornModifierRelationships);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                FoulbornModifierRelationships =
+                [
+                    relationship,
+                    relationship with
+                    {
+                        Id = "foulborn-relationship:conflict",
+                        FoulbornModifierId = "mod.implicit.gold-ring.item-rarity",
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueFoulbornRelationshipConflict);
+    }
+
     private static GameDataPackage CreatePackage()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();
@@ -157,6 +223,54 @@ public sealed class UniqueItemCatalogTests
                                 ],
                             },
                         ],
+                    },
+                ],
+            },
+        };
+    }
+
+    internal static GameDataPackage CreateFoulbornPackage()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items) with
+        {
+            CanonicalName = "Test Item",
+            Kind = UniqueItemKind.Ordinary,
+        };
+        const string relationshipSourceId = "pob-foulborn-source:test";
+        return package with
+        {
+            Manifest = package.Manifest with { SchemaVersion = 3 },
+            UniqueItems = catalog with
+            {
+                Items = [identity],
+                FoulbornRelationshipSources =
+                [
+                    new UniqueFoulbornRelationshipSourceObservation
+                    {
+                        Id = relationshipSourceId,
+                        ManifestSourceId = "path-of-building",
+                        RepositoryUri = "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+                        Tag = "v2.67.2",
+                        CommitSha = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+                        SourcePath = "src/Data/ModFoulbornMap.jsonc",
+                        SourceFileSha256 = new string('d', 64),
+                    },
+                ],
+                FoulbornModifierRelationships =
+                [
+                    new UniqueFoulbornModifierRelationship
+                    {
+                        Id = "foulborn-relationship:test",
+                        ItemName = "Test Item",
+                        UniqueItemId = identity.Id,
+                        NormalModifierId = "mod.prefix.maximum-life.t5",
+                        FoulbornModifierId = "mod.suffix.fire-resistance.t4",
+                        NormalModifierBlockIds = ["unique-block:test"],
+                        AppliesToRole = UniqueItemVersionRole.Current,
+                        SourceObservationId = relationshipSourceId,
+                        Status = UniqueFoulbornModifierRelationshipStatus.Exact,
                     },
                 ],
             },

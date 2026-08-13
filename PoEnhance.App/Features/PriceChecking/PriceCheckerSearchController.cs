@@ -1902,7 +1902,8 @@ internal sealed class PriceCheckerSearchController
         var hasExactUniqueCatalogBlockProof =
             modifier.ParsedKind == ParsedModifierKind.Unique &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            modifier.UniqueCatalogBlockIds.Count > 0 &&
+            (modifier.UniqueCatalogBlockIds.Count > 0 ||
+                modifier.UniqueFoulbornRelationshipIds.Count > 0) &&
             modifier.UniqueSourceObservationIds.Count > 0 &&
             string.IsNullOrWhiteSpace(modifier.UniqueResolutionDiagnosticCode) &&
             modifier.ResolvedStatIds.Count > 0;

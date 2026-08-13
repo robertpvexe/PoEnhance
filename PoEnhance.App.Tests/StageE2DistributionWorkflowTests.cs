@@ -1,0 +1,101 @@
+using System.Text.Json;
+
+namespace PoEnhance.App.Tests;
+
+public sealed class StageE2DistributionWorkflowTests
+{
+    [Fact]
+    public void PinnedMetadata_DefinesValidatedPackageAndEveryAcquiredSource()
+    {
+        using var document = JsonDocument.Parse(ReadRepositoryFile(
+            "data",
+            "game-data",
+            "stage-e2-sources.json"));
+        var root = document.RootElement;
+        var package = root.GetProperty("package");
+
+        Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("3.29.1.2.2-unique-stage-e2", package.GetProperty("dataVersion").GetString());
+        Assert.Equal("2026-08-12T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(
+            "98758acaacbceb2e49e9607bee0afd6af44b597d9baeca28efac4fba20f2f918",
+            package.GetProperty("sha256").GetString());
+        Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
+        Assert.Equal(349, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
+        Assert.Equal(4, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
+
+        Assert.Equal(
+            "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
+            root.GetProperty("currentRePoe").GetProperty("commitSha").GetString());
+        Assert.Equal(
+            "be8246f83dd452f86b90bd27c6de85945bf68ce2",
+            root.GetProperty("currentRePoe").GetProperty("hostedExportCommitSha").GetString());
+        Assert.Equal(
+            "c50acab2ed660a70511e7f91ee09db4e632089e4",
+            root.GetProperty("historicalRePoe").GetProperty("commitSha").GetString());
+        Assert.Equal(
+            "5098abdf44ad4fa0fc5e63d995575e10e82ca75b",
+            root.GetProperty("historicalRePoe").GetProperty("hostedExportCommitSha").GetString());
+        Assert.Equal(
+            "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+            root.GetProperty("pathOfBuilding").GetProperty("commitSha").GetString());
+        Assert.Equal("v2.67.2", root.GetProperty("pathOfBuilding").GetProperty("tag").GetString());
+    }
+
+    [Fact]
+    public void SetupScript_AcquiresBuildsTwiceVerifiesAndAtomicallyActivates()
+    {
+        var script = ReadRepositoryFile("scripts", "Setup-StageE2-GameData.ps1");
+
+        Assert.Contains("Ensure-GitCheckout", script, StringComparison.Ordinal);
+        Assert.Contains("Ensure-HostedExportCheckout", script, StringComparison.Ordinal);
+        Assert.Contains("Export-PinnedData", script, StringComparison.Ordinal);
+        Assert.Contains("core.autocrlf=false", script, StringComparison.Ordinal);
+        Assert.Contains("Invoke-ReproductionBuild $firstBuildRoot", script, StringComparison.Ordinal);
+        Assert.Contains("Invoke-ReproductionBuild $secondBuildRoot", script, StringComparison.Ordinal);
+        Assert.Contains("evaluatedUniquesSha256", script, StringComparison.Ordinal);
+        Assert.Contains("foulbornRelationshipCount", script, StringComparison.Ordinal);
+        Assert.Contains("Move-Item -LiteralPath $stagedActive -Destination $activeArtifact -Force", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("--game-data", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Invoke-WebRequest", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RefreshScript_SupportsFreshCloneAndForwardsFixedTimestamp()
+    {
+        var script = ReadRepositoryFile("scripts", "Refresh-GameData.ps1");
+
+        Assert.Contains("[string]$CreatedAtUtc", script, StringComparison.Ordinal);
+        Assert.Contains("'--created-at-utc'", script, StringComparison.Ordinal);
+        Assert.Contains("$activeExistedBefore", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Active GameData artifact is missing", script, StringComparison.Ordinal);
+        Assert.Contains("Activation: not performed.", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplicationProject_FailsExplicitlyWithoutGeneratedPackageAndCopiesItWhenPresent()
+    {
+        var project = ReadRepositoryFile("PoEnhance.App", "PoEnhance.App.csproj");
+
+        Assert.Contains("EnsureGameDataPackageExists", project, StringComparison.Ordinal);
+        Assert.Contains("BeforeTargets=\"PrepareForBuild\"", project, StringComparison.Ordinal);
+        Assert.Contains("Setup-StageE2-GameData.ps1", project, StringComparison.Ordinal);
+        Assert.Contains("<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>", project, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Condition=\"Exists('..\\artifacts\\poenhance-game-data.json')\"",
+            project,
+            StringComparison.Ordinal);
+    }
+
+    private static string ReadRepositoryFile(params string[] pathParts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "PoEnhance.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return File.ReadAllText(Path.Combine([directory.FullName, .. pathParts]));
+    }
+}

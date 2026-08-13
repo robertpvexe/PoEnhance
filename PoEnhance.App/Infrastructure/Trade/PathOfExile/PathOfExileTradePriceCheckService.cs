@@ -1851,7 +1851,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         return component.ParsedKind == ParsedModifierKind.Unique &&
             component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            component.UniqueCatalogBlockIds.Count > 0 &&
+            (component.UniqueCatalogBlockIds.Count > 0 ||
+                component.UniqueFoulbornRelationshipIds.Count > 0) &&
             component.UniqueSourceObservationIds.Count > 0 &&
             string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
             component.ResolvedStatIds.Count > 0;

@@ -103,6 +103,34 @@ dotnet test
 
 ## Build Local Game-Data Package
 
+### Fresh-clone Stage E2 bootstrap
+
+The generated `artifacts/poenhance-game-data.json` remains ignored and is not downloaded by a
+normal application build. A fresh clone must run the explicit pinned bootstrap once before
+building or publishing the application:
+
+```powershell
+Set-Location D:\Projects\PoEnhance
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-StageE2-GameData.ps1
+dotnet build .\PoEnhance.slnx --configuration Release --no-restore
+$expected = '98758ACAACBCEB2E49E9607BEE0AFD6AF44B597D9BAECA28EFAC4FBA20F2F918'
+$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath '.\PoEnhance.App\bin\Release\net10.0-windows\poenhance-game-data.json').Hash
+if ($actual -ne $expected) { throw "Unexpected packaged GameData hash: $actual" }
+```
+
+`Setup-StageE2-GameData.ps1` is the repository-supported network/setup step. It reads
+`data/game-data/stage-e2-sources.json`, acquires the exact pinned RePoE parser commits, the
+content-addressed RePoE hosted-export commits, and Path of Building tag `v2.67.2`; verifies
+every input hash; evaluates the PoB Unique catalog; and calls the existing source-guarded
+`Refresh-GameData.ps1` pipeline twice with the fixed E2 timestamp. Both packages must be
+byte-identical to validated SHA-256
+`98758ACAACBCEB2E49E9607BEE0AFD6AF44B597D9BAECA28EFAC4FBA20F2F918` before the script
+atomically activates one at `artifacts/poenhance-game-data.json`.
+
+Regular `dotnet build`, application startup, and publishing do not fetch data. The application
+project fails early with an actionable setup command when the generated package is absent, and
+copies the verified package beside the Release executable when it exists.
+
 `PoEnhance.DataTool` builds a complete local game-data package from local RePoE files. It does not download RePoE data or contact the network. Current local development packages use the active `repoe-fork/repoe` PoE1 export at commit `c50acab2ed660a70511e7f91ee09db4e632089e4`.
 
 Package builds are source-guarded. The command must declare the git checkout root, exported data root, repository URI, branch, and exact source SHA. The build fails before writing output if the local git checkout does not match those values or if any input JSON file is outside the declared data root. The package manifest records the source identity plus SHA-256 fingerprints for the four input files.

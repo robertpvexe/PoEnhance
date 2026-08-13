@@ -81,6 +81,7 @@ public sealed partial class ParsedUniqueItemResolver
                 generatedSourceObservationIds);
         var blockResolutions = ResolveBlocks(
             parsedItem,
+            identity,
             compatibleVersions,
             identity.Versions,
             catalog,
@@ -102,6 +103,7 @@ public sealed partial class ParsedUniqueItemResolver
 
     private static IReadOnlyList<UniqueModifierBlockResolution> ResolveBlocks(
         ParsedItem parsedItem,
+        UniqueItemIdentity identity,
         IReadOnlyList<UniqueItemVersionObservation> versions,
         IReadOnlyList<UniqueItemVersionObservation> identityVersions,
         GameDataCatalog catalog,
@@ -118,13 +120,12 @@ public sealed partial class ParsedUniqueItemResolver
 
             if (parsedModifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn)
             {
-                results.Add(new UniqueModifierBlockResolution
-                {
-                    ParsedModifierIndex = modifierIndex,
-                    IsResolved = false,
-                    DiagnosticCode = "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
-                    Diagnostic = "The copied Foulborn replacement block has no imported relationship to the canonical underlying Unique mechanics.",
-                });
+                results.Add(ResolveFoulbornBlock(
+                    modifierIndex,
+                    parsedModifier,
+                    identity,
+                    versions,
+                    catalog));
                 continue;
             }
 
@@ -236,6 +237,103 @@ public sealed partial class ParsedUniqueItemResolver
         }
         return results;
     }
+
+    private static UniqueModifierBlockResolution ResolveFoulbornBlock(
+        int modifierIndex,
+        ParsedModifier parsedModifier,
+        UniqueItemIdentity identity,
+        IReadOnlyList<UniqueItemVersionObservation> compatibleVersions,
+        GameDataCatalog catalog)
+    {
+        if (compatibleVersions.Count > 0 &&
+            compatibleVersions.All(version => version.Role != UniqueItemVersionRole.Current))
+        {
+            return UnsupportedFoulbornBlock(
+                modifierIndex,
+                "FOULBORN_REPLACEMENT_VERSION_MISMATCH",
+                "The copied ordinary blocks select historical-only Unique evidence, but the imported Foulborn relationship is current-only.");
+        }
+
+        var relationships = catalog.FindFoulbornRelationshipsByUniqueItemId(identity.Id)
+            .Where(relationship =>
+                relationship.Status == UniqueFoulbornModifierRelationshipStatus.Exact &&
+                relationship.AppliesToRole == UniqueItemVersionRole.Current &&
+                !string.IsNullOrWhiteSpace(relationship.FoulbornModifierId))
+            .ToArray();
+        if (relationships.Length == 0)
+        {
+            return UnsupportedFoulbornBlock(
+                modifierIndex,
+                "FOULBORN_REPLACEMENT_RELATIONSHIP_NOT_FOUND",
+                "The copied Foulborn replacement block has no exact item-scoped relationship in GameData.");
+        }
+
+        var matcher = new ModifierTextSignatureMatcher();
+        var candidates = relationships
+            .SelectMany(relationship => catalog.FindModifiersById(relationship.FoulbornModifierId)
+                .Select(modifier => new
+                {
+                    Relationship = relationship,
+                    Modifier = modifier,
+                    Match = matcher.Match(modifier, catalog, parsedModifier.ValueLines),
+                }))
+            .Where(candidate => candidate.Match.Outcome == ModifierTextSignatureMatchOutcome.Match)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return UnsupportedFoulbornBlock(
+                modifierIndex,
+                "FOULBORN_REPLACEMENT_TEXT_MISMATCH",
+                "No item-scoped Foulborn replacement modifier has an exact translated-text match for the copied block.");
+        }
+        if (candidates.Length > 1)
+        {
+            return UnsupportedFoulbornBlock(
+                modifierIndex,
+                "FOULBORN_REPLACEMENT_RELATIONSHIP_AMBIGUOUS",
+                "Multiple item-scoped Foulborn replacement modifiers exactly match the copied block.");
+        }
+
+        var candidate = candidates[0];
+        var statIds = candidate.Modifier.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .Select(stat => stat.StatId!.Trim())
+            .ToArray();
+        if (statIds.Length == 0)
+        {
+            return UnsupportedFoulbornBlock(
+                modifierIndex,
+                "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
+                "The exact Foulborn replacement modifier has no retained stat-vector mechanics.");
+        }
+
+        return new UniqueModifierBlockResolution
+        {
+            ParsedModifierIndex = modifierIndex,
+            IsResolved = true,
+            FoulbornRelationshipIds = [candidate.Relationship.Id!],
+            NormalCounterpartModifierIds = [candidate.Relationship.NormalModifierId!],
+            ModifierIds = [candidate.Modifier.Id!],
+            StatIds = statIds,
+            StatLocalities = statIds.Select(statId => ResolveStatLocality(statId, catalog)).ToArray(),
+            CanonicalSignatures = candidate.Match.CandidateSignatures
+                .Select(signature => string.Join("\n", signature.Lines))
+                .ToArray(),
+            SourceObservationIds = [candidate.Relationship.SourceObservationId!],
+        };
+    }
+
+    private static UniqueModifierBlockResolution UnsupportedFoulbornBlock(
+        int modifierIndex,
+        string diagnosticCode,
+        string diagnostic) => new()
+    {
+        ParsedModifierIndex = modifierIndex,
+        IsResolved = false,
+        DiagnosticCode = diagnosticCode,
+        Diagnostic = diagnostic,
+    };
 
     private static ModifierLocality ResolveStatLocality(string statId, GameDataCatalog catalog)
     {

@@ -155,6 +155,7 @@ public sealed class BuildPackageCommandLineParserTests
         args.AddRange(
         [
             "--pob-uniques", "pob-uniques.evaluated.json",
+            "--pob-foulborn-map", "pob/src/Data/ModFoulbornMap.jsonc",
             "--pob-source-root", "pob",
             "--pob-source-uri", "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
             "--pob-source-tag", "v2.67.2",
@@ -165,6 +166,7 @@ public sealed class BuildPackageCommandLineParserTests
 
         Assert.True(result.IsValid);
         Assert.Equal("pob-uniques.evaluated.json", result.Request!.PoBUniquesPath);
+        Assert.Equal("pob/src/Data/ModFoulbornMap.jsonc", result.Request.PoBFoulbornMapPath);
         Assert.Equal("pob", result.Request.PoBSourceRootPath);
         Assert.Equal("v2.67.2", result.Request.PoBSourceTag);
         Assert.Equal("b32759ab0f31a1c8499a0d420cb0f0633d4fe478",

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "schemaVersion": 3,
+    "dataVersion": "3.29.1.2.2-unique-stage-e2",
+    "createdAtUtc": "2026-08-12T12:00:00+00:00",
+    "sizeBytes": 160715705,
+    "sha256": "98758acaacbceb2e49e9607bee0afd6af44b597d9baeca28efac4fba20f2f918",
+    "foulbornRelationshipCount": 353,
+    "exactFoulbornRelationshipCount": 349,
+    "unsupportedFoulbornRelationshipCount": 4
+  },
+  "currentRePoe": {
+    "repositoryUri": "https://github.com/repoe-fork/repoe.git",
+    "sourceUri": "https://github.com/repoe-fork/repoe",
+    "branch": "master",
+    "commitSha": "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
+    "hostedExportRepositoryUri": "https://github.com/repoe-fork/repoe-fork.github.io.git",
+    "hostedExportCommitSha": "be8246f83dd452f86b90bd27c6de85945bf68ce2",
+    "files": {
+      "base_items.json": "a14805e8369ffde695df7b691e1960dc8e43e40ddf568663243f6184d6c19f77",
+      "mods.json": "c69dfa2e79b35898cdf57bf4469f3da58e915dc205bcb9601b4620ba9114ab6c",
+      "stats.json": "ad52b7b6a01b7294ed54300224ab1843235f0f2b79ab2749c5691af4e0b15396",
+      "stat_translations.json": "10047b54f980e110828320d02b06042fa0099c70847213b7956937533fc7ddf9",
+      "item_classes.json": "3381bded5b0e0dab5617de0e83dbba85cb544336f44a1d90dce5f8ab1871aecc",
+      "tags.json": "25df913abd459bedd3dc1b649e344b353e271ed0a32162f116d66034a3269b50",
+      "mods_by_base.json": "e7f39a88f87916b2305e0efe9ff28ff5b867a2a93ddf543a85af989f6a15d883"
+    }
+  },
+  "historicalRePoe": {
+    "repositoryUri": "https://github.com/repoe-fork/repoe.git",
+    "sourceUri": "https://github.com/repoe-fork/repoe",
+    "branch": "historical-t2a",
+    "commitSha": "c50acab2ed660a70511e7f91ee09db4e632089e4",
+    "dataVersion": "3.28.0.13",
+    "hostedExportRepositoryUri": "https://github.com/repoe-fork/repoe-fork.github.io.git",
+    "hostedExportCommitSha": "5098abdf44ad4fa0fc5e63d995575e10e82ca75b",
+    "files": {
+      "base_items.json": "669fad857a7dd46d61041a1d283abaa3a0533fc42d49a19e6ca73b0a193f3ec7",
+      "mods.json": "bdc60bb66c50e20aeba3adccb155bc9de3f8d54d65382742953a9f4dc2171bc0",
+      "stats.json": "6949841f5766bc2ea06f88baa0b9071ba2c34b02649542be6577fd997bbb256f",
+      "stat_translations.json": "b24a673c67ac5ecd4f2bd9f550d4338edfced324c0720950ab119a0d01a451cf"
+    }
+  },
+  "pathOfBuilding": {
+    "repositoryUri": "https://github.com/PathOfBuildingCommunity/PathOfBuilding.git",
+    "sourceUri": "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+    "tag": "v2.67.2",
+    "commitSha": "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+    "foulbornMapRelativePath": "src/Data/ModFoulbornMap.jsonc",
+    "foulbornMapSha256": "8f71e2379ebcc17bfa9c0e1f15b1c1f69b01886f4e7d5345a9c8b6b0c67ba13d",
+    "evaluatedUniquesSha256": "12bf1da04acef1a29b8edd7b997619e064c5df91ab49cdb1351e08476ccbb10d"
+  }
+}

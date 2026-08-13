@@ -160,7 +160,10 @@ public sealed class StageC3CorpusContractTests
                     identity?.CanonicalName,
                     identity?.CanonicalType,
                     mapping.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray(),
-                    build?.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray() ?? []));
+                    build?.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray() ?? [],
+                    null,
+                    [],
+                    []));
             }
 
             for (var index = 0; index < providerDraft.ModifierFilters.Count; index++)
@@ -239,7 +242,10 @@ public sealed class StageC3CorpusContractTests
                     identity?.CanonicalName,
                     identity?.CanonicalType,
                     mapping.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray(),
-                    build?.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray() ?? []));
+                    build?.Diagnostics.Select(diagnostic => $"{diagnostic.Code}: {diagnostic.Message}").ToArray() ?? [],
+                    component.UniqueOrigin.ToString(),
+                    component.UniqueFoulbornRelationshipIds,
+                    component.UniqueNormalCounterpartModifierIds));
             }
         }
 
@@ -304,14 +310,34 @@ public sealed class StageC3CorpusContractTests
         Assert.All(
             rows.Where(row => row.Item is "The Squire" or "Progenesis"),
             row => Assert.Equal("SELECTABLE_SAFE", row.State));
-        Assert.Contains(rows, row =>
+        AssertItemStateCounts(rows, "Replica Alberon's Warpath", ("SELECTABLE_SAFE", 8));
+        AssertItemStateCounts(rows, "Replica Dragonfang's Flight", ("SELECTABLE_SAFE", 5));
+        AssertItemStateCounts(rows, "Last Resort", ("SELECTABLE_SAFE", 10));
+        var bringerReplacement = Assert.Single(rows, row =>
             row.Item == "Foulborn The Bringer of Rain" &&
-            row.Text.Contains("Sadism", StringComparison.Ordinal) &&
-            row.State == "DISABLED_EXPLICIT_UNSUPPORTED");
-        Assert.Contains(rows, row =>
+            row.Text.Contains("Sadism", StringComparison.Ordinal));
+        Assert.Equal("SELECTABLE_SAFE", bringerReplacement.State);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet.ToString(),
+            bringerReplacement.ProviderStatus);
+        Assert.Null(bringerReplacement.DiagnosticCode);
+        var greenDreamReplacement = Assert.Single(rows, row =>
             row.Item == "Foulborn The Green Dream" &&
-            row.Text.Contains("Lucky", StringComparison.Ordinal) &&
-            row.State == "DISABLED_EXPLICIT_UNSUPPORTED");
+            row.Text.Contains("Lucky", StringComparison.Ordinal));
+        Assert.Equal("SELECTABLE_SAFE", greenDreamReplacement.State);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact.ToString(),
+            greenDreamReplacement.ProviderStatus);
+        Assert.Null(greenDreamReplacement.DiagnosticCode);
+        Assert.All(rows.Where(row => row.Item.StartsWith("Foulborn ", StringComparison.Ordinal)), row =>
+        {
+            Assert.DoesNotContain("Foulborn ", row.CanonicalItemName ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(row.State, new[]
+            {
+                "DISABLED_WITHOUT_VISIBLE_REASON",
+                "SELECTABLE_BUT_LATE_REJECT",
+                "SELECTABLE_BUT_UNSAFE_QUERY",
+            });
+        });
     }
 
     private static bool HasVisibleDisabledDiagnostic(PriceCheckerModifierViewModel row) =>
@@ -513,7 +539,10 @@ public sealed class StageC3CorpusContractTests
         string? CanonicalItemName,
         string? CanonicalItemType,
         IReadOnlyList<string> MapperDiagnostics,
-        IReadOnlyList<string> QueryDiagnostics);
+        IReadOnlyList<string> QueryDiagnostics,
+        string? UniqueOrigin,
+        IReadOnlyList<string> FoulbornRelationshipIds,
+        IReadOnlyList<string> NormalCounterpartModifierIds);
 
     private sealed record DoublePassTransition(
         string Item,

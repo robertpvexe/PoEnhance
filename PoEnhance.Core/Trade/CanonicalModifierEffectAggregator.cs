@@ -163,6 +163,8 @@ internal static partial class CanonicalModifierEffectAggregator
             ResolvedStatIds = component.ResolvedStatIds.ToArray(),
             ResolvedStatLocalities = component.ResolvedStatLocalities.ToArray(),
             ProviderSearchSignatures = component.ProviderSearchSignatures.ToArray(),
+            UniqueFoulbornRelationshipIds = component.UniqueFoulbornRelationshipIds.ToArray(),
+            UniqueNormalCounterpartModifierIds = component.UniqueNormalCounterpartModifierIds.ToArray(),
             ObservedNumericValues = component.ObservedNumericValues.ToArray(),
             OriginalSourceRollRanges = component.OriginalSourceRollRanges.ToArray(),
             CanonicalNumericValues = canonicalValues.ToArray(),
@@ -212,7 +214,8 @@ internal static partial class CanonicalModifierEffectAggregator
     {
         key = default!;
         var canonicalValues = CanonicalValues(component);
-        if (!component.IsSearchable ||
+        if (component.ParsedKind == ParsedModifierKind.Unique ||
+            !component.IsSearchable ||
             component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
             component.ResolvedStatIds.Count == 0 ||
             string.IsNullOrWhiteSpace(component.CanonicalSignature) ||

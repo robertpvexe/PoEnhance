@@ -200,6 +200,45 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_NormalAndFoulbornUniqueRows_NeverConstructsHybridDefinition()
+    {
+        var normal = Scalar(
+            "modifier:0:0",
+            0,
+            "20% increased Effect",
+            20m,
+            "shared-stat") with
+        {
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+        };
+        var foulborn = Scalar(
+            "modifier:1:0",
+            1,
+            "10% increased Effect",
+            10m,
+            "shared-stat") with
+        {
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Foulborn,
+            UniqueFoulbornRelationshipIds = ["foulborn-relationship:test"],
+            UniqueNormalCounterpartModifierIds = ["normal.modifier.test"],
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([normal, foulborn]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, result.Components[0].UniqueOrigin);
+        Assert.Equal(ParsedUniqueModifierOrigin.Foulborn, result.Components[1].UniqueOrigin);
+        Assert.Equal(
+            ["foulborn-relationship:test"],
+            result.Components[1].UniqueFoulbornRelationshipIds);
+        var source = Assert.Single(result.Components[1].Sources);
+        Assert.Equal(["foulborn-relationship:test"], source.UniqueFoulbornRelationshipIds);
+        Assert.Equal(["normal.modifier.test"], source.UniqueNormalCounterpartModifierIds);
+    }
+
+    [Fact]
     public void Aggregate_EldritchImplicitOriginsRemainIndependent()
     {
         var eater = Scalar(

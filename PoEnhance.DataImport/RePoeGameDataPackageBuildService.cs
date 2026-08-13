@@ -8,6 +8,7 @@ public sealed class RePoeGameDataPackageBuildService
 {
     private const int LegacySchemaVersion = 1;
     private const int UniqueCatalogSchemaVersion = 2;
+    private const int FoulbornRelationshipSchemaVersion = 3;
     private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
@@ -20,6 +21,7 @@ public sealed class RePoeGameDataPackageBuildService
     private readonly ReviewedItemPropertySemanticImporter _itemPropertySemanticImporter = new();
     private readonly GameDataPackageBuilder _packageBuilder = new();
     private readonly PoBUniqueCatalogImporter _uniqueCatalogImporter = new();
+    private readonly PoBFoulbornRelationshipImporter _foulbornRelationshipImporter = new();
 
     public GameDataPackageBuildResult Build(GameDataPackageBuildRequest request)
     {
@@ -100,6 +102,14 @@ public sealed class RePoeGameDataPackageBuildService
                 "--pob-uniques",
                 "Required evaluated Path of Building Unique input file is missing."));
         }
+        if (HasPoBFoulbornInputs(request) && !File.Exists(request.PoBFoulbornMapPath!))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildInputFileMissing,
+                ImportDiagnosticSeverity.Error,
+                "--pob-foulborn-map",
+                "Required Path of Building Foulborn relationship input file is missing."));
+        }
 
         if (HasErrors(diagnostics))
         {
@@ -150,6 +160,27 @@ public sealed class RePoeGameDataPackageBuildService
                 translations.ImportedRecords,
                 baseItems.ImportedRecords)
             : null;
+        var foulbornRelationships = HasPoBFoulbornInputs(request) && uniqueItems?.Catalog is not null
+            ? _foulbornRelationshipImporter.Import(
+                request.PoBFoulbornMapPath!,
+                Path.GetRelativePath(request.PoBSourceRootPath!, request.PoBFoulbornMapPath!),
+                request.PoBSourceUri!,
+                request.PoBSourceTag!,
+                request.PoBSourceVersion!,
+                uniqueItems.Catalog,
+                modifiers.ImportedRecords)
+            : null;
+        if (foulbornRelationships?.SourceObservation is not null && uniqueItems?.Catalog is not null)
+        {
+            uniqueItems = uniqueItems with
+            {
+                Catalog = uniqueItems.Catalog with
+                {
+                    FoulbornRelationshipSources = [foulbornRelationships.SourceObservation],
+                    FoulbornModifierRelationships = foulbornRelationships.Relationships,
+                },
+            };
+        }
 
         diagnostics.AddRange(baseItems.Diagnostics);
         diagnostics.AddRange(modifiers.Diagnostics);
@@ -162,6 +193,10 @@ public sealed class RePoeGameDataPackageBuildService
         if (uniqueItems is not null)
         {
             diagnostics.AddRange(uniqueItems.Diagnostics);
+        }
+        if (foulbornRelationships is not null)
+        {
+            diagnostics.AddRange(foulbornRelationships.Diagnostics);
         }
 
         var summaries = new List<GameDataPackageBuildSourceSummary>
@@ -189,6 +224,16 @@ public sealed class RePoeGameDataPackageBuildService
                 SourceRecordsRead = uniqueItems.SourceRecordsRead,
                 RecordsImported = uniqueItems.RecordsImported,
                 RecordsSkipped = uniqueItems.RecordsSkipped,
+            });
+        }
+        if (foulbornRelationships is not null)
+        {
+            summaries.Add(new GameDataPackageBuildSourceSummary
+            {
+                SourceName = "FoulbornModifierRelationships",
+                SourceRecordsRead = foulbornRelationships.RelationshipsRead,
+                RecordsImported = foulbornRelationships.RelationshipsLinked,
+                RecordsSkipped = foulbornRelationships.RelationshipsUnsupported,
             });
         }
 
@@ -431,6 +476,14 @@ public sealed class RePoeGameDataPackageBuildService
                 AddRequiredArgumentDiagnostic(value.Value, value.Name, diagnostics);
             }
         }
+        if (HasPoBFoulbornInputs(request) && !HasPoBUniqueInputs(request))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-foulborn-map",
+                "Foulborn relationship input requires the complete Path of Building Unique input bundle."));
+        }
 
         if (!string.IsNullOrWhiteSpace(request.OutputPath) && IsInsidePoEnhanceAppDirectory(request.OutputPath))
         {
@@ -480,6 +533,9 @@ public sealed class RePoeGameDataPackageBuildService
     private static bool HasPoBUniqueInputs(GameDataPackageBuildRequest request) =>
         !string.IsNullOrWhiteSpace(request.PoBUniquesPath);
 
+    private static bool HasPoBFoulbornInputs(GameDataPackageBuildRequest request) =>
+        !string.IsNullOrWhiteSpace(request.PoBFoulbornMapPath);
+
     private static IReadOnlyList<(string LogicalRole, string Label, string Path)> BuildHistoricalInputFileList(
         GameDataPackageBuildRequest request)
     {
@@ -500,7 +556,11 @@ public sealed class RePoeGameDataPackageBuildService
     {
         return new GameDataPackageManifest
         {
-            SchemaVersion = HasPoBUniqueInputs(request) ? UniqueCatalogSchemaVersion : LegacySchemaVersion,
+            SchemaVersion = HasPoBFoulbornInputs(request)
+                ? FoulbornRelationshipSchemaVersion
+                : HasPoBUniqueInputs(request)
+                    ? UniqueCatalogSchemaVersion
+                    : LegacySchemaVersion,
             DataVersion = request.DataVersion!.Trim(),
             CreatedAtUtc = createdAtUtc,
             League = TrimToNull(request.League),
@@ -551,10 +611,8 @@ public sealed class RePoeGameDataPackageBuildService
                             SourceUri = TrimToNull(request.PoBSourceUri),
                             SourceBranch = TrimToNull(request.PoBSourceTag),
                             SourceRoot = NormalizePathOrNull(request.PoBSourceRootPath),
-                            SourceDataRoot = Path.GetDirectoryName(Path.GetFullPath(request.PoBUniquesPath!)),
-                            InputFiles = CreateInputFingerprints(
-                                Path.GetDirectoryName(Path.GetFullPath(request.PoBUniquesPath!))!,
-                                [("uniqueItems", "pob-uniques.evaluated.json", request.PoBUniquesPath!)]),
+                            SourceDataRoot = NormalizePathOrNull(request.PoBSourceRootPath),
+                            InputFiles = CreatePoBInputFingerprints(request),
                         },
                     }
                     : []),
@@ -575,6 +633,16 @@ public sealed class RePoeGameDataPackageBuildService
                 "--pob-source-root",
                 "Path of Building source root directory does not exist."));
             return;
+        }
+
+        if (HasPoBFoulbornInputs(request) &&
+            !IsUnderDirectory(Path.GetFullPath(request.PoBFoulbornMapPath!), sourceRoot))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.BuildArgumentInvalid,
+                ImportDiagnosticSeverity.Error,
+                "--pob-foulborn-map",
+                "Path of Building Foulborn relationship input must be inside the declared source checkout."));
         }
 
         var remote = RunGit(sourceRoot, "remote get-url origin", diagnostics, "--pob-source-uri");
@@ -718,6 +786,38 @@ public sealed class RePoeGameDataPackageBuildService
             })
             .ToArray();
     }
+
+    private static IReadOnlyList<GameDataPackageInputFileFingerprint> CreatePoBInputFingerprints(
+        GameDataPackageBuildRequest request)
+    {
+        var fingerprints = new List<GameDataPackageInputFileFingerprint>
+        {
+            CreateFingerprint(
+                "pob-uniques.evaluated.json",
+                Path.GetFileName(request.PoBUniquesPath!),
+                request.PoBUniquesPath!),
+        };
+        if (HasPoBFoulbornInputs(request))
+        {
+            fingerprints.Add(CreateFingerprint(
+                "ModFoulbornMap.jsonc",
+                Path.GetRelativePath(request.PoBSourceRootPath!, request.PoBFoulbornMapPath!),
+                request.PoBFoulbornMapPath!));
+        }
+
+        return fingerprints;
+    }
+
+    private static GameDataPackageInputFileFingerprint CreateFingerprint(
+        string label,
+        string relativePath,
+        string path) => new()
+    {
+        Label = label,
+        RelativePath = relativePath.Replace('\\', '/'),
+        SizeBytes = new FileInfo(path).Length,
+        Sha256 = ComputeSha256(path),
+    };
 
     private static IReadOnlyList<RePoeSourceSnapshotInput> CreateSourceSnapshotInputs(
         IReadOnlyList<(string LogicalRole, string Label, string Path)> inputFiles,

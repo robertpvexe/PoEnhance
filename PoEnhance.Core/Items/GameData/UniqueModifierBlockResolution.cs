@@ -12,6 +12,10 @@ public sealed record UniqueModifierBlockResolution
 
     public IReadOnlyList<UniqueModifierBlock> CatalogBlocks { get; init; } = [];
 
+    public IReadOnlyList<string> FoulbornRelationshipIds { get; init; } = [];
+
+    public IReadOnlyList<string> NormalCounterpartModifierIds { get; init; } = [];
+
     public IReadOnlyList<string> ModifierIds { get; init; } = [];
 
     public IReadOnlyList<string> StatIds { get; init; } = [];

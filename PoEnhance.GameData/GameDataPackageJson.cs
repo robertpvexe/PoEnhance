@@ -88,6 +88,9 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<UniqueModifierMechanicalMappingStatus>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<UniqueFoulbornModifierRelationshipStatus>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
 
         return options;
     }

@@ -5,8 +5,9 @@ Builds and validates a non-activating PoEnhance GameData candidate from explicit
 .DESCRIPTION
 Invokes the existing PoEnhance.DataTool build-package pipeline with explicit current and
 historical source metadata, retains an atomic source snapshot, runs focused compatibility
-checks, and writes a candidate plus readiness and SHA-256 manifests. The active package is
-hashed before and after and is never copied, replaced, or activated by this script.
+checks, and writes a candidate plus readiness and SHA-256 manifests. When an active package
+exists it is hashed before and after; a missing active package is permitted so the tracked
+bootstrap workflow can run from a fresh clone. This script never activates its candidate.
 
 .PARAMETER SourceRoot
 Exact current RePoE Git checkout used only to verify SourceCommit and retain provenance.
@@ -51,6 +52,7 @@ param(
     [Parameter(Mandatory)] [ValidatePattern('^[0-9a-fA-F]{40}$')] [string]$PoBSourceCommit,
     [Parameter(Mandatory)] [string]$PoBSourceTag,
     [Parameter(Mandatory)] [string]$OutputDirectory,
+    [string]$CreatedAtUtc,
     [string]$SourceUri = 'https://github.com/repoe-fork/repoe',
     [string]$SourceBranch = 'master',
     [string]$HistoricalSourceUri = 'https://github.com/repoe-fork/repoe',
@@ -78,11 +80,6 @@ if ($outputRoot.Equals($artifactsDirectory, [StringComparison]::OrdinalIgnoreCas
 {
     throw 'OutputDirectory must not be the active repository artifacts directory.'
 }
-if (-not (Test-Path -LiteralPath $activeArtifact -PathType Leaf))
-{
-    throw "Active GameData artifact is missing: $activeArtifact"
-}
-
 function Assert-Directory([string]$Path, [string]$Label)
 {
     if (-not (Test-Path -LiteralPath $Path -PathType Container))
@@ -170,7 +167,15 @@ foreach ($path in @($candidatePath, $buildLogPath, $readinessPath, $readinessMar
     }
 }
 
-$activeHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $activeArtifact).Hash
+$activeExistedBefore = Test-Path -LiteralPath $activeArtifact -PathType Leaf
+$activeHashBefore = if ($activeExistedBefore)
+{
+    (Get-FileHash -Algorithm SHA256 -LiteralPath $activeArtifact).Hash
+}
+else
+{
+    $null
+}
 $pobRuntime = Join-Path $pobRootPath 'runtime\Path{space}of{space}Building.exe'
 $pobSourceDirectory = Join-Path $pobRootPath 'src'
 if (-not (Test-Path -LiteralPath $pobRuntime -PathType Leaf))
@@ -218,6 +223,7 @@ if ($pobEvaluationError -or $pobEvaluation.entries.Count -eq 0)
 {
     throw "Path of Building Unique extraction did not produce evaluated entries: $pobEvaluationError"
 }
+$pobFoulbornMapPath = Require-InputFile (Join-Path $pobRootPath 'src\Data') 'ModFoulbornMap.jsonc' 'Path of Building Foulborn relationships'
 
 $dataToolArguments = @(
     'run', '--project', (Join-Path $repoRoot 'PoEnhance.DataTool'),
@@ -249,6 +255,7 @@ $dataToolArguments = @(
     '--historical-source-version', $HistoricalSourceCommit,
     '--historical-data-version', $HistoricalDataVersion,
     '--pob-uniques', $pobEvaluatedPath,
+    '--pob-foulborn-map', $pobFoulbornMapPath,
     '--pob-source-root', $pobRootPath,
     '--pob-source-uri', $PoBSourceUri,
     '--pob-source-tag', $PoBSourceTag,
@@ -256,6 +263,19 @@ $dataToolArguments = @(
 )
 if (-not [string]::IsNullOrWhiteSpace($League)) { $dataToolArguments += @('--league', $League) }
 if (-not [string]::IsNullOrWhiteSpace($Patch)) { $dataToolArguments += @('--patch', $Patch) }
+if (-not [string]::IsNullOrWhiteSpace($CreatedAtUtc))
+{
+    $parsedCreatedAtUtc = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+            $CreatedAtUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal,
+            [ref]$parsedCreatedAtUtc))
+    {
+        throw "CreatedAtUtc is invalid: $CreatedAtUtc"
+    }
+    $dataToolArguments += @('--created-at-utc', $parsedCreatedAtUtc.ToUniversalTime().ToString('O'))
+}
 
 $buildOutput = @(& dotnet @dataToolArguments 2>&1)
 $buildExitCode = $LASTEXITCODE
@@ -291,11 +311,21 @@ if (-not $SkipCompatibilityTests)
     }
 }
 
-$activeHashAfter = (Get-FileHash -Algorithm SHA256 -LiteralPath $activeArtifact).Hash
-if ($activeHashBefore -ne $activeHashAfter)
+$activeExistsAfter = Test-Path -LiteralPath $activeArtifact -PathType Leaf
+$activeHashAfter = if ($activeExistsAfter)
+{
+    (Get-FileHash -Algorithm SHA256 -LiteralPath $activeArtifact).Hash
+}
+else
+{
+    $null
+}
+if ($activeExistedBefore -ne $activeExistsAfter -or $activeHashBefore -ne $activeHashAfter)
 {
     throw 'The active GameData artifact changed during refresh; candidate is not ready.'
 }
+$activeHashBeforeNormalized = if ($null -eq $activeHashBefore) { $null } else { $activeHashBefore.ToLowerInvariant() }
+$activeHashAfterNormalized = if ($null -eq $activeHashAfter) { $null } else { $activeHashAfter.ToLowerInvariant() }
 $snapshotManifestPath = Join-Path $snapshotDirectory 'source-snapshot-manifest.json'
 if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf) -or
     -not (Test-Path -LiteralPath $snapshotManifestPath -PathType Leaf))
@@ -329,13 +359,17 @@ $readiness = [ordered]@{
         evaluatedEntries = $pobEvaluation.entries.Count
         evaluatedPath = $pobEvaluatedPath
         evaluatedSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $pobEvaluatedPath).Hash.ToLowerInvariant()
+        foulbornRelationshipPath = $pobFoulbornMapPath
+        foulbornRelationshipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $pobFoulbornMapPath).Hash.ToLowerInvariant()
     }
     sourceSnapshotManifest = $snapshotManifestPath
     compatibilityChecks = $compatibilityChecks
     activeArtifact = [ordered]@{
         path = $activeArtifact
-        sha256Before = $activeHashBefore.ToLowerInvariant()
-        sha256After = $activeHashAfter.ToLowerInvariant()
+        existedBefore = $activeExistedBefore
+        existsAfter = $activeExistsAfter
+        sha256Before = $activeHashBeforeNormalized
+        sha256After = $activeHashAfterNormalized
         modified = $false
     }
     activated = $false
@@ -355,6 +389,7 @@ $markdown = @"
 - Historical source: ``$HistoricalSourceCommit`` / ``$HistoricalDataVersion``
 - Path of Building: ``$PoBSourceTag`` / ``$PoBSourceCommit`` ($($pobEvaluation.entries.Count) evaluated entries)
 - Source snapshot: ``$snapshotManifestPath``
+- Active artifact existed before/after: ``$activeExistedBefore`` / ``$activeExistsAfter``
 - Active artifact SHA-256 before/after: ``$($readiness.activeArtifact.sha256Before)`` / ``$($readiness.activeArtifact.sha256After)``
 - Active artifact modified: **no**
 - Candidate activated: **no**

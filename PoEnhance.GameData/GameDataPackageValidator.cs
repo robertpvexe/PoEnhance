@@ -79,6 +79,16 @@ public static class GameDataPackageValidator
                 "uniqueItems",
                 "Schema version 2 packages require a Unique catalog."));
         }
+        if (package.Manifest.SchemaVersion >= 3 &&
+            (package.UniqueItems is null ||
+                package.UniqueItems.FoulbornRelationshipSources.Count == 0 ||
+                package.UniqueItems.FoulbornModifierRelationships.Count == 0))
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackageFoulbornRelationshipsRequired,
+                "uniqueItems.foulbornModifierRelationships",
+                "Schema version 3 packages require provenance-backed Foulborn modifier relationships."));
+        }
         ValidateUniqueItems(
             package.UniqueItems,
             manifestSourceIds,
@@ -126,6 +136,8 @@ public static class GameDataPackageValidator
         }
 
         var identityIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var identityBlockIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var identitiesById = new Dictionary<string, UniqueItemIdentity>(StringComparer.OrdinalIgnoreCase);
         foreach (var (identity, identityIndex) in catalog.Items.Select((value, index) => (value, index)))
         {
             var identityPath = $"uniqueItems.items[{identityIndex}]";
@@ -146,6 +158,10 @@ public static class GameDataPackageValidator
                     "Unique identities require a canonical name, kind, base evidence, versions, and source observations."));
                 continue;
             }
+
+            identitiesById[identity.Id.Trim()] = identity;
+            var allIdentityBlockIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            identityBlockIds[identity.Id.Trim()] = allIdentityBlockIds;
 
             var versionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (version, versionIndex) in identity.Versions.Select((value, index) => (value, index)))
@@ -191,7 +207,135 @@ public static class GameDataPackageValidator
                             $"{versionPath}.modifierBlocks[{blockIndex}]",
                             "Unique blocks require retained lines, signatures, mapping state, and source provenance."));
                     }
+                    else
+                    {
+                        allIdentityBlockIds.Add(block.Id.Trim());
+                    }
                 }
+            }
+        }
+
+
+        ValidateFoulbornRelationships(
+            catalog,
+            manifestSourceIds,
+            knownModifierIds,
+            identitiesById,
+            identityBlockIds,
+            errors);
+    }
+
+    private static void ValidateFoulbornRelationships(
+        UniqueItemCatalog catalog,
+        ISet<string> manifestSourceIds,
+        ISet<string>? knownModifierIds,
+        IReadOnlyDictionary<string, UniqueItemIdentity> identitiesById,
+        IReadOnlyDictionary<string, HashSet<string>> identityBlockIds,
+        List<GameDataValidationError> errors)
+    {
+        var relationshipSourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (source, index) in catalog.FoulbornRelationshipSources.Select((value, index) => (value, index)))
+        {
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.Id) ||
+                !relationshipSourceIds.Add(source.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(source.ManifestSourceId) ||
+                !manifestSourceIds.Contains(source.ManifestSourceId.Trim()) ||
+                string.IsNullOrWhiteSpace(source.RepositoryUri) ||
+                string.IsNullOrWhiteSpace(source.Tag) ||
+                source.CommitSha is not { Length: 40 } ||
+                !source.CommitSha.All(Uri.IsHexDigit) ||
+                string.IsNullOrWhiteSpace(source.SourcePath) ||
+                source.SourceFileSha256 is not { Length: 64 } ||
+                !source.SourceFileSha256.All(Uri.IsHexDigit))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueFoulbornSourceInvalid,
+                    $"uniqueItems.foulbornRelationshipSources[{index}]",
+                    "Foulborn relationship sources require exact PoB file and version provenance."));
+            }
+        }
+
+        var relationshipIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var triples = new HashSet<string>(StringComparer.Ordinal);
+        var itemNormalTargets = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (relationship, index) in catalog.FoulbornModifierRelationships.Select((value, index) => (value, index)))
+        {
+            var path = $"uniqueItems.foulbornModifierRelationships[{index}]";
+            if (relationship is null ||
+                string.IsNullOrWhiteSpace(relationship.Id) ||
+                !relationshipIds.Add(relationship.Id.Trim()) ||
+                string.IsNullOrWhiteSpace(relationship.ItemName) ||
+                string.IsNullOrWhiteSpace(relationship.NormalModifierId) ||
+                string.IsNullOrWhiteSpace(relationship.FoulbornModifierId) ||
+                string.IsNullOrWhiteSpace(relationship.SourceObservationId) ||
+                !relationshipSourceIds.Contains(relationship.SourceObservationId.Trim()) ||
+                relationship.Status == UniqueFoulbornModifierRelationshipStatus.Unknown ||
+                relationship.AppliesToRole != UniqueItemVersionRole.Current ||
+                relationship.NormalModifierBlockIds.Any(string.IsNullOrWhiteSpace))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueFoulbornRelationshipInvalid,
+                    path,
+                    "Foulborn relationships require item-scoped directional modifier ids, status, and source provenance."));
+                continue;
+            }
+
+            var itemName = relationship.ItemName.Trim();
+            var normalModifierId = relationship.NormalModifierId.Trim();
+            var foulbornModifierId = relationship.FoulbornModifierId.Trim();
+            var triple = string.Join('\u001f', itemName, normalModifierId, foulbornModifierId);
+            if (!triples.Add(triple))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueFoulbornRelationshipDuplicate,
+                    path,
+                    "The item-scoped Foulborn relationship is duplicated."));
+            }
+
+            var itemNormal = string.Join('\u001f', itemName, normalModifierId);
+            if (itemNormalTargets.TryGetValue(itemNormal, out var target) &&
+                !string.Equals(target, foulbornModifierId, StringComparison.Ordinal))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueFoulbornRelationshipConflict,
+                    path,
+                    "The item-scoped normal modifier has conflicting Foulborn replacement targets."));
+            }
+            else
+            {
+                itemNormalTargets[itemNormal] = foulbornModifierId;
+            }
+
+            var uniqueItemId = relationship.UniqueItemId?.Trim();
+            UniqueItemIdentity? identity = null;
+            var hasIdentity = uniqueItemId is not null &&
+                identitiesById.TryGetValue(uniqueItemId, out identity);
+            var blockIdsAreValid = relationship.NormalModifierBlockIds.Count == 0 ||
+                hasIdentity &&
+                relationship.NormalModifierBlockIds.All(blockId => identityBlockIds[uniqueItemId!].Contains(blockId));
+            var normalModifierExists = knownModifierIds?.Contains(normalModifierId) != false;
+            var foulbornModifierExists = knownModifierIds?.Contains(foulbornModifierId) != false;
+            var statusIsValid = relationship.Status switch
+            {
+                UniqueFoulbornModifierRelationshipStatus.Exact =>
+                    hasIdentity &&
+                    string.Equals(identity!.CanonicalName, itemName, StringComparison.Ordinal) &&
+                    normalModifierExists &&
+                    foulbornModifierExists &&
+                    string.IsNullOrWhiteSpace(relationship.DiagnosticCode) &&
+                    string.IsNullOrWhiteSpace(relationship.Diagnostic),
+                UniqueFoulbornModifierRelationshipStatus.Unsupported =>
+                    !string.IsNullOrWhiteSpace(relationship.DiagnosticCode) &&
+                    !string.IsNullOrWhiteSpace(relationship.Diagnostic),
+                _ => false,
+            };
+            if (!blockIdsAreValid || !statusIsValid)
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueFoulbornRelationshipInvalid,
+                    path,
+                    "Foulborn relationship status and current-catalog references are inconsistent."));
             }
         }
     }

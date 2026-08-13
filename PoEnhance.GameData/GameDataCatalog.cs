@@ -16,6 +16,8 @@ public sealed class GameDataCatalog
         Array.AsReadOnly(Array.Empty<ItemPropertySemanticDescriptor>());
     private static readonly IReadOnlyList<UniqueItemIdentity> EmptyUniqueItems =
         Array.AsReadOnly(Array.Empty<UniqueItemIdentity>());
+    private static readonly IReadOnlyList<UniqueFoulbornModifierRelationship> EmptyFoulbornRelationships =
+        Array.AsReadOnly(Array.Empty<UniqueFoulbornModifierRelationship>());
 
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesById;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemBaseRecord>> _itemBasesByExactName;
@@ -38,6 +40,8 @@ public sealed class GameDataCatalog
         _itemPropertySemanticsByOrderedStatVector;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByExactName;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByNormalizedName;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueFoulbornModifierRelationship>>
+        _foulbornRelationshipsByUniqueItemId;
 
     private GameDataCatalog(
         IReadOnlyList<ItemBaseRecord> itemBases,
@@ -63,7 +67,9 @@ public sealed class GameDataCatalog
         StatTranslationHistoryCatalog? statTranslationHistory,
         UniqueItemCatalog? uniqueItems,
         IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> uniqueItemsByExactName,
-        IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> uniqueItemsByNormalizedName)
+        IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> uniqueItemsByNormalizedName,
+        IReadOnlyDictionary<string, IReadOnlyList<UniqueFoulbornModifierRelationship>>
+            foulbornRelationshipsByUniqueItemId)
     {
         ItemBases = itemBases;
         _itemBasesById = itemBasesById;
@@ -88,6 +94,7 @@ public sealed class GameDataCatalog
         UniqueItems = uniqueItems;
         _uniqueItemsByExactName = uniqueItemsByExactName;
         _uniqueItemsByNormalizedName = uniqueItemsByNormalizedName;
+        _foulbornRelationshipsByUniqueItemId = foulbornRelationshipsByUniqueItemId;
     }
 
     public static GameDataCatalog FromPackage(GameDataPackage package)
@@ -184,6 +191,10 @@ public sealed class GameDataCatalog
             BuildIndex(
                 uniqueIdentities,
                 identity => GameDataLookupNormalizer.NormalizeName(identity.CanonicalName),
+                StringComparer.OrdinalIgnoreCase),
+            BuildIndex(
+                package.UniqueItems?.FoulbornModifierRelationships ?? EmptyFoulbornRelationships,
+                relationship => GameDataLookupNormalizer.NormalizeIdentifier(relationship.UniqueItemId),
                 StringComparer.OrdinalIgnoreCase));
     }
 
@@ -207,6 +218,15 @@ public sealed class GameDataCatalog
     public IReadOnlyList<UniqueItemIdentity> FindUniqueItemsByNormalizedName(string? name)
     {
         return Find(_uniqueItemsByNormalizedName, GameDataLookupNormalizer.NormalizeName(name), EmptyUniqueItems);
+    }
+
+    public IReadOnlyList<UniqueFoulbornModifierRelationship> FindFoulbornRelationshipsByUniqueItemId(
+        string? uniqueItemId)
+    {
+        return Find(
+            _foulbornRelationshipsByUniqueItemId,
+            GameDataLookupNormalizer.NormalizeIdentifier(uniqueItemId),
+            EmptyFoulbornRelationships);
     }
 
     public IReadOnlyList<ItemBaseRecord> FindItemBasesById(string? id)

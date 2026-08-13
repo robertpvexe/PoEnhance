@@ -5,7 +5,7 @@ namespace PoEnhance.GameData;
 public static class GameDataPackageLoader
 {
     private const int MinimumSupportedSchemaVersion = 1;
-    private const int MaximumSupportedSchemaVersion = 2;
+    private const int MaximumSupportedSchemaVersion = 3;
 
     public static async Task<GameDataPackageLoadResult> LoadFromFileAsync(
         string path,

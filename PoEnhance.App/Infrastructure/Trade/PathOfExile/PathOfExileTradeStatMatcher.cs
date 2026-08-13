@@ -400,7 +400,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             ResolutionStatus: ModifierCandidateResolutionStatus.Exact,
         } &&
             component.ResolvedStatIds.Count > 0 &&
-            component.UniqueCatalogBlockIds.Count > 0 &&
+            (component.UniqueCatalogBlockIds.Count > 0 ||
+                component.UniqueFoulbornRelationshipIds.Count > 0) &&
             component.UniqueSourceObservationIds.Count > 0 &&
             string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode);
     }

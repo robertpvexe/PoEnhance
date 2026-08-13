@@ -343,8 +343,10 @@ $coverage = [ordered]@{
         historicalCapableIdentities = $historicalCapable.Count
         replicaIdentities = @($items | Where-Object { $_.kind -eq 'replica' }).Count
         foulbornObservedIdentities = @($items | Where-Object { $_.kind -eq 'foulbornObserved' }).Count
-        foulbornCapableIdentities = $null
-        foulbornCapabilityNote = 'Official provider eligibility is resolved from the actually copied Foulborn item at runtime; the evaluated PoB Unique export contained no Foulborn identity observations.'
+        foulbornCapableIdentities = @($package.uniqueItems.foulbornModifierRelationships |
+            Where-Object { $_.status -eq 'exact' } |
+            Select-Object -ExpandProperty uniqueItemId -Unique).Count
+        foulbornCapabilityNote = 'Copied Foulborn identity remains the ordinary underlying identity plus item-scoped, source-proven replacement relationships; official provider eligibility is resolved at runtime.'
         generatedSpecialIdentities = @($items | Where-Object generated).Count
         invalidIdentities = $invalidIdentities.Count
     }
@@ -390,9 +392,12 @@ $coverage = [ordered]@{
         note = 'Provider IDs are intentionally absent from GameData. Official item/stat catalog matching is exercised at runtime; the staged raw scalar acceptance test proves the end-to-end adapter path.'
     }
     foulbornReplacementEvidence = [ordered]@{
-        preserved = $false
-        relationshipCount = 0
-        reason = 'The minimal evaluated Unique export did not expose ModFoulbornMap relationships. Adding a separate relationship schema/extractor was deferred because the replacement switch is outside this stage.'
+        preserved = @($package.uniqueItems.foulbornModifierRelationships).Count -gt 0
+        sourceObservationCount = @($package.uniqueItems.foulbornRelationshipSources).Count
+        relationshipCount = @($package.uniqueItems.foulbornModifierRelationships).Count
+        exact = @($package.uniqueItems.foulbornModifierRelationships | Where-Object { $_.status -eq 'exact' }).Count
+        unsupported = @($package.uniqueItems.foulbornModifierRelationships | Where-Object { $_.status -eq 'unsupported' }).Count
+        reason = 'Schema 3 retains item-scoped normal-to-Foulborn modifier relationships from the pinned PoB generated map. Runtime resolution remains fail-closed.'
     }
     identityKinds = $kindCounts
     identityClassifications = $classificationCounts

@@ -60,6 +60,8 @@ public sealed record GameDataPackageBuildRequest
 
     public string? PoBUniquesPath { get; init; }
 
+    public string? PoBFoulbornMapPath { get; init; }
+
     public string? PoBSourceRootPath { get; init; }
 
     public string? PoBSourceUri { get; init; }

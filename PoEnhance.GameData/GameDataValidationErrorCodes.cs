@@ -143,11 +143,16 @@ public static class GameDataValidationErrorCodes
     public const string StatTranslationHistoryChangeInvalid = "statTranslationHistory.change.invalid";
 
     public const string PackageUniqueItemsRequired = "package.uniqueItems.required";
+    public const string PackageFoulbornRelationshipsRequired = "package.foulbornRelationships.required";
     public const string UniqueCatalogSourceInvalid = "uniqueItems.source.invalid";
     public const string UniqueCatalogIdentityInvalid = "uniqueItems.identity.invalid";
     public const string UniqueCatalogVersionInvalid = "uniqueItems.version.invalid";
     public const string UniqueCatalogBlockInvalid = "uniqueItems.block.invalid";
     public const string UniqueCatalogReferenceUnknown = "uniqueItems.reference.unknown";
+    public const string UniqueFoulbornSourceInvalid = "uniqueItems.foulborn.source.invalid";
+    public const string UniqueFoulbornRelationshipInvalid = "uniqueItems.foulborn.relationship.invalid";
+    public const string UniqueFoulbornRelationshipDuplicate = "uniqueItems.foulborn.relationship.duplicate";
+    public const string UniqueFoulbornRelationshipConflict = "uniqueItems.foulborn.relationship.conflict";
 
     public const string ItemPropertySemanticRequired = "itemPropertySemantic.required";
     public const string ItemPropertySemanticIdRequired = "itemPropertySemantic.id.required";

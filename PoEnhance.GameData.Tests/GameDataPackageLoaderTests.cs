@@ -38,7 +38,7 @@ public sealed class GameDataPackageLoaderTests
     }
 
     [Fact]
-    public async Task LoadFromFileAsync_Active329Artifact_RemainsCompatible()
+    public async Task LoadFromFileAsync_Active329E2Artifact_RemainsCompatible()
     {
         var activePackagePath = FindRepositoryFile(
             "artifacts",
@@ -48,9 +48,9 @@ public sealed class GameDataPackageLoaderTests
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
-        Assert.Equal("3.29.1.2.2-unique-stage2", result.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.1.2.2-unique-stage-e2", result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
-        Assert.Equal(2, result.Package.Manifest.SchemaVersion);
+        Assert.Equal(3, result.Package.Manifest.SchemaVersion);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class GameDataPackageLoaderTests
         {
             Manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest() with
             {
-                SchemaVersion = 3,
+                SchemaVersion = 4,
             },
         };
         using var stream = CreatePackageStream(package);
@@ -120,6 +120,18 @@ public sealed class GameDataPackageLoaderTests
 
         Assert.False(result.IsSuccess);
         AssertDiagnostic(result, GameDataPackageLoadDiagnosticCodes.SchemaUnsupported);
+    }
+
+    [Fact]
+    public async Task LoadFromStreamAsync_ValidSchemaThreeFoulbornRelationships_LoadsSuccessfully()
+    {
+        using var stream = CreatePackageStream(UniqueItemCatalogTests.CreateFoulbornPackage());
+
+        var result = await GameDataPackageLoader.LoadFromStreamAsync(stream);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Package?.Manifest.SchemaVersion);
+        Assert.Single(result.Package!.UniqueItems!.FoulbornModifierRelationships);
     }
 
     [Fact]

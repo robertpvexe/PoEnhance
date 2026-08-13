@@ -81,7 +81,7 @@ public sealed class ParsedUniqueItemResolverTests
                 Assert.False(replacement.IsResolved);
                 Assert.Empty(replacement.CatalogBlocks);
                 Assert.Equal(
-                    "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
+                    "FOULBORN_REPLACEMENT_RELATIONSHIP_NOT_FOUND",
                     replacement.DiagnosticCode);
             });
 
@@ -102,9 +102,134 @@ public sealed class ParsedUniqueItemResolverTests
                 Assert.False(replacement.IsSearchable);
                 Assert.False(replacement.IsSelected);
                 Assert.Equal(
-                    "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
+                    "FOULBORN_REPLACEMENT_RELATIONSHIP_NOT_FOUND",
                     replacement.UniqueResolutionDiagnosticCode);
             });
+    }
+
+    [Fact]
+    public void CreateDraft_ExactFoulbornRelationship_UsesReplacementMechanicsAndCopiedValue()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Foulborn Test Calling
+            Calling Wand
+            --------
+            Item Level: 83
+            --------
+            { Foulborn Unique Modifier }
+            +25 to maximum Life
+            """);
+        var normalBlock = Block("normal-life", "+<number> to maximum Mana", "normal_mana");
+        var replacement = ReplacementModifier();
+        var catalog = CreateCatalog(
+            "Test Calling",
+            "Calling Wand",
+            UniqueItemKind.Ordinary,
+            [Version("Current", UniqueItemVersionRole.Current, normalBlock)],
+            [replacement],
+            [Translation("foulborn-life", "foulborn_life", "{0} to maximum Life")],
+            [Relationship("modifier:normal-life", replacement.Id!, normalBlock.Id!)]);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, result.Status);
+        Assert.True(result.IsFoulborn);
+        var resolved = Assert.Single(result.ModifierBlocks);
+        Assert.True(resolved.IsResolved, $"{resolved.DiagnosticCode}: {resolved.Diagnostic}");
+        Assert.Equal(["modifier:foulborn-life"], resolved.ModifierIds);
+        Assert.Equal(["modifier:normal-life"], resolved.NormalCounterpartModifierIds);
+        Assert.Equal(["foulborn_life"], resolved.StatIds);
+        Assert.Equal(["foulborn-relationship:test"], resolved.FoulbornRelationshipIds);
+        Assert.Empty(resolved.CatalogBlocks);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(ParsedUniqueModifierOrigin.Foulborn, row.UniqueOrigin);
+        Assert.True(row.IsSearchable);
+        Assert.Equal("modifier:foulborn-life", row.ResolvedModifierId);
+        Assert.Equal(["foulborn-relationship:test"], row.UniqueFoulbornRelationshipIds);
+        Assert.Equal(["modifier:normal-life"], row.UniqueNormalCounterpartModifierIds);
+        Assert.Equal(25m, row.RequestedMinimum);
+    }
+
+    [Fact]
+    public void Resolve_NormalUnique_DoesNotSubstituteKnownFoulbornReplacement()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Test Calling
+            Calling Wand
+            --------
+            Item Level: 83
+            --------
+            { Unique Modifier }
+            +25 to maximum Life
+            """);
+        var normalBlock = Block("normal-life", "+<number> to maximum Mana", "normal_mana");
+        var replacement = ReplacementModifier();
+        var catalog = CreateCatalog(
+            "Test Calling",
+            "Calling Wand",
+            UniqueItemKind.Ordinary,
+            [Version("Current", UniqueItemVersionRole.Current, normalBlock)],
+            [replacement],
+            [Translation("foulborn-life", "foulborn_life", "{0} to maximum Life")],
+            [Relationship("modifier:normal-life", replacement.Id!, normalBlock.Id!)]);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.False(result.IsFoulborn);
+        var unresolved = Assert.Single(result.ModifierBlocks);
+        Assert.False(unresolved.IsResolved);
+        Assert.Empty(unresolved.FoulbornRelationshipIds);
+        Assert.DoesNotContain(replacement.Id!, unresolved.ModifierIds);
+    }
+
+    [Fact]
+    public void Resolve_HistoricalOrdinaryEvidence_DoesNotUseCurrentFoulbornRelationship()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Foulborn Test Calling
+            Calling Wand
+            --------
+            Item Level: 83
+            --------
+            { Unique Modifier }
+            +1 to maximum Mana
+            { Foulborn Unique Modifier }
+            +25 to maximum Life
+            """);
+        var historicalBlock = Block("normal-life", "+<number> to maximum Mana", "normal_mana");
+        var currentBlock = Block("current", "Cannot be Stunned", "current_stat");
+        var replacement = ReplacementModifier();
+        var catalog = CreateCatalog(
+            "Test Calling",
+            "Calling Wand",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current, currentBlock),
+                Version("Historical", UniqueItemVersionRole.Historical, historicalBlock),
+            ],
+            [replacement],
+            [Translation("foulborn-life", "foulborn_life", "{0} to maximum Life")],
+            [Relationship("modifier:normal-life", replacement.Id!, historicalBlock.Id!)]);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.All(result.CompatibleVersions, version =>
+            Assert.Equal(UniqueItemVersionRole.Historical, version.Role));
+        var replacementResolution = Assert.Single(result.ModifierBlocks, block =>
+            block.ParsedModifierIndex == 1);
+        Assert.False(replacementResolution.IsResolved);
+        Assert.Equal("FOULBORN_REPLACEMENT_VERSION_MISMATCH", replacementResolution.DiagnosticCode);
     }
 
     [Fact]
@@ -521,11 +646,34 @@ public sealed class ParsedUniqueItemResolverTests
         UniqueItemKind kind,
         params UniqueItemVersionObservation[] versions)
     {
+        return CreateCatalog(
+            name,
+            baseType,
+            kind,
+            versions,
+            additionalModifiers: [],
+            translations: [],
+            foulbornRelationships: []);
+    }
+
+    private static GameDataCatalog CreateCatalog(
+        string name,
+        string baseType,
+        UniqueItemKind kind,
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<ModifierDefinition> additionalModifiers,
+        IReadOnlyList<StatTranslationDefinition> translations,
+        IReadOnlyList<UniqueFoulbornModifierRelationship> foulbornRelationships)
+    {
         const string observation = "pob-observation:test";
         var mappings = versions.SelectMany(version => version.ModifierBlocks)
             .Select(block => block.MechanicalMapping)
             .ToArray();
         var statIds = mappings.SelectMany(mapping => mapping.StatIds)
+            .Concat(additionalModifiers.SelectMany(modifier => modifier.Stats)
+                .Select(stat => stat.StatId)
+                .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                .Select(statId => statId!))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var modifiers = mappings.SelectMany(mapping => mapping.ModifierIds.Select(modifierId =>
@@ -545,12 +693,14 @@ public sealed class ParsedUniqueItemResolverTests
                     }).ToArray(),
                 }))
             .DistinctBy(modifier => modifier.Id, StringComparer.OrdinalIgnoreCase)
+            .Concat(additionalModifiers)
+            .DistinctBy(modifier => modifier.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return GameDataCatalog.FromPackage(new GameDataPackage
         {
             Manifest = new GameDataPackageManifest
             {
-                SchemaVersion = 2,
+                SchemaVersion = foulbornRelationships.Count > 0 ? 3 : 2,
                 DataVersion = "test",
                 CreatedAtUtc = new DateTimeOffset(2026, 8, 10, 0, 0, 0, TimeSpan.Zero),
                 Sources =
@@ -568,6 +718,7 @@ public sealed class ParsedUniqueItemResolverTests
                 Id = statId,
                 IsLocal = statId.StartsWith("local_", StringComparison.OrdinalIgnoreCase),
             }).ToArray(),
+            StatTranslations = translations,
             UniqueItems = new UniqueItemCatalog
             {
                 SourceObservations =
@@ -619,6 +770,22 @@ public sealed class ParsedUniqueItemResolverTests
                         SourceObservationIds = [observation],
                     },
                 ],
+                FoulbornRelationshipSources = foulbornRelationships.Count == 0
+                    ? []
+                    :
+                    [
+                        new UniqueFoulbornRelationshipSourceObservation
+                        {
+                            Id = "pob-foulborn-source:test",
+                            ManifestSourceId = "path-of-building",
+                            RepositoryUri = "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+                            Tag = "v2.67.2",
+                            CommitSha = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+                            SourcePath = "src/Data/ModFoulbornMap.jsonc",
+                            SourceFileSha256 = new string('d', 64),
+                        },
+                    ],
+                FoulbornModifierRelationships = foulbornRelationships,
             },
         });
     }
@@ -694,6 +861,60 @@ public sealed class ParsedUniqueItemResolverTests
             StatIds = ["zombie_stat", "spectre_stat"],
         },
         SourceObservationIds = ["pob-observation:test", "pob-observation:test-two"],
+    };
+
+    private static ModifierDefinition ReplacementModifier() => new()
+    {
+        Id = "modifier:foulborn-life",
+        GroupId = "group:foulborn-life",
+        Name = "Foulborn life",
+        GenerationType = ModifierGenerationType.Prefix,
+        Domain = "item",
+        Stats =
+        [
+            new ModifierStat
+            {
+                Index = 0,
+                StatId = "foulborn_life",
+                MinValue = 10,
+                MaxValue = 30,
+            },
+        ],
+    };
+
+    private static StatTranslationDefinition Translation(
+        string id,
+        string statId,
+        string format) => new()
+    {
+        Id = id,
+        StatIds = [statId],
+        Variants =
+        [
+            new StatTranslationVariant
+            {
+                Conditions = [new StatTranslationCondition { Index = 0 }],
+                ValueFormats = ["+#"],
+                IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                FormatLines = [format],
+            },
+        ],
+    };
+
+    private static UniqueFoulbornModifierRelationship Relationship(
+        string normalModifierId,
+        string foulbornModifierId,
+        string normalBlockId) => new()
+    {
+        Id = "foulborn-relationship:test",
+        ItemName = "Test Calling",
+        UniqueItemId = "unique:test",
+        NormalModifierId = normalModifierId,
+        FoulbornModifierId = foulbornModifierId,
+        NormalModifierBlockIds = [normalBlockId],
+        AppliesToRole = UniqueItemVersionRole.Current,
+        SourceObservationId = "pob-foulborn-source:test",
+        Status = UniqueFoulbornModifierRelationshipStatus.Exact,
     };
 
     private static UniqueModifierBlock FoulbornOrdinaryBlock() => new()
