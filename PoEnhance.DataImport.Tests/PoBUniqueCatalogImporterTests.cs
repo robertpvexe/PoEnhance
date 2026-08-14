@@ -136,6 +136,384 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_PartialTranslationVector_DefaultsAbsentStatToZeroAndRetainsProof()
+    {
+        var modifier = Modifier(
+            "unique.returning-projectiles",
+            "projectiles_return",
+            1,
+            1,
+            "unique");
+        var translation = new StatTranslationDefinition
+        {
+            Id = "returning-projectiles",
+            StatIds = ["projectiles_return", "projectile_return_chance"],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition
+                        {
+                            Index = 0,
+                            MinValue = 0,
+                            MaxValue = 0,
+                            IsNegated = true,
+                        },
+                        new StatTranslationCondition { Index = 1, MinValue = 0, MaxValue = 0 },
+                    ],
+                    ValueFormats = ["ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0 },
+                        new StatTranslationIndexHandler { Index = 1 },
+                    ],
+                    FormatLines =
+                    [
+                        "Projectiles Return to you",
+                        "Return",
+                    ],
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Return
+                Topaz Ring
+                Implicits: 0
+                Projectiles Return to you
+                Return
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations: [translation]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(2, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["projectiles_return"], block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Equal(["implicit-zero-stat-composition"], provenance.ResolutionReasons);
+        Assert.True(provenance.UsedComposition);
+        Assert.Equal("copiedInstance", provenance.ValueAuthority);
+        var evidence = Assert.Single(provenance.Translations);
+        Assert.Equal("returning-projectiles", evidence.TranslationId);
+        Assert.Equal(["projectile_return_chance"], evidence.DefaultedStatIds);
+        Assert.Equal(2, evidence.Conditions.Count);
+    }
+
+    [Fact]
+    public void Import_CompleteMultilineModifier_GroupsSourceLinesIndependentOfRenderingOrder()
+    {
+        var modifier = Modifier(
+            "unique.minion-count",
+            ("zombies", 1m, 1m),
+            ("skeletons", 1m, 1m),
+            ("spectres", 1m, 1m));
+        var result = ImportSingle(
+            """
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                +1 to maximum number of Raised Zombies
+                +1 to maximum number of Spectres
+                +1 to maximum number of Skeletons
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations:
+            [
+                TranslationWithDefaultedZero(
+                    "zombies",
+                    "zombies",
+                    "quality_display_raise_zombie_is_gem",
+                    "{0} to maximum number of Raised Zombies"),
+                TranslationWithDefaultedZero(
+                    "skeletons",
+                    "skeletons",
+                    "quality_display_summon_skeleton_is_gem",
+                    "{0} to maximum number of Skeletons"),
+                Translation("spectres", "spectres", "{0} to maximum number of Spectres", "+#"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(3, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.minion-count"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["zombies", "skeletons", "spectres"], block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.True(provenance.UsedComposition);
+        Assert.Equal(3, provenance.Translations.Count);
+        Assert.Equal("copiedInstance", provenance.ValueAuthority);
+        Assert.Contains("implicit-zero-stat-composition", provenance.ResolutionReasons);
+        Assert.Contains("order-independent-complete-multiline", provenance.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_CompleteMultilineLiteralAndNumericModifier_GroupsReversedSourceOrder()
+    {
+        var modifier = Modifier(
+            "unique.life-reservation",
+            ("life_reserved", 30m, 30m),
+            ("cannot_use_ci", 1m, 1m));
+        var result = ImportSingle(
+            """
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                Cannot be used with Chaos Inoculation
+                Reserves 30% of Life
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations:
+            [
+                Translation("reservation", "life_reserved", "Reserves {0}% of Life", "#"),
+                Translation("cannot-use-ci", "cannot_use_ci", "Cannot be used with Chaos Inoculation", "ignore"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(2, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.life-reservation"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["life_reserved", "cannot_use_ci"], block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Equal(2, provenance.Translations.Count);
+        Assert.Contains("order-independent-complete-multiline", provenance.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_PartialMultilineModifier_OmittingNonzeroStatDoesNotResolveCompleteVector()
+    {
+        var modifier = Modifier(
+            "unique.minion-count",
+            ("zombies", 1m, 1m),
+            ("skeletons", 1m, 1m),
+            ("spectres", 1m, 1m));
+        var result = ImportSingle(
+            """
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                +1 to maximum number of Raised Zombies
+                +1 to maximum number of Spectres
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations:
+            [
+                Translation("zombies", "zombies", "{0} to maximum number of Raised Zombies", "+#"),
+                Translation("skeletons", "skeletons", "{0} to maximum number of Skeletons", "+#"),
+                Translation("spectres", "spectres", "{0} to maximum number of Spectres", "+#"),
+            ]);
+
+        var blocks = Assert.Single(Assert.Single(result.Catalog!.Items).Versions).ModifierBlocks;
+        Assert.Equal(2, blocks.Count);
+        Assert.All(blocks, block =>
+        {
+            Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported,
+                block.MechanicalMapping.Status);
+            Assert.Empty(block.MechanicalMapping.StatIds);
+            Assert.Null(block.MechanicalMapping.Provenance);
+        });
+    }
+
+    [Fact]
+    public void Import_CompetingCompleteMultilineVectors_GroupAtomicallyAndFailClosed()
+    {
+        var current = Modifier(
+            "unique.minion-count.current",
+            ("zombies", 1m, 1m),
+            ("skeletons", 1m, 1m),
+            ("spectres", 1m, 1m));
+        var legacy = Modifier(
+            "unique.minion-count.legacy",
+            ("zombies", 1m, 1m),
+            ("legacy_skeletons", 1m, 1m),
+            ("spectres", 1m, 1m));
+        var result = ImportSingle(
+            """
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                +1 to maximum number of Raised Zombies
+                +1 to maximum number of Spectres
+                +1 to maximum number of Skeletons
+                """,
+            generated: false,
+            modifiers: [current, legacy],
+            translations:
+            [
+                Translation("zombies", "zombies", "{0} to maximum number of Raised Zombies", "+#"),
+                Translation("skeletons", "skeletons", "{0} to maximum number of Skeletons", "+#"),
+                Translation("legacy-skeletons", "legacy_skeletons", "{0} to maximum number of Skeletons", "+#"),
+                Translation("spectres", "spectres", "{0} to maximum number of Spectres", "+#"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(3, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous,
+            block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["unique.minion-count.current", "unique.minion-count.legacy"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Contains("conflicting RePoE mechanical stat vectors",
+            block.MechanicalMapping.Diagnostic);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_PartialTranslationVector_DefaultZeroOutsideConditionRemainsUnsupported()
+    {
+        var modifier = Modifier("unique.test", "present_stat", 1, 1, "unique");
+        var translation = new StatTranslationDefinition
+        {
+            Id = "requires-nonzero-missing-stat",
+            StatIds = ["present_stat", "missing_stat"],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MinValue = 1 },
+                        new StatTranslationCondition { Index = 1, MinValue = 1 },
+                    ],
+                    ValueFormats = ["ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0 },
+                        new StatTranslationIndexHandler { Index = 1 },
+                    ],
+                    FormatLines = ["Requires both stats"],
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Missing
+                Topaz Ring
+                Implicits: 0
+                Requires both stats
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations: [translation]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_PartialTranslationVector_DoesNotOverrideExistingStrictResolution()
+    {
+        var exact = Modifier("unique.exact", "exact_stat", 1, 1, "unique");
+        var partial = Modifier("unique.partial", "partial_stat", 1, 1, "unique");
+        var partialTranslation = new StatTranslationDefinition
+        {
+            Id = "partial-fallback",
+            StatIds = ["partial_stat", "missing_stat"],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MinValue = 1, MaxValue = 1 },
+                        new StatTranslationCondition { Index = 1, MinValue = 0, MaxValue = 0 },
+                    ],
+                    ValueFormats = ["ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0 },
+                        new StatTranslationIndexHandler { Index = 1 },
+                    ],
+                    FormatLines = ["Existing Resolution"],
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Existing
+                Topaz Ring
+                Implicits: 0
+                Existing Resolution
+                """,
+            generated: false,
+            modifiers: [exact, partial],
+            translations:
+            [
+                Translation("exact", "exact_stat", "Existing Resolution", "ignore"),
+                partialTranslation,
+            ]);
+
+        var mapping = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks).MechanicalMapping;
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, mapping.Status);
+        Assert.Equal(["unique.exact"], mapping.ModifierIds);
+        Assert.Null(mapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_ReviewedLocalPropertyCapabilityEliminatesImpossibleNonWeaponCandidate()
+    {
+        var global = Modifier("unique.global", "attack_speed", 10, 10, "unique");
+        var local = Modifier("unique.local", "local_attack_speed", 10, 10, "unique");
+        var result = ImportSingle(
+            """
+                Test Speed
+                Topaz Ring
+                Implicits: 0
+                10% increased Attack Speed
+                """,
+            generated: false,
+            modifiers: [global, local],
+            translations:
+            [
+                Translation("global", "attack_speed", "{0}% increased Attack Speed", "#"),
+                Translation("local", "local_attack_speed", "{0}% increased Attack Speed", "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Topaz Ring", Domain = "item" }],
+            itemPropertySemantics:
+            [
+                new ItemPropertySemanticDescriptor
+                {
+                    Id = "weapon.attack-speed.local",
+                    OrderedStatIds = ["local_attack_speed"],
+                    Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+                    Contributions =
+                    [
+                        new ItemPropertyContribution
+                        {
+                            Targets = [ItemPropertyTarget.AttacksPerSecond],
+                            Operation = ItemPropertyOperation.IncreasedPercent,
+                        },
+                    ],
+                },
+            ]);
+
+        var mapping = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks).MechanicalMapping;
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, mapping.Status);
+        Assert.Equal(["unique.global"], mapping.ModifierIds);
+        Assert.Contains("base-item-property-capability", mapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
     public void Import_MetadataBeforeBaseAndItemStateLines_DoNotBecomeModifierBlocks()
     {
         var result = ImportSingle(
@@ -770,7 +1148,8 @@ public sealed class PoBUniqueCatalogImporterTests
         bool generated,
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
-        IReadOnlyList<ItemBaseRecord>? baseItems = null)
+        IReadOnlyList<ItemBaseRecord>? baseItems = null,
+        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null)
     {
         var path = Path.Combine(Path.GetTempPath(), $"poenhance-pob-uniques-{Guid.NewGuid():N}.json");
         try
@@ -797,7 +1176,8 @@ public sealed class PoBUniqueCatalogImporterTests
                 "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
                 modifiers,
                 translations,
-                baseItems);
+                baseItems,
+                itemPropertySemantics);
         }
         finally
         {
@@ -823,6 +1203,25 @@ public sealed class PoBUniqueCatalogImporterTests
         Stats = [new ModifierStat { Index = 0, StatId = statId, MinValue = min, MaxValue = max }],
     };
 
+    private static ModifierDefinition Modifier(
+        string id,
+        params (string StatId, decimal Min, decimal Max)[] stats) => new()
+    {
+        Id = id,
+        GroupId = id,
+        Name = id,
+        GenerationType = ModifierGenerationType.Implicit,
+        SourceGenerationType = "unique",
+        Domain = "item",
+        Stats = stats.Select((stat, index) => new ModifierStat
+        {
+            Index = index,
+            StatId = stat.StatId,
+            MinValue = stat.Min,
+            MaxValue = stat.Max,
+        }).ToArray(),
+    };
+
     private static StatTranslationDefinition Translation(
         string id,
         string statId,
@@ -839,6 +1238,34 @@ public sealed class PoBUniqueCatalogImporterTests
                 FormatLines = [format],
                 ValueFormats = valueFormats,
                 IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+            },
+        ],
+    };
+
+    private static StatTranslationDefinition TranslationWithDefaultedZero(
+        string id,
+        string statId,
+        string defaultedStatId,
+        string format) => new()
+    {
+        Id = id,
+        StatIds = [statId, defaultedStatId],
+        Variants =
+        [
+            new StatTranslationVariant
+            {
+                Conditions =
+                [
+                    new StatTranslationCondition { Index = 0 },
+                    new StatTranslationCondition { Index = 1, MinValue = 0, MaxValue = 0 },
+                ],
+                FormatLines = [format],
+                ValueFormats = ["+#", "ignore"],
+                IndexHandlers =
+                [
+                    new StatTranslationIndexHandler { Index = 0 },
+                    new StatTranslationIndexHandler { Index = 1 },
+                ],
             },
         ],
     };

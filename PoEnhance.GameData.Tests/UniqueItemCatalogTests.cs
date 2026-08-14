@@ -36,7 +36,67 @@ public sealed class UniqueItemCatalogTests
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
         Assert.Equal(["mod.prefix.maximum-life.t5"], block.MechanicalMapping.ModifierIds);
         Assert.Equal(["base_maximum_life"], block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Equal(["implicit-zero-stat-composition"], provenance.ResolutionReasons);
+        Assert.Equal("copiedInstance", provenance.ValueAuthority);
+        Assert.Equal("translation.maximum-life", Assert.Single(provenance.Translations).TranslationId);
         Assert.Equal(["pob:test"], block.SourceObservationIds);
+    }
+
+    [Fact]
+    public void Validate_MechanicalProvenanceWithUnknownDefaultedStat_FailsClosed()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        var evidence = Assert.Single(provenance.Translations);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        MechanicalMapping = block.MechanicalMapping with
+                                        {
+                                            Provenance = provenance with
+                                            {
+                                                Translations =
+                                                [
+                                                    evidence with
+                                                    {
+                                                        DefaultedStatIds = ["not-in-vector"],
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid);
     }
 
     [Fact]
@@ -218,6 +278,29 @@ public sealed class UniqueItemCatalogTests
                                             Status = UniqueModifierMechanicalMappingStatus.Exact,
                                             ModifierIds = ["mod.prefix.maximum-life.t5"],
                                             StatIds = ["base_maximum_life"],
+                                            Provenance = new UniqueModifierMechanicalProvenance
+                                            {
+                                                ResolutionReasons = ["implicit-zero-stat-composition"],
+                                                Translations =
+                                                [
+                                                    new UniqueModifierTranslationEvidence
+                                                    {
+                                                        TranslationId = "translation.maximum-life",
+                                                        StatIds = ["base_maximum_life"],
+                                                        ModifierStatIndices = [0],
+                                                        Conditions =
+                                                        [
+                                                            new StatTranslationCondition
+                                                            {
+                                                                Index = 0,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                                CatalogValuesUsedForSelection = true,
+                                                ValueAuthority = "copiedInstance",
+                                                SafetyRationale = "Test proof retains copied-instance values.",
+                                            },
                                         },
                                     },
                                 ],

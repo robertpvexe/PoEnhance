@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using System.Text.Json;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
@@ -47,6 +48,299 @@ Summon Skeletons cannot Summon more than 1 Skeleton Warrior — Unscalable Value
 Alberon walked among the accursed,
 and they welcomed him.
 """;
+
+    [Fact]
+    public void ResolveProviderComponents_AdvancedLiteralPresence_UsesExactIdentityWithoutValueProjection()
+    {
+        const string statsJson = """
+        {
+          "result": [
+            {
+              "id": "explicit",
+              "label": "Explicit",
+              "entries": [
+                {
+                  "id": "explicit.stat_literal_presence",
+                  "text": "1 Added Passive Skill is Test Notable",
+                  "type": "explicit"
+                }
+              ]
+            }
+          ]
+        }
+        """;
+        var parse = new PathOfExileTradeStatsResponseParser().ParseStatsResponse(statsJson);
+        Assert.True(parse.IsSuccess);
+        var catalog = Assert.IsType<PathOfExileTradeStatCatalog>(parse.Catalog);
+        var entry = Assert.Single(catalog.Entries);
+        var candidate = PathOfExileTradeStatCandidateClassifier.ToCandidate(entry);
+        Assert.Empty(entry.OptionMetadata);
+        Assert.Equal(0, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(entry.Text));
+        Assert.Equal(1, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
+            candidate.NormalizedTemplate));
+
+        var parsed = new ItemTextParser().Parse("""
+        Item Class: Jewels
+        Rarity: Rare
+        Test Shine
+        Medium Cluster Jewel
+        --------
+        Item Level: 84
+        --------
+        { Prefix Modifier "Test Prefix" (Tier: 1) }
+        1 Added Passive Skill is Test Notable — Unscalable Value
+        """);
+        var mapped = new TradeSearchDraftMapper().CreateDraft(parsed);
+        Assert.True(mapped.IsSuccess);
+        var mappedComponent = Assert.Single(Assert.IsType<TradeSearchDraft>(mapped.Draft).ModifierFilters);
+        var liveComponent = mappedComponent with
+        {
+            GenerationType = ModifierGenerationType.Prefix,
+            Sources =
+            [
+                new SearchComponentSourceProvenance
+                {
+                    ComponentId = mappedComponent.ComponentId,
+                    SourceModifierIndex = mappedComponent.SourceModifierIndex,
+                    SourceLineIndex = mappedComponent.SourceLineIndex,
+                    SourceComponentIndex = mappedComponent.SourceComponentIndex,
+                    OriginalText = mappedComponent.OriginalText,
+                    CanonicalSignature = mappedComponent.CanonicalSignature,
+                    ParsedKind = mappedComponent.ParsedKind,
+                    GenerationType = ModifierGenerationType.Prefix,
+                    ProviderDomain = "Explicit",
+                    ValueBoundShape = mappedComponent.ValueBoundShape,
+                },
+            ],
+        };
+        Assert.Equal(ParsedModifierKind.Prefix, liveComponent.ParsedKind);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, liveComponent.ValueBoundShape);
+        Assert.False(liveComponent.SupportsValueBounds);
+        Assert.Null(liveComponent.RequestedMinimum);
+        Assert.Null(liveComponent.RequestedMaximum);
+        Assert.Empty(liveComponent.ProviderFallbackNumericValues);
+
+        var fixture = ServiceFixture.Create();
+        var firstDraft = fixture.Service.ResolveProviderComponents(
+            Draft() with { ModifierFilters = [liveComponent] },
+            catalog);
+        var first = Assert.Single(firstDraft.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, first.ProviderResolutionStatus);
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, first.StatMappingProof);
+        Assert.Equal(entry.Id, first.ProviderStatId);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, first.ValueBoundShape);
+        Assert.True(first.IsSearchable);
+        Assert.False(first.SupportsValueBounds);
+        Assert.Null(first.RequestedMinimum);
+        Assert.Null(first.RequestedMaximum);
+
+        var secondDraft = fixture.Service.ResolveProviderComponents(firstDraft, catalog);
+        var second = Assert.Single(secondDraft.ModifierFilters);
+        Assert.Equal(first.ProviderResolutionStatus, second.ProviderResolutionStatus);
+        Assert.Equal(first.StatMappingProof, second.StatMappingProof);
+        Assert.Equal(first.ProviderStatId, second.ProviderStatId);
+        Assert.Equal(first.ProviderStatText, second.ProviderStatText);
+        Assert.Equal(first.SelectedFilterVariantIdentity, second.SelectedFilterVariantIdentity);
+        Assert.Equal(first.ValueBoundShape, second.ValueBoundShape);
+        Assert.Equal(first.SupportsValueBounds, second.SupportsValueBounds);
+        Assert.Equal(first.RequestedMinimum, second.RequestedMinimum);
+        Assert.Equal(first.RequestedMaximum, second.RequestedMaximum);
+        Assert.Equal(first.IsSearchable, second.IsSearchable);
+
+        var selectedDraft = secondDraft with
+        {
+            ModifierFilters = [second with { IsSelected = true }],
+        };
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(selectedDraft, catalog);
+        Assert.True(mapping.IsSuccess);
+        var providerFilter = Assert.Single(mapping.Filters);
+        Assert.Equal(entry.Id, providerFilter.StatId);
+        Assert.Null(providerFilter.Minimum);
+        Assert.Null(providerFilter.Maximum);
+
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            League,
+            mapping.Filters);
+        Assert.True(build.IsSuccess);
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var statFilter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray()));
+        Assert.Equal(entry.Id, statFilter.GetProperty("id").GetString());
+        Assert.False(statFilter.TryGetProperty("value", out _));
+    }
+
+    [Theory]
+    [InlineData("raw-placeholder")]
+    [InlineData("missing-identity")]
+    [InlineData("ambiguous-identity")]
+    [InlineData("wrong-kind")]
+    [InlineData("candidate-fractured")]
+    [InlineData("candidate-veiled")]
+    [InlineData("fractured")]
+    [InlineData("veiled")]
+    [InlineData("unveiled")]
+    [InlineData("minimum")]
+    [InlineData("maximum")]
+    [InlineData("supports-value-bounds")]
+    [InlineData("hidden-numeric-values")]
+    [InlineData("proofless")]
+    [InlineData("option-metadata")]
+    [InlineData("generation-mismatch")]
+    [InlineData("source-domain-mismatch")]
+    [InlineData("selected-identity-mismatch")]
+    [InlineData("requested-identity-mismatch")]
+    [InlineData("requested-kind-mismatch")]
+    public void ResolveProviderComponents_AdvancedLiteralPresenceGuard_UnsafeShapeFallsThrough(
+        string scenario)
+    {
+        const string text = "1 Added Passive Skill is Test Notable";
+        var component = StructuredLiteralPresenceComponent(text);
+        IReadOnlyList<PathOfExileTradeStatEntry> entries =
+        [
+            Stat("explicit.stat_literal_presence", text, "explicit"),
+        ];
+
+        switch (scenario)
+        {
+            case "raw-placeholder":
+                entries = [Stat("explicit.stat_literal_presence", "# Added Passive Skill is Test Notable", "explicit")];
+                break;
+            case "missing-identity":
+                entries = [];
+                break;
+            case "ambiguous-identity":
+                entries =
+                [
+                    Stat("explicit.stat_literal_presence.one", text, "explicit"),
+                    Stat("explicit.stat_literal_presence.two", text, "explicit") with { ProviderOrder = 1 },
+                ];
+                break;
+            case "wrong-kind":
+                entries = [Stat("implicit.stat_literal_presence", text, "implicit")];
+                break;
+            case "candidate-fractured":
+                entries = [Stat("fractured.stat_literal_presence", text, "fractured")];
+                break;
+            case "candidate-veiled":
+                entries = [Stat("veiled.stat_literal_presence", text, "veiled")];
+                break;
+            case "fractured":
+                component = component with
+                {
+                    IsFractured = true,
+                    Sources = component.Sources.Select(source => source with { IsFractured = true }).ToArray(),
+                };
+                break;
+            case "veiled":
+                component = component with
+                {
+                    IsVeiled = true,
+                    Sources = component.Sources.Select(source => source with { IsVeiled = true }).ToArray(),
+                };
+                break;
+            case "unveiled":
+                component = component with
+                {
+                    IsUnveiled = true,
+                    Sources = component.Sources.Select(source => source with { IsUnveiled = true }).ToArray(),
+                };
+                break;
+            case "minimum":
+                component = component with { RequestedMinimum = 1m };
+                break;
+            case "maximum":
+                component = component with { RequestedMaximum = 1m };
+                break;
+            case "supports-value-bounds":
+                component = component with { SupportsValueBounds = true };
+                break;
+            case "hidden-numeric-values":
+                component = component with
+                {
+                    ObservedNumericValues = [1m],
+                    CanonicalNumericValues = [1m],
+                    ProviderFallbackNumericValues = [1m],
+                };
+                break;
+            case "proofless":
+                component = component with
+                {
+                    SourceModifierIndex = -1,
+                    SourceLineIndex = -1,
+                    Sources = [],
+                };
+                break;
+            case "option-metadata":
+                entries =
+                [
+                    Stat("explicit.stat_literal_presence", text, "explicit") with
+                    {
+                        OptionMetadata = new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            ["option"] = "1",
+                        },
+                    },
+                ];
+                break;
+            case "generation-mismatch":
+                component = component with
+                {
+                    GenerationType = ModifierGenerationType.Suffix,
+                    Sources = component.Sources.Select(source => source with
+                    {
+                        GenerationType = ModifierGenerationType.Suffix,
+                    }).ToArray(),
+                };
+                break;
+            case "source-domain-mismatch":
+                component = component with
+                {
+                    Sources = component.Sources.Select(source => source with
+                    {
+                        ProviderDomain = "Crafted",
+                    }).ToArray(),
+                };
+                break;
+            case "selected-identity-mismatch":
+                component = component with
+                {
+                    SelectedFilterVariantIdentity = PathOfExileTradeProviderIdentity.Create(
+                        "explicit.stat_other"),
+                };
+                break;
+            case "requested-identity-mismatch":
+                component = component with
+                {
+                    RequestedFilterVariantIdentity = PathOfExileTradeProviderIdentity.Create(
+                        "explicit.stat_other"),
+                };
+                break;
+            case "requested-kind-mismatch":
+                component = component with { RequestedFilterVariantKind = "crafted" };
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(scenario), scenario, null);
+        }
+
+        var resolved = Assert.Single(ServiceFixture.Create().Service.ResolveProviderComponents(
+            Draft() with { ModifierFilters = [component] },
+            new PathOfExileTradeStatCatalog(entries)).ModifierFilters);
+
+        Assert.DoesNotContain(
+            resolved.ProviderResolutionStatus,
+            new[]
+            {
+                SearchComponentProviderResolutionStatus.Exact,
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            });
+        Assert.Null(resolved.ProviderStatId);
+        Assert.Empty(resolved.FilterVariants);
+    }
 
     [Fact]
     public void ResolveProviderComponents_StructuredAdvancedNegativeScalarUsesExactProviderPresenceWhenGameDataValueProjectionIsUnavailable()
@@ -3624,6 +3918,43 @@ and they welcomed him.
             ResolvedStatIds = ["stat.special.test"],
             IsSearchable = true,
             IsSelected = false,
+        };
+    }
+
+    private static ResolvedSearchComponent StructuredLiteralPresenceComponent(string originalText)
+    {
+        var canonicalSignature = PathOfExileTradeStatTemplateNormalizer
+            .NormalizeModifierText(originalText)
+            .NormalizedTemplate
+            .Replace("#", "<number>", StringComparison.Ordinal);
+        var source = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            SourceComponentIndex = 0,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            ProviderDomain = "Explicit",
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+        return new ResolvedSearchComponent
+        {
+            ComponentId = source.ComponentId,
+            SourceModifierIndex = source.SourceModifierIndex,
+            SourceLineIndex = source.SourceLineIndex,
+            SourceComponentIndex = source.SourceComponentIndex,
+            OriginalText = originalText,
+            CanonicalSignature = canonicalSignature,
+            ParsedKind = source.ParsedKind,
+            GenerationType = source.GenerationType,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            SupportsValueBounds = false,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            Sources = [source],
         };
     }
 

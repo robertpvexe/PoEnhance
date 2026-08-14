@@ -18,7 +18,8 @@ public sealed partial class PoBUniqueCatalogImporter
         string commitSha,
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
-        IReadOnlyList<ItemBaseRecord>? baseItems = null)
+        IReadOnlyList<ItemBaseRecord>? baseItems = null,
+        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null)
     {
         if (!File.Exists(filePath))
         {
@@ -45,7 +46,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 commitSha,
                 modifiers,
                 translations,
-                baseItems ?? []);
+                baseItems ?? [],
+                itemPropertySemantics ?? []);
         }
         catch (JsonException exception)
         {
@@ -61,7 +63,8 @@ public sealed partial class PoBUniqueCatalogImporter
         string commitSha,
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
-        IReadOnlyList<ItemBaseRecord> baseItems)
+        IReadOnlyList<ItemBaseRecord> baseItems,
+        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics)
     {
         var diagnostics = new List<ImportDiagnostic>();
         var observations = new List<UniqueCatalogSourceObservation>();
@@ -119,7 +122,11 @@ public sealed partial class PoBUniqueCatalogImporter
             });
         }
 
-        var mechanicalIndex = BuildMechanicalIndex(modifiers, translations, baseItems);
+        var mechanicalIndex = BuildMechanicalIndex(
+            modifiers,
+            translations,
+            baseItems,
+            itemPropertySemantics);
         var identities = parsed
             .GroupBy(item => new IdentityKey(item.Name, item.Kind))
             .Select(group => BuildIdentity(group, mechanicalIndex))
@@ -395,7 +402,10 @@ public sealed partial class PoBUniqueCatalogImporter
     {
         var signatures = lines.Select(NormalizeSignature).ToArray();
         var signature = string.Join("\n", signatures);
-        var resolution = mechanicalIndex.Resolve(lines, baseType, hasGeneratedOptionEvidence);
+        var resolution = mechanicalIndex.Resolve(
+            lines,
+            baseType,
+            hasGeneratedOptionEvidence);
         var candidates = resolution.Candidates;
         var statVectors = candidates
             .Select(candidate => string.Join('\u001f', candidate.StatIds))
@@ -408,6 +418,17 @@ public sealed partial class PoBUniqueCatalogImporter
             _ when statVectors.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
             _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
         };
+        var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet;
+        var translationEvidence = candidates
+            .SelectMany(candidate => candidate.ProvenanceTranslations)
+            .DistinctBy(evidence => string.Join(
+                '\u001f',
+                evidence.TranslationId,
+                string.Join(',', evidence.ModifierStatIndices),
+                string.Join(',', evidence.DefaultedStatIds)), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(evidence => evidence.TranslationId, StringComparer.Ordinal)
+            .ToArray();
         return new UniqueModifierBlock
         {
             Id = StableId("unique-block", identityId, versionLabel, kind.ToString(), signature),
@@ -422,6 +443,18 @@ public sealed partial class PoBUniqueCatalogImporter
                     .OrderBy(id => id, StringComparer.Ordinal)
                     .ToArray(),
                 StatIds = statVectors.Length == 1 ? candidates[0].StatIds : [],
+                Provenance = resolved && resolution.ResolutionReasons.Count > 0
+                    ? new UniqueModifierMechanicalProvenance
+                    {
+                        ResolutionReasons = resolution.ResolutionReasons,
+                        Translations = translationEvidence,
+                        UsedComposition = translationEvidence.Length > 1 ||
+                            translationEvidence.Any(evidence => evidence.DefaultedStatIds.Count > 0),
+                        CatalogValuesUsedForSelection = resolution.UsedStrictEvidence,
+                        ValueAuthority = "copiedInstance",
+                        SafetyRationale = "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
+                    }
+                    : null,
                 DiagnosticCode = status switch
                 {
                     UniqueModifierMechanicalMappingStatus.Unsupported when isGenerated =>
@@ -452,11 +485,26 @@ public sealed partial class PoBUniqueCatalogImporter
     private static MechanicalIndex BuildMechanicalIndex(
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
-        IReadOnlyList<ItemBaseRecord> baseItems)
+        IReadOnlyList<ItemBaseRecord> baseItems,
+        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics)
     {
         var translationByVector = translations
             .GroupBy(translation => VectorKey(translation.StatIds), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var translationsByStat = translations
+            .Where(translation => translation.StatIds.Count > 0)
+            .SelectMany(translation => translation.StatIds
+                .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                .Select(statId => new KeyValuePair<string, StatTranslationDefinition>(
+                    statId.Trim(),
+                    translation)))
+            .GroupBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(entry => entry.Value)
+                    .DistinctBy(translation => translation.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
         var translationsByFirstStat = translations
             .Where(translation => translation.StatIds.Count > 0 &&
                 !string.IsNullOrWhiteSpace(translation.StatIds[0]))
@@ -465,6 +513,8 @@ public sealed partial class PoBUniqueCatalogImporter
         var broadIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.OrdinalIgnoreCase);
         var exactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
         var dynamicPatterns = new List<DynamicMechanicalCandidate>();
+        var partialExactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
+        var partialDynamicPatterns = new List<DynamicMechanicalCandidate>();
         foreach (var modifier in modifiers)
         {
             var statIds = modifier.Stats.OrderBy(stat => stat.Index)
@@ -502,7 +552,10 @@ public sealed partial class PoBUniqueCatalogImporter
                         candidates = [];
                         broadIndex.Add(signature, candidates);
                     }
-                    candidates.Add(new MechanicalCandidate(modifier.Id!, statIds, modifier.Domain));
+                    candidates.Add(new MechanicalCandidate(
+                        modifier.Id!,
+                        statIds,
+                        modifier.Domain));
                 }
             }
 
@@ -514,14 +567,20 @@ public sealed partial class PoBUniqueCatalogImporter
                 continue;
             }
 
-            var strictCandidate = new MechanicalCandidate(modifier.Id!, statIds, modifier.Domain);
+            var strictCandidate = new MechanicalCandidate(
+                modifier.Id!,
+                statIds,
+                modifier.Domain);
             foreach (var rendering in BuildStrictRenderings(
                          modifier,
-                         translationsByFirstStat))
+                         translationsByFirstStat,
+                         allowMissingStats: false))
             {
                 var evidencedCandidate = strictCandidate with
                 {
                     StrictValueEvidenceCount = rendering.ValueEvidenceCount,
+                    TranslationEvidence = rendering.TranslationEvidence,
+                    OrderedRenderingText = rendering.ExactText,
                 };
                 if (rendering.DynamicPatternText is not null)
                 {
@@ -533,12 +592,45 @@ public sealed partial class PoBUniqueCatalogImporter
                     continue;
                 }
 
-                if (!exactIndex.TryGetValue(rendering.ExactText!, out var exactCandidates))
+                var exactKey = UnorderedMultilineKey(rendering.ExactText!);
+                if (!exactIndex.TryGetValue(exactKey, out var exactCandidates))
                 {
                     exactCandidates = [];
-                    exactIndex.Add(rendering.ExactText!, exactCandidates);
+                    exactIndex.Add(exactKey, exactCandidates);
                 }
                 exactCandidates.Add(evidencedCandidate);
+            }
+
+            foreach (var rendering in BuildStrictRenderings(
+                         modifier,
+                         translationsByStat,
+                         allowMissingStats: true).Where(rendering =>
+                         rendering.TranslationEvidence.Any(evidence =>
+                             evidence.DefaultedStatIds.Count > 0)))
+            {
+                var evidencedCandidate = strictCandidate with
+                {
+                    StrictValueEvidenceCount = rendering.ValueEvidenceCount,
+                    TranslationEvidence = rendering.TranslationEvidence,
+                    OrderedRenderingText = rendering.ExactText,
+                };
+                if (rendering.DynamicPatternText is not null)
+                {
+                    partialDynamicPatterns.Add(new DynamicMechanicalCandidate(
+                        evidencedCandidate,
+                        new Regex(
+                            $"\\A{rendering.DynamicPatternText}\\z",
+                            RegexOptions.CultureInvariant)));
+                    continue;
+                }
+
+                var partialKey = UnorderedMultilineKey(rendering.ExactText!);
+                if (!partialExactIndex.TryGetValue(partialKey, out var partialCandidates))
+                {
+                    partialCandidates = [];
+                    partialExactIndex.Add(partialKey, partialCandidates);
+                }
+                partialCandidates.Add(evidencedCandidate);
             }
         }
 
@@ -546,6 +638,14 @@ public sealed partial class PoBUniqueCatalogImporter
             FreezeIndex(broadIndex, StringComparer.OrdinalIgnoreCase),
             FreezeIndex(exactIndex, StringComparer.Ordinal),
             dynamicPatterns
+                .DistinctBy(candidate => string.Join(
+                    '\u001f',
+                    candidate.Candidate.ModifierId,
+                    candidate.Pattern.ToString()), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(candidate => candidate.Candidate.ModifierId, StringComparer.Ordinal)
+                .ToArray(),
+            FreezeIndex(partialExactIndex, StringComparer.Ordinal),
+            partialDynamicPatterns
                 .DistinctBy(candidate => string.Join(
                     '\u001f',
                     candidate.Candidate.ModifierId,
@@ -561,7 +661,25 @@ public sealed partial class PoBUniqueCatalogImporter
                     group => (IReadOnlySet<string>)group
                         .Select(item => item.Domain!.Trim())
                         .ToHashSet(StringComparer.OrdinalIgnoreCase),
-                    StringComparer.Ordinal));
+                    StringComparer.Ordinal),
+            baseItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+                .GroupBy(item => item.Name!.Trim(), StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => new BaseMechanicalCapability(
+                        HasWeaponProperties: group.Any(item => item.WeaponProperties is not null),
+                        HasDefenceProperties: group.Any(item => item.DefenceProperties is not null)),
+                    StringComparer.Ordinal),
+            itemPropertySemantics
+                .Where(descriptor => descriptor.OrderedStatIds.Count > 0)
+                .GroupBy(
+                    descriptor => VectorKey(descriptor.OrderedStatIds),
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First(),
+                    StringComparer.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> FreezeIndex(
@@ -576,21 +694,26 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static IReadOnlyList<StrictRendering> BuildStrictRenderings(
         ModifierDefinition modifier,
-        IReadOnlyDictionary<string, StatTranslationDefinition[]> translationsByFirstStat)
+        IReadOnlyDictionary<string, StatTranslationDefinition[]> translationsByStat,
+        bool allowMissingStats)
     {
         var stats = modifier.Stats.OrderBy(stat => stat.Index).ToArray();
-        var groups = stats
+        var allGroups = stats
             .Select(stat => stat.StatId?.Trim())
             .Where(statId => !string.IsNullOrWhiteSpace(statId))
             .Cast<string>()
-            .SelectMany(statId => translationsByFirstStat.GetValueOrDefault(statId) ?? [])
+            .SelectMany(statId => translationsByStat.GetValueOrDefault(statId) ?? [])
             .DistinctBy(translation => translation.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(translation => TryCreateStrictRenderingGroup(translation, stats))
+            .Select(translation => TryCreateStrictRenderingGroup(
+                translation,
+                stats,
+                allowMissingStats))
             .Where(group => group is not null)
             .Select(group => group!)
             .OrderBy(group => group.StatIndices[0])
             .ThenBy(group => group.TranslationId, StringComparer.Ordinal)
             .ToArray();
+        var groups = allGroups;
         if (groups.Length == 0)
         {
             return [];
@@ -624,19 +747,45 @@ public sealed partial class PoBUniqueCatalogImporter
             }
             renderings.AddRange(combined);
         }
-        return renderings
+        if (!allowMissingStats)
+        {
+            return renderings
+                .Where(rendering => rendering.Key.Length > 0)
+                .DistinctBy(rendering => rendering.Key, StringComparer.Ordinal)
+                .Take(256)
+                .ToArray();
+        }
+
+        var distinctRenderings = renderings
             .Where(rendering => rendering.Key.Length > 0)
-            .DistinctBy(rendering => rendering.Key, StringComparer.Ordinal)
+            .GroupBy(rendering => rendering.Key, StringComparer.Ordinal)
+            .Select(group => group
+                .OrderBy(rendering => rendering.TranslationEvidence.Sum(
+                    evidence => evidence.DefaultedStatIds.Count))
+                .First())
+            .ToArray();
+        if (distinctRenderings.Length == 0)
+        {
+            return [];
+        }
+        var fewestDefaultedStats = distinctRenderings.Min(rendering => rendering
+            .TranslationEvidence
+            .Sum(evidence => evidence.DefaultedStatIds.Count));
+        return distinctRenderings
+            .Where(rendering => rendering.TranslationEvidence.Sum(
+                evidence => evidence.DefaultedStatIds.Count) == fewestDefaultedStats)
             .Take(256)
             .ToArray();
     }
 
     private static StrictRenderingGroup? TryCreateStrictRenderingGroup(
         StatTranslationDefinition translation,
-        IReadOnlyList<ModifierStat> modifierStats)
+        IReadOnlyList<ModifierStat> modifierStats,
+        bool allowMissingStats)
     {
         var indices = new List<int>();
         var stats = new List<ModifierStat>();
+        var defaultedStatIds = new List<string>();
         var searchStart = 0;
         foreach (var rawStatId in translation.StatIds)
         {
@@ -655,16 +804,52 @@ public sealed partial class PoBUniqueCatalogImporter
             }
             if (found < 0)
             {
-                return null;
+                if (!allowMissingStats || string.IsNullOrWhiteSpace(statId))
+                {
+                    return null;
+                }
+                stats.Add(new ModifierStat
+                {
+                    Index = stats.Count,
+                    StatId = statId,
+                    MinValue = 0m,
+                    MaxValue = 0m,
+                });
+                defaultedStatIds.Add(statId);
+                continue;
             }
             indices.Add(found);
             stats.Add(modifierStats[found]);
             searchStart = found + 1;
         }
 
+        if (indices.Count == 0)
+        {
+            return null;
+        }
+
         var renderings = translation.Variants
-            .Select(variant => TryConstrainStats(variant, stats, out var constrained)
-                ? TryCreateStrictRendering(variant, constrained)
+            .Select(variant => TryConstrainStats(
+                    variant,
+                    stats,
+                    allowNegatedConditions: defaultedStatIds.Count > 0,
+                    out var constrained)
+                ? TryCreateStrictRendering(variant, constrained) is { } rendering
+                    ? rendering with
+                    {
+                        TranslationEvidence =
+                        [
+                            new UniqueModifierTranslationEvidence
+                            {
+                                TranslationId = translation.Id,
+                                StatIds = translation.StatIds.ToArray(),
+                                ModifierStatIndices = indices.ToArray(),
+                                DefaultedStatIds = defaultedStatIds.ToArray(),
+                                Conditions = variant.Conditions.ToArray(),
+                            },
+                        ],
+                    }
+                    : null
                 : null)
             .Where(rendering => rendering is not null)
             .Select(rendering => rendering!)
@@ -723,11 +908,11 @@ public sealed partial class PoBUniqueCatalogImporter
     private static bool TryConstrainStats(
         StatTranslationVariant variant,
         IReadOnlyList<ModifierStat> stats,
+        bool allowNegatedConditions,
         out IReadOnlyList<ModifierStat> constrained)
     {
         constrained = [];
-        if (variant.Conditions.Count != stats.Count ||
-            variant.Conditions.Any(condition => condition.IsNegated))
+        if (variant.Conditions.Count != stats.Count)
         {
             return false;
         }
@@ -744,6 +929,25 @@ public sealed partial class PoBUniqueCatalogImporter
                 !conditions.TryGetValue(index, out var indexed) ||
                 indexed.Length != 1)
             {
+                return false;
+            }
+            if (indexed[0].IsNegated)
+            {
+                if (!allowNegatedConditions)
+                {
+                    return false;
+                }
+                var excludedMinimum = indexed[0].MinValue ?? decimal.MinValue;
+                var excludedMaximum = indexed[0].MaxValue ?? decimal.MaxValue;
+                if (stat.MaxValue.Value < excludedMinimum ||
+                    stat.MinValue.Value > excludedMaximum)
+                {
+                    result[index] = stat;
+                    continue;
+                }
+
+                // A partially overlapping negated interval would require a disjoint range.
+                // Retain fail-closed behavior instead of manufacturing one interval.
                 return false;
             }
             var minimum = Math.Max(
@@ -921,6 +1125,13 @@ public sealed partial class PoBUniqueCatalogImporter
     private static string NormalizeExactEvidence(string value) =>
         WhitespacePattern().Replace(value.Trim(), " ");
 
+    private static string UnorderedMultilineKey(string value) =>
+        UnorderedMultilineKey(value.Split('\n'));
+
+    private static string UnorderedMultilineKey(IEnumerable<string> lines) => string.Join(
+        "\n",
+        lines.Select(NormalizeExactEvidence).OrderBy(line => line, StringComparer.Ordinal));
+
     private static string NormalizePatternWhitespace(string value) =>
         Regex.Replace(value.Trim(), @"(?:\\ )+", @"\s+", RegexOptions.CultureInvariant);
 
@@ -1006,7 +1217,14 @@ public sealed partial class PoBUniqueCatalogImporter
             }
         }
 
-        item = new ParsedSourceItem(name, baseTypes, variants, effects, implicitCount, null, UniqueItemKind.Unknown);
+        item = new ParsedSourceItem(
+            name,
+            baseTypes,
+            variants,
+            effects,
+            implicitCount,
+            null,
+            UniqueItemKind.Unknown);
         return true;
     }
 
@@ -1141,10 +1359,17 @@ public sealed partial class PoBUniqueCatalogImporter
         string ModifierId,
         IReadOnlyList<string> StatIds,
         string? Domain,
-        int StrictValueEvidenceCount = 0);
+        int StrictValueEvidenceCount = 0,
+        IReadOnlyList<UniqueModifierTranslationEvidence>? TranslationEvidence = null,
+        string? OrderedRenderingText = null)
+    {
+        public IReadOnlyList<UniqueModifierTranslationEvidence> ProvenanceTranslations =>
+            TranslationEvidence ?? [];
+    }
     private sealed record MechanicalResolution(
         IReadOnlyList<MechanicalCandidate> Candidates,
-        bool UsedStrictEvidence);
+        bool UsedStrictEvidence,
+        IReadOnlyList<string> ResolutionReasons);
     private sealed record DynamicMechanicalCandidate(
         MechanicalCandidate Candidate,
         Regex Pattern);
@@ -1159,15 +1384,16 @@ public sealed partial class PoBUniqueCatalogImporter
     private sealed record StrictRendering(
         string? ExactText,
         string? DynamicPatternText,
-        int ValueEvidenceCount)
+        int ValueEvidenceCount,
+        IReadOnlyList<UniqueModifierTranslationEvidence> TranslationEvidence)
     {
         public string Key => ExactText ?? DynamicPatternText!;
 
         public static StrictRendering Static(string text, int valueEvidenceCount) =>
-            new(text, null, valueEvidenceCount);
+            new(text, null, valueEvidenceCount, []);
 
         public static StrictRendering Dynamic(string patternText, int valueEvidenceCount) =>
-            new(null, patternText, valueEvidenceCount);
+            new(null, patternText, valueEvidenceCount, []);
 
         public static StrictRendering Combine(StrictRendering left, StrictRendering right)
         {
@@ -1175,14 +1401,24 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 return Static(
                     Join(left.ExactText!, right.ExactText!),
-                    left.ValueEvidenceCount + right.ValueEvidenceCount);
+                    left.ValueEvidenceCount + right.ValueEvidenceCount) with
+                {
+                    TranslationEvidence = left.TranslationEvidence
+                        .Concat(right.TranslationEvidence)
+                        .ToArray(),
+                };
             }
 
             var leftPattern = left.DynamicPatternText ?? Regex.Escape(left.ExactText!);
             var rightPattern = right.DynamicPatternText ?? Regex.Escape(right.ExactText!);
             return Dynamic(
                 Join(leftPattern, rightPattern),
-                left.ValueEvidenceCount + right.ValueEvidenceCount);
+                left.ValueEvidenceCount + right.ValueEvidenceCount) with
+            {
+                TranslationEvidence = left.TranslationEvidence
+                    .Concat(right.TranslationEvidence)
+                    .ToArray(),
+            };
         }
 
         private static string Join(string left, string right) => left.Length == 0
@@ -1195,53 +1431,148 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> broad,
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> exact,
         IReadOnlyList<DynamicMechanicalCandidate> dynamic,
-        IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains)
+        IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> partialExact,
+        IReadOnlyList<DynamicMechanicalCandidate> partialDynamic,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains,
+        IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
+        IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics)
     {
         public bool HasMatch(
             IReadOnlyList<string> lines,
             string baseType,
             bool hasGeneratedOptionEvidence) =>
-            Resolve(lines, baseType, hasGeneratedOptionEvidence).Candidates.Count > 0;
+            Resolve(lines, baseType, hasGeneratedOptionEvidence)
+                .Candidates.Count > 0;
 
         public MechanicalResolution Resolve(
             IReadOnlyList<string> lines,
             string baseType,
             bool hasGeneratedOptionEvidence)
         {
-            var exactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
-            var staticStrict = Array.Empty<MechanicalCandidate>();
+            var orderedExactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
+            var exactText = UnorderedMultilineKey(orderedExactText);
+            var staticStrict = CandidateFilterResult.Empty;
             if (exact.TryGetValue(exactText, out var staticMatches))
             {
-                staticStrict = RetainStrongestValueEvidence(staticMatches
-                    .Where(candidate => IsDomainCompatible(candidate, baseType))
+                staticStrict = FilterCandidates(staticMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray());
+                    .ToArray(), baseType);
+                staticStrict = staticStrict with
+                {
+                    Candidates = RetainStrongestValueEvidence(staticStrict.Candidates),
+                };
             }
-            var dynamicStrict = RetainStrongestValueEvidence(dynamic
-                .Where(candidate => candidate.Pattern.IsMatch(exactText))
+            var dynamicStrict = FilterCandidates(dynamic
+                .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
-                .Where(candidate => IsDomainCompatible(candidate, baseType))
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                .ToArray());
-            if (hasGeneratedOptionEvidence && dynamicStrict.Length > 0)
+                .ToArray(), baseType);
+            dynamicStrict = dynamicStrict with
             {
-                return new MechanicalResolution(dynamicStrict, UsedStrictEvidence: true);
+                Candidates = RetainStrongestValueEvidence(dynamicStrict.Candidates),
+            };
+            if (hasGeneratedOptionEvidence && dynamicStrict.Candidates.Count > 0)
+            {
+                return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
-            if (staticStrict.Length > 0)
+            if (staticStrict.Candidates.Count > 0)
             {
-                return new MechanicalResolution(staticStrict, UsedStrictEvidence: true);
+                return Resolution(staticStrict, usedStrictEvidence: true, orderedExactText);
             }
-            if (dynamicStrict.Length > 0)
+            if (dynamicStrict.Candidates.Count > 0)
             {
-                return new MechanicalResolution(dynamicStrict, UsedStrictEvidence: true);
+                return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
 
             var signature = string.Join("\n", lines.Select(NormalizeSignature));
-            return new MechanicalResolution(
-                broad.GetValueOrDefault(signature) ?? [],
-                UsedStrictEvidence: false);
+            var broadCandidates = broad.GetValueOrDefault(signature) ?? [];
+            if (broadCandidates.Count > 0)
+            {
+                return Resolution(
+                    new CandidateFilterResult(
+                        broadCandidates,
+                        ExcludedByPropertyCapability: false),
+                    usedStrictEvidence: false);
+            }
+
+            var partialStatic = CandidateFilterResult.Empty;
+            if (partialExact.TryGetValue(exactText, out var partialStaticMatches))
+            {
+                partialStatic = FilterCandidates(partialStaticMatches
+                    .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                    .ToArray(), baseType);
+                partialStatic = partialStatic with
+                {
+                    Candidates = RetainStrongestValueEvidence(partialStatic.Candidates),
+                };
+            }
+            var partialDynamicMatches = FilterCandidates(partialDynamic
+                .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
+                .Select(candidate => candidate.Candidate)
+                .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                .ToArray(), baseType);
+            partialDynamicMatches = partialDynamicMatches with
+            {
+                Candidates = RetainStrongestValueEvidence(partialDynamicMatches.Candidates),
+            };
+            if (hasGeneratedOptionEvidence && partialDynamicMatches.Candidates.Count > 0)
+            {
+                return Resolution(partialDynamicMatches, usedStrictEvidence: true, orderedExactText);
+            }
+            if (partialStatic.Candidates.Count > 0)
+            {
+                return Resolution(partialStatic, usedStrictEvidence: true, orderedExactText);
+            }
+            return Resolution(partialDynamicMatches, usedStrictEvidence: true, orderedExactText);
+        }
+
+        private static MechanicalResolution Resolution(
+            CandidateFilterResult filtered,
+            bool usedStrictEvidence,
+            string? orderedSourceText = null)
+        {
+            var reasons = new List<string>();
+            if (filtered.ExcludedByPropertyCapability)
+            {
+                reasons.Add("base-item-property-capability");
+            }
+            if (filtered.Candidates.Any(candidate => candidate.ProvenanceTranslations.Any(
+                    evidence => evidence.DefaultedStatIds.Count > 0)))
+            {
+                reasons.Add("implicit-zero-stat-composition");
+            }
+            if (filtered.Candidates.Any(candidate =>
+                    candidate.OrderedRenderingText?.Contains('\n') == true &&
+                    orderedSourceText?.Contains('\n') == true &&
+                    !string.Equals(
+                        candidate.OrderedRenderingText,
+                        orderedSourceText,
+                        StringComparison.Ordinal)))
+            {
+                reasons.Add("order-independent-complete-multiline");
+            }
+            return new MechanicalResolution(filtered.Candidates, usedStrictEvidence, reasons);
+        }
+
+        private CandidateFilterResult FilterCandidates(
+            IReadOnlyList<MechanicalCandidate> candidates,
+            string baseType)
+        {
+            var domainCompatible = candidates
+                .Where(candidate => IsDomainCompatible(candidate, baseType))
+                .ToArray();
+            var propertyCompatible = domainCompatible
+                .Where(candidate => IsPropertyCapabilityCompatible(candidate, baseType))
+                .ToArray();
+            var hasPropertyCompatibleCandidate = propertyCompatible.Length > 0;
+            return new CandidateFilterResult(
+                hasPropertyCompatibleCandidate ? propertyCompatible : domainCompatible,
+                ExcludedByPropertyCapability: hasPropertyCompatibleCandidate &&
+                    propertyCompatible.Length < domainCompatible.Length);
         }
 
         private static MechanicalCandidate[] RetainStrongestValueEvidence(
@@ -1267,7 +1598,63 @@ public sealed partial class PoBUniqueCatalogImporter
             return !string.IsNullOrWhiteSpace(candidate.Domain) &&
                 domains.Contains(candidate.Domain.Trim());
         }
+
+        private bool IsPropertyCapabilityCompatible(
+            MechanicalCandidate candidate,
+            string baseType)
+        {
+            if (!baseCapabilities.TryGetValue(baseType.Trim(), out var capability) ||
+                !propertySemantics.TryGetValue(VectorKey(candidate.StatIds), out var descriptor) ||
+                descriptor.Applicability != ItemPropertyApplicability.UnconditionalDisplayedLocal)
+            {
+                return true;
+            }
+
+            var targets = descriptor.Contributions
+                .SelectMany(contribution => contribution.Targets)
+                .Distinct()
+                .ToArray();
+            if (targets.Length == 0)
+            {
+                return true;
+            }
+
+            ItemPropertyTarget[] weaponTargets =
+            [
+                ItemPropertyTarget.PhysicalDamage,
+                ItemPropertyTarget.FireDamage,
+                ItemPropertyTarget.ColdDamage,
+                ItemPropertyTarget.LightningDamage,
+                ItemPropertyTarget.ChaosDamage,
+                ItemPropertyTarget.AttacksPerSecond,
+                ItemPropertyTarget.CriticalStrikeChance,
+            ];
+            if (targets.All(weaponTargets.Contains))
+            {
+                return capability.HasWeaponProperties;
+            }
+
+            ItemPropertyTarget[] defenceTargets =
+            [
+                ItemPropertyTarget.Armour,
+                ItemPropertyTarget.Evasion,
+                ItemPropertyTarget.EnergyShield,
+                ItemPropertyTarget.Ward,
+            ];
+            return !targets.All(defenceTargets.Contains) || capability.HasDefenceProperties;
+        }
     }
+
+    private sealed record CandidateFilterResult(
+        IReadOnlyList<MechanicalCandidate> Candidates,
+        bool ExcludedByPropertyCapability)
+    {
+        public static CandidateFilterResult Empty { get; } = new([], false);
+    }
+
+    private sealed record BaseMechanicalCapability(
+        bool HasWeaponProperties,
+        bool HasDefenceProperties);
     private sealed record ParsedSourceItem(
         string Name,
         IReadOnlyList<SourceBaseType> BaseTypes,

@@ -253,8 +253,42 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Equal("explicit.stat_1509134228", physical.ProviderStatId);
         Assert.True(physical.IsSearchable, physical.NotSearchableReason);
         Assert.True(IsInteractionReady(physical));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, physical.ResolutionStatus);
         Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, physical.StatMappingProof);
-        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", physical.UniqueResolutionDiagnosticCode);
+        Assert.Null(physical.UniqueResolutionDiagnosticCode);
+        Assert.True(physical.IsEquivalentSourceSet);
+        Assert.Equal(["local_physical_damage_+%"], physical.ResolvedStatIds);
+
+        var uniqueBlockId = Assert.Single(physical.UniqueCatalogBlockIds);
+        var sourceObservationId = Assert.Single(physical.UniqueSourceObservationIds);
+        var lastResort = Assert.Single(GameData.Value.FindUniqueItemsByExactName("Last Resort"));
+        var uniqueBlock = Assert.Single(
+            lastResort.Versions.SelectMany(version => version.ModifierBlocks),
+            block => string.Equals(block.Id, uniqueBlockId, StringComparison.Ordinal));
+        Assert.Equal([sourceObservationId], uniqueBlock.SourceObservationIds);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            uniqueBlock.MechanicalMapping.Status);
+        Assert.Contains(
+            "LocalIncreasedPhysicalDamagePercentUniqueClaw4",
+            uniqueBlock.MechanicalMapping.ModifierIds);
+        Assert.Equal(["local_physical_damage_+%"], uniqueBlock.MechanicalMapping.StatIds);
+
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            uniqueBlock.MechanicalMapping.Provenance);
+        Assert.Equal(["implicit-zero-stat-composition"], provenance.ResolutionReasons);
+        Assert.True(provenance.UsedComposition);
+        Assert.True(provenance.CatalogValuesUsedForSelection);
+        Assert.Equal("copiedInstance", provenance.ValueAuthority);
+        var translation = Assert.Single(provenance.Translations);
+        Assert.Equal(
+            "repoe:stat-translation:ff11c209633e3e38a40088ef7c0ac25eec05f45c48f325bd6ed253b962cf691a",
+            translation.TranslationId);
+        Assert.Equal(
+            ["local_physical_damage_+%", "local_weapon_no_physical_damage"],
+            translation.StatIds);
+        Assert.Equal([0], translation.ModifierStatIndices);
+        Assert.Equal(["local_weapon_no_physical_damage"], translation.DefaultedStatIds);
         Assert.Equal([94m], physical.CanonicalNumericValues);
         var filter = MapSingle(runtime.ProviderDraft, physical);
         Assert.Equal(94m, filter.Minimum);

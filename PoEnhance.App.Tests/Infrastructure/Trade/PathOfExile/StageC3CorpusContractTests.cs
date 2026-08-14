@@ -57,7 +57,7 @@ public sealed class StageC3CorpusContractTests
 
         foreach (var rawText in corpus)
         {
-            var parsed = parser.Parse(rawText);
+            var parsed = parser.Parse(UseTrueAdvancedPresenceShapeForTargetedRegression(rawText));
             var baseResolution = displayService.ResolveItemBase(parsed, gameData).Result;
             var modifierResolutions = displayService.ResolveModifierCandidates(parsed, gameData, baseResolution)
                 .Results.Select(display => display.Result)
@@ -66,6 +66,22 @@ public sealed class StageC3CorpusContractTests
             var draftResult = draftMapper.CreateDraft(parsed, baseResolution, modifierResolutions, gameData);
             Assert.True(draftResult.IsSuccess);
             var draft = Assert.IsType<TradeSearchDraft>(draftResult.Draft);
+            if (string.Equals(parsed.DisplayName, "Megalomaniac", StringComparison.Ordinal))
+            {
+                var literalNotables = draft.ModifierFilters
+                    .Where(component => component.OriginalText.StartsWith(
+                        "1 Added Passive Skill is ",
+                        StringComparison.Ordinal))
+                    .ToArray();
+                Assert.Equal(3, literalNotables.Length);
+                Assert.All(literalNotables, component =>
+                {
+                    Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+                    Assert.False(component.SupportsValueBounds);
+                    Assert.Null(component.RequestedMinimum);
+                    Assert.Null(component.RequestedMaximum);
+                });
+            }
             var identity = identityMapper.Map(draft, itemCatalog).Identity;
             var firstPassDraft = await controller.PrepareDraftAsync(draft);
             controller.UpdateCurrentDraft(firstPassDraft, validator.Validate(firstPassDraft));
@@ -302,6 +318,23 @@ public sealed class StageC3CorpusContractTests
             row.State == "SELECTABLE_SAFE" &&
             row.ProviderStatus == SearchComponentProviderResolutionStatus.Exact.ToString() &&
             row.ValueShape == ModifierBoundShape.PresenceOnly.ToString()));
+        foreach (var (item, text) in new[]
+        {
+            ("Hypnotic Shine", "1 Added Passive Skill is Vile Reinvigoration"),
+            ("Hypnotic Shine", "1 Added Passive Skill is Exposure Therapy"),
+            ("Kraken Star", "1 Added Passive Skill is Burden Projection"),
+        })
+        {
+            var literalPresence = Assert.Single(rows, row =>
+                row.Item == item && string.Equals(row.Text, text, StringComparison.Ordinal));
+            Assert.Equal("SELECTABLE_SAFE", literalPresence.State);
+            Assert.Equal(
+                SearchComponentProviderResolutionStatus.Exact.ToString(),
+                literalPresence.ProviderStatus);
+            Assert.Equal(ModifierBoundShape.PresenceOnly.ToString(), literalPresence.ValueShape);
+            Assert.NotNull(literalPresence.ProviderStatId);
+            Assert.Null(literalPresence.DiagnosticCode);
+        }
         AssertItemStateCounts(
             rows,
             "Yriel's Fostering",
@@ -345,6 +378,28 @@ public sealed class StageC3CorpusContractTests
         !string.IsNullOrWhiteSpace(row.AvailabilityStatus) &&
         (row.SectionLabel.Contains(row.AvailabilityStatus, StringComparison.OrdinalIgnoreCase) ||
             row.ModTypeLabel.Contains(row.AvailabilityStatus, StringComparison.OrdinalIgnoreCase));
+
+    private static string UseTrueAdvancedPresenceShapeForTargetedRegression(string rawText)
+    {
+        if (!Regex.IsMatch(rawText, @"(?m)^Megalomaniac\r?$"))
+        {
+            return rawText;
+        }
+
+        foreach (var notable in new[] { "Antifreeze", "Overshock", "Wound Aggravation" })
+        {
+            var text = $"1 Added Passive Skill is {notable}";
+            if (!rawText.Contains($"{text} — Unscalable Value", StringComparison.Ordinal))
+            {
+                rawText = rawText.Replace(
+                    text,
+                    $"{text} — Unscalable Value",
+                    StringComparison.Ordinal);
+            }
+        }
+
+        return rawText;
+    }
 
     private static bool IsParserFalseRow(ParsedItem parsed, ResolvedSearchComponent component)
     {

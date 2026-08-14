@@ -349,7 +349,8 @@ public static class GameDataPackageValidator
             mapping.ModifierIds.Any(string.IsNullOrWhiteSpace) ||
             mapping.StatIds.Any(string.IsNullOrWhiteSpace) ||
             knownModifierIds is not null && mapping.ModifierIds.Any(id => !knownModifierIds.Contains(id)) ||
-            knownStatIds is not null && mapping.StatIds.Any(id => !knownStatIds.Contains(id)))
+            knownStatIds is not null && mapping.StatIds.Any(id => !knownStatIds.Contains(id)) ||
+            !IsValidUniqueMechanicalProvenance(mapping.Provenance, knownStatIds))
         {
             return false;
         }
@@ -367,6 +368,39 @@ public static class GameDataPackageValidator
                 !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
             _ => false,
         };
+    }
+
+    private static bool IsValidUniqueMechanicalProvenance(
+        UniqueModifierMechanicalProvenance? provenance,
+        ISet<string>? knownStatIds)
+    {
+        if (provenance is null)
+        {
+            return true;
+        }
+        if (provenance.ResolutionReasons.Count == 0 ||
+            provenance.ResolutionReasons.Any(string.IsNullOrWhiteSpace) ||
+            provenance.ResolutionReasons.Distinct(StringComparer.Ordinal).Count() !=
+                provenance.ResolutionReasons.Count ||
+            provenance.Translations.Count == 0 ||
+            !string.Equals(provenance.ValueAuthority, "copiedInstance", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(provenance.SafetyRationale))
+        {
+            return false;
+        }
+
+        return provenance.Translations.All(evidence =>
+            evidence is not null &&
+            !string.IsNullOrWhiteSpace(evidence.TranslationId) &&
+            evidence.StatIds.Count > 0 &&
+            evidence.StatIds.All(statId => !string.IsNullOrWhiteSpace(statId)) &&
+            (knownStatIds is null || evidence.StatIds.All(knownStatIds.Contains)) &&
+            evidence.ModifierStatIndices.Count > 0 &&
+            evidence.ModifierStatIndices.All(index => index >= 0) &&
+            evidence.ModifierStatIndices.Distinct().Count() == evidence.ModifierStatIndices.Count &&
+            evidence.DefaultedStatIds.All(statId =>
+                evidence.StatIds.Contains(statId, StringComparer.OrdinalIgnoreCase)) &&
+            evidence.Conditions.Count == evidence.StatIds.Count);
     }
 
     private static void ValidateStatTranslationHistory(

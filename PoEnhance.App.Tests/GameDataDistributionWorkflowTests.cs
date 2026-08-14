@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace PoEnhance.App.Tests;
 
-public sealed class StageE2DistributionWorkflowTests
+public sealed class GameDataDistributionWorkflowTests
 {
     [Fact]
     public void PinnedMetadata_DefinesValidatedPackageAndEveryAcquiredSource()
@@ -10,15 +10,16 @@ public sealed class StageE2DistributionWorkflowTests
         using var document = JsonDocument.Parse(ReadRepositoryFile(
             "data",
             "game-data",
-            "stage-e2-sources.json"));
+            "sources.json"));
         var root = document.RootElement;
         var package = root.GetProperty("package");
 
         Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("3.29.1.2.2-unique-stage-e2", package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-08-12T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal("3.29.1.2.2-unique-stage-e3", package.GetProperty("dataVersion").GetString());
+        Assert.Equal("2026-08-13T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(161874564, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "98758acaacbceb2e49e9607bee0afd6af44b597d9baeca28efac4fba20f2f918",
+            "581d4da8122eedbf07b9ae976d4b2d7c946c9c9c4dc101186972a8e761b1d924",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(349, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
@@ -45,7 +46,7 @@ public sealed class StageE2DistributionWorkflowTests
     [Fact]
     public void SetupScript_AcquiresBuildsTwiceVerifiesAndAtomicallyActivates()
     {
-        var script = ReadRepositoryFile("scripts", "Setup-StageE2-GameData.ps1");
+        var script = ReadRepositoryFile("scripts", "Setup-GameData.ps1");
 
         Assert.Contains("Ensure-GitCheckout", script, StringComparison.Ordinal);
         Assert.Contains("Ensure-HostedExportCheckout", script, StringComparison.Ordinal);
@@ -79,7 +80,7 @@ public sealed class StageE2DistributionWorkflowTests
 
         Assert.Contains("EnsureGameDataPackageExists", project, StringComparison.Ordinal);
         Assert.Contains("BeforeTargets=\"PrepareForBuild\"", project, StringComparison.Ordinal);
-        Assert.Contains("Setup-StageE2-GameData.ps1", project, StringComparison.Ordinal);
+        Assert.Contains("Setup-GameData.ps1", project, StringComparison.Ordinal);
         Assert.Contains("<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>", project, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Condition=\"Exists('..\\artifacts\\poenhance-game-data.json')\"",

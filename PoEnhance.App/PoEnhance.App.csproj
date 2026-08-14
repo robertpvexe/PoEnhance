@@ -51,7 +51,7 @@
 
   <Target Name="EnsureGameDataPackageExists" BeforeTargets="PrepareForBuild">
     <Error Condition="!Exists('..\artifacts\poenhance-game-data.json')"
-           Text="Required GameData package is missing. From the repository root run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-StageE2-GameData.ps1" />
+           Text="Required GameData package is missing. From the repository root run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-GameData.ps1" />
   </Target>
 
   <ItemGroup>

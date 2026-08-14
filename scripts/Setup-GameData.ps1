@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-Acquires the pinned Stage E2 sources, reproduces the validated GameData twice, and activates it.
+Acquires the pinned sources, reproduces the validated GameData twice, and activates it.
 
 .DESCRIPTION
 This is the explicit fresh-clone bootstrap for the ignored generated GameData artifact. It
 clones pinned RePoE parser and hosted-export commits plus the pinned Path of Building tag into
 deterministic cache paths under TEMP, verifies every input SHA-256, invokes the existing
-Refresh-GameData.ps1 pipeline twice with the fixed E2 timestamp, requires byte-identical output
-with the manually validated E2 SHA-256, and then atomically places those bytes at
+Refresh-GameData.ps1 pipeline twice with the fixed package timestamp, requires byte-identical
+output with the manually validated SHA-256, and then atomically places those bytes at
 artifacts\poenhance-game-data.json. Normal application builds remain network-free.
 
 .EXAMPLE
-.\scripts\Setup-StageE2-GameData.ps1
+.\scripts\Setup-GameData.ps1
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$metadataPath = Join-Path $repoRoot 'data\game-data\stage-e2-sources.json'
+$metadataPath = Join-Path $repoRoot 'data\game-data\sources.json'
 $refreshScript = Join-Path $PSScriptRoot 'Refresh-GameData.ps1'
 $activeArtifact = Join-Path $repoRoot 'artifacts\poenhance-game-data.json'
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
@@ -31,10 +31,12 @@ $expectedPackageHash = $metadata.package.sha256.ToUpperInvariant()
 $currentSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Current'
 $historicalSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Historical'
 $pobSourceRoot = Join-Path $env:TEMP 'PoEnhance-PoB-v2.67.2-b32759a'
-$hostedExportRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-Hosted-StageE2'
-$currentDataRoot = Join-Path $env:TEMP 'PoEnhance-UniqueCatalog-Stage1\source-snapshot'
-$historicalDataRoot = Join-Path $env:TEMP 'PoEnhance-UniqueStage-RePoE-HistoricalData'
+$hostedExportRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-Hosted-GameData'
+# This legacy-named compatibility root is serialized in the manually validated E3 package.
+# Retain it until a future stage deliberately changes the package identity.
 $reproductionRoot = Join-Path $repoRoot 'artifacts\stage-e2-reproduction'
+$currentDataRoot = Join-Path $reproductionRoot 'current-export-extract\data'
+$historicalDataRoot = Join-Path $reproductionRoot 'historical-export-extract\data'
 $firstBuildRoot = Join-Path $reproductionRoot 'build-1'
 $secondBuildRoot = Join-Path $reproductionRoot 'build-2'
 
@@ -201,7 +203,12 @@ function Export-PinnedData(
     {
         $sourcePath = Join-Path $extractRoot "data\$($fileProperty.Name)"
         $destinationPath = Join-Path $DestinationRoot $fileProperty.Name
-        [System.IO.File]::Copy($sourcePath, $destinationPath, $true)
+        if (-not [System.IO.Path]::GetFullPath($sourcePath).Equals(
+                [System.IO.Path]::GetFullPath($destinationPath),
+                [StringComparison]::OrdinalIgnoreCase))
+        {
+            [System.IO.File]::Copy($sourcePath, $destinationPath, $true)
+        }
         $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destinationPath).Hash
         if (-not $actualHash.Equals([string]$fileProperty.Value, [StringComparison]::OrdinalIgnoreCase))
         {
@@ -228,7 +235,7 @@ function Invoke-ReproductionBuild([string]$OutputDirectory)
         -OutputDirectory $OutputDirectory `
         -CreatedAtUtc $metadata.package.createdAtUtc `
         -SkipCompatibilityTests
-    if ($LASTEXITCODE -ne 0) { throw "Stage E2 reproduction failed for $OutputDirectory." }
+    if ($LASTEXITCODE -ne 0) { throw "GameData reproduction failed for $OutputDirectory." }
     $evaluatedUniquesPath = Join-Path $OutputDirectory 'pob-uniques.evaluated.json'
     $evaluatedUniquesHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $evaluatedUniquesPath).Hash
     if (-not $evaluatedUniquesHash.Equals(
@@ -263,7 +270,7 @@ function Assert-PackageContract([object]$Contract, [string]$Label)
         $Contract.ExactRelationshipCount -ne $metadata.package.exactFoulbornRelationshipCount -or
         $Contract.UnsupportedRelationshipCount -ne $metadata.package.unsupportedFoulbornRelationshipCount)
     {
-        throw "$Label metadata or Foulborn relationship counts do not match the pinned E2 contract."
+        throw "$Label metadata or Foulborn relationship counts do not match the pinned package contract."
     }
 }
 
@@ -309,7 +316,7 @@ $firstSize = (Get-Item -LiteralPath $firstPackage).Length
 if (-not $firstHash.Equals($expectedPackageHash, [StringComparison]::OrdinalIgnoreCase) -or
     $firstSize -ne [long]$metadata.package.sizeBytes)
 {
-    throw "Reproduced package differs from validated E2. Expected $expectedPackageHash / $($metadata.package.sizeBytes); observed $firstHash / $firstSize."
+    throw "Reproduced package differs from the validated package. Expected $expectedPackageHash / $($metadata.package.sizeBytes); observed $firstHash / $firstSize."
 }
 $firstContract = Read-PackageContract $firstPackage
 Assert-PackageContract $firstContract 'First reproduced package'
@@ -324,14 +331,14 @@ $secondHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $secondPackage).Hash
 $secondSize = (Get-Item -LiteralPath $secondPackage).Length
 if ($firstHash -ne $secondHash -or $firstSize -ne $secondSize)
 {
-    throw "Stage E2 builds are not byte-identical: $firstHash / $secondHash."
+    throw "GameData builds are not byte-identical: $firstHash / $secondHash."
 }
 $secondContract = Read-PackageContract $secondPackage
 Assert-PackageContract $secondContract 'Second reproduced package'
 
 $artifactsDirectory = [System.IO.Path]::GetDirectoryName($activeArtifact)
 [System.IO.Directory]::CreateDirectory($artifactsDirectory) | Out-Null
-$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e2.tmp'
+$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e3.tmp'
 if (Test-Path -LiteralPath $stagedActive) { Remove-Item -LiteralPath $stagedActive }
 [System.IO.File]::Copy($secondPackage, $stagedActive, $false)
 Move-Item -LiteralPath $stagedActive -Destination $activeArtifact -Force
@@ -355,13 +362,13 @@ $verification = [ordered]@{
     activeArtifact = $activeArtifact
     activeArtifactSha256 = $activeHash.ToLowerInvariant()
 }
-$verificationPath = Join-Path $reproductionRoot 'stage-e2-setup-verification.json'
+$verificationPath = Join-Path $reproductionRoot 'stage-e3-setup-verification.json'
 [System.IO.File]::WriteAllText(
     $verificationPath,
     ($verification | ConvertTo-Json -Depth 5),
     [System.Text.UTF8Encoding]::new($false))
 
-Write-Host "Stage E2 GameData: $activeArtifact"
+Write-Host "GameData:          $activeArtifact"
 Write-Host "SHA-256:          $activeHash"
 Write-Host "Determinism:      two byte-identical builds"
 Write-Host "Verification:     $verificationPath"

@@ -1183,6 +1183,12 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 resolved,
                 exactCandidates[0]);
         }
+        else if (CanApplyStructuredLiteralPresenceExact(resolved, exactCandidates))
+        {
+            applied = PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedPresenceExact(
+                resolved,
+                exactCandidates[0]);
+        }
         else if (component.IsFractured)
         {
             applied = PathOfExileTradeModifierVariantResolver.ApplyFracturedExact(
@@ -1708,6 +1714,86 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 string.Equals(source.ProviderIdentity, providerIdentity, StringComparison.Ordinal) &&
                 (string.IsNullOrWhiteSpace(source.ProviderDomain) ||
                     string.Equals(source.ProviderDomain, providerKind, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool CanApplyStructuredLiteralPresenceExact(
+        ResolvedSearchComponent component,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> exactCandidates)
+    {
+        if (exactCandidates.Count != 1 ||
+            !HasStructuredAdvancedExplicitProof(component) ||
+            component.IsUnveiled ||
+            component.StatMappingProof != ModifierStatMappingProofStatus.ProviderExact ||
+            component.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+            component.ValueBoundShape != ModifierBoundShape.PresenceOnly ||
+            component.SupportsValueBounds ||
+            component.RequestedMinimum is not null ||
+            component.RequestedMaximum is not null ||
+            component.ObservedNumericValues.Count != 0 ||
+            component.OriginalSourceRollRanges.Count != 0 ||
+            component.CanonicalNumericValues.Count != 0 ||
+            component.ProviderFallbackNumericValues.Count != 0 ||
+            component.ValueBoundTranslationHandlers.Count != 0)
+        {
+            return false;
+        }
+
+        var candidate = exactCandidates[0];
+        var providerKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
+        var expectedProviderKind = component.IsCrafted ? "crafted" : "explicit";
+        var providerIdentity = PathOfExileTradeProviderIdentity.Create(candidate.StatId);
+        var expectedGenerationType = component.ParsedKind == ParsedModifierKind.Prefix
+            ? ModifierGenerationType.Prefix
+            : ModifierGenerationType.Suffix;
+        return string.Equals(providerKind, expectedProviderKind, StringComparison.Ordinal) &&
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 0 &&
+            candidate.OptionMetadata.Count == 0 &&
+            string.Equals(component.ProviderStatId, candidate.StatId, StringComparison.Ordinal) &&
+            string.Equals(component.ProviderStatText, candidate.Text, StringComparison.Ordinal) &&
+            component.ProviderStatAlternativeIds.Count == 1 &&
+            string.Equals(
+                component.ProviderStatAlternativeIds[0],
+                candidate.StatId,
+                StringComparison.Ordinal) &&
+            component.ProviderCandidateStatIds.Count == 1 &&
+            string.Equals(
+                component.ProviderCandidateStatIds[0],
+                candidate.StatId,
+                StringComparison.Ordinal) &&
+            (component.GenerationType is null ||
+                component.GenerationType == expectedGenerationType) &&
+            (string.IsNullOrWhiteSpace(component.SelectedFilterVariantIdentity) ||
+                string.Equals(
+                    component.SelectedFilterVariantIdentity,
+                    providerIdentity,
+                    StringComparison.Ordinal)) &&
+            (string.IsNullOrWhiteSpace(component.RequestedFilterVariantIdentity) ||
+                string.Equals(
+                    component.RequestedFilterVariantIdentity,
+                    providerIdentity,
+                    StringComparison.Ordinal)) &&
+            (string.IsNullOrWhiteSpace(component.RequestedFilterVariantKind) ||
+                string.Equals(
+                    component.RequestedFilterVariantKind,
+                    providerKind,
+                    StringComparison.OrdinalIgnoreCase)) &&
+            component.Sources.Count > 0 &&
+            component.Sources.All(source =>
+                source.ParsedKind == component.ParsedKind &&
+                source.SourceModifierIndex >= 0 &&
+                source.SourceLineIndex >= 0 &&
+                !source.IsFractured &&
+                !source.IsVeiled &&
+                !source.IsUnveiled &&
+                (source.GenerationType is null ||
+                    source.GenerationType == expectedGenerationType) &&
+                source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+                string.Equals(source.ProviderIdentity, providerIdentity, StringComparison.Ordinal) &&
+                (string.IsNullOrWhiteSpace(source.ProviderDomain) ||
+                    string.Equals(
+                        source.ProviderDomain,
+                        providerKind,
+                        StringComparison.OrdinalIgnoreCase)));
     }
 
     private static string? ExpectedSpecialProviderKind(ResolvedSearchComponent component)

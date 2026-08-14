@@ -92,12 +92,17 @@ public sealed partial class UniqueCandidateRuntimeTests
             foulborn.ModifierBlocks,
             ordinary =>
             {
-                Assert.False(ordinary.IsResolved);
-                Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", ordinary.DiagnosticCode);
+                Assert.True(ordinary.IsResolved, ordinary.Diagnostic);
+                Assert.True(ordinary.IsEquivalentSourceSet);
+                Assert.Equal(3, ordinary.StatIds.Count);
+                Assert.NotEmpty(ordinary.SourceObservationIds);
+                Assert.Null(ordinary.DiagnosticCode);
             },
-            replacement => Assert.Equal(
-                "FOULBORN_REPLACEMENT_MECHANICS_UNAVAILABLE",
-                replacement.DiagnosticCode));
+            replacement =>
+            {
+                Assert.False(replacement.IsResolved);
+                Assert.Equal("FOULBORN_REPLACEMENT_TEXT_MISMATCH", replacement.DiagnosticCode);
+            });
         var foulbornDraft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
             ParseRaw(foulbornRaw),
             modifierResolutions: [],
@@ -105,8 +110,52 @@ public sealed partial class UniqueCandidateRuntimeTests
         Assert.Equal(TradeTriState.Yes, foulbornDraft.ItemVariantCriteria.Foulborn);
         Assert.Collection(
             foulbornDraft.ModifierFilters,
-            ordinary => Assert.False(ordinary.IsSearchable),
-            replacement => Assert.False(replacement.IsSearchable));
+            ordinary =>
+            {
+                Assert.True(ordinary.IsSearchable);
+                Assert.Contains(Environment.NewLine, ordinary.OriginalText, StringComparison.Ordinal);
+            },
+            replacement =>
+            {
+                Assert.False(replacement.IsSearchable);
+                Assert.Equal(
+                    "FOULBORN_REPLACEMENT_TEXT_MISMATCH",
+                    replacement.UniqueResolutionDiagnosticCode);
+            });
+
+        var hungryLoopRaw = """
+            Item Class: Rings
+            Rarity: Unique
+            The Hungry Loop
+            Unset Ring
+            --------
+            Item Level: 80
+            --------
+            { Implicit Modifier }
+            Has 1 Socket — Unscalable Value
+            --------
+            { Unique Modifier }
+            Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level
+            Can Consume 4 Uncorrupted Support Gems
+            Has not Consumed any Gems
+            """;
+        var hungryLoop = Resolve(catalog, hungryLoopRaw);
+        Assert.Equal("The Hungry Loop", hungryLoop.Identity?.CanonicalName);
+        Assert.Contains(hungryLoop.CompatibleVersions, version => version.BaseType == "Unset Ring");
+        Assert.All(hungryLoop.ModifierBlocks, block => Assert.True(block.IsResolved, block.Diagnostic));
+        var consumptionBlock = Assert.Single(hungryLoop.ModifierBlocks, block =>
+            block.StatIds.Contains("local_unique_hungry_loop_number_of_gems_to_consume"));
+        Assert.False(consumptionBlock.IsEquivalentSourceSet);
+        Assert.Equal(["ConsumesSupportGemsUnique"], consumptionBlock.ModifierIds);
+        Assert.NotEmpty(consumptionBlock.SourceObservationIds);
+        var hungryLoopDraft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            ParseRaw(hungryLoopRaw),
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var consumptionRow = Assert.Single(hungryLoopDraft.ModifierFilters, component =>
+            component.ResolvedStatIds.Contains("local_unique_hungry_loop_number_of_gems_to_consume"));
+        Assert.True(consumptionRow.IsSearchable);
+        Assert.Contains(Environment.NewLine, consumptionRow.OriginalText, StringComparison.Ordinal);
 
         var currentScalar = FindCase(uniqueCatalog, version => version.Role == UniqueItemVersionRole.Current,
             block => IsResolved(block) && block.Lines.Count == 1 && SourceRangePattern().IsMatch(block.Lines[0]));
