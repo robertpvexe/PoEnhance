@@ -735,6 +735,135 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_ExplicitCurrentSibling_ClassifiesBareAndPunctuatedPatchLabelsAsHistorical()
+    {
+        var result = ImportSingle(
+            """
+                Test History
+                Test Armour
+                Variant: 3.19.0
+                Variant: Pre.3.20.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}10% increased Armour
+                {variant:2}20% increased Armour
+                {variant:3}30% increased Armour
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.history-one", "armour", 10, 10, "unique"),
+                Modifier("unique.history-two", "armour", 20, 20, "unique"),
+                Modifier("unique.current", "armour", 30, 30, "unique"),
+            ],
+            translations:
+            [
+                Translation("armour", "armour", "{0}% increased Armour", "#"),
+            ]);
+
+        var versions = Assert.Single(result.Catalog!.Items).Versions;
+        Assert.Equal(2, versions.Count(version => version.Role == UniqueItemVersionRole.Historical));
+        Assert.Single(versions, version => version.Role == UniqueItemVersionRole.Current);
+        Assert.All(versions.Where(version => version.Role == UniqueItemVersionRole.Historical), version =>
+            Assert.Contains("histor", version.RoleDecisionReason, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Import_CurrentRePoeBaseDiacriticAlias_CanonicalizesBaseAndPreservesSourceText()
+    {
+        var result = ImportSingle(
+            """
+                Test Staff
+                Maelstrom Staff
+                Variant: Current
+                Implicits: 0
+                """,
+            generated: false,
+            modifiers: [],
+            translations: [],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff17",
+                    Name = "Maelström Staff",
+                    ItemClass = "Warstaff",
+                },
+            ]);
+
+        Assert.DoesNotContain(result.Diagnostics, diagnostic =>
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
+        var identity = Assert.Single(result.Catalog!.Items);
+        Assert.Equal("ordinary|test staff", identity.CanonicalIdentityKey);
+        var version = Assert.Single(identity.Versions);
+        Assert.Equal("Maelström Staff", version.BaseType);
+        Assert.Equal("Maelstrom Staff", version.SourceBaseType);
+        Assert.Equal(UniqueSourceIdentityNormalizer.CanonicalRule, version.BaseTypeNormalizationRule);
+        Assert.Equal(["Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff17"], version.RePoeBaseItemIds);
+    }
+
+    [Fact]
+    public void Import_CurrentRePoeBaseCanonicalCollision_FailsClosed()
+    {
+        var result = ImportSingle(
+            """
+                Test Staff
+                Ä Base
+                Variant: Current
+                Implicits: 0
+                """,
+            generated: false,
+            modifiers: [],
+            translations: [],
+            baseItems:
+            [
+                new ItemBaseRecord { Id = "base-a", Name = "A Base", ItemClass = "Staff" },
+                new ItemBaseRecord { Id = "base-accent", Name = "Á Base", ItemClass = "Staff" },
+            ]);
+
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == RePoeImportDiagnosticCodes.PoBUniqueBaseNormalizationCollision &&
+            diagnostic.Severity == ImportDiagnosticSeverity.Error);
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal("Ä Base", version.BaseType);
+        Assert.Empty(version.RePoeBaseItemIds);
+    }
+
+    [Fact]
+    public void Import_DistinctSourceNamesWithSameCanonicalKey_FailsClosedWithoutMerging()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"poenhance-pob-collision-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                entries = new[]
+                {
+                    new { sourcePath = "one.lua", generated = false, raw = "Tést Item\nTest Base" },
+                    new { sourcePath = "two.lua", generated = false, raw = "Test Item\nTest Base" },
+                },
+            }));
+
+            var result = new PoBUniqueCatalogImporter().Import(
+                path,
+                "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+                "v2.67.2",
+                "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+                [],
+                []);
+
+            Assert.Contains(result.Diagnostics, diagnostic =>
+                diagnostic.Code == RePoeImportDiagnosticCodes.PoBUniqueIdentityNormalizationCollision &&
+                diagnostic.Severity == ImportDiagnosticSeverity.Error);
+            Assert.Equal(2, result.Catalog!.Items.Count);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Import_UnlabelledNonGeneratedAlternatives_AreDistinctCurrentVersions()
     {
         var result = ImportSingle(

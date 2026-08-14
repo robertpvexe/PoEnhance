@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-unique-stage-e3",
-    "createdAtUtc": "2026-08-13T12:00:00+00:00",
-    "sizeBytes": 161874564,
-    "sha256": "581d4da8122eedbf07b9ae976d4b2d7c946c9c9c4dc101186972a8e761b1d924",
+    "dataVersion": "3.29.1.2.2-unique-stage-e4",
+    "createdAtUtc": "2026-08-14T12:00:00+00:00",
+    "sizeBytes": 164455254,
+    "sha256": "c1fa6d02208727149669fb5dbca2dba4bd3b254f4ecbd2f89a8c9a6e5b4c42b7",
     "foulbornRelationshipCount": 353,
-    "exactFoulbornRelationshipCount": 349,
-    "unsupportedFoulbornRelationshipCount": 4
+    "exactFoulbornRelationshipCount": 351,
+    "unsupportedFoulbornRelationshipCount": 2
   },
   "currentRePoe": {
     "repositoryUri": "https://github.com/repoe-fork/repoe.git",

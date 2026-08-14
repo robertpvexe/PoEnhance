@@ -65,7 +65,7 @@ public sealed class PoBFoulbornRelationshipImporterTests
     }
 
     [Fact]
-    public void Import_NonExactItemName_IsRetainedUnsupportedWithoutFuzzyPromotion()
+    public void Import_CollisionFreePinnedDiacriticAlias_LinksWithExplicitProvenance()
     {
         var result = Import(
             """{ "Mjolner": { "normal": "foulborn" } }""",
@@ -73,13 +73,32 @@ public sealed class PoBFoulbornRelationshipImporterTests
             Modifiers("normal", "foulborn"));
 
         Assert.Equal(1, result.RelationshipsRead);
+        Assert.Equal(1, result.RelationshipsLinked);
+        Assert.Equal(0, result.RelationshipsUnsupported);
+        var relationship = Assert.Single(result.Relationships);
+        Assert.Equal("Mjolner", relationship.ItemName);
+        Assert.Equal("Mjölner", relationship.CanonicalItemName);
+        Assert.NotNull(relationship.UniqueItemId);
+        Assert.Equal(UniqueFoulbornModifierRelationshipStatus.Exact, relationship.Status);
+        Assert.Equal(UniqueSourceIdentityNormalizer.CanonicalRule, relationship.IdentityNormalizationRule);
+        Assert.Contains("same pinned PoB commit", relationship.IdentityLinkageEvidence, StringComparison.Ordinal);
+        Assert.Null(relationship.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Import_NormalizedItemNameCollision_RemainsUnsupportedAndAmbiguous()
+    {
+        var result = Import(
+            """{ "Mjôlner": { "normal": "foulborn" } }""",
+            Catalog("Mjölner", "Mjolner"),
+            Modifiers("normal", "foulborn"));
+
         Assert.Equal(0, result.RelationshipsLinked);
         Assert.Equal(1, result.RelationshipsUnsupported);
         var relationship = Assert.Single(result.Relationships);
-        Assert.Equal("Mjolner", relationship.ItemName);
         Assert.Null(relationship.UniqueItemId);
         Assert.Equal(UniqueFoulbornModifierRelationshipStatus.Unsupported, relationship.Status);
-        Assert.Equal("FOULBORN_UNIQUE_IDENTITY_NOT_FOUND", relationship.DiagnosticCode);
+        Assert.Equal("FOULBORN_UNIQUE_IDENTITY_AMBIGUOUS", relationship.DiagnosticCode);
     }
 
     [Fact]

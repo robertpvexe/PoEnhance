@@ -6,6 +6,8 @@ public sealed record UniqueItemIdentity
 
     public string? CanonicalName { get; init; }
 
+    public string? CanonicalIdentityKey { get; init; }
+
     public UniqueItemKind Kind { get; init; }
 
     public IReadOnlyList<string> BaseTypeEvidence { get; init; } = [];

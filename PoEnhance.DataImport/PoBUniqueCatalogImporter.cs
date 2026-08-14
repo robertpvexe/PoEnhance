@@ -69,6 +69,7 @@ public sealed partial class PoBUniqueCatalogImporter
         var diagnostics = new List<ImportDiagnostic>();
         var observations = new List<UniqueCatalogSourceObservation>();
         var parsed = new List<ParsedSourceItem>();
+        var baseIdentityIndex = new BaseIdentityIndex(baseItems);
         var read = 0;
         var skipped = 0;
 
@@ -101,6 +102,13 @@ public sealed partial class PoBUniqueCatalogImporter
             }
 
             var kind = ClassifyKind(sourceItem.Name);
+            sourceItem = sourceItem with
+            {
+                BaseTypes = sourceItem.BaseTypes
+                    .Select(baseType => baseIdentityIndex.Resolve(baseType, sourcePath, diagnostics))
+                    .ToArray(),
+            };
+            var canonicalIdentityKey = CanonicalIdentityKey(sourceItem.Name, kind);
             var observationId = StableId("pob-observation", sourcePath, Sha256(raw));
             observations.Add(new UniqueCatalogSourceObservation
             {
@@ -113,6 +121,16 @@ public sealed partial class PoBUniqueCatalogImporter
                 IsGenerated = generated,
                 ObservedKind = kind,
                 RawEntrySha256 = Sha256(raw),
+                ObservedName = sourceItem.Name,
+                ObservedBaseTypes = sourceItem.BaseTypes
+                    .Select(baseType => baseType.SourceText)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray(),
+                CanonicalIdentityKey = canonicalIdentityKey,
+                IdentityNormalizationRule = UniqueSourceIdentityNormalizer.CanonicalRule,
+                IdentityDecisionReason =
+                    "Pinned PoB display name and explicit ordinary/Replica/Foulborn role define the source identity; the canonical key is comparison-only and collision checked.",
             });
             parsed.Add(sourceItem with
             {
@@ -120,6 +138,25 @@ public sealed partial class PoBUniqueCatalogImporter
                 Kind = kind,
                 IsGenerated = generated,
             });
+        }
+
+        foreach (var collision in parsed
+                     .GroupBy(item => CanonicalIdentityKey(item.Name, item.Kind), StringComparer.Ordinal)
+                     .Select(group => new
+                     {
+                         Key = group.Key,
+                         Names = group.Select(item => item.Name)
+                             .Distinct(StringComparer.Ordinal)
+                             .OrderBy(value => value, StringComparer.Ordinal)
+                             .ToArray(),
+                     })
+                     .Where(group => group.Names.Length > 1))
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.PoBUniqueIdentityNormalizationCollision,
+                ImportDiagnosticSeverity.Error,
+                collision.Key,
+                $"Canonical Unique identity key '{collision.Key}' collides across distinct source names: {string.Join(", ", collision.Names)}."));
         }
 
         var mechanicalIndex = BuildMechanicalIndex(
@@ -181,9 +218,10 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             Id = identityId,
             CanonicalName = group.Key.Name,
+            CanonicalIdentityKey = CanonicalIdentityKey(group.Key.Name, group.Key.Kind),
             Kind = group.Key.Kind,
-            BaseTypeEvidence = group.SelectMany(item => item.BaseTypes)
-                .Select(baseType => baseType.Text)
+            BaseTypeEvidence = versions
+                .Select(version => version.BaseType!)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
                 .ToArray(),
@@ -217,11 +255,13 @@ public sealed partial class PoBUniqueCatalogImporter
         ParsedSourceItem item,
         MechanicalIndex mechanicalIndex)
     {
+        var hasExplicitCurrentLabel = item.Variants.Any(variant =>
+            ClassifyVersionRole(variant.Label, hasExplicitCurrentSibling: false) == UniqueItemVersionRole.Current);
         var classifiedVariants = item.Variants
-            .Where(variant => ClassifyVersionRole(variant.Label) != UniqueItemVersionRole.Unknown)
+            .Where(variant => ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) != UniqueItemVersionRole.Unknown)
             .ToArray();
         var hasCurrentVariant = classifiedVariants.Any(variant =>
-            ClassifyVersionRole(variant.Label) == UniqueItemVersionRole.Current);
+            ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) == UniqueItemVersionRole.Current);
         var primaryVariants = hasCurrentVariant
             ? classifiedVariants
             : item.IsGenerated
@@ -231,11 +271,11 @@ public sealed partial class PoBUniqueCatalogImporter
         var optionIndices = item.Variants
             .Where(variant => !primaryIndices.Contains(variant.Index) &&
                 (!item.IsGenerated ||
-                    ClassifyVersionRole(variant.Label) != UniqueItemVersionRole.Historical))
+                    ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) != UniqueItemVersionRole.Historical))
             .Select(variant => variant.Index)
             .ToHashSet();
         var baseVariantIndices = item.BaseTypes.SelectMany(baseType => baseType.Variants).ToHashSet();
-        var specs = BuildVersionSpecs(item, primaryVariants);
+        var specs = BuildVersionSpecs(item, primaryVariants, hasExplicitCurrentLabel);
 
         foreach (var spec in specs)
         {
@@ -279,6 +319,12 @@ public sealed partial class PoBUniqueCatalogImporter
                 Label = spec.Label,
                 Role = spec.Role,
                 BaseType = spec.BaseType,
+                SourceBaseType = spec.SourceBaseType,
+                CanonicalBaseTypeKey = spec.CanonicalBaseTypeKey,
+                BaseTypeNormalizationRule = spec.BaseTypeNormalizationRule,
+                RePoeBaseItemIds = spec.RePoeBaseItemIds,
+                RoleDecisionReason = spec.RoleDecisionReason,
+                VariantDecisionReason = spec.VariantDecisionReason,
                 ModifierBlocks = blocks,
                 SourceObservationIds = [item.ObservationId!],
             };
@@ -287,25 +333,34 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static IReadOnlyList<VersionSpec> BuildVersionSpecs(
         ParsedSourceItem item,
-        IReadOnlyList<SourceVariant> primaryVariants)
+        IReadOnlyList<SourceVariant> primaryVariants,
+        bool hasExplicitCurrentLabel)
     {
         if (primaryVariants.Count > 0)
         {
-            return primaryVariants.Select(variant => new VersionSpec(
-                    variant.Label,
-                    ClassifyVersionRole(variant.Label) is { } role &&
-                        role != UniqueItemVersionRole.Unknown
-                            ? role
-                            : UniqueItemVersionRole.Current,
-                    variant.Index,
-                    SelectBaseType(item.BaseTypes, variant.Index)))
+            return primaryVariants.Select(variant =>
+                {
+                    var role = ClassifyVersionRoleEvidence(variant.Label, hasExplicitCurrentLabel);
+                    var baseType = SelectBaseType(item.BaseTypes, variant.Index);
+                    return VersionSpecFor(
+                        variant.Label,
+                        role.Role == UniqueItemVersionRole.Unknown
+                            ? UniqueItemVersionRole.Current
+                            : role.Role,
+                        variant.Index,
+                        baseType,
+                        role.Role == UniqueItemVersionRole.Unknown
+                            ? "No explicit current/history marker exists; the pinned non-generated PoB alternative is retained as a simultaneous current definition."
+                            : role.Reason,
+                        "Source variant label is retained as a distinct version observation.");
+                })
                 .ToArray();
         }
 
         var variantBases = item.BaseTypes
             .SelectMany(baseType => baseType.Variants.Select(variantIndex => new
             {
-                BaseType = baseType.Text,
+                BaseType = baseType,
                 VariantIndex = variantIndex,
             }))
             .ToArray();
@@ -313,29 +368,53 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             return
             [
-                new VersionSpec(
+                VersionSpecFor(
                     "Observed",
                     UniqueItemVersionRole.Current,
-                    VariantIndex: null,
-                    item.BaseTypes[0].Text),
+                    variantIndex: null,
+                    item.BaseTypes[0],
+                    "No version label exists in the pinned source; the sole evaluated non-generated observation is current.",
+                    item.IsGenerated
+                        ? "Generated/special option evidence remains on the evaluated observation for E5 family modeling."
+                        : "The source contains one observed definition."),
             ];
         }
 
-        return variantBases.Select(baseVariant => new VersionSpec(
-                $"Observed: {baseVariant.BaseType}",
+        return variantBases.Select(baseVariant => VersionSpecFor(
+                $"Observed: {baseVariant.BaseType.Text}",
                 UniqueItemVersionRole.Current,
                 baseVariant.VariantIndex,
-                baseVariant.BaseType))
+                baseVariant.BaseType,
+                "No explicit current/history marker exists; the pinned non-generated base alternative is retained as current.",
+                "The source base directive is retained as a distinct simultaneous current alternative."))
             .ToArray();
     }
 
-    private static string SelectBaseType(
+    private static VersionSpec VersionSpecFor(
+        string label,
+        UniqueItemVersionRole role,
+        int? variantIndex,
+        SourceBaseType baseType,
+        string roleDecisionReason,
+        string variantDecisionReason) => new(
+            label,
+            role,
+            variantIndex,
+            baseType.Text,
+            baseType.SourceText,
+            baseType.CanonicalKey,
+            baseType.NormalizationRule,
+            baseType.RePoeBaseItemIds,
+            roleDecisionReason,
+            variantDecisionReason);
+
+    private static SourceBaseType SelectBaseType(
         IReadOnlyList<SourceBaseType> baseTypes,
         int variantIndex)
     {
-        return baseTypes.FirstOrDefault(baseType => baseType.Variants.Contains(variantIndex))?.Text ??
-            baseTypes.FirstOrDefault(baseType => baseType.Variants.Count == 0)?.Text ??
-            baseTypes[0].Text;
+        return baseTypes.FirstOrDefault(baseType => baseType.Variants.Contains(variantIndex)) ??
+            baseTypes.FirstOrDefault(baseType => baseType.Variants.Count == 0) ??
+            baseTypes[0];
     }
 
     private static bool IsApplicable(
@@ -1172,7 +1251,7 @@ public sealed partial class PoBUniqueCatalogImporter
 
         var baseTypes = new List<SourceBaseType>
         {
-            new(firstBaseType, firstBaseVariants),
+            UnresolvedBaseType(firstBaseType, firstBaseVariants),
         };
         var contentStart = baseIndex + 1;
         while (contentStart < lines.Count &&
@@ -1183,7 +1262,7 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 break;
             }
-            baseTypes.Add(new SourceBaseType(baseType, baseVariants));
+            baseTypes.Add(UnresolvedBaseType(baseType, baseVariants));
             contentStart++;
         }
 
@@ -1291,15 +1370,56 @@ public sealed partial class PoBUniqueCatalogImporter
                 ? UniqueItemKind.FoulbornObserved
                 : UniqueItemKind.Ordinary;
 
-    private static UniqueItemVersionRole ClassifyVersionRole(string label) =>
-        label.Equals("Current", StringComparison.OrdinalIgnoreCase) ||
-        label.StartsWith("Current ", StringComparison.OrdinalIgnoreCase) ||
-        label.EndsWith(" Current", StringComparison.OrdinalIgnoreCase)
-            ? UniqueItemVersionRole.Current
-            : label.Contains("Pre ", StringComparison.OrdinalIgnoreCase) ||
-              label.Contains("Legacy", StringComparison.OrdinalIgnoreCase)
-                ? UniqueItemVersionRole.Historical
-                : UniqueItemVersionRole.Unknown;
+    private static UniqueItemVersionRole ClassifyVersionRole(
+        string label,
+        bool hasExplicitCurrentSibling) =>
+        ClassifyVersionRoleEvidence(label, hasExplicitCurrentSibling).Role;
+
+    private static VersionRoleEvidence ClassifyVersionRoleEvidence(
+        string label,
+        bool hasExplicitCurrentSibling)
+    {
+        if (label.Equals("Current", StringComparison.OrdinalIgnoreCase) ||
+            label.StartsWith("Current ", StringComparison.OrdinalIgnoreCase) ||
+            label.EndsWith(" Current", StringComparison.OrdinalIgnoreCase))
+        {
+            return new VersionRoleEvidence(
+                UniqueItemVersionRole.Current,
+                "The pinned PoB variant label explicitly marks this observation Current.");
+        }
+
+        if (HistoricalVersionMarkerPattern().IsMatch(label) ||
+            label.Contains("Legacy", StringComparison.OrdinalIgnoreCase))
+        {
+            return new VersionRoleEvidence(
+                UniqueItemVersionRole.Historical,
+                "The pinned PoB variant label explicitly uses a Pre/Legacy history marker.");
+        }
+
+        if (hasExplicitCurrentSibling && BareVersionLabelPattern().IsMatch(label))
+        {
+            return new VersionRoleEvidence(
+                UniqueItemVersionRole.Historical,
+                "The pinned PoB variant label is a bare historical patch identifier and the source provides a separate explicit Current observation.");
+        }
+
+        return new VersionRoleEvidence(
+            UniqueItemVersionRole.Unknown,
+            "The pinned PoB variant label has no explicit current/history marker.");
+    }
+
+    private static string CanonicalIdentityKey(string name, UniqueItemKind kind) =>
+        $"{kind.ToString().ToLowerInvariant()}|{UniqueSourceIdentityNormalizer.NormalizeKey(name)}";
+
+    private static SourceBaseType UnresolvedBaseType(
+        string sourceText,
+        IReadOnlyList<int> variants) => new(
+            sourceText,
+            sourceText,
+            UniqueSourceIdentityNormalizer.NormalizeKey(sourceText),
+            "unresolved-source-base-text-v1",
+            [],
+            variants);
 
     private static bool TryReadString(JsonElement element, string property, out string value)
     {
@@ -1342,11 +1462,23 @@ public sealed partial class PoBUniqueCatalogImporter
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespacePattern();
 
+    [GeneratedRegex(@"(?:^|[\s(])Pre(?:[\s.]|$)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex HistoricalVersionMarkerPattern();
+
+    [GeneratedRegex(@"^\d+\.\d+(?:\.\d+)?$", RegexOptions.CultureInvariant)]
+    private static partial Regex BareVersionLabelPattern();
+
     [GeneratedRegex(@"\{\d+\}", RegexOptions.CultureInvariant)]
     private static partial Regex UnresolvedPlaceholderPattern();
 
     private sealed record IdentityKey(string Name, UniqueItemKind Kind);
-    private sealed record SourceBaseType(string Text, IReadOnlyList<int> Variants);
+    private sealed record SourceBaseType(
+        string Text,
+        string SourceText,
+        string CanonicalKey,
+        string NormalizationRule,
+        IReadOnlyList<string> RePoeBaseItemIds,
+        IReadOnlyList<int> Variants);
     private sealed record SourceVariant(int Index, string Label);
     private sealed record SourceEffectLine(string Text, IReadOnlyList<int> Variants);
     private sealed record SelectedEffectLine(string Text, bool HasGeneratedOptionEvidence);
@@ -1354,7 +1486,16 @@ public sealed partial class PoBUniqueCatalogImporter
         string Label,
         UniqueItemVersionRole Role,
         int? VariantIndex,
-        string BaseType);
+        string BaseType,
+        string SourceBaseType,
+        string CanonicalBaseTypeKey,
+        string BaseTypeNormalizationRule,
+        IReadOnlyList<string> RePoeBaseItemIds,
+        string RoleDecisionReason,
+        string VariantDecisionReason);
+    private sealed record VersionRoleEvidence(
+        UniqueItemVersionRole Role,
+        string Reason);
     private sealed record MechanicalCandidate(
         string ModifierId,
         IReadOnlyList<string> StatIds,
@@ -1655,6 +1796,79 @@ public sealed partial class PoBUniqueCatalogImporter
     private sealed record BaseMechanicalCapability(
         bool HasWeaponProperties,
         bool HasDefenceProperties);
+
+    private sealed class BaseIdentityIndex
+    {
+        private readonly IReadOnlyDictionary<string, ItemBaseRecord[]> byExactName;
+        private readonly IReadOnlyDictionary<string, ItemBaseRecord[]> byCanonicalKey;
+
+        public BaseIdentityIndex(IReadOnlyList<ItemBaseRecord> baseItems)
+        {
+            var usable = baseItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id) && !string.IsNullOrWhiteSpace(item.Name))
+                .ToArray();
+            byExactName = usable
+                .GroupBy(item => item.Name!.Trim(), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            byCanonicalKey = usable
+                .GroupBy(item => UniqueSourceIdentityNormalizer.NormalizeKey(item.Name!), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        }
+
+        public SourceBaseType Resolve(
+            SourceBaseType source,
+            string sourcePath,
+            List<ImportDiagnostic> diagnostics)
+        {
+            if (byExactName.TryGetValue(source.SourceText, out var exact))
+            {
+                return Resolved(source, source.SourceText, exact, UniqueSourceIdentityNormalizer.ExactRule);
+            }
+
+            if (!byCanonicalKey.TryGetValue(source.CanonicalKey, out var normalized))
+            {
+                return source;
+            }
+
+            var canonicalNames = normalized
+                .Select(item => item.Name!.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+            if (canonicalNames.Length != 1)
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.PoBUniqueBaseNormalizationCollision,
+                    ImportDiagnosticSeverity.Error,
+                    sourcePath,
+                    $"PoB base '{source.SourceText}' maps to colliding current RePoE base names under canonical key '{source.CanonicalKey}': {string.Join(", ", canonicalNames)}."));
+                return source;
+            }
+
+            return Resolved(
+                source,
+                canonicalNames[0],
+                normalized.Where(item => string.Equals(item.Name?.Trim(), canonicalNames[0], StringComparison.Ordinal)),
+                UniqueSourceIdentityNormalizer.CanonicalRule);
+        }
+
+        private static SourceBaseType Resolved(
+            SourceBaseType source,
+            string canonicalName,
+            IEnumerable<ItemBaseRecord> records,
+            string rule) => source with
+            {
+                Text = canonicalName,
+                CanonicalKey = UniqueSourceIdentityNormalizer.NormalizeKey(canonicalName),
+                NormalizationRule = rule,
+                RePoeBaseItemIds = records
+                    .Select(item => item.Id!.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray(),
+            };
+    }
+
     private sealed record ParsedSourceItem(
         string Name,
         IReadOnlyList<SourceBaseType> BaseTypes,

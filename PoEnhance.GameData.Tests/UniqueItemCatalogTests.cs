@@ -208,6 +208,63 @@ public sealed class UniqueItemCatalogTests
             error.Code == GameDataValidationErrorCodes.UniqueFoulbornRelationshipConflict);
     }
 
+    [Fact]
+    public void Validate_CollisionFreeFoulbornIdentityAlias_WithCompleteEvidence_IsValid()
+    {
+        var package = CreateFoulbornPackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items) with
+        {
+            CanonicalName = "Mjölner",
+            CanonicalIdentityKey = "ordinary|mjolner",
+        };
+        var relationship = Assert.Single(catalog.FoulbornModifierRelationships) with
+        {
+            ItemName = "Mjolner",
+            CanonicalItemName = "Mjölner",
+            CanonicalIdentityKey = "ordinary|mjolner",
+            IdentityNormalizationRule = "unicode-form-d-casefold-diacritic-punctuation-v1",
+            IdentityLinkageEvidence = "Pinned source evidence resolves one identity.",
+            CurrentHistoryDecisionReason = "The relationship applies only to explicit current observations.",
+            UniqueItemId = identity.Id,
+        };
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items = [identity],
+                FoulbornModifierRelationships = [relationship],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.True(result.IsValid, string.Join(Environment.NewLine, result.Errors));
+    }
+
+    [Fact]
+    public void Validate_DistinctIdentitiesSharingCanonicalKey_FailsClosed()
+    {
+        var package = CreateFoulbornPackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var first = Assert.Single(catalog.Items) with { CanonicalIdentityKey = "ordinary|test item" };
+        var second = first with
+        {
+            Id = "unique:test-collision",
+            CanonicalName = "Tést Item",
+            Versions = first.Versions.Select(version => version with { Id = "unique-version:test-collision" }).ToArray(),
+        };
+        package = package with
+        {
+            UniqueItems = catalog with { Items = [first, second] },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueCatalogIdentityCollision);
+    }
+
     private static GameDataPackage CreatePackage()
     {
         var package = GameDataPackageFixtures.CreateDevelopmentPackage();

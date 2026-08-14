@@ -19,4 +19,14 @@ public sealed record UniqueCatalogSourceObservation
     public UniqueItemKind ObservedKind { get; init; }
 
     public string? RawEntrySha256 { get; init; }
+
+    public string? ObservedName { get; init; }
+
+    public IReadOnlyList<string> ObservedBaseTypes { get; init; } = [];
+
+    public string? CanonicalIdentityKey { get; init; }
+
+    public string? IdentityNormalizationRule { get; init; }
+
+    public string? IdentityDecisionReason { get; init; }
 }

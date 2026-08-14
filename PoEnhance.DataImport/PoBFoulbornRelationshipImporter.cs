@@ -103,11 +103,29 @@ public sealed class PoBFoulbornRelationshipImporter
                 continue;
             }
 
-            var identities = uniqueItems.Items
+            var exactIdentities = uniqueItems.Items
                 .Where(identity =>
                     identity.Kind == UniqueItemKind.Ordinary &&
                     string.Equals(identity.CanonicalName, itemName, StringComparison.Ordinal))
                 .ToArray();
+            var normalizedItemKey = UniqueSourceIdentityNormalizer.NormalizeKey(itemName);
+            var identities = exactIdentities.Length > 0
+                ? exactIdentities
+                : uniqueItems.Items
+                    .Where(identity =>
+                        identity.Kind == UniqueItemKind.Ordinary &&
+                        !string.IsNullOrWhiteSpace(identity.CanonicalName) &&
+                        string.Equals(
+                            identity.CanonicalIdentityKey ??
+                                $"ordinary|{UniqueSourceIdentityNormalizer.NormalizeKey(identity.CanonicalName)}",
+                            $"ordinary|{normalizedItemKey}",
+                            StringComparison.Ordinal))
+                    .ToArray();
+            var identityNormalizationRule = exactIdentities.Length > 0
+                ? UniqueSourceIdentityNormalizer.ExactRule
+                : identities.Length == 1
+                    ? UniqueSourceIdentityNormalizer.CanonicalRule
+                    : "unresolved-source-identity-v1";
 
             foreach (var relationProperty in itemProperty.Value.EnumerateObject())
             {
@@ -213,6 +231,19 @@ public sealed class PoBFoulbornRelationshipImporter
                         foulbornModifierId,
                         sourceObservationId),
                     ItemName = itemName,
+                    CanonicalItemName = identity?.CanonicalName,
+                    CanonicalIdentityKey = identity?.CanonicalIdentityKey ??
+                        (identity?.CanonicalName is null
+                            ? $"ordinary|{normalizedItemKey}"
+                            : $"ordinary|{UniqueSourceIdentityNormalizer.NormalizeKey(identity.CanonicalName)}"),
+                    IdentityNormalizationRule = identityNormalizationRule,
+                    IdentityLinkageEvidence = identity is null
+                        ? "No collision-free ordinary identity linkage was proven from the pinned PoB relationship map and Unique catalog."
+                        : exactIdentities.Length == 1
+                            ? "Exact item display text links the pinned PoB relationship map to one ordinary Unique identity."
+                            : "The relationship map and Unique catalog are from the same pinned PoB commit; their canonical Unicode/diacritic/punctuation key links to exactly one ordinary identity without a collision.",
+                    CurrentHistoryDecisionReason =
+                        "The pinned Foulborn replacement map is linked only to the ordinary identity's explicit current-role observations; historical observations are excluded.",
                     UniqueItemId = identity?.Id,
                     NormalModifierId = normalModifierId,
                     FoulbornModifierId = foulbornModifierId,

@@ -114,6 +114,12 @@ public static class GameDataPackageValidator
         var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (source, index) in catalog.SourceObservations.Select((value, index) => (value, index)))
         {
+            var hasIdentityProvenance = source is not null &&
+                (!string.IsNullOrWhiteSpace(source.ObservedName) ||
+                    source.ObservedBaseTypes.Count > 0 ||
+                    !string.IsNullOrWhiteSpace(source.CanonicalIdentityKey) ||
+                    !string.IsNullOrWhiteSpace(source.IdentityNormalizationRule) ||
+                    !string.IsNullOrWhiteSpace(source.IdentityDecisionReason));
             if (source is null ||
                 string.IsNullOrWhiteSpace(source.Id) ||
                 !sourceIds.Add(source.Id.Trim()) ||
@@ -126,7 +132,14 @@ public static class GameDataPackageValidator
                 string.IsNullOrWhiteSpace(source.SourcePath) ||
                 source.ObservedKind == UniqueItemKind.Unknown ||
                 source.RawEntrySha256 is not { Length: 64 } ||
-                !source.RawEntrySha256.All(Uri.IsHexDigit))
+                !source.RawEntrySha256.All(Uri.IsHexDigit) ||
+                hasIdentityProvenance &&
+                (string.IsNullOrWhiteSpace(source.ObservedName) ||
+                    source.ObservedBaseTypes.Count == 0 ||
+                    source.ObservedBaseTypes.Any(string.IsNullOrWhiteSpace) ||
+                    string.IsNullOrWhiteSpace(source.CanonicalIdentityKey) ||
+                    string.IsNullOrWhiteSpace(source.IdentityNormalizationRule) ||
+                    string.IsNullOrWhiteSpace(source.IdentityDecisionReason)))
             {
                 errors.Add(Error(
                     GameDataValidationErrorCodes.UniqueCatalogSourceInvalid,
@@ -136,6 +149,7 @@ public static class GameDataPackageValidator
         }
 
         var identityIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var canonicalIdentityKeys = new Dictionary<string, UniqueItemIdentity>(StringComparer.Ordinal);
         var identityBlockIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var identitiesById = new Dictionary<string, UniqueItemIdentity>(StringComparer.OrdinalIgnoreCase);
         foreach (var (identity, identityIndex) in catalog.Items.Select((value, index) => (value, index)))
@@ -160,6 +174,20 @@ public static class GameDataPackageValidator
             }
 
             identitiesById[identity.Id.Trim()] = identity;
+            if (!string.IsNullOrWhiteSpace(identity.CanonicalIdentityKey) &&
+                canonicalIdentityKeys.TryGetValue(identity.CanonicalIdentityKey.Trim(), out var existingIdentity) &&
+                (!string.Equals(existingIdentity.CanonicalName, identity.CanonicalName, StringComparison.Ordinal) ||
+                    existingIdentity.Kind != identity.Kind))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.UniqueCatalogIdentityCollision,
+                    $"{identityPath}.canonicalIdentityKey",
+                    "A canonical Unique identity key maps to multiple distinct identities."));
+            }
+            else if (!string.IsNullOrWhiteSpace(identity.CanonicalIdentityKey))
+            {
+                canonicalIdentityKeys[identity.CanonicalIdentityKey.Trim()] = identity;
+            }
             var allIdentityBlockIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             identityBlockIds[identity.Id.Trim()] = allIdentityBlockIds;
 
@@ -167,6 +195,13 @@ public static class GameDataPackageValidator
             foreach (var (version, versionIndex) in identity.Versions.Select((value, index) => (value, index)))
             {
                 var versionPath = $"{identityPath}.versions[{versionIndex}]";
+                var hasSourceDecisionProvenance = version is not null &&
+                    (!string.IsNullOrWhiteSpace(version.SourceBaseType) ||
+                        !string.IsNullOrWhiteSpace(version.CanonicalBaseTypeKey) ||
+                        !string.IsNullOrWhiteSpace(version.BaseTypeNormalizationRule) ||
+                        version.RePoeBaseItemIds.Count > 0 ||
+                        !string.IsNullOrWhiteSpace(version.RoleDecisionReason) ||
+                        !string.IsNullOrWhiteSpace(version.VariantDecisionReason));
                 if (version is null ||
                     string.IsNullOrWhiteSpace(version.Id) ||
                     !versionIds.Add(version.Id.Trim()) ||
@@ -174,7 +209,14 @@ public static class GameDataPackageValidator
                     version.Role == UniqueItemVersionRole.Unknown ||
                     string.IsNullOrWhiteSpace(version.BaseType) ||
                     version.SourceObservationIds.Count == 0 ||
-                    version.SourceObservationIds.Any(id => !sourceIds.Contains(id)))
+                    version.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
+                    hasSourceDecisionProvenance &&
+                    (string.IsNullOrWhiteSpace(version.SourceBaseType) ||
+                        string.IsNullOrWhiteSpace(version.CanonicalBaseTypeKey) ||
+                        string.IsNullOrWhiteSpace(version.BaseTypeNormalizationRule) ||
+                        version.RePoeBaseItemIds.Any(string.IsNullOrWhiteSpace) ||
+                        string.IsNullOrWhiteSpace(version.RoleDecisionReason) ||
+                        string.IsNullOrWhiteSpace(version.VariantDecisionReason)))
                 {
                     errors.Add(Error(
                         GameDataValidationErrorCodes.UniqueCatalogVersionInvalid,
@@ -320,7 +362,7 @@ public static class GameDataPackageValidator
             {
                 UniqueFoulbornModifierRelationshipStatus.Exact =>
                     hasIdentity &&
-                    string.Equals(identity!.CanonicalName, itemName, StringComparison.Ordinal) &&
+                    HasValidExactFoulbornIdentityLink(relationship, identity!, itemName) &&
                     normalModifierExists &&
                     foulbornModifierExists &&
                     string.IsNullOrWhiteSpace(relationship.DiagnosticCode) &&
@@ -338,6 +380,25 @@ public static class GameDataPackageValidator
                     "Foulborn relationship status and current-catalog references are inconsistent."));
             }
         }
+    }
+
+    private static bool HasValidExactFoulbornIdentityLink(
+        UniqueFoulbornModifierRelationship relationship,
+        UniqueItemIdentity identity,
+        string sourceItemName)
+    {
+        if (string.Equals(identity.CanonicalName, sourceItemName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(relationship.CanonicalItemName) &&
+            string.Equals(relationship.CanonicalItemName.Trim(), identity.CanonicalName?.Trim(), StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(relationship.CanonicalIdentityKey) &&
+            string.Equals(relationship.CanonicalIdentityKey.Trim(), identity.CanonicalIdentityKey?.Trim(), StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(relationship.IdentityNormalizationRule) &&
+            !string.IsNullOrWhiteSpace(relationship.IdentityLinkageEvidence) &&
+            !string.IsNullOrWhiteSpace(relationship.CurrentHistoryDecisionReason);
     }
 
     private static bool IsValidUniqueMechanicalMapping(

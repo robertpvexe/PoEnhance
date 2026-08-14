@@ -15,15 +15,15 @@ public sealed class GameDataDistributionWorkflowTests
         var package = root.GetProperty("package");
 
         Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("3.29.1.2.2-unique-stage-e3", package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-08-13T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(161874564, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal("3.29.1.2.2-unique-stage-e4", package.GetProperty("dataVersion").GetString());
+        Assert.Equal("2026-08-14T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(164455254, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "581d4da8122eedbf07b9ae976d4b2d7c946c9c9c4dc101186972a8e761b1d924",
+            "c1fa6d02208727149669fb5dbca2dba4bd3b254f4ecbd2f89a8c9a6e5b4c42b7",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
-        Assert.Equal(349, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
-        Assert.Equal(4, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
+        Assert.Equal(351, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
+        Assert.Equal(2, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
 
         Assert.Equal(
             "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",

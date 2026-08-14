@@ -113,7 +113,7 @@ building or publishing the application:
 Set-Location D:\Projects\PoEnhance
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-GameData.ps1
 dotnet build .\PoEnhance.slnx --configuration Release --no-restore
-$expected = '581D4DA8122EEDBF07B9AE976D4B2D7C946C9C9C4DC101186972A8E761B1D924'
+$expected = 'C1FA6D02208727149669FB5DBCA2DBA4BD3B254F4ECBD2F89A8C9A6E5B4C42B7'
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath '.\PoEnhance.App\bin\Release\net10.0-windows\poenhance-game-data.json').Hash
 if ($actual -ne $expected) { throw "Unexpected packaged GameData hash: $actual" }
 ```
@@ -124,7 +124,7 @@ content-addressed RePoE hosted-export commits, and Path of Building tag `v2.67.2
 every input hash; evaluates the PoB Unique catalog; and calls the existing source-guarded
 `Refresh-GameData.ps1` pipeline twice with the fixed package timestamp. Both packages must be
 byte-identical to validated SHA-256
-`581D4DA8122EEDBF07B9AE976D4B2D7C946C9C9C4DC101186972A8E761B1D924` before the script
+`C1FA6D02208727149669FB5DBCA2DBA4BD3B254F4ECBD2F89A8C9A6E5B4C42B7` before the script
 atomically activates one at `artifacts/poenhance-game-data.json`.
 
 Regular `dotnet build`, application startup, and publishing do not fetch data. The application

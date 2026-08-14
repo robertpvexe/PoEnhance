@@ -146,6 +146,7 @@ public static class GameDataValidationErrorCodes
     public const string PackageFoulbornRelationshipsRequired = "package.foulbornRelationships.required";
     public const string UniqueCatalogSourceInvalid = "uniqueItems.source.invalid";
     public const string UniqueCatalogIdentityInvalid = "uniqueItems.identity.invalid";
+    public const string UniqueCatalogIdentityCollision = "uniqueItems.identity.canonicalKey.collision";
     public const string UniqueCatalogVersionInvalid = "uniqueItems.version.invalid";
     public const string UniqueCatalogBlockInvalid = "uniqueItems.block.invalid";
     public const string UniqueCatalogReferenceUnknown = "uniqueItems.reference.unknown";

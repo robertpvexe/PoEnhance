@@ -32,7 +32,7 @@ $currentSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Current'
 $historicalSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Historical'
 $pobSourceRoot = Join-Path $env:TEMP 'PoEnhance-PoB-v2.67.2-b32759a'
 $hostedExportRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-Hosted-GameData'
-# This legacy-named compatibility root is serialized in the manually validated E3 package.
+# This legacy-named compatibility root is serialized in the manually validated package lineage.
 # Retain it until a future stage deliberately changes the package identity.
 $reproductionRoot = Join-Path $repoRoot 'artifacts\stage-e2-reproduction'
 $currentDataRoot = Join-Path $reproductionRoot 'current-export-extract\data'
@@ -338,7 +338,7 @@ Assert-PackageContract $secondContract 'Second reproduced package'
 
 $artifactsDirectory = [System.IO.Path]::GetDirectoryName($activeArtifact)
 [System.IO.Directory]::CreateDirectory($artifactsDirectory) | Out-Null
-$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e3.tmp'
+$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e4.tmp'
 if (Test-Path -LiteralPath $stagedActive) { Remove-Item -LiteralPath $stagedActive }
 [System.IO.File]::Copy($secondPackage, $stagedActive, $false)
 Move-Item -LiteralPath $stagedActive -Destination $activeArtifact -Force
@@ -362,7 +362,7 @@ $verification = [ordered]@{
     activeArtifact = $activeArtifact
     activeArtifactSha256 = $activeHash.ToLowerInvariant()
 }
-$verificationPath = Join-Path $reproductionRoot 'stage-e3-setup-verification.json'
+$verificationPath = Join-Path $reproductionRoot 'stage-e4-setup-verification.json'
 [System.IO.File]::WriteAllText(
     $verificationPath,
     ($verification | ConvertTo-Json -Depth 5),

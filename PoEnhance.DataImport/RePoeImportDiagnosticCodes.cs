@@ -53,6 +53,8 @@ public static class RePoeImportDiagnosticCodes
     public const string PoBUniqueJsonMalformed = "POB_UNIQUE_JSON_MALFORMED";
     public const string PoBUniqueSchemaUnsupported = "POB_UNIQUE_SCHEMA_UNSUPPORTED";
     public const string PoBUniqueRecordUnsupported = "POB_UNIQUE_RECORD_UNSUPPORTED";
+    public const string PoBUniqueIdentityNormalizationCollision = "POB_UNIQUE_IDENTITY_NORMALIZATION_COLLISION";
+    public const string PoBUniqueBaseNormalizationCollision = "POB_UNIQUE_BASE_NORMALIZATION_COLLISION";
     public const string PoBFoulbornFileNotFound = "POB_FOULBORN_FILE_NOT_FOUND";
     public const string PoBFoulbornJsonMalformed = "POB_FOULBORN_JSON_MALFORMED";
     public const string PoBFoulbornSchemaUnsupported = "POB_FOULBORN_SCHEMA_UNSUPPORTED";
