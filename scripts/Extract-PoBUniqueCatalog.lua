@@ -25,6 +25,24 @@ local function extract()
 	LoadModule("Modules/Common")
 	LoadModule("Modules/CalcFormat")
 	LoadModule("Modules/Data")
+	LoadModule("Modules/ModTools")
+
+	-- PoB appends passive-tree-dependent generated Uniques from the PassiveTree
+	-- constructor. Evaluate the same pinned current-tree path before enumerating the
+	-- catalog so those source definitions retain their generated option axes.
+	local originalNewImageHandle = NewImageHandle
+	local originalMain = main
+	NewImageHandle = function()
+		return {
+			Load = function() end,
+			ImageSize = function() return 4096, 4096 end,
+		}
+	end
+	main = launch
+	data.setJewelRadiiGlobally(latestTreeVersion)
+	new("PassiveTree", latestTreeVersion)
+	NewImageHandle = originalNewImageHandle
+	main = originalMain
 
 	local entries = { }
 	for uniqueType, rawItems in pairs(data.uniques) do

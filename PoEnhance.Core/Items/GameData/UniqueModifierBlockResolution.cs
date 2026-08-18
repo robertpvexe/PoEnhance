@@ -28,6 +28,12 @@ public sealed record UniqueModifierBlockResolution
 
     public IReadOnlyList<string> CanonicalSignatures { get; init; } = [];
 
+    public UniqueModifierSourceSemantics SourceSemantics { get; init; }
+
+    public IReadOnlyList<string> CandidatePoolMembershipIds { get; init; } = [];
+
+    public IReadOnlyList<string> TextualOptionRangeAnnotations { get; init; } = [];
+
     public IReadOnlyList<string> SourceObservationIds { get; init; } = [];
 
     /// <summary>

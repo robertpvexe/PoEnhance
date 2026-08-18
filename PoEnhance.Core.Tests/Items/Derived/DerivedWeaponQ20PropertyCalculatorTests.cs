@@ -54,9 +54,96 @@ public sealed class DerivedWeaponQ20PropertyCalculatorTests
             ]);
 
         Assert.Equal(DerivedWeaponQ20Status.Success, result.Q20Status);
-        Assert.Equal(60m, result.PhysicalDamage!.Ranges[0].SourceGroup.MinimumValue);
-        Assert.Equal(180m, result.PhysicalDamage.Ranges[0].SourceGroup.MaximumValue);
-        Assert.Equal(144m, result.PhysicalDps);
+        Assert.Equal(62m, result.PhysicalDamage!.Ranges[0].SourceGroup.MinimumValue);
+        Assert.Equal(187m, result.PhysicalDamage.Ranges[0].SourceGroup.MaximumValue);
+        Assert.Equal(149.4m, result.PhysicalDps);
+        Assert.Equal(2, result.Q20Provenance!.ModifierContributions.Count);
+    }
+
+    [Fact]
+    public void CalculateQ20_WeaponQualityMultipliesAfterLocalPhysicalIncrease()
+    {
+        var baseItem = ReaverAxe() with
+        {
+            WeaponProperties = ReaverAxe().WeaponProperties! with
+            {
+                PhysicalDamageMinimum = 4,
+                PhysicalDamageMaximum = 11,
+            },
+        };
+
+        var result = calculator.CalculateQ20(
+            Weapon(quality: 20, physical: "14-49", aps: "1.60"),
+            baseItem,
+            [
+                Effect(
+                    "flat",
+                    [2m, 10m],
+                    ItemPropertyOperation.Added,
+                    ["local_minimum_added_physical_damage", "local_maximum_added_physical_damage"]),
+                Effect(
+                    "percent",
+                    [94m],
+                    ItemPropertyOperation.IncreasedPercent,
+                    ["local_physical_damage_+%"]),
+            ]);
+
+        Assert.Equal(DerivedWeaponQ20Status.Success, result.Q20Status);
+        Assert.Equal(
+            13.968m,
+            DerivedWeaponPropertyCalculator.CalculateUnroundedPhysicalEndpoint(6m, 94m, 20m));
+        Assert.Equal(
+            48.888m,
+            DerivedWeaponPropertyCalculator.CalculateUnroundedPhysicalEndpoint(21m, 94m, 20m));
+        Assert.Equal(14m, result.PhysicalDamage!.Ranges[0].SourceGroup.MinimumValue);
+        Assert.Equal(49m, result.PhysicalDamage.Ranges[0].SourceGroup.MaximumValue);
+        Assert.Equal(50.4m, result.PhysicalDps);
+        Assert.Equal(50.4m, result.TotalDps);
+        Assert.Collection(
+            result.Q20Provenance!.ModifierContributions,
+            flat => Assert.Equal([2m, 10m], flat.CanonicalNumericValues),
+            increased => Assert.Equal([94m], increased.CanonicalNumericValues));
+    }
+
+    [Theory]
+    [InlineData(0, 12, 41)]
+    [InlineData(10, 13, 45)]
+    [InlineData(20, 14, 49)]
+    public void PhysicalEndpoint_QualityUsesItsOwnActualMultiplicativeFactor(
+        int quality,
+        int expectedMinimum,
+        int expectedMaximum)
+    {
+        Assert.Equal(
+            expectedMinimum,
+            DerivedWeaponPropertyCalculator.CalculatePhysicalEndpoint(6m, 94m, quality));
+        Assert.Equal(
+            expectedMaximum,
+            DerivedWeaponPropertyCalculator.CalculatePhysicalEndpoint(21m, 94m, quality));
+    }
+
+    [Fact]
+    public void CalculateQ20_IndependentLocalPhysicalIncreasesAddBeforeQualityMultiplication()
+    {
+        var result = calculator.CalculateQ20(
+            Weapon(),
+            ReaverAxe(),
+            [
+                Effect(
+                    "percent-a",
+                    [30m],
+                    ItemPropertyOperation.IncreasedPercent,
+                    ["local_physical_damage_+%"]),
+                Effect(
+                    "percent-b",
+                    [20m],
+                    ItemPropertyOperation.IncreasedPercent,
+                    ["local_physical_damage_+%"]),
+            ]);
+
+        Assert.Equal(68m, result.PhysicalDamage!.Ranges[0].SourceGroup.MinimumValue);
+        Assert.Equal(205m, result.PhysicalDamage.Ranges[0].SourceGroup.MaximumValue);
+        Assert.Equal(163.8m, result.PhysicalDps);
         Assert.Equal(2, result.Q20Provenance!.ModifierContributions.Count);
     }
 

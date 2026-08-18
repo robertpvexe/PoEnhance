@@ -724,15 +724,80 @@ public sealed partial class ItemTextParser
             }
 
             var cleanedLine = RemoveTerminalUnscalableValue(line, out var hasUnscalableValue);
-            effects.Add(new PendingModifierEffect(cleanedLine, hasUnscalableValue));
+            var textualOptionRange = TrySeparateTextualOptionRange(
+                cleanedLine,
+                out var semanticText);
+            effects.Add(new PendingModifierEffect(
+                line,
+                cleanedLine,
+                semanticText,
+                textualOptionRange,
+                hasUnscalableValue));
         }
 
         return effects
             .Select(effect => new ParsedModifierEffect(
                 effect.Text,
                 effect.ReminderLines.ToArray(),
-                effect.HasUnscalableValue))
+                effect.HasUnscalableValue)
+            {
+                RawText = effect.RawText,
+                SemanticText = effect.SemanticText,
+                TextualOptionRange = effect.TextualOptionRange,
+            })
             .ToArray();
+    }
+
+    private static ParsedTextualOptionRange? TrySeparateTextualOptionRange(
+        string line,
+        out string semanticText)
+    {
+        semanticText = line;
+        if (line.Length < 5)
+        {
+            return null;
+        }
+
+        var candidates = new List<(int Start, int Length, string Text)>();
+        for (var openingIndex = 1; openingIndex < line.Length - 2; openingIndex++)
+        {
+            if (line[openingIndex] != '(' || char.IsWhiteSpace(line[openingIndex - 1]))
+            {
+                continue;
+            }
+
+            var closingIndex = line.IndexOf(')', openingIndex + 1);
+            if (closingIndex < 0)
+            {
+                continue;
+            }
+
+            var annotation = line[(openingIndex + 1)..closingIndex];
+            var hyphenIndex = annotation.IndexOf('-');
+            if (annotation.Length > 0 &&
+                !annotation.Contains('(') &&
+                !annotation.Contains(')') &&
+                hyphenIndex > 0 &&
+                annotation[..hyphenIndex].Any(char.IsLetter) &&
+                annotation[(hyphenIndex + 1)..].Any(char.IsLetter))
+            {
+                candidates.Add((
+                    openingIndex,
+                    closingIndex - openingIndex + 1,
+                    annotation));
+            }
+
+            openingIndex = closingIndex;
+        }
+
+        if (candidates.Count != 1)
+        {
+            return null;
+        }
+
+        var candidate = candidates[0];
+        semanticText = line.Remove(candidate.Start, candidate.Length);
+        return new ParsedTextualOptionRange(candidate.Text);
     }
 
     private static bool IsReminderLine(string line)
@@ -1355,7 +1420,12 @@ public sealed partial class ItemTextParser
         public List<string> ValueLines { get; } = [];
     }
 
-    private sealed record PendingModifierEffect(string Text, bool HasUnscalableValue)
+    private sealed record PendingModifierEffect(
+        string RawText,
+        string Text,
+        string SemanticText,
+        ParsedTextualOptionRange? TextualOptionRange,
+        bool HasUnscalableValue)
     {
         public List<string> ReminderLines { get; } = [];
     }

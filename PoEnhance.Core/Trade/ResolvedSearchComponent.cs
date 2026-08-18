@@ -17,8 +17,14 @@ public sealed record ResolvedSearchComponent
     public string OriginalText { get; init; } = string.Empty;
 
     /// <summary>
+    /// Complete copied text before terminal Advanced Copy metadata or textual option-range
+    /// annotations are separated for semantic matching.
+    /// </summary>
+    public string RawCopiedText { get; init; } = string.Empty;
+
+    /// <summary>
     /// Optional display-only text derived from catalog-backed export cleanup. The original
-    /// clipboard text remains authoritative in <see cref="OriginalText"/> and provenance.
+    /// clipboard text remains authoritative in <see cref="RawCopiedText"/> and provenance.
     /// </summary>
     public string? PresentationText { get; init; }
 
@@ -77,6 +83,16 @@ public sealed record ResolvedSearchComponent
     public IReadOnlyList<string> ProviderSearchSignatures { get; init; } = [];
 
     public IReadOnlyList<string> UniqueCatalogBlockIds { get; init; } = [];
+
+    public UniqueModifierSourceSemantics UniqueSourceSemantics { get; init; }
+
+    public IReadOnlyList<string> UniqueCandidatePoolMembershipIds { get; init; } = [];
+
+    /// <summary>
+    /// Parser-separated textual option-range annotations accepted only after exact generated
+    /// candidate resolution. These are proof metadata and never provider filter identities.
+    /// </summary>
+    public IReadOnlyList<string> UniqueTextualOptionRangeAnnotations { get; init; } = [];
 
     public IReadOnlyList<string> UniqueFoulbornRelationshipIds { get; init; } = [];
 

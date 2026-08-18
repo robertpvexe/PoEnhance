@@ -143,6 +143,97 @@ public sealed class UniqueItemCatalogTests
     }
 
     [Fact]
+    public void Validate_GeneratedCandidateWithoutPoolMembership_FailsClosed()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                GeneratedCandidateSelectionLimit = 1,
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        SourceSemantics =
+                                            UniqueModifierSourceSemantics.GeneratedCandidate,
+                                        CandidatePoolMembershipIds = [],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_GeneratedCandidate_PreservesPoolMembershipAndSelectionLimit()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                GeneratedCandidateSelectionLimit = 2,
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        SourceSemantics =
+                                            UniqueModifierSourceSemantics.GeneratedCandidate,
+                                        CandidatePoolMembershipIds = ["pob-generated-candidate:test"],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var roundTripped = Assert.IsType<GameDataPackage>(
+            GameDataPackageJson.Deserialize(GameDataPackageJson.Serialize(package)));
+
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+        var retainedVersion = Assert.Single(Assert.Single(roundTripped.UniqueItems!.Items).Versions);
+        Assert.Equal(2, retainedVersion.GeneratedCandidateSelectionLimit);
+        var retainedBlock = Assert.Single(retainedVersion.ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, retainedBlock.SourceSemantics);
+        Assert.Equal(["pob-generated-candidate:test"], retainedBlock.CandidatePoolMembershipIds);
+    }
+
+    [Fact]
     public void JsonRoundTrip_SchemaThreeRelationship_PreservesDirectionalProvenance()
     {
         var package = CreateFoulbornPackage();

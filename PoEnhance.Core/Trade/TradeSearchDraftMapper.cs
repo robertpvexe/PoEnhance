@@ -46,7 +46,8 @@ public sealed class TradeSearchDraftMapper
         var derivedDefensiveProperties = derivedPropertyCalculator.CalculateDefensiveQ20(
             parsedItem,
             itemBaseResolution?.MatchedItemBase,
-            CreateDerivedWeaponModifierEffects(aggregation.Components));
+            DerivedWeaponModifierEffectProjector.ProjectSourcesIndependently(
+                aggregation.Components));
         var itemProperties = CreateItemProperties(derivedWeaponProperties, derivedDefensiveProperties);
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
             itemProperties,
@@ -454,49 +455,7 @@ public sealed class TradeSearchDraftMapper
     private static IReadOnlyList<DerivedWeaponModifierEffect> CreateDerivedWeaponModifierEffects(
         IReadOnlyList<ResolvedSearchComponent> components)
     {
-        return components
-            .SelectMany(component => component.Sources.Count > 0
-                ? component.Sources.Select(source => new DerivedWeaponModifierEffect
-                {
-                    ComponentId = source.ComponentId,
-                    SourceModifierIndex = source.SourceModifierIndex,
-                    ResolvedModifierId = source.ResolvedModifierId,
-                    IsExactlyResolved = !string.IsNullOrWhiteSpace(source.ResolvedModifierId),
-                    IsLocal = source.Locality == ModifierLocality.Local,
-                    HasProvenStatAssociation = source.StatMappingProof is
-                        ModifierStatMappingProofStatus.ProvenExact or
-                        ModifierStatMappingProofStatus.WholeVector,
-                    UsesPositionalFallback = source.StatMappingProof ==
-                        ModifierStatMappingProofStatus.PositionalFallback,
-                    ResolvedStatIds = source.ResolvedStatIds,
-                    CanonicalNumericValues = source.CanonicalNumericValues.Count > 0
-                        ? source.CanonicalNumericValues
-                        : source.ObservedNumericValues,
-                    ReviewedItemPropertySemantic = source.ReviewedItemPropertySemantic,
-                })
-                :
-                [
-                    new DerivedWeaponModifierEffect
-                    {
-                        ComponentId = component.ComponentId,
-                        SourceModifierIndex = component.SourceModifierIndex,
-                        ResolvedModifierId = component.ResolvedModifierId,
-                        IsExactlyResolved = component.ResolutionStatus ==
-                            ModifierCandidateResolutionStatus.Exact,
-                        IsLocal = component.Locality == ModifierLocality.Local,
-                        HasProvenStatAssociation = component.StatMappingProof is
-                            ModifierStatMappingProofStatus.ProvenExact or
-                            ModifierStatMappingProofStatus.WholeVector,
-                        UsesPositionalFallback = component.StatMappingProof ==
-                            ModifierStatMappingProofStatus.PositionalFallback,
-                        ResolvedStatIds = component.ResolvedStatIds,
-                        CanonicalNumericValues = component.CanonicalNumericValues.Count > 0
-                            ? component.CanonicalNumericValues
-                            : component.ObservedNumericValues,
-                        ReviewedItemPropertySemantic = component.ReviewedItemPropertySemantic,
-                    },
-                ])
-            .ToArray();
+        return DerivedWeaponModifierEffectProjector.Project(components);
     }
 
     private static TradeSearchDraftResult Unsupported(string message)
@@ -926,16 +885,28 @@ public sealed class TradeSearchDraftMapper
             exactCandidate is null ? null : translationRecognition);
         var hasUnscalableValue = sourceLineIndex >= 0 &&
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.HasUnscalableValue == true;
+        var hasProvenGeneratedTextualOptionRange = hasUnscalableValue &&
+            uniqueBlockResolution is
+            {
+                IsResolved: true,
+                SourceSemantics: UniqueModifierSourceSemantics.GeneratedCandidate,
+                CandidatePoolMembershipIds.Count: > 0,
+                TextualOptionRangeAnnotations.Count: > 0,
+            } &&
+            modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.TextualOptionRange is not null;
+        var treatAsUnscalablePresence = hasUnscalableValue &&
+            !hasProvenGeneratedTextualOptionRange;
         var providerOnlyUniqueValues = modifier.Kind == ParsedModifierKind.Unique &&
             (boundCandidate is null || boundDefault.Shape == ModifierBoundShape.Unsupported) &&
             componentLines.Count == 1
                 ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
                 : [];
-        var hasProviderOnlyUniqueScalar = !hasUnscalableValue && providerOnlyUniqueValues.Count == 1;
-        var supportsValueBounds = !hasUnscalableValue &&
+        var hasProviderOnlyUniqueScalar = !treatAsUnscalablePresence &&
+            providerOnlyUniqueValues.Count == 1;
+        var supportsValueBounds = !treatAsUnscalablePresence &&
             (boundDefault.IsSupported || hasProviderOnlyUniqueScalar);
         var providerOnlyUniqueDirection = ModifierBoundDirection.Minimum;
-        var valueBoundShape = hasUnscalableValue
+        var valueBoundShape = treatAsUnscalablePresence
             ? ModifierBoundShape.PresenceOnly
             : hasProviderOnlyUniqueScalar
                 ? ModifierBoundShape.Scalar
@@ -977,6 +948,10 @@ public sealed class TradeSearchDraftMapper
             SourceLineIndex = sourceLineIndex,
             SourceComponentIndex = sourceComponentIndex,
             OriginalText = string.Join(Environment.NewLine, componentLines),
+            RawCopiedText = sourceLineIndex >= 0
+                ? modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.RawText ??
+                    string.Join(Environment.NewLine, componentLines)
+                : string.Join(Environment.NewLine, modifier.Effects.Select(effect => effect.RawText)),
             PresentationText = uniqueBlockResolution?.PresentationLines.Count > 0
                 ? string.Join(Environment.NewLine, uniqueBlockResolution.PresentationLines)
                 : null,
@@ -1036,6 +1011,12 @@ public sealed class TradeSearchDraftMapper
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Cast<string>()
                 .ToArray() ?? [],
+            UniqueSourceSemantics = uniqueBlockResolution?.SourceSemantics ??
+                UniqueModifierSourceSemantics.Fixed,
+            UniqueCandidatePoolMembershipIds =
+                uniqueBlockResolution?.CandidatePoolMembershipIds ?? [],
+            UniqueTextualOptionRangeAnnotations =
+                uniqueBlockResolution?.TextualOptionRangeAnnotations ?? [],
             UniqueFoulbornRelationshipIds = uniqueBlockResolution?.FoulbornRelationshipIds ?? [],
             UniqueNormalCounterpartModifierIds = uniqueBlockResolution?.NormalCounterpartModifierIds ?? [],
             UniqueSourceObservationIds = uniqueBlockResolution?.SourceObservationIds ?? [],
@@ -1049,7 +1030,7 @@ public sealed class TradeSearchDraftMapper
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
             SupportsValueBounds = supportsValueBounds,
-            ValueBoundsUnsupportedReason = hasUnscalableValue
+            ValueBoundsUnsupportedReason = treatAsUnscalablePresence
                 ? "The copied modifier is a presence-only value and has no numeric Trade bound."
                 : hasProviderOnlyUniqueScalar
                     ? null
@@ -1060,12 +1041,12 @@ public sealed class TradeSearchDraftMapper
                         : "Official Trade must prove whether this Unique modifier is presence-only."
                 : boundDefault.UnsupportedReason,
             ValueBoundShape = valueBoundShape,
-            ObservedNumericValues = hasUnscalableValue ? [] : observedNumericValues,
-            OriginalSourceRollRanges = hasUnscalableValue
+            ObservedNumericValues = treatAsUnscalablePresence ? [] : observedNumericValues,
+            OriginalSourceRollRanges = treatAsUnscalablePresence
                 ? []
                 : ModifierBoundDefaults.ExtractOriginalSourceRollRanges(componentLines),
-            CanonicalNumericValues = hasUnscalableValue ? [] : canonicalNumericValues,
-            ProviderFallbackNumericValues = hasUnscalableValue ? [] : providerFallbackNumericValues,
+            CanonicalNumericValues = treatAsUnscalablePresence ? [] : canonicalNumericValues,
+            ProviderFallbackNumericValues = treatAsUnscalablePresence ? [] : providerFallbackNumericValues,
             ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,

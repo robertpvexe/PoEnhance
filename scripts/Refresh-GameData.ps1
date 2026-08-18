@@ -14,14 +14,16 @@ Exact current RePoE Git checkout used only to verify SourceCommit and retain pro
 
 .PARAMETER SourceDataRoot
 Directory containing current base_items.json, mods.json, stats.json,
-stat_translations.json, item_classes.json, tags.json, and mods_by_base.json.
+stat_translations.json, item_classes.json, tags.json, and mods_by_base.json. Its normalized
+absolute path is serialized as package provenance, so validated byte-identical workflows must
+recreate the same compatibility path from pinned inputs rather than reuse prior candidate data.
 
 .PARAMETER HistoricalSourceRoot
 Exact historical RePoE Git checkout used only to verify HistoricalSourceCommit.
 
 .PARAMETER HistoricalSourceDataRoot
 Directory containing historical base_items.json, mods.json, stats.json, and
-stat_translations.json.
+stat_translations.json. Its normalized absolute path is also serialized as provenance.
 
 .PARAMETER OutputDirectory
 Deterministic candidate output directory. It must not be the repository artifacts directory.

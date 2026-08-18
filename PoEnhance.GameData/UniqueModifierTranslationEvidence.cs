@@ -16,4 +16,10 @@ public sealed record UniqueModifierTranslationEvidence
     public IReadOnlyList<string> DefaultedStatIds { get; init; } = [];
 
     public IReadOnlyList<StatTranslationCondition> Conditions { get; init; } = [];
+
+    /// <summary>
+    /// RePoE translation handlers aligned to the retained stat indices. Dynamic handlers are
+    /// structured option-axis evidence; their rendered option remains copied-instance data.
+    /// </summary>
+    public IReadOnlyList<StatTranslationIndexHandler> IndexHandlers { get; init; } = [];
 }

@@ -9,6 +9,77 @@ namespace PoEnhance.Core.Tests.Items.GameData;
 public sealed partial class UniqueCandidateRuntimeTests
 {
     [Fact]
+    public async Task Candidate_TrueAdvancedCopyTextualOptionRange_PreservesGeneratedIdentityAndCopiedLevels()
+    {
+        var candidatePath = Environment.GetEnvironmentVariable("POENHANCE_UNIQUE_CANDIDATE");
+        if (string.IsNullOrWhiteSpace(candidatePath) || !File.Exists(candidatePath))
+        {
+            return;
+        }
+
+        var load = await GameDataPackageLoader.LoadFromFileAsync(candidatePath);
+        var package = Assert.IsType<GameDataPackage>(load.Package);
+        var catalog = GameDataCatalog.FromPackage(package);
+        var parsed = ParseRaw(TrueAdvancedCopyTextualOptionRange);
+
+        Assert.Collection(
+            parsed.UniqueModifiers,
+            endurance =>
+            {
+                var effect = Assert.Single(endurance.Effects);
+                Assert.True(effect.HasUnscalableValue);
+                Assert.EndsWith(" — Unscalable Value", effect.RawText, StringComparison.Ordinal);
+                Assert.Equal(
+                    "Socketed Gems are Supported by Level 10(1-10) Endurance Charge on Melee Stun",
+                    effect.SemanticText);
+                Assert.Equal("Greater Multiple Projectiles-Hallow", effect.TextualOptionRange?.Text);
+                Assert.Equal([10m], ModifierBoundDefaults.ExtractObservedValues(effect.Text));
+            },
+            inspiration =>
+            {
+                var effect = Assert.Single(inspiration.Effects);
+                Assert.True(effect.HasUnscalableValue);
+                Assert.EndsWith(" — Unscalable Value", effect.RawText, StringComparison.Ordinal);
+                Assert.Equal(
+                    "Socketed Gems are Supported by Level 26(25-35) Inspiration",
+                    effect.SemanticText);
+                Assert.Equal("Greater Multiple Projectiles-Hallow", effect.TextualOptionRange?.Text);
+                Assert.Equal([26m], ModifierBoundDefaults.ExtractObservedValues(effect.Text));
+            });
+
+        var resolution = Resolve(catalog, TrueAdvancedCopyTextualOptionRange);
+        Assert.Collection(
+            resolution.ModifierBlocks,
+            endurance =>
+            {
+                Assert.True(endurance.IsResolved, endurance.Diagnostic);
+                Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, endurance.SourceSemantics);
+                Assert.Single(endurance.CandidatePoolMembershipIds);
+                Assert.Equal(
+                    "Socketed Gems are Supported by Level (1-10) Endurance Charge on Melee Stun",
+                    Assert.Single(endurance.CatalogBlocks).Lines[0]);
+            },
+            inspiration =>
+            {
+                Assert.True(inspiration.IsResolved, inspiration.Diagnostic);
+                Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, inspiration.SourceSemantics);
+                Assert.Single(inspiration.CandidatePoolMembershipIds);
+                Assert.Equal(
+                    "Socketed Gems are Supported by Level (25-35) Inspiration",
+                    Assert.Single(inspiration.CatalogBlocks).Lines[0]);
+            });
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        Assert.Collection(
+            draft.ModifierFilters,
+            endurance => AssertGeneratedNumericLevel(endurance, 10m),
+            inspiration => AssertGeneratedNumericLevel(inspiration, 26m));
+    }
+
+    [Fact]
     public async Task Candidate_RepresentativeRawUniquePathsResolveAndFailClosed()
     {
         var candidatePath = Environment.GetEnvironmentVariable("POENHANCE_UNIQUE_CANDIDATE");
@@ -68,7 +139,11 @@ public sealed partial class UniqueCandidateRuntimeTests
                 """),
             modifierResolutions: [],
             gameDataCatalog: catalog).Draft);
-        Assert.True(Assert.Single(dragonfangDraft.ModifierFilters).IsSearchable);
+        var dragonfangComponent = Assert.Single(dragonfangDraft.ModifierFilters);
+        Assert.True(dragonfangComponent.IsSearchable);
+        Assert.Equal(3m, dragonfangComponent.RequestedMinimum);
+        Assert.Null(dragonfangComponent.RequestedMaximum);
+        Assert.Equal(ModifierBoundShape.Scalar, dragonfangComponent.ValueBoundShape);
 
         var foulbornRaw = """
             Item Class: Wands
@@ -209,6 +284,25 @@ public sealed partial class UniqueCandidateRuntimeTests
         Assert.True(Assert.Single(resolution.ModifierBlocks).IsResolved);
     }
 
+    private static void AssertGeneratedNumericLevel(ResolvedSearchComponent component, decimal expectedLevel)
+    {
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, component.UniqueSourceSemantics);
+        Assert.Single(component.UniqueCandidatePoolMembershipIds);
+        Assert.Equal(["Greater Multiple Projectiles-Hallow"], component.UniqueTextualOptionRangeAnnotations);
+        Assert.EndsWith(" — Unscalable Value", component.RawCopiedText, StringComparison.Ordinal);
+        Assert.NotEmpty(component.Sources);
+        Assert.All(component.Sources, source => Assert.EndsWith(
+            " — Unscalable Value",
+            source.RawCopiedText,
+            StringComparison.Ordinal));
+        Assert.Equal([expectedLevel], component.ObservedNumericValues);
+        Assert.Equal([expectedLevel], component.CanonicalNumericValues);
+        Assert.Equal(expectedLevel, component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.True(component.SupportsValueBounds);
+    }
+
     private static UniqueItemResolutionResult Resolve(GameDataCatalog catalog, string raw)
     {
         var parsed = new ItemTextParser().Parse(raw);
@@ -282,6 +376,20 @@ public sealed partial class UniqueCandidateRuntimeTests
         line,
         match => $"{match.Groups["sign"].Value}{match.Groups["minimum"].Value}" +
             $"({match.Groups["minimum"].Value}-{match.Groups["maximum"].Value})");
+
+    private const string TrueAdvancedCopyTextualOptionRange = """
+Item Class: Helmets
+Rarity: Unique
+Forbidden Shako
+Great Crown
+--------
+Item Level: 86
+--------
+{ Unique Modifier — Gem }
+Socketed Gems are Supported by Level 10(1-10) Endurance Charge on Melee Stun(Greater Multiple Projectiles-Hallow) — Unscalable Value
+{ Unique Modifier — Gem }
+Socketed Gems are Supported by Level 26(25-35) Inspiration(Greater Multiple Projectiles-Hallow) — Unscalable Value
+""";
 
     [GeneratedRegex(@"(?<sign>[+-]?)\(\s*(?<minimum>[+-]?\d+(?:[\.,]\d+)?)\s*-\s*(?<maximum>[+-]?\d+(?:[\.,]\d+)?)\s*\)")]
     private static partial Regex SourceRangePattern();

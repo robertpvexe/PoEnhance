@@ -23,4 +23,6 @@ public sealed record DerivedWeaponModifierEffect
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
 
     public ItemPropertySemanticDescriptor? ReviewedItemPropertySemantic { get; init; }
+
+    public string? CanonicalizationUnsupportedReason { get; init; }
 }

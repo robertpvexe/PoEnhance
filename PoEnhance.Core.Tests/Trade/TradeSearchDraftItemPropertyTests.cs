@@ -228,6 +228,128 @@ Item Level: 85
         Assert.All(aggregate.Contributors, contributor => Assert.False(contributor.IsSelected));
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void CreateDraft_EquivalentSourceAlternativesContributeOneCanonicalMechanicalEffect(
+        int alternativeCount)
+    {
+        var item = parser.Parse("""
+Item Class: One Hand Axes
+Rarity: Rare
+Alternative Edge
+Reaver Axe
+--------
+Physical Damage: 88-265 (augmented)
+Attacks per Second: 1.20
+--------
+Item Level: 85
+--------
+{ Prefix Modifier "Reaver's" (Tier: 1) - Damage, Physical, Attack }
+94% increased Physical Damage
+""");
+        var catalog = TradeSearchModifierSemanticProvenanceTests.ReviewedWeaponCatalog();
+        var canonicalSource = Assert.Single(catalog.Modifiers, modifier => modifier.Id == "reavers");
+        var alternatives = Enumerable.Range(0, alternativeCount)
+            .Select(index => canonicalSource with { Id = $"equivalent-source-{index}" })
+            .ToArray();
+        var parsedModifier = Assert.Single(item.Modifiers);
+        var resolution = new ModifierCandidateResolutionResult(
+            0,
+            parsedModifier,
+            parsedModifier.Name,
+            parsedModifier.Kind,
+            ModifierGenerationType.Prefix,
+            ModifierCandidateResolutionStatus.Exact,
+            alternatives,
+            [],
+            Locality: ModifierLocality.Local);
+
+        var draft = CreateDraft(item, [resolution], catalog);
+
+        var component = Assert.Single(draft.ModifierFilters);
+        Assert.True(component.IsEquivalentSourceSet);
+        Assert.Equal(alternativeCount, component.Sources.Count);
+        Assert.All(component.Sources, source =>
+        {
+            Assert.Equal(component.ResolvedStatIds, source.ResolvedStatIds);
+            Assert.Equal([94m], source.CanonicalNumericValues);
+            Assert.Equal(component.ReviewedItemPropertySemantic, source.ReviewedItemPropertySemantic);
+        });
+        Assert.Equal(211.8m, Property(draft, TradeSearchItemPropertyKind.PhysicalDps).ObservedValue);
+    }
+
+    [Fact]
+    public void EquivalentSourceProjection_DisagreeingCanonicalMechanicsFailClosedForQ20()
+    {
+        var semantic = new ItemPropertySemanticDescriptor
+        {
+            Id = "test.local-physical-percent",
+            OrderedStatIds = ["local_physical_damage_percent"],
+            Contributions =
+            [
+                new ItemPropertyContribution
+                {
+                    Operation = ItemPropertyOperation.IncreasedPercent,
+                    Targets = [ItemPropertyTarget.PhysicalDamage],
+                },
+            ],
+            Applicability = ItemPropertyApplicability.UnconditionalDisplayedLocal,
+        };
+        SearchComponentSourceProvenance Source(string id, decimal value) => new()
+        {
+            ComponentId = "modifier:0:0",
+            ResolvedModifierId = id,
+            Locality = ModifierLocality.Local,
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ResolvedStatIds = ["local_physical_damage_percent"],
+            CanonicalNumericValues = [value],
+            ReviewedItemPropertySemantic = semantic,
+        };
+        var component = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            Locality = ModifierLocality.Local,
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            ResolvedStatIds = ["local_physical_damage_percent"],
+            CanonicalNumericValues = [94m],
+            ReviewedItemPropertySemantic = semantic,
+            IsEquivalentSourceSet = true,
+            Sources = [Source("alternative-a", 94m), Source("alternative-b", 95m)],
+        };
+
+        var effect = Assert.Single(DerivedWeaponModifierEffectProjector.Project([component]));
+        var result = new DerivedWeaponPropertyCalculator().CalculateQ20(
+            parser.Parse("""
+Item Class: One Hand Axes
+Rarity: Rare
+Conflict Edge
+Reaver Axe
+--------
+Physical Damage: 81-244 (augmented)
+Attacks per Second: 1.20
+"""),
+            new ItemBaseRecord
+            {
+                Id = "test-base",
+                WeaponProperties = new ItemBaseWeaponProperties
+                {
+                    PhysicalDamageMinimum = 38,
+                    PhysicalDamageMaximum = 114,
+                    Sources = [new GameDataSourceReference { SourceId = "test" }],
+                },
+            },
+            [effect]);
+
+        Assert.NotNull(effect.CanonicalizationUnsupportedReason);
+        Assert.Equal(DerivedWeaponQ20Status.Unsupported, result.Q20Status);
+        Assert.Null(result.PhysicalDps);
+        Assert.Equal(
+            effect.CanonicalizationUnsupportedReason,
+            Assert.IsType<DerivedWeaponQ20Provenance>(result.Q20Provenance).UnsupportedReason);
+    }
+
     [Fact]
     public void TradeSearchDraft_RecordCopyUsesAnImmutableItemPropertyCollection()
     {

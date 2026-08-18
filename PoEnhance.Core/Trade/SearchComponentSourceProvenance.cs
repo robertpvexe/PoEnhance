@@ -16,6 +16,11 @@ public sealed record SearchComponentSourceProvenance
 
     public string OriginalText { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Complete copied source text before Advanced Copy metadata is separated.
+    /// </summary>
+    public string RawCopiedText { get; init; } = string.Empty;
+
     public string CanonicalSignature { get; init; } = string.Empty;
 
     public ParsedModifierKind ParsedKind { get; init; }

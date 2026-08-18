@@ -15,15 +15,15 @@ public sealed class GameDataDistributionWorkflowTests
         var package = root.GetProperty("package");
 
         Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("3.29.1.2.2-unique-stage-e4", package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-08-14T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(164455254, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal("3.29.1.2.2-unique-stage-e5", package.GetProperty("dataVersion").GetString());
+        Assert.Equal("2026-08-14T18:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(171556723, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "c1fa6d02208727149669fb5dbca2dba4bd3b254f4ecbd2f89a8c9a6e5b4c42b7",
+            "326db7d0603aee938bab9a347473aab6410021aa38bbb23a2c07310f686067f6",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
-        Assert.Equal(351, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
-        Assert.Equal(2, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
+        Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
+        Assert.Equal(0, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
 
         Assert.Equal(
             "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
@@ -41,6 +41,9 @@ public sealed class GameDataDistributionWorkflowTests
             "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
             root.GetProperty("pathOfBuilding").GetProperty("commitSha").GetString());
         Assert.Equal("v2.67.2", root.GetProperty("pathOfBuilding").GetProperty("tag").GetString());
+        Assert.Equal(
+            "9561dabd97efe99f1f4d441e5649687299265737d76ebd96d1989d1fbfa23036",
+            root.GetProperty("pathOfBuilding").GetProperty("evaluatedUniquesSha256").GetString());
     }
 
     [Fact]
@@ -49,6 +52,7 @@ public sealed class GameDataDistributionWorkflowTests
         var script = ReadRepositoryFile("scripts", "Setup-GameData.ps1");
 
         Assert.Contains("Ensure-GitCheckout", script, StringComparison.Ordinal);
+        Assert.Contains("Remove-InvalidDirectTempGitCache", script, StringComparison.Ordinal);
         Assert.Contains("Ensure-HostedExportCheckout", script, StringComparison.Ordinal);
         Assert.Contains("Export-PinnedData", script, StringComparison.Ordinal);
         Assert.Contains("core.autocrlf=false", script, StringComparison.Ordinal);
@@ -56,9 +60,14 @@ public sealed class GameDataDistributionWorkflowTests
         Assert.Contains("Invoke-ReproductionBuild $secondBuildRoot", script, StringComparison.Ordinal);
         Assert.Contains("evaluatedUniquesSha256", script, StringComparison.Ordinal);
         Assert.Contains("foulbornRelationshipCount", script, StringComparison.Ordinal);
+        Assert.Contains("PoEnhance-StageE5-GeneratedSpecial", script, StringComparison.Ordinal);
+        Assert.Contains("candidate-build-1\\source-snapshot", script, StringComparison.Ordinal);
+        Assert.Contains("historical-input", script, StringComparison.Ordinal);
+        Assert.Contains("stage-e5-setup-verification.json", script, StringComparison.Ordinal);
         Assert.Contains("Move-Item -LiteralPath $stagedActive -Destination $activeArtifact -Force", script, StringComparison.Ordinal);
         Assert.DoesNotContain("--game-data", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-WebRequest", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PoEnhance-E5-Shako", script, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -69,6 +78,7 @@ public sealed class GameDataDistributionWorkflowTests
         Assert.Contains("[string]$CreatedAtUtc", script, StringComparison.Ordinal);
         Assert.Contains("'--created-at-utc'", script, StringComparison.Ordinal);
         Assert.Contains("$activeExistedBefore", script, StringComparison.Ordinal);
+        Assert.Contains("absolute path is serialized", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Active GameData artifact is missing", script, StringComparison.Ordinal);
         Assert.Contains("Activation: not performed.", script, StringComparison.Ordinal);
     }

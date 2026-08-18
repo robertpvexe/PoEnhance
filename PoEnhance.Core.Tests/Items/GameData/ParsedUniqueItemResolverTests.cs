@@ -547,6 +547,262 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unmatched.DiagnosticCode);
     }
 
+    [Fact]
+    public void Resolve_GeneratedCandidatePool_SelectsExactAnnotatedRollCandidate()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Generated Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Socketed Gems are Supported by Level 26(25-35) Inspiration
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "inspiration-low",
+                "Socketed Gems are Supported by Level (1-10) Inspiration",
+                "Socketed Gems are Supported by Level <number> Inspiration",
+                "inspiration_stat",
+                "pool:low"),
+            GeneratedEvidenceBlock(
+                "inspiration-high",
+                "Socketed Gems are Supported by Level (25-35) Inspiration",
+                "Socketed Gems are Supported by Level <number> Inspiration",
+                "inspiration_stat",
+                "pool:high")) with
+        {
+            GeneratedCandidateSelectionLimit = 2,
+        };
+        var catalog = CreateCatalog(
+            "Test Generated Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Single(result.CompatibleVersions);
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.True(block.IsResolved);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(["pool:high"], block.CandidatePoolMembershipIds);
+        Assert.Equal(
+            "Socketed Gems are Supported by Level (25-35) Inspiration",
+            Assert.Single(block.CatalogBlocks).Lines[0]);
+    }
+
+    [Fact]
+    public void Resolve_GeneratedCandidatePool_AbsentCandidatesAreNotRequired()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Generated Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +30 to all Attributes
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            EvidenceBlock(
+                "fixed-attributes",
+                "+30 to all Attributes",
+                "+<number> to all Attributes",
+                "attributes_stat"),
+            GeneratedEvidenceBlock(
+                "optional-strength",
+                "+(20-30) to Strength",
+                "+<number> to Strength",
+                "strength_stat",
+                "pool:strength"),
+            GeneratedEvidenceBlock(
+                "optional-dexterity",
+                "+(20-30) to Dexterity",
+                "+<number> to Dexterity",
+                "dexterity_stat",
+                "pool:dexterity")) with
+        {
+            GeneratedCandidateSelectionLimit = 1,
+        };
+        var catalog = CreateCatalog(
+            "Test Generated Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Single(result.CompatibleVersions);
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.True(block.IsResolved);
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, block.SourceSemantics);
+        Assert.DoesNotContain(result.ModifierBlocks.SelectMany(entry => entry.CatalogBlocks),
+            candidate => candidate.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate);
+    }
+
+    [Fact]
+    public void Resolve_UnknownCopiedGeneratedRow_FailsAtCandidatePoolLayer()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Generated Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            This copied generated effect is not in the source pool
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "optional-strength",
+                "+(20-30) to Strength",
+                "+<number> to Strength",
+                "strength_stat",
+                "pool:strength")) with
+        {
+            GeneratedCandidateSelectionLimit = 1,
+        };
+        var catalog = CreateCatalog(
+            "Test Generated Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_GENERATED_CANDIDATE_NOT_FOUND", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_OrdinaryFixedDefinition_CannotBecomeGeneratedPool()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Fixed Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            This copied effect is not in the fixed definition
+            """);
+        var catalog = CreateCatalog("Test Fixed Crown", "Great Crown", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "fixed-strength",
+                    "+(20-30) to Strength",
+                    "+<number> to Strength",
+                    "strength_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_GeneratedSelectionLimit_RejectsImpossibleExcessCandidateCombination()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Generated Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +20 to Strength
+            { Unique Modifier }
+            +20 to Dexterity
+            { Unique Modifier }
+            +20 to Intelligence
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock("strength", "+(20-30) to Strength", "+<number> to Strength",
+                "strength_stat", "pool:strength"),
+            GeneratedEvidenceBlock("dexterity", "+(20-30) to Dexterity", "+<number> to Dexterity",
+                "dexterity_stat", "pool:dexterity"),
+            GeneratedEvidenceBlock("intelligence", "+(20-30) to Intelligence", "+<number> to Intelligence",
+                "intelligence_stat", "pool:intelligence")) with
+        {
+            GeneratedCandidateSelectionLimit = 2,
+        };
+        var catalog = CreateCatalog(
+            "Test Generated Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        Assert.Equal(3, result.ModifierBlocks.Count);
+        Assert.All(result.ModifierBlocks, block =>
+        {
+            Assert.False(block.IsResolved);
+            Assert.Equal("UNIQUE_GENERATED_SELECTION_LIMIT_EXCEEDED", block.DiagnosticCode);
+        });
+    }
+
+    [Fact]
+    public void Resolve_GeneratedSelectionLimit_CountsOneMembershipAcrossSeparateCandidateRows()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Test Generated Jewel
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Requires Class Witch
+            { Unique Modifier }
+            Allocates Test Passive if you have the matching modifier on Test Pair
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "class",
+                "Requires Class Witch",
+                "Requires Class Witch",
+                "class_stat",
+                "pool:witch"),
+            GeneratedEvidenceBlock(
+                "passive",
+                "Allocates Test Passive if you have the matching modifier on Test Pair",
+                "Allocates Test Passive if you have the matching modifier on Test Pair",
+                "passive_stat",
+                "pool:witch")) with
+        {
+            GeneratedCandidateSelectionLimit = 1,
+        };
+        var catalog = CreateCatalog(
+            "Test Generated Jewel",
+            "Crimson Jewel",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Single(result.CompatibleVersions);
+        Assert.Equal(2, result.ModifierBlocks.Count);
+        Assert.All(result.ModifierBlocks, block => Assert.True(block.IsResolved));
+    }
+
     [Theory]
     [InlineData("Pride(Fireball-Mana-Infused Staff) has no Reservation", "Pride has no Reservation")]
     [InlineData("Socketed Gems are Supported by Level 35 Ice Bite(Greater Multiple Projectiles-Hallow)", "Socketed Gems are Supported by Level 35 Ice Bite")]
@@ -567,12 +823,15 @@ public sealed class ParsedUniqueItemResolverTests
             """);
         var catalog = CreateCatalog("Test Dragonflight", "Onyx Amulet", UniqueItemKind.Ordinary,
             Version("Generated", UniqueItemVersionRole.Current,
-                EvidenceBlock(
+                GeneratedEvidenceBlock(
                     "generated-pride",
                     presentationLine,
                     presentationLine,
                     "pride_stat",
-                    "generated-observation:test")),
+                    "pool:generated-pride")) with
+            {
+                GeneratedCandidateSelectionLimit = 1,
+            },
             Version("Non-generated", UniqueItemVersionRole.Historical,
                 EvidenceBlock(
                     "non-generated-pride",
@@ -585,6 +844,8 @@ public sealed class ParsedUniqueItemResolverTests
         var version = Assert.Single(resolution.CompatibleVersions);
         Assert.Equal("Generated", version.Label);
         var block = Assert.Single(resolution.ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Single(block.CandidatePoolMembershipIds);
         Assert.Equal([presentationLine], block.PresentationLines);
 
         var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
@@ -615,12 +876,15 @@ public sealed class ParsedUniqueItemResolverTests
             """);
         var catalog = CreateCatalog("Test Shako", "Great Crown", UniqueItemKind.Ordinary,
             Version("Generated", UniqueItemVersionRole.Current,
-                EvidenceBlock(
+                GeneratedEvidenceBlock(
                     "generated-inspiration",
                     "Socketed Gems are Supported by Level (1-10) Inspiration",
                     "Socketed Gems are Supported by Level <number> Inspiration",
                     "inspiration_stat",
-                    "generated-observation:test")));
+                    "pool:generated-inspiration")) with
+            {
+                GeneratedCandidateSelectionLimit = 1,
+            });
 
         var resolution = resolver.Resolve(parsed, catalog);
 
@@ -638,6 +902,139 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal(rawLine, row.OriginalText);
         Assert.Equal(presentationLine, row.PresentationText);
         Assert.Equal(rawLine, Assert.Single(row.Sources).OriginalText);
+    }
+
+    [Fact]
+    public void Resolve_MeaningfulParentheses_ExactGeneratedTextWinsOverTextualProjection()
+    {
+        const string rawLine = "Selected modifier(Alpha-Omega)";
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "meaningful-parentheses",
+                rawLine,
+                rawLine,
+                "meaningful_stat",
+                "pool:meaningful"),
+            GeneratedEvidenceBlock(
+                "stripped-collision",
+                "Selected modifier",
+                "Selected modifier",
+                "stripped_stat",
+                "pool:stripped")) with
+        {
+            GeneratedCandidateSelectionLimit = 2,
+        };
+        var catalog = CreateCatalog(
+            "Test Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.Equal(["pool:meaningful"], block.CandidatePoolMembershipIds);
+        Assert.Empty(block.PresentationLines);
+        Assert.Empty(block.TextualOptionRangeAnnotations);
+    }
+
+    [Theory]
+    [InlineData("Selected modifier(Alpha)")]
+    [InlineData("Selected modifier(Alpha-)")]
+    [InlineData("Selected modifier(-Omega)")]
+    public void Resolve_MalformedTextualOptionRange_FailsClosed(string rawLine)
+    {
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "semantic-candidate",
+                "Selected modifier",
+                "Selected modifier",
+                "selected_stat",
+                "pool:selected")) with
+        {
+            GeneratedCandidateSelectionLimit = 1,
+        };
+        var catalog = CreateCatalog(
+            "Test Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_GENERATED_CANDIDATE_NOT_FOUND", block.DiagnosticCode);
+        Assert.Empty(block.CandidatePoolMembershipIds);
+        Assert.Empty(block.PresentationLines);
+    }
+
+    [Fact]
+    public void Resolve_TextualOptionRangeProjectionWithMultipleCandidates_FailsAmbiguous()
+    {
+        const string rawLine = "Selected modifier(Alpha-Omega) — Unscalable Value";
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+        var version = Version("Generated", UniqueItemVersionRole.Current,
+            GeneratedEvidenceBlock(
+                "first-semantic-candidate",
+                "Selected modifier",
+                "Selected modifier",
+                "first_stat",
+                "pool:first"),
+            GeneratedEvidenceBlock(
+                "second-semantic-candidate",
+                "Selected modifier",
+                "Selected modifier",
+                "second_stat",
+                "pool:second")) with
+        {
+            GeneratedCandidateSelectionLimit = 2,
+        };
+        var catalog = CreateCatalog(
+            "Test Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_GENERATED_TEXTUAL_OPTION_RANGE_AMBIGUOUS", block.DiagnosticCode);
+        Assert.Empty(block.TextualOptionRangeAnnotations);
     }
 
     private static GameDataCatalog CreateCatalog(
@@ -838,6 +1235,28 @@ public sealed class ParsedUniqueItemResolverTests
             StatIds = [statId],
         },
         SourceObservationIds = [sourceObservationId],
+    };
+
+    private static UniqueModifierBlock GeneratedEvidenceBlock(
+        string id,
+        string line,
+        string canonicalSignature,
+        string statId,
+        string candidatePoolMembershipId) => new()
+    {
+        Id = $"block:{id}",
+        Kind = UniqueModifierBlockKind.Unique,
+        Lines = [line],
+        CanonicalSignatures = [canonicalSignature],
+        SourceSemantics = UniqueModifierSourceSemantics.GeneratedCandidate,
+        CandidatePoolMembershipIds = [candidatePoolMembershipId],
+        MechanicalMapping = new UniqueModifierMechanicalMapping
+        {
+            Status = UniqueModifierMechanicalMappingStatus.Exact,
+            ModifierIds = [$"modifier:{id}"],
+            StatIds = [statId],
+        },
+        SourceObservationIds = ["generated-observation:test"],
     };
 
     private static UniqueModifierBlock MultiBlock() => new()

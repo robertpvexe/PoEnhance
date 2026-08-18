@@ -290,9 +290,27 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Equal([0], translation.ModifierStatIndices);
         Assert.Equal(["local_weapon_no_physical_damage"], translation.DefaultedStatIds);
         Assert.Equal([94m], physical.CanonicalNumericValues);
+        Assert.Equal(12, physical.Sources.Count);
         var filter = MapSingle(runtime.ProviderDraft, physical);
         Assert.Equal(94m, filter.Minimum);
         Assert.Null(filter.Maximum);
+        var displayedPhysical = Assert.Single(runtime.Parsed.Properties, property =>
+            property.NormalizedName == "physical damage");
+        var displayedRange = Assert.Single(displayedPhysical.NumericGroups);
+        Assert.Equal(14m, displayedRange.MinimumValue);
+        Assert.Equal(49m, displayedRange.MaximumValue);
+        Assert.Equal(
+            50.4m,
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.PhysicalDps).ObservedValue);
+        Assert.Equal(
+            50.4m,
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
+        Assert.Equal(
+            1.60m,
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.AttacksPerSecond).ObservedValue);
+        Assert.Equal(
+            8.39m,
+            FindProperty(runtime.ProviderDraft, TradeSearchItemPropertyKind.CriticalStrikeChance).ObservedValue);
     }
 
     [Fact]

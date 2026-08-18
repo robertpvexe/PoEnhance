@@ -138,6 +138,7 @@ internal static partial class CanonicalModifierEffectAggregator
             SourceLineIndex = component.SourceLineIndex,
             SourceComponentIndex = component.SourceComponentIndex,
             OriginalText = component.OriginalText,
+            RawCopiedText = component.RawCopiedText,
             CanonicalSignature = component.CanonicalSignature,
             ParsedKind = component.ParsedKind,
             ImplicitOrigin = component.ImplicitOrigin,

@@ -85,6 +85,9 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<UniqueModifierBlockKind>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<UniqueModifierSourceSemantics>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
         options.Converters.Add(new JsonStringEnumConverter<UniqueModifierMechanicalMappingStatus>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));

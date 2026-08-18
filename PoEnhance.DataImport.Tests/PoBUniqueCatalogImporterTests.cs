@@ -897,8 +897,11 @@ public sealed class PoBUniqueCatalogImporterTests
         });
     }
 
-    [Fact]
-    public void Import_GeneratedDisplayIndexedMechanic_UsesEvaluatedConcreteTextAndUniqueStatVector()
+    [Theory]
+    [InlineData("display_indexable_skill")]
+    [InlineData("passive_hash")]
+    public void Import_GeneratedStructuredOptionMechanic_UsesEvaluatedConcreteTextAndUniqueStatVector_WhenModifierStatsAreReversed(
+        string structuredHandler)
     {
         var dynamicModifiers = new ModifierDefinition[]
         {
@@ -914,16 +917,16 @@ public sealed class PoBUniqueCatalogImporterTests
                     new ModifierStat
                     {
                         Index = 0,
-                        StatId = "random_skill_level",
-                        MinValue = 3,
-                        MaxValue = 3,
+                        StatId = "random_skill_index",
+                        MinValue = 1,
+                        MaxValue = 287,
                     },
                     new ModifierStat
                     {
                         Index = 1,
-                        StatId = "random_skill_index",
-                        MinValue = 1,
-                        MaxValue = 287,
+                        StatId = "random_skill_level",
+                        MinValue = 3,
+                        MaxValue = 3,
                     },
                 ],
             },
@@ -950,7 +953,7 @@ public sealed class PoBUniqueCatalogImporterTests
                             new StatTranslationIndexHandler
                             {
                                 Index = 1,
-                                Handlers = ["display_indexable_skill"],
+                                Handlers = [structuredHandler],
                             },
                         ],
                         FormatLines = ["+{0} to Level of all {1} Gems"],
@@ -975,7 +978,220 @@ public sealed class PoBUniqueCatalogImporterTests
         var block = Assert.Single(Assert.Single(Assert.Single(catalog.Items).Versions).ModifierBlocks);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
         Assert.Equal(["unique.random-skill"], block.MechanicalMapping.ModifierIds);
-        Assert.Equal(["random_skill_level", "random_skill_index"], block.MechanicalMapping.StatIds);
+        Assert.Equal(["random_skill_index", "random_skill_level"], block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Contains(provenance.Translations.SelectMany(evidence => evidence.IndexHandlers),
+            handler => handler.Handlers.Contains(structuredHandler));
+    }
+
+    [Fact]
+    public void Import_GeneratedPassiveHashOption_ResolvesExactCurrentUniqueMechanic()
+    {
+        var result = ImportSingle(
+            """
+                Test Generated Jewel
+                Crimson Jewel
+                Variant: Test Passive
+                Implicits: 0
+                {variant:1}Allocates Test Passive if you have the matching modifier on Test Pair
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier("unique.passive-option", "unique_passive_hash", 1, 1, "unique"),
+                Modifier("generic.passive-option", "generic_passive_hash", 0, 0, "unique"),
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "passive-option",
+                    StatIds = ["unique_passive_hash"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["passive_hash"],
+                                },
+                            ],
+                            FormatLines =
+                            [
+                                "Allocates {0} if you have the matching modifier on Test Pair",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "generic-passive-option",
+                    StatIds = ["generic_passive_hash"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["passive_hash"],
+                                },
+                            ],
+                            FormatLines = ["Allocates {0}"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/Test",
+                    Name = "Crimson Jewel",
+                    Domain = "misc",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.passive-option"], block.MechanicalMapping.ModifierIds);
+        Assert.Contains(block.MechanicalMapping.Provenance!.Translations.SelectMany(evidence => evidence.IndexHandlers),
+            handler => handler.Handlers.Contains("passive_hash"));
+    }
+
+    [Fact]
+    public void Import_GeneratedCandidatePool_PreservesFixedBlocksAndDistinctRollCandidates()
+    {
+        var result = ImportSingle(
+            """
+                Test Generated Crown
+                Great Crown
+                Selected Variant: 2
+                Variant: Low
+                Variant: High
+                Implicits: 0
+                +30 to all Attributes
+                {variant:1}Socketed Gems are Supported by Level (1-10) Inspiration
+                {variant:2}Socketed Gems are Supported by Level (25-35) Inspiration
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier("unique.attributes", "all_attributes", 30, 30, "unique"),
+                Modifier("unique.inspiration.low", "inspiration_level", 1, 10, "unique"),
+                Modifier("unique.inspiration.high", "inspiration_level", 25, 35, "unique"),
+            ],
+            translations:
+            [
+                Translation("attributes", "all_attributes", "{0} to all Attributes", "+#"),
+                Translation("inspiration", "inspiration_level",
+                    "Socketed Gems are Supported by Level {0} Inspiration", "#"),
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(1, version.GeneratedCandidateSelectionLimit);
+        Assert.Equal(3, version.ModifierBlocks.Count);
+        var fixedBlock = Assert.Single(version.ModifierBlocks, block =>
+            block.SourceSemantics == UniqueModifierSourceSemantics.Fixed);
+        Assert.Empty(fixedBlock.CandidatePoolMembershipIds);
+        var candidates = version.ModifierBlocks
+            .Where(block => block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate)
+            .OrderBy(block => block.Lines[0], StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(2, candidates.Length);
+        Assert.Equal(2, candidates.Select(block => block.Id).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(candidates, block => Assert.Single(block.CandidatePoolMembershipIds));
+        Assert.NotEqual(
+            candidates[0].CandidatePoolMembershipIds[0],
+            candidates[1].CandidatePoolMembershipIds[0]);
+    }
+
+    [Fact]
+    public void Import_NonGeneratedMixedAxis_MarksOnlyOptionVariantAsGeneratedCandidate()
+    {
+        var result = ImportSingle(
+            """
+                Test Mixed Gloves
+                Steelscale Gauntlets
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Current
+                Variant: Socket Option
+                Implicits: 0
+                {variant:1}(5-10)% increased Attack Speed
+                {variant:2}Has 2 Abyssal Sockets
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.attack-speed", "attack_speed", 5, 10, "unique"),
+                Modifier("unique.sockets", "abyssal_sockets", 2, 2, "unique"),
+            ],
+            translations:
+            [
+                Translation("attack-speed", "attack_speed", "{0}% increased Attack Speed", "#"),
+                Translation("sockets", "abyssal_sockets", "Has {0} Abyssal Sockets", "#"),
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(1, version.GeneratedCandidateSelectionLimit);
+        Assert.Equal(
+            UniqueModifierSourceSemantics.Fixed,
+            Assert.Single(version.ModifierBlocks, block => block.Lines[0].Contains("Attack Speed"))
+                .SourceSemantics);
+        Assert.Equal(
+            UniqueModifierSourceSemantics.GeneratedCandidate,
+            Assert.Single(version.ModifierBlocks, block => block.Lines[0].Contains("Abyssal Sockets"))
+                .SourceSemantics);
+    }
+
+    [Fact]
+    public void Import_GeneratedMultilineCandidate_RemainsOneAtomicPoolMember()
+    {
+        var result = ImportSingle(
+            """
+                Test Generated Staff
+                Serpentine Staff
+                Selected Variant: 1
+                Variant: Chaos
+                Implicits: 0
+                {variant:1}(105-120)% increased Chaos Damage
+                {variant:1}Chaos Skills have (26-30)% increased Skill Effect Duration
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier(
+                    "unique.chaos-pair",
+                    ("chaos_damage", 105m, 120m),
+                    ("chaos_duration", 26m, 30m)),
+            ],
+            translations:
+            [
+                Translation("chaos-damage", "chaos_damage", "{0}% increased Chaos Damage", "#"),
+                Translation("chaos-duration", "chaos_duration",
+                    "Chaos Skills have {0}% increased Skill Effect Duration", "#"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Single(block.CandidatePoolMembershipIds);
+        Assert.Equal(2, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
     }
 
     [Fact]

@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-unique-stage-e4",
-    "createdAtUtc": "2026-08-14T12:00:00+00:00",
-    "sizeBytes": 164455254,
-    "sha256": "c1fa6d02208727149669fb5dbca2dba4bd3b254f4ecbd2f89a8c9a6e5b4c42b7",
+    "dataVersion": "3.29.1.2.2-unique-stage-e5",
+    "createdAtUtc": "2026-08-14T18:00:00+00:00",
+    "sizeBytes": 171556723,
+    "sha256": "326db7d0603aee938bab9a347473aab6410021aa38bbb23a2c07310f686067f6",
     "foulbornRelationshipCount": 353,
-    "exactFoulbornRelationshipCount": 351,
-    "unsupportedFoulbornRelationshipCount": 2
+    "exactFoulbornRelationshipCount": 353,
+    "unsupportedFoulbornRelationshipCount": 0
   },
   "currentRePoe": {
     "repositoryUri": "https://github.com/repoe-fork/repoe.git",
@@ -49,6 +49,6 @@
     "commitSha": "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
     "foulbornMapRelativePath": "src/Data/ModFoulbornMap.jsonc",
     "foulbornMapSha256": "8f71e2379ebcc17bfa9c0e1f15b1c1f69b01886f4e7d5345a9c8b6b0c67ba13d",
-    "evaluatedUniquesSha256": "12bf1da04acef1a29b8edd7b997619e064c5df91ab49cdb1351e08476ccbb10d"
+    "evaluatedUniquesSha256": "9561dabd97efe99f1f4d441e5649687299265737d76ebd96d1989d1fbfa23036"
   }
 }

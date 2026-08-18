@@ -208,6 +208,7 @@ public static class GameDataPackageValidator
                     string.IsNullOrWhiteSpace(version.Label) ||
                     version.Role == UniqueItemVersionRole.Unknown ||
                     string.IsNullOrWhiteSpace(version.BaseType) ||
+                    version.GeneratedCandidateSelectionLimit < 0 ||
                     version.SourceObservationIds.Count == 0 ||
                     version.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
                     hasSourceDecisionProvenance &&
@@ -236,6 +237,14 @@ public static class GameDataPackageValidator
                         block.Lines.Any(string.IsNullOrWhiteSpace) ||
                         block.CanonicalSignatures.Count != block.Lines.Count ||
                         block.CanonicalSignatures.Any(string.IsNullOrWhiteSpace) ||
+                        block.SourceSemantics == UniqueModifierSourceSemantics.Fixed &&
+                            block.CandidatePoolMembershipIds.Count > 0 ||
+                        block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate &&
+                            (version.GeneratedCandidateSelectionLimit <= 0 ||
+                                block.CandidatePoolMembershipIds.Count == 0) ||
+                        block.CandidatePoolMembershipIds.Any(string.IsNullOrWhiteSpace) ||
+                        block.CandidatePoolMembershipIds.Distinct(StringComparer.Ordinal).Count() !=
+                            block.CandidatePoolMembershipIds.Count ||
                         block.SourceObservationIds.Count == 0 ||
                         block.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
                         block.MechanicalMapping is null ||
@@ -461,7 +470,14 @@ public static class GameDataPackageValidator
             evidence.ModifierStatIndices.Distinct().Count() == evidence.ModifierStatIndices.Count &&
             evidence.DefaultedStatIds.All(statId =>
                 evidence.StatIds.Contains(statId, StringComparer.OrdinalIgnoreCase)) &&
-            evidence.Conditions.Count == evidence.StatIds.Count);
+            evidence.Conditions.Count == evidence.StatIds.Count &&
+            (evidence.IndexHandlers.Count == 0 ||
+                evidence.IndexHandlers.Count == evidence.StatIds.Count &&
+                evidence.IndexHandlers.All(handler => handler is not null &&
+                    handler.Index >= 0 &&
+                    handler.Index < evidence.StatIds.Count) &&
+                evidence.IndexHandlers.Select(handler => handler.Index).Distinct().Count() ==
+                    evidence.IndexHandlers.Count));
     }
 
     private static void ValidateStatTranslationHistory(

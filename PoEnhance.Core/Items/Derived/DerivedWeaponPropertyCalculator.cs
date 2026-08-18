@@ -169,6 +169,15 @@ public sealed partial class DerivedWeaponPropertyCalculator
         var contributionProvenance = new List<DerivedWeaponQ20ModifierProvenance>();
         foreach (var effect in modifierEffects)
         {
+            if (effect.CanonicalizationUnsupportedReason is { } canonicalizationReason)
+            {
+                return Q20Unsupported(
+                    displayed,
+                    provenance,
+                    canonicalizationReason,
+                    displayed.PhysicalDamage.SourceProperty);
+            }
+
             var safetyReason = UnsafeEffectReason(effect);
             if (safetyReason is not null)
             {
@@ -245,8 +254,10 @@ public sealed partial class DerivedWeaponPropertyCalculator
             }
         }
 
-        var physicalScale = 1m + ((localIncreasedPercent + NormalizedQuality) / 100m);
-        if (physicalScale < 0m ||
+        var localPhysicalScale = 1m + (localIncreasedPercent / 100m);
+        var qualityScale = 1m + (NormalizedQuality / 100m);
+        if (localPhysicalScale < 0m ||
+            qualityScale < 0m ||
             baseProperties.PhysicalDamageMinimum.Value + localAddedMinimum < 0m ||
             baseProperties.PhysicalDamageMaximum.Value + localAddedMaximum < 0m)
         {
@@ -257,10 +268,14 @@ public sealed partial class DerivedWeaponPropertyCalculator
                 displayed.PhysicalDamage.SourceProperty);
         }
 
-        var q20Minimum = RoundPhysicalEndpoint(
-            (baseProperties.PhysicalDamageMinimum.Value + localAddedMinimum) * physicalScale);
-        var q20Maximum = RoundPhysicalEndpoint(
-            (baseProperties.PhysicalDamageMaximum.Value + localAddedMaximum) * physicalScale);
+        var q20Minimum = CalculatePhysicalEndpoint(
+            baseProperties.PhysicalDamageMinimum.Value + localAddedMinimum,
+            localIncreasedPercent,
+            NormalizedQuality);
+        var q20Maximum = CalculatePhysicalEndpoint(
+            baseProperties.PhysicalDamageMaximum.Value + localAddedMaximum,
+            localIncreasedPercent,
+            NormalizedQuality);
         if (q20Maximum < q20Minimum)
         {
             return Q20Unsupported(
@@ -304,6 +319,23 @@ public sealed partial class DerivedWeaponPropertyCalculator
 
     internal static decimal RoundPhysicalEndpoint(decimal value) =>
         decimal.Round(value, 0, MidpointRounding.AwayFromZero);
+
+    internal static decimal CalculateUnroundedPhysicalEndpoint(
+        decimal basePlusLocalFlat,
+        decimal localIncreasedPercent,
+        decimal qualityPercent) =>
+        basePlusLocalFlat *
+        (1m + (localIncreasedPercent / 100m)) *
+        (1m + (qualityPercent / 100m));
+
+    internal static decimal CalculatePhysicalEndpoint(
+        decimal basePlusLocalFlat,
+        decimal localIncreasedPercent,
+        decimal qualityPercent) =>
+        RoundPhysicalEndpoint(CalculateUnroundedPhysicalEndpoint(
+            basePlusLocalFlat,
+            localIncreasedPercent,
+            qualityPercent));
 
     private static ObservedQualityResult ReadObservedQuality(ParsedItem parsedItem)
     {

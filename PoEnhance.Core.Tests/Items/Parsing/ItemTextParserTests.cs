@@ -1,10 +1,71 @@
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Trade;
 
 namespace PoEnhance.Core.Tests.Items.Parsing;
 
 public sealed class ItemTextParserTests
 {
     private readonly ItemTextParser _parser = new();
+
+    [Fact]
+    public void Parse_AdvancedTextualOptionRange_SeparatesSemanticCandidateAndPreservesRawLine()
+    {
+        const string firstRaw = "Socketed Gems are Supported by Level 10(1-10) Endurance Charge on Melee Stun(Greater Multiple Projectiles-Hallow) — Unscalable Value";
+        const string secondRaw = "Socketed Gems are Supported by Level 26(25-35) Inspiration(Greater Multiple Projectiles-Hallow) — Unscalable Value";
+        var parsed = _parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Crown
+            Great Crown
+            --------
+            Item Level: 86
+            --------
+            { Unique Modifier — Gem }
+            {{firstRaw}}
+            { Unique Modifier — Gem }
+            {{secondRaw}}
+            """);
+
+        Assert.Collection(
+            parsed.UniqueModifiers,
+            modifier => AssertTextualOptionRange(
+                Assert.Single(modifier.Effects),
+                firstRaw,
+                "Socketed Gems are Supported by Level 10(1-10) Endurance Charge on Melee Stun",
+                10m),
+            modifier => AssertTextualOptionRange(
+                Assert.Single(modifier.Effects),
+                secondRaw,
+                "Socketed Gems are Supported by Level 26(25-35) Inspiration",
+                26m));
+    }
+
+    [Theory]
+    [InlineData("Meaningful modifier text (while stationary) — Unscalable Value")]
+    [InlineData("Malformed attached text(Alpha) — Unscalable Value")]
+    [InlineData("Malformed attached text(Alpha-) — Unscalable Value")]
+    [InlineData("Malformed attached text(-Omega) — Unscalable Value")]
+    [InlineData("Numeric roll 26(25-35) — Unscalable Value")]
+    public void Parse_UnprovenOrNonTextualParentheses_DoNotCreateTextualOptionRange(string rawLine)
+    {
+        var parsed = _parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Crown
+            Great Crown
+            --------
+            Item Level: 86
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+
+        var effect = Assert.Single(Assert.Single(parsed.UniqueModifiers).Effects);
+        Assert.Equal(rawLine, effect.RawText);
+        Assert.Equal(rawLine[..rawLine.LastIndexOf(" — Unscalable Value", StringComparison.Ordinal)], effect.Text);
+        Assert.Equal(effect.Text, effect.SemanticText);
+        Assert.Null(effect.TextualOptionRange);
+    }
 
     [Fact]
     public void Parse_LeatherBeltSample_ExtractsExpectedFieldsAndPreservesRawText()
@@ -1261,5 +1322,21 @@ The judge determines worthiness by comparison to the paragon: himself.
     private static string ReadSample(string fileName)
     {
         return File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Items", fileName));
+    }
+
+    private static void AssertTextualOptionRange(
+        ParsedModifierEffect effect,
+        string expectedRaw,
+        string expectedSemantic,
+        decimal expectedObservedValue)
+    {
+        Assert.True(effect.HasUnscalableValue);
+        Assert.Equal(expectedRaw, effect.RawText);
+        Assert.Equal(
+            expectedRaw[..expectedRaw.LastIndexOf(" — Unscalable Value", StringComparison.Ordinal)],
+            effect.Text);
+        Assert.Equal(expectedSemantic, effect.SemanticText);
+        Assert.Equal("Greater Multiple Projectiles-Hallow", effect.TextualOptionRange?.Text);
+        Assert.Equal([expectedObservedValue], ModifierBoundDefaults.ExtractObservedValues(effect.Text));
     }
 }

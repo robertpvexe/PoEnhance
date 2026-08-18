@@ -32,11 +32,13 @@ $currentSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Current'
 $historicalSourceRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-UniqueStage-Historical'
 $pobSourceRoot = Join-Path $env:TEMP 'PoEnhance-PoB-v2.67.2-b32759a'
 $hostedExportRoot = Join-Path $env:TEMP 'PoEnhance-RePoE-Hosted-GameData'
-# This legacy-named compatibility root is serialized in the manually validated package lineage.
-# Retain it until a future stage deliberately changes the package identity.
+# These legacy-named compatibility roots are serialized in the manually validated package
+# lineage. Setup recreates their inputs from the pins; it never consumes a prior candidate.
+$legacyE5ProvenanceRoot = Join-Path $env:TEMP 'PoEnhance-StageE5-GeneratedSpecial'
+$currentDataRoot = Join-Path $legacyE5ProvenanceRoot 'candidate-build-1\source-snapshot'
+$historicalDataRoot = Join-Path $legacyE5ProvenanceRoot 'historical-input'
+# This older extraction root name is likewise retained solely for byte-identical provenance.
 $reproductionRoot = Join-Path $repoRoot 'artifacts\stage-e2-reproduction'
-$currentDataRoot = Join-Path $reproductionRoot 'current-export-extract\data'
-$historicalDataRoot = Join-Path $reproductionRoot 'historical-export-extract\data'
 $firstBuildRoot = Join-Path $reproductionRoot 'build-1'
 $secondBuildRoot = Join-Path $reproductionRoot 'build-2'
 
@@ -68,6 +70,26 @@ function Reset-DirectChild([string]$Path, [string]$ExpectedParent)
         Remove-Item -LiteralPath $Path -Recurse -Force
     }
     [System.IO.Directory]::CreateDirectory($Path) | Out-Null
+}
+
+function Remove-InvalidDirectTempGitCache([string]$Path)
+{
+    if (-not (Test-Path -LiteralPath $Path))
+    {
+        return
+    }
+
+    $gitHead = Join-Path $Path '.git\HEAD'
+    $gitConfig = Join-Path $Path '.git\config'
+    if ((Test-Path -LiteralPath $gitHead -PathType Leaf) -and
+        (Test-Path -LiteralPath $gitConfig -PathType Leaf))
+    {
+        return
+    }
+
+    $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+    Assert-DirectChild $Path $tempRoot
+    Remove-Item -LiteralPath $Path -Recurse -Force
 }
 
 function Repair-GitRefsDirectory([string]$Checkout)
@@ -107,6 +129,7 @@ function Ensure-GitCheckout(
     [string]$Branch,
     [string]$Label)
 {
+    Remove-InvalidDirectTempGitCache $Checkout
     if (-not (Test-Path -LiteralPath $Checkout))
     {
         & git clone --filter=blob:none --no-checkout $RepositoryUri $Checkout
@@ -119,6 +142,7 @@ function Ensure-GitCheckout(
 
 function Ensure-PoBCheckout
 {
+    Remove-InvalidDirectTempGitCache $pobSourceRoot
     if (-not (Test-Path -LiteralPath $pobSourceRoot))
     {
         & git clone --filter=blob:none --branch $metadata.pathOfBuilding.tag --single-branch `
@@ -155,6 +179,7 @@ function Ensure-PoBCheckout
 
 function Ensure-HostedExportCheckout
 {
+    Remove-InvalidDirectTempGitCache $hostedExportRoot
     if (-not (Test-Path -LiteralPath $hostedExportRoot))
     {
         & git clone --filter=blob:none --no-checkout `
@@ -338,7 +363,7 @@ Assert-PackageContract $secondContract 'Second reproduced package'
 
 $artifactsDirectory = [System.IO.Path]::GetDirectoryName($activeArtifact)
 [System.IO.Directory]::CreateDirectory($artifactsDirectory) | Out-Null
-$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e4.tmp'
+$stagedActive = Join-Path $artifactsDirectory 'poenhance-game-data.stage-e5.tmp'
 if (Test-Path -LiteralPath $stagedActive) { Remove-Item -LiteralPath $stagedActive }
 [System.IO.File]::Copy($secondPackage, $stagedActive, $false)
 Move-Item -LiteralPath $stagedActive -Destination $activeArtifact -Force
@@ -362,7 +387,7 @@ $verification = [ordered]@{
     activeArtifact = $activeArtifact
     activeArtifactSha256 = $activeHash.ToLowerInvariant()
 }
-$verificationPath = Join-Path $reproductionRoot 'stage-e4-setup-verification.json'
+$verificationPath = Join-Path $reproductionRoot 'stage-e5-setup-verification.json'
 [System.IO.File]::WriteAllText(
     $verificationPath,
     ($verification | ConvertTo-Json -Depth 5),

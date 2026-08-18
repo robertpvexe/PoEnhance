@@ -145,7 +145,7 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
             string.Join(" | ", draft.ItemPropertyDiagnostics.Select(diagnostic => diagnostic.Message)));
         var physicalDps = Assert.Single(draft.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
-        Assert.Equal(382.2m, physicalDps.ObservedValue);
+        Assert.Equal(423.8m, physicalDps.ObservedValue);
         Assert.Equal("Q20", physicalDps.CalculationBasisLabel);
 
         var group = Assert.Single(draft.ItemPropertyContributionGroups);
@@ -182,7 +182,7 @@ public sealed class TradeSearchItemPropertyContributionGroupTests
 
         var physicalDps = Assert.Single(draft.ItemProperties, property =>
             property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
-        Assert.Equal(164.16m, physicalDps.ObservedValue);
+        Assert.Equal(170.64m, physicalDps.ObservedValue);
         Assert.Equal("Q20", physicalDps.CalculationBasisLabel);
         var hybrid = draft.ModifierFilters.Where(component => component.SourceModifierIndex == 0).ToArray();
         Assert.Equal(2, hybrid.Length);

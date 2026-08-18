@@ -22,6 +22,12 @@ public sealed record UniqueItemVersionObservation
 
     public string? VariantDecisionReason { get; init; }
 
+    /// <summary>
+    /// Number of independently selected generated candidates observed in the source
+    /// definition. Zero means the source did not expose a generated selection axis.
+    /// </summary>
+    public int GeneratedCandidateSelectionLimit { get; init; }
+
     public IReadOnlyList<UniqueModifierBlock> ModifierBlocks { get; init; } = [];
 
     public IReadOnlyList<string> SourceObservationIds { get; init; } = [];
