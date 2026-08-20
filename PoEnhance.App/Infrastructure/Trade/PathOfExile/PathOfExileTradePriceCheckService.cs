@@ -765,7 +765,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         }
 
         var multiLineUniqueSourceIndexes = draft.ModifierFilters
-            .Where(component => component.ParsedKind == ParsedModifierKind.Unique &&
+            .Where(component => component.HasResolvedUniqueSourceSemantics &&
                 component.SourceModifierIndex >= 0)
             .GroupBy(component => component.SourceModifierIndex)
             .Where(group => group.Count() > 1)
@@ -818,7 +818,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         PathOfExileTradeFilterCatalog? filterCatalog,
         bool hasCompleteFracturedSourceRepresentation)
     {
-        if (component.Sources.Count > 0 && component.ParsedKind != ParsedModifierKind.Unique)
+        if (component.Sources.Count > 0 && !component.HasResolvedUniqueSourceSemantics)
         {
             component = component with
             {
@@ -904,7 +904,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         {
             var previouslyResolvedCandidate =
                 PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolvedEntry);
-            if (component.ParsedKind == ParsedModifierKind.Unique &&
+            if (component.HasResolvedUniqueSourceSemantics &&
                 (component.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
                     HasExactUniqueCatalogBlockProof(component)))
             {
@@ -1116,7 +1116,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     SearchComponentProviderResolutionStatus.ExactEquivalentSet
                 ? ModifierStatMappingProofStatus.ProviderExact
                 : component.StatMappingProof,
-            IsSearchable = component.ParsedKind == ParsedModifierKind.Unique
+            IsSearchable = component.HasResolvedUniqueSourceSemantics
                 ? hasProviderOwnedUniqueProof &&
                     providerStatus is SearchComponentProviderResolutionStatus.Exact or
                         SearchComponentProviderResolutionStatus.ExactEquivalentSet
@@ -1124,7 +1124,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     ? providerStatus is SearchComponentProviderResolutionStatus.Exact or
                         SearchComponentProviderResolutionStatus.ExactEquivalentSet
                     : component.IsSearchable,
-            NotSearchableReason = component.ParsedKind == ParsedModifierKind.Unique
+            NotSearchableReason = component.HasResolvedUniqueSourceSemantics
                 ? hasProviderOwnedUniqueProof &&
                     providerStatus is SearchComponentProviderResolutionStatus.Exact or
                         SearchComponentProviderResolutionStatus.ExactEquivalentSet
@@ -1633,7 +1633,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         var hasImportedMechanicalProof =
             string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode);
         var canUseExactProviderFallback =
-            component.UniqueOrigin == ParsedUniqueModifierOrigin.Ordinary &&
+            component.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Ordinary &&
             string.Equals(
                 component.UniqueResolutionDiagnosticCode,
                 "UNIQUE_MECHANICS_NOT_FOUND",
@@ -1644,14 +1644,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             uniqueIdentity is not null &&
             !string.IsNullOrWhiteSpace(uniqueIdentity.CanonicalName) &&
             !string.IsNullOrWhiteSpace(uniqueIdentity.CanonicalType) &&
-            component.ParsedKind == ParsedModifierKind.Unique &&
-            component.UniqueOrigin is ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
+            component.HasResolvedUniqueSourceSemantics &&
             (hasImportedMechanicalProof || canUseExactProviderFallback) &&
             (HasExactUniqueCatalogBlockProof(component) ||
                 component.SourceLineIndex >= 0 &&
                 !component.OriginalText.Contains(Environment.NewLine, StringComparison.Ordinal) &&
                 !string.IsNullOrWhiteSpace(component.CanonicalSignature)) &&
-            (component.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn ||
+            (component.ResolvedSourceUniqueOrigin != ParsedUniqueModifierOrigin.Foulborn ||
                 uniqueIdentity.Foulborn == TradeTriState.Yes);
     }
 
@@ -1779,7 +1778,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     StringComparison.OrdinalIgnoreCase)) &&
             component.Sources.Count > 0 &&
             component.Sources.All(source =>
-                source.ParsedKind == component.ParsedKind &&
+                source.ResolvedSourceKind == component.ResolvedSourceKind &&
                 source.SourceModifierIndex >= 0 &&
                 source.SourceLineIndex >= 0 &&
                 !source.IsFractured &&
@@ -1935,13 +1934,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static bool HasExactUniqueCatalogBlockProof(ResolvedSearchComponent component)
     {
-        return component.ParsedKind == ParsedModifierKind.Unique &&
-            component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            (component.UniqueCatalogBlockIds.Count > 0 ||
-                component.UniqueFoulbornRelationshipIds.Count > 0) &&
-            component.UniqueSourceObservationIds.Count > 0 &&
-            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
-            component.ResolvedStatIds.Count > 0;
+        return component.HasExactUniqueSourceProvenance;
     }
 
     private static bool HasExactBaseImplicitProviderProvenance(ResolvedSearchComponent component)
@@ -2054,6 +2047,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ParsedKind = source.ParsedKind,
             ImplicitOrigin = source.ImplicitOrigin,
             UniqueOrigin = source.UniqueOrigin,
+            RecoveredSourceKind = source.RecoveredSourceKind,
+            RecoveredSourceUniqueOrigin = source.RecoveredSourceUniqueOrigin,
+            UsesIdentityBoundUniqueRecovery = source.UsesIdentityBoundUniqueRecovery,
             GenerationType = source.GenerationType,
             Locality = source.Locality,
             StatMappingProof = source.StatMappingProof,

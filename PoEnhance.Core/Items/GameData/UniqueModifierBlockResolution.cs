@@ -1,4 +1,5 @@
 using PoEnhance.GameData;
+using PoEnhance.Core.Items.Parsing;
 
 namespace PoEnhance.Core.Items.GameData;
 
@@ -7,6 +8,29 @@ public sealed record UniqueModifierBlockResolution
     public required int ParsedModifierIndex { get; init; }
 
     public bool IsResolved { get; init; }
+
+    /// <summary>
+    /// True when the parsed row carried no Unique modifier kind and was resolved solely from
+    /// source blocks belonging to the already-resolved Unique identity. The parsed metadata,
+    /// kind and origin remain untouched; semantic consumers may use the separately proven recovered
+    /// classification below.
+    /// </summary>
+    public bool IsIdentityBoundRecovery { get; init; }
+
+    /// <summary>
+    /// Source classification proven by exact identity-bound recovery. These values are null for
+    /// ordinary parsed Unique rows and for every unresolved or ambiguous recovery attempt.
+    /// </summary>
+    public ParsedModifierKind? RecoveredSourceKind { get; init; }
+
+    public ParsedUniqueModifierOrigin? RecoveredSourceUniqueOrigin { get; init; }
+
+    public bool HasRecoveredUniqueSourceSemantics =>
+        IsIdentityBoundRecovery &&
+        IsResolved &&
+        RecoveredSourceKind == ParsedModifierKind.Unique &&
+        RecoveredSourceUniqueOrigin is
+            ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn;
 
     public bool IsEquivalentSourceSet { get; init; }
 

@@ -107,188 +107,253 @@ public sealed partial class ParsedUniqueItemResolver
         for (var modifierIndex = 0; modifierIndex < parsedItem.Modifiers.Count; modifierIndex++)
         {
             var parsedModifier = parsedItem.Modifiers[modifierIndex];
-            if (parsedModifier.Kind != ParsedModifierKind.Unique)
+            if (parsedModifier.Kind == ParsedModifierKind.Unique)
+            {
+                results.Add(parsedModifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn
+                    ? ResolveFoulbornBlock(
+                        modifierIndex,
+                        parsedModifier,
+                        identity,
+                        versions,
+                        catalog)
+                    : ResolveOrdinaryBlock(
+                        modifierIndex,
+                        parsedModifier,
+                        parsedItem,
+                        versions,
+                        identityVersions,
+                        isFoulborn,
+                        catalog,
+                        isIdentityBoundRecovery: false));
+                continue;
+            }
+
+            if (!IsEligibleForIdentityBoundRecovery(parsedModifier, isFoulborn))
             {
                 continue;
             }
 
-            if (parsedModifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn)
+            // The row is otherwise unsupported, so it is only retained when the identity-bound
+            // source evidence proves it outright. Anything less is left skipped exactly as before.
+            var recovered = ResolveOrdinaryBlock(
+                modifierIndex,
+                parsedModifier,
+                parsedItem,
+                versions,
+                identityVersions,
+                isFoulborn,
+                catalog,
+                isIdentityBoundRecovery: true);
+            if (recovered.IsResolved)
             {
-                results.Add(ResolveFoulbornBlock(
-                    modifierIndex,
-                    parsedModifier,
-                    identity,
-                    versions,
-                    catalog));
-                continue;
+                results.Add(recovered);
             }
-
-            var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
-            var matchedByVersion = blockScopeVersions
-                .Select(version => new VersionBlockMatches(
-                    version,
-                    MatchVersionBlocks(version, parsedModifier)))
-                .ToArray();
-            var matchedBlocks = matchedByVersion
-                .SelectMany(version => version.Matches)
-                .ToArray();
-            var blocks = matchedBlocks
-                .Select(candidate => candidate.Block)
-                .DistinctBy(block => block.Id, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var matchedPresentationLines = matchedBlocks
-                .Where(candidate => candidate.Match.PresentationLines.Count > 0)
-                .Select(candidate => string.Join('\u001f', candidate.Match.PresentationLines))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            var presentationLines = matchedPresentationLines.Length > 0 || matchedBlocks.Any(candidate =>
-                candidate.Match.Kind == UniqueBlockTextMatchKind.Direct)
-                ? matchedPresentationLines
-                : identityVersions.SelectMany(version => version.ModifierBlocks)
-                    .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
-                    .Select(block => MatchGeneratedPresentation(
-                        block,
-                        parsedModifier))
-                    .Where(match => match.Count > 0)
-                    .Select(match => string.Join('\u001f', match))
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-            var coversEveryLine = parsedModifier.ValueLines.Count > 0 &&
-                blocks.Length > 0 &&
-                matchedByVersion.Length > 0 &&
-                matchedByVersion.All(version => version.Matches.Count > 0);
-            var mappings = blocks.Select(block => block.MechanicalMapping).ToArray();
-            var sourceSemantics = blocks.Select(block => block.SourceSemantics).Distinct().ToArray();
-            var candidatePoolMembershipIds = blocks
-                .SelectMany(block => block.CandidatePoolMembershipIds)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .ToArray();
-            var sourceSemanticsAreUnambiguous = sourceSemantics.Length == 1;
-            var isGeneratedCandidate = sourceSemanticsAreUnambiguous &&
-                sourceSemantics[0] == UniqueModifierSourceSemantics.GeneratedCandidate;
-            var candidatePoolProofIsComplete = !isGeneratedCandidate ||
-                candidatePoolMembershipIds.Length > 0;
-            var usesTextualOptionRangeProjection = matchedBlocks.Any(candidate =>
-                candidate.Match.Kind == UniqueBlockTextMatchKind.TextualOptionRangeProjection);
-            var textualOptionRangeCollision = usesTextualOptionRangeProjection &&
-                matchedByVersion.Any(version => version.Matches.Count > 1);
-            var textualOptionRangeAnnotations = matchedBlocks
-                .SelectMany(candidate => candidate.Match.TextualOptionRangeAnnotations)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            var matchingCandidateVersions = matchedByVersion
-                .Where(version => version.Matches.Any(candidate =>
-                    candidate.Block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
-                .Select(version => version.Version)
-                .ToArray();
-            var selectionLimitRejectsBlock = isGeneratedCandidate &&
-                matchingCandidateVersions.Length > 0 &&
-                matchingCandidateVersions.All(version => GeneratedSelectionLimitExceeded(
-                    version,
-                    parsedItem.UniqueModifiers,
-                    isFoulborn));
-            var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
-                mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
-                    UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
-            var statVectors = mappings.Select(mapping => string.Join('\u001f', mapping.StatIds))
-                .Where(value => value.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var resolved = mappingsAreResolved &&
-                statVectors.Length == 1 &&
-                sourceSemanticsAreUnambiguous &&
-                candidatePoolProofIsComplete &&
-                !textualOptionRangeCollision &&
-                !selectionLimitRejectsBlock;
-            var mappingDiagnosticCodes = mappings
-                .Select(mapping => mapping.DiagnosticCode?.Trim())
-                .Where(code => !string.IsNullOrWhiteSpace(code))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var mappingDiagnostics = mappings
-                .Select(mapping => mapping.Diagnostic?.Trim())
-                .Where(diagnostic => !string.IsNullOrWhiteSpace(diagnostic))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            var sourceObservationIds = blocks.SelectMany(block => block.SourceObservationIds)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .ToArray();
-            results.Add(new UniqueModifierBlockResolution
-            {
-                ParsedModifierIndex = modifierIndex,
-                IsResolved = resolved,
-                IsEquivalentSourceSet = blocks.Length > 1 ||
-                    sourceObservationIds.Length > 1 ||
-                    mappings.Any(mapping =>
-                        mapping.Status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
-                CatalogBlocks = blocks,
-                ModifierIds = mappings.SelectMany(mapping => mapping.ModifierIds)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(id => id, StringComparer.Ordinal)
-                    .ToArray(),
-                StatIds = resolved ? mappings[0].StatIds : [],
-                StatLocalities = resolved
-                    ? mappings[0].StatIds.Select(statId => ResolveStatLocality(statId, catalog)).ToArray()
-                    : [],
-                CanonicalSignatures = blocks.Select(block => string.Join("\n", block.CanonicalSignatures))
-                    .Where(signature => !string.IsNullOrWhiteSpace(signature))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(signature => signature, StringComparer.Ordinal)
-                    .ToArray(),
-                SourceSemantics = sourceSemanticsAreUnambiguous
-                    ? sourceSemantics[0]
-                    : UniqueModifierSourceSemantics.Fixed,
-                CandidatePoolMembershipIds = isGeneratedCandidate
-                    ? candidatePoolMembershipIds
-                    : [],
-                TextualOptionRangeAnnotations = resolved && usesTextualOptionRangeProjection
-                    ? textualOptionRangeAnnotations
-                    : [],
-                SourceObservationIds = sourceObservationIds,
-                PresentationLines = presentationLines.Length == 1
-                    ? presentationLines[0].Split('\u001f')
-                    : [],
-                DiagnosticCode = resolved ? null : selectionLimitRejectsBlock
-                    ? "UNIQUE_GENERATED_SELECTION_LIMIT_EXCEEDED"
-                    : textualOptionRangeCollision
-                        ? "UNIQUE_GENERATED_TEXTUAL_OPTION_RANGE_AMBIGUOUS"
-                    : coversEveryLine
-                    ? !sourceSemanticsAreUnambiguous
-                        ? "UNIQUE_BLOCK_SOURCE_SEMANTICS_AMBIGUOUS"
-                        : !candidatePoolProofIsComplete
-                            ? "UNIQUE_GENERATED_POOL_MEMBERSHIP_MISSING"
-                        : statVectors.Length > 1
-                        ? "UNIQUE_BLOCK_INDEPENDENT_DIMENSIONS"
-                        : mappingDiagnosticCodes.Length == 1
-                            ? mappingDiagnosticCodes[0]
-                            : "UNIQUE_BLOCK_MECHANICS_UNSUPPORTED"
-                    : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
-                        block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
-                        ? "UNIQUE_GENERATED_CANDIDATE_NOT_FOUND"
-                        : "UNIQUE_BLOCK_VERSION_MISMATCH",
-                Diagnostic = resolved ? null : selectionLimitRejectsBlock
-                    ? "The copied item contains more generated candidate blocks than the selected source definition permits."
-                    : textualOptionRangeCollision
-                        ? "Separating the textual option-range annotation leaves multiple generated source candidates."
-                    : coversEveryLine
-                    ? !sourceSemanticsAreUnambiguous
-                        ? "The copied block matches both fixed and generated-candidate source semantics."
-                        : !candidatePoolProofIsComplete
-                            ? "The generated source block has no retained candidate-pool membership proof."
-                        : statVectors.Length > 1
-                        ? "The source block has independently mapped mechanical dimensions and is not representable as one editable Trade bound."
-                        : mappingDiagnostics.Length == 1
-                            ? mappingDiagnostics[0]
-                            : "At least one line in the source block lacks unambiguous RePoE mechanical evidence."
-                    : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
-                        block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
-                        ? "No exact candidate in the selected generated source pool matched the copied block."
-                        : "The source block was not present in every retained compatible version observation.",
-            });
         }
+
         return results;
+    }
+
+    /// <summary>
+    /// A parsed row whose Advanced Item Description metadata carries no kind this parser recognizes
+    /// may still be a Unique source block; the client labels some of them with domains such as
+    /// "Monster Modifier". Rows with a recognized non-Unique kind keep their own domain and are
+    /// never diverted here.
+    /// </summary>
+    private static bool IsEligibleForIdentityBoundRecovery(
+        ParsedModifier parsedModifier,
+        bool isFoulborn)
+    {
+        return !isFoulborn &&
+            parsedModifier.Kind == ParsedModifierKind.Unknown &&
+            parsedModifier.UniqueOrigin == ParsedUniqueModifierOrigin.Unspecified &&
+            parsedModifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified &&
+            !parsedModifier.IsCrafted &&
+            !parsedModifier.IsFractured &&
+            !parsedModifier.IsVeiled &&
+            parsedModifier.ValueLines.Count > 0;
+    }
+
+    private static UniqueModifierBlockResolution ResolveOrdinaryBlock(
+        int modifierIndex,
+        ParsedModifier parsedModifier,
+        ParsedItem parsedItem,
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<UniqueItemVersionObservation> identityVersions,
+        bool isFoulborn,
+        GameDataCatalog catalog,
+        bool isIdentityBoundRecovery)
+    {
+        var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
+        var matchedByVersion = blockScopeVersions
+            .Select(version => new VersionBlockMatches(
+                version,
+                MatchVersionBlocks(version, parsedModifier)))
+            .ToArray();
+        var matchedBlocks = matchedByVersion
+            .SelectMany(version => version.Matches)
+            .ToArray();
+        var blocks = matchedBlocks
+            .Select(candidate => candidate.Block)
+            .DistinctBy(block => block.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var matchedPresentationLines = matchedBlocks
+            .Where(candidate => candidate.Match.PresentationLines.Count > 0)
+            .Select(candidate => string.Join('\u001f', candidate.Match.PresentationLines))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var presentationLines = matchedPresentationLines.Length > 0 || matchedBlocks.Any(candidate =>
+            candidate.Match.Kind == UniqueBlockTextMatchKind.Direct)
+            ? matchedPresentationLines
+            : identityVersions.SelectMany(version => version.ModifierBlocks)
+                .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                .Select(block => MatchGeneratedPresentation(
+                    block,
+                    parsedModifier))
+                .Where(match => match.Count > 0)
+                .Select(match => string.Join('\u001f', match))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        var coversEveryLine = parsedModifier.ValueLines.Count > 0 &&
+            blocks.Length > 0 &&
+            matchedByVersion.Length > 0 &&
+            matchedByVersion.All(version => version.Matches.Count > 0);
+        var mappings = blocks.Select(block => block.MechanicalMapping).ToArray();
+        var sourceSemantics = blocks.Select(block => block.SourceSemantics).Distinct().ToArray();
+        var candidatePoolMembershipIds = blocks
+            .SelectMany(block => block.CandidatePoolMembershipIds)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        var sourceSemanticsAreUnambiguous = sourceSemantics.Length == 1;
+        var isGeneratedCandidate = sourceSemanticsAreUnambiguous &&
+            sourceSemantics[0] == UniqueModifierSourceSemantics.GeneratedCandidate;
+        var candidatePoolProofIsComplete = !isGeneratedCandidate ||
+            candidatePoolMembershipIds.Length > 0;
+        var usesTextualOptionRangeProjection = matchedBlocks.Any(candidate =>
+            candidate.Match.Kind == UniqueBlockTextMatchKind.TextualOptionRangeProjection);
+        var textualOptionRangeCollision = usesTextualOptionRangeProjection &&
+            matchedByVersion.Any(version => version.Matches.Count > 1);
+        var textualOptionRangeAnnotations = matchedBlocks
+            .SelectMany(candidate => candidate.Match.TextualOptionRangeAnnotations)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var matchingCandidateVersions = matchedByVersion
+            .Where(version => version.Matches.Any(candidate =>
+                candidate.Block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
+            .Select(version => version.Version)
+            .ToArray();
+        var selectionLimitRejectsBlock = isGeneratedCandidate &&
+            matchingCandidateVersions.Length > 0 &&
+            matchingCandidateVersions.All(version => GeneratedSelectionLimitExceeded(
+                version,
+                parsedItem.UniqueModifiers,
+                isFoulborn));
+        var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
+            mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+        var statVectors = mappings.Select(mapping => string.Join('\u001f', mapping.StatIds))
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var resolved = mappingsAreResolved &&
+            statVectors.Length == 1 &&
+            sourceSemanticsAreUnambiguous &&
+            candidatePoolProofIsComplete &&
+            !textualOptionRangeCollision &&
+            !selectionLimitRejectsBlock;
+        var mappingDiagnosticCodes = mappings
+            .Select(mapping => mapping.DiagnosticCode?.Trim())
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var mappingDiagnostics = mappings
+            .Select(mapping => mapping.Diagnostic?.Trim())
+            .Where(diagnostic => !string.IsNullOrWhiteSpace(diagnostic))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var sourceObservationIds = blocks.SelectMany(block => block.SourceObservationIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        return new UniqueModifierBlockResolution
+        {
+            ParsedModifierIndex = modifierIndex,
+            IsResolved = resolved,
+            IsIdentityBoundRecovery = isIdentityBoundRecovery,
+            RecoveredSourceKind = resolved && isIdentityBoundRecovery
+                ? ParsedModifierKind.Unique
+                : null,
+            RecoveredSourceUniqueOrigin = resolved && isIdentityBoundRecovery
+                ? ParsedUniqueModifierOrigin.Ordinary
+                : null,
+            IsEquivalentSourceSet = blocks.Length > 1 ||
+                sourceObservationIds.Length > 1 ||
+                mappings.Any(mapping =>
+                    mapping.Status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
+            CatalogBlocks = blocks,
+            ModifierIds = mappings.SelectMany(mapping => mapping.ModifierIds)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray(),
+            StatIds = resolved ? mappings[0].StatIds : [],
+            StatLocalities = resolved
+                ? mappings[0].StatIds.Select(statId => ResolveStatLocality(statId, catalog)).ToArray()
+                : [],
+            CanonicalSignatures = blocks.Select(block => string.Join("\n", block.CanonicalSignatures))
+                .Where(signature => !string.IsNullOrWhiteSpace(signature))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(signature => signature, StringComparer.Ordinal)
+                .ToArray(),
+            SourceSemantics = sourceSemanticsAreUnambiguous
+                ? sourceSemantics[0]
+                : UniqueModifierSourceSemantics.Fixed,
+            CandidatePoolMembershipIds = isGeneratedCandidate
+                ? candidatePoolMembershipIds
+                : [],
+            TextualOptionRangeAnnotations = resolved && usesTextualOptionRangeProjection
+                ? textualOptionRangeAnnotations
+                : [],
+            SourceObservationIds = sourceObservationIds,
+            PresentationLines = presentationLines.Length == 1
+                ? presentationLines[0].Split('\u001f')
+                : [],
+            DiagnosticCode = resolved ? null : selectionLimitRejectsBlock
+                ? "UNIQUE_GENERATED_SELECTION_LIMIT_EXCEEDED"
+                : textualOptionRangeCollision
+                    ? "UNIQUE_GENERATED_TEXTUAL_OPTION_RANGE_AMBIGUOUS"
+                : coversEveryLine
+                ? !sourceSemanticsAreUnambiguous
+                    ? "UNIQUE_BLOCK_SOURCE_SEMANTICS_AMBIGUOUS"
+                    : !candidatePoolProofIsComplete
+                        ? "UNIQUE_GENERATED_POOL_MEMBERSHIP_MISSING"
+                    : statVectors.Length > 1
+                    ? "UNIQUE_BLOCK_INDEPENDENT_DIMENSIONS"
+                    : mappingDiagnosticCodes.Length == 1
+                        ? mappingDiagnosticCodes[0]
+                        : "UNIQUE_BLOCK_MECHANICS_UNSUPPORTED"
+                : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
+                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
+                    ? "UNIQUE_GENERATED_CANDIDATE_NOT_FOUND"
+                    : "UNIQUE_BLOCK_VERSION_MISMATCH",
+            Diagnostic = resolved ? null : selectionLimitRejectsBlock
+                ? "The copied item contains more generated candidate blocks than the selected source definition permits."
+                : textualOptionRangeCollision
+                    ? "Separating the textual option-range annotation leaves multiple generated source candidates."
+                : coversEveryLine
+                ? !sourceSemanticsAreUnambiguous
+                    ? "The copied block matches both fixed and generated-candidate source semantics."
+                    : !candidatePoolProofIsComplete
+                        ? "The generated source block has no retained candidate-pool membership proof."
+                    : statVectors.Length > 1
+                    ? "The source block has independently mapped mechanical dimensions and is not representable as one editable Trade bound."
+                    : mappingDiagnostics.Length == 1
+                        ? mappingDiagnostics[0]
+                        : "At least one line in the source block lacks unambiguous RePoE mechanical evidence."
+                : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
+                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
+                    ? "No exact candidate in the selected generated source pool matched the copied block."
+                    : "The source block was not present in every retained compatible version observation.",
+        };
     }
 
     private static UniqueModifierBlockResolution ResolveFoulbornBlock(

@@ -1694,7 +1694,7 @@ internal sealed class PriceCheckerSearchController
 
     private static bool IsImplicitPresentationModifier(ResolvedSearchComponent component) =>
         component.IsBaseImplicit ||
-        component.ParsedKind == ParsedModifierKind.Implicit;
+        component.ResolvedSourceKind == ParsedModifierKind.Implicit;
 
     private PriceCheckerModifierViewModel CreateModifierRow(
         TradeSearchDraft draft,
@@ -1703,9 +1703,9 @@ internal sealed class PriceCheckerSearchController
         string? sectionLabelOverride = null)
     {
         var modifier = draft.ModifierFilters[index];
-        var isUniqueModifier = modifier.ParsedKind == ParsedModifierKind.Unique;
+        var isUniqueModifier = modifier.HasResolvedUniqueSourceSemantics;
         var isFoulbornUniqueModifier =
-            modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn;
+            modifier.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Foulborn;
         var isFracturedModifier = modifier.IsFractured;
         var isVeiledModifier = modifier.IsVeiled;
         var isInteractionEnabled = IsModifierInteractionReady(modifier);
@@ -1899,14 +1899,7 @@ internal sealed class PriceCheckerSearchController
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
             modifier.ResolvedStatIds.Count > 0;
-        var hasExactUniqueCatalogBlockProof =
-            modifier.ParsedKind == ParsedModifierKind.Unique &&
-            modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            (modifier.UniqueCatalogBlockIds.Count > 0 ||
-                modifier.UniqueFoulbornRelationshipIds.Count > 0) &&
-            modifier.UniqueSourceObservationIds.Count > 0 &&
-            string.IsNullOrWhiteSpace(modifier.UniqueResolutionDiagnosticCode) &&
-            modifier.ResolvedStatIds.Count > 0;
+        var hasExactUniqueCatalogBlockProof = modifier.HasExactUniqueSourceProvenance;
         return modifier.ProviderResolutionStatus is
                 SearchComponentProviderResolutionStatus.Exact or
                 SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
@@ -1970,12 +1963,12 @@ internal sealed class PriceCheckerSearchController
 
     private static bool RequiresExactAvailability(ResolvedSearchComponent modifier)
     {
-        return modifier.ParsedKind == ParsedModifierKind.Unique || modifier.IsFractured || modifier.IsVeiled;
+        return modifier.HasResolvedUniqueSourceSemantics || modifier.IsFractured || modifier.IsVeiled;
     }
 
     private static bool HasFixedProviderVariant(ResolvedSearchComponent modifier)
     {
-        return modifier.ParsedKind == ParsedModifierKind.Unique ||
+        return modifier.HasResolvedUniqueSourceSemantics ||
             modifier.IsVeiled ||
             IsImplicitPresentationModifier(modifier);
     }
@@ -1992,12 +1985,14 @@ internal sealed class PriceCheckerSearchController
             return "Veiled";
         }
 
-        if (modifier.ParsedKind == ParsedModifierKind.Unique)
+        if (modifier.HasResolvedUniqueSourceSemantics)
         {
-            return modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn ? "Foulborn" : "Unique";
+            return modifier.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Foulborn
+                ? "Foulborn"
+                : "Unique";
         }
 
-        return modifier.ParsedKind switch
+        return modifier.ResolvedSourceKind switch
         {
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
@@ -2437,7 +2432,7 @@ internal sealed class PriceCheckerSearchController
             return "Veiled";
         }
 
-        return modifier.ParsedKind switch
+        return modifier.ResolvedSourceKind switch
         {
             ParsedModifierKind.Implicit when
                 modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
@@ -2445,7 +2440,8 @@ internal sealed class PriceCheckerSearchController
             ParsedModifierKind.Implicit => "Implicit",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
-            ParsedModifierKind.Unique when modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
+            ParsedModifierKind.Unique when
+                modifier.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
                 "Foulborn",
             ParsedModifierKind.Unique => "Unique",
             _ => string.Empty,
@@ -2470,12 +2466,13 @@ internal sealed class PriceCheckerSearchController
 
     private static string ContributorProvenanceLabel(SearchComponentSourceProvenance source)
     {
-        var section = source.ParsedKind switch
+        var section = source.ResolvedSourceKind switch
         {
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
             ParsedModifierKind.Implicit => "Implicit",
-            ParsedModifierKind.Unique when source.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
+            ParsedModifierKind.Unique when
+                source.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Foulborn =>
                 "Foulborn",
             ParsedModifierKind.Unique => "Unique",
             _ => string.Empty,

@@ -83,19 +83,22 @@ internal static partial class CanonicalModifierEffectAggregator
             return "Enchant";
         }
 
+        // Resolved source classification, so a row whose Unique source block was proven by
+        // identity-bound recovery carries the same provider-domain semantics as a Unique-labelled row.
+        var sourceKind = component.ResolvedSourceKind;
         if (component.IsBaseImplicit ||
-            component.ParsedKind == ParsedModifierKind.Implicit ||
-            component.ParsedKind == ParsedModifierKind.Unknown &&
+            sourceKind == ParsedModifierKind.Implicit ||
+            sourceKind == ParsedModifierKind.Unknown &&
             component.GenerationType == ModifierGenerationType.Implicit)
         {
             return "Implicit";
         }
 
-        return component.ParsedKind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix ||
-            component.ParsedKind == ParsedModifierKind.Unknown &&
+        return sourceKind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix ||
+            sourceKind == ParsedModifierKind.Unknown &&
             component.GenerationType is ModifierGenerationType.Prefix or ModifierGenerationType.Suffix
                 ? "Explicit"
-                : component.ParsedKind == ParsedModifierKind.Unique
+                : sourceKind == ParsedModifierKind.Unique
                     ? "Unique"
                     : "Unknown";
     }
@@ -143,6 +146,9 @@ internal static partial class CanonicalModifierEffectAggregator
             ParsedKind = component.ParsedKind,
             ImplicitOrigin = component.ImplicitOrigin,
             UniqueOrigin = component.UniqueOrigin,
+            RecoveredSourceKind = component.RecoveredSourceKind,
+            RecoveredSourceUniqueOrigin = component.RecoveredSourceUniqueOrigin,
+            UsesIdentityBoundUniqueRecovery = component.UsesIdentityBoundUniqueRecovery,
             GenerationType = component.GenerationType,
             Locality = component.Locality,
             StatMappingProof = component.StatMappingProof,
@@ -215,7 +221,7 @@ internal static partial class CanonicalModifierEffectAggregator
     {
         key = default!;
         var canonicalValues = CanonicalValues(component);
-        if (component.ParsedKind == ParsedModifierKind.Unique ||
+        if (component.HasResolvedUniqueSourceSemantics ||
             !component.IsSearchable ||
             component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
             component.ResolvedStatIds.Count == 0 ||
@@ -543,8 +549,8 @@ internal static partial class CanonicalModifierEffectAggregator
 
     private static bool IsImplicit(ResolvedSearchComponent component) =>
         component.IsBaseImplicit ||
-        component.ParsedKind == ParsedModifierKind.Implicit ||
-        component.ParsedKind == ParsedModifierKind.Unknown &&
+        component.ResolvedSourceKind == ParsedModifierKind.Implicit ||
+        component.ResolvedSourceKind == ParsedModifierKind.Unknown &&
         component.GenerationType == ModifierGenerationType.Implicit;
 
     private sealed record AggregationKey(

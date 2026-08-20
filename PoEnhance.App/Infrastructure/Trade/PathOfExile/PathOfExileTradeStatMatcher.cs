@@ -838,8 +838,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         {
             return new StatMatchSource
             {
-                Kind = component.ParsedKind,
-                UniqueOrigin = component.UniqueOrigin,
+                Kind = component.ResolvedSourceKind,
+                UniqueOrigin = component.ResolvedSourceUniqueOrigin,
                 IsCrafted = component.IsCrafted,
                 IsFractured = component.IsFractured,
                 IsVeiled = component.IsVeiled,

@@ -29,6 +29,41 @@ public sealed record SearchComponentSourceProvenance
 
     public ParsedUniqueModifierOrigin UniqueOrigin { get; init; }
 
+    /// <summary>
+    /// Source kind proven by resolution when the copied metadata did not carry one; null when the raw
+    /// metadata already stated it. See <see cref="ResolvedSearchComponent.RecoveredSourceKind"/>.
+    /// </summary>
+    public ParsedModifierKind? RecoveredSourceKind { get; init; }
+
+    public ParsedUniqueModifierOrigin? RecoveredSourceUniqueOrigin { get; init; }
+
+    public bool UsesIdentityBoundUniqueRecovery { get; init; }
+
+    /// <summary>
+    /// Authoritative source classification for provider, query and UI decisions.
+    /// </summary>
+    public ParsedModifierKind ResolvedSourceKind => HasProvenRecoveredUniqueSourceSemantics
+        ? RecoveredSourceKind!.Value
+        : ParsedKind;
+
+    public ParsedUniqueModifierOrigin ResolvedSourceUniqueOrigin =>
+        HasProvenRecoveredUniqueSourceSemantics
+            ? RecoveredSourceUniqueOrigin!.Value
+            : UniqueOrigin;
+
+    public bool HasResolvedUniqueSourceSemantics =>
+        ResolvedSourceKind == ParsedModifierKind.Unique &&
+        ResolvedSourceUniqueOrigin is
+            ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn;
+
+    private bool HasProvenRecoveredUniqueSourceSemantics =>
+        UsesIdentityBoundUniqueRecovery &&
+        ParsedKind == ParsedModifierKind.Unknown &&
+        UniqueOrigin == ParsedUniqueModifierOrigin.Unspecified &&
+        RecoveredSourceKind == ParsedModifierKind.Unique &&
+        RecoveredSourceUniqueOrigin is
+            ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn;
+
     public ModifierGenerationType? GenerationType { get; init; }
 
     public ModifierLocality Locality { get; init; } = ModifierLocality.Unknown;

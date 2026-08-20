@@ -28,6 +28,7 @@
     <None Include="TestData\Items\ordinary-item-price-checker-corpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Trade\fetch-offer-card-response.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Trade\fetch-offer-card-live-modifier-response.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="TestData\Trade\official-stats-2026-08-19.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -97,6 +97,28 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
         Assert.Equal("CanonicalNegatedScalar", result.ProjectionKind);
     }
 
+    [Fact]
+    public void ProjectBounds_FixedPresenceLookupBridgeDoesNotInventNumericBounds()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "You can apply an additional Curse",
+                ProviderCanonicalSignature = "You can apply an additional Curse",
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                SupportsValueBounds = false,
+                ProviderFallbackNumericValues = [1m],
+            },
+            Candidate("You can apply # additional Curses"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
+        Assert.Null(result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("FixedPresenceIdentity", result.ProjectionKind);
+    }
+
     private static ResolvedSearchComponent DamageRangeComponent(IReadOnlyList<decimal> values)
     {
         return new ResolvedSearchComponent

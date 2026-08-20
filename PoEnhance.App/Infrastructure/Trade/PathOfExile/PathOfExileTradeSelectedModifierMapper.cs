@@ -499,10 +499,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
     private static bool CanSerializeSelectedComponent(ResolvedSearchComponent modifier)
     {
         var hasExactProviderOwnedUniqueProvenance =
-            modifier.ParsedKind == ParsedModifierKind.Unique &&
-            modifier.UniqueOrigin is ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
+            modifier.HasResolvedUniqueSourceSemantics &&
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
             modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            modifier.IsSearchable &&
             !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
         var hasExactProviderOwnedVeiledPresence = modifier.IsVeiled &&
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
@@ -524,11 +524,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var hasExactGameDataProvenance = modifier.IsSearchable &&
             modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
             (!string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) ||
-                modifier.ParsedKind == ParsedModifierKind.Unique &&
-                (modifier.UniqueCatalogBlockIds.Count > 0 ||
-                    modifier.UniqueFoulbornRelationshipIds.Count > 0) &&
-                modifier.UniqueSourceObservationIds.Count > 0 &&
-                string.IsNullOrWhiteSpace(modifier.UniqueResolutionDiagnosticCode) ||
+                modifier.HasExactUniqueSourceProvenance ||
                 modifier.Sources.Count > 0 && modifier.Sources.All(source =>
                     !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
                     source.ResolvedStatIds.Count > 0)) &&

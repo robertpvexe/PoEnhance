@@ -122,9 +122,10 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             return new PathOfExileTradeProviderBoundProjection
             {
                 IsFaithful = true,
-                ValueBoundShape = ModifierBoundShape.Scalar,
-                Minimum = component.ProviderFallbackNumericValues[0],
-                ProjectionKind = "FixedPresenceScalar",
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                Minimum = null,
+                Maximum = null,
+                ProjectionKind = "FixedPresenceIdentity",
             };
         }
 

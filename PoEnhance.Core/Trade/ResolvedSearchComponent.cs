@@ -102,6 +102,77 @@ public sealed record ResolvedSearchComponent
 
     public string? UniqueResolutionDiagnosticCode { get; init; }
 
+    /// <summary>
+    /// True when the Unique source block was proven from the resolved Unique identity even though the
+    /// copied metadata carried no Unique modifier kind. Provenance only: <see cref="UniqueOrigin"/>
+    /// and the parsed metadata still report what the client actually emitted.
+    /// </summary>
+    public bool UsesIdentityBoundUniqueRecovery { get; init; }
+
+    /// <summary>
+    /// Source kind proven by resolution when the copied metadata did not carry one. Null whenever the
+    /// raw client metadata already stated the kind, which keeps every existing row on its raw truth.
+    /// </summary>
+    public ParsedModifierKind? RecoveredSourceKind { get; init; }
+
+    /// <summary>
+    /// Unique source origin proven by resolution. Only set when the resolved source evidence actually
+    /// proves the origin; never inferred from text or item identity.
+    /// </summary>
+    public ParsedUniqueModifierOrigin? RecoveredSourceUniqueOrigin { get; init; }
+
+    /// <summary>
+    /// Authoritative source classification for provider, query and UI decisions: what exact source
+    /// evidence proved, falling back to what the client emitted. <see cref="ParsedKind"/> stays raw
+    /// client truth and must be used for diagnostics and provenance only.
+    /// </summary>
+    public ParsedModifierKind ResolvedSourceKind => HasProvenRecoveredUniqueSourceSemantics
+        ? RecoveredSourceKind!.Value
+        : ParsedKind;
+
+    /// <summary>
+    /// Authoritative Unique source origin, resolved counterpart of <see cref="UniqueOrigin"/>.
+    /// </summary>
+    public ParsedUniqueModifierOrigin ResolvedSourceUniqueOrigin =>
+        HasProvenRecoveredUniqueSourceSemantics
+            ? RecoveredSourceUniqueOrigin!.Value
+            : UniqueOrigin;
+
+    /// <summary>
+    /// True only when raw metadata or exact recovered evidence establishes a supported Unique
+    /// source classification. Unknown/Unspecified rows remain false unless recovery proved both
+    /// dimensions.
+    /// </summary>
+    public bool HasResolvedUniqueSourceSemantics =>
+        ResolvedSourceKind == ParsedModifierKind.Unique &&
+        ResolvedSourceUniqueOrigin is
+            ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn;
+
+    /// <summary>
+    /// Exact source-block provenance shared by normal and identity-bound recovered Unique rows.
+    /// Provider mapping, UI availability and serialization use this fail-closed proof.
+    /// </summary>
+    public bool HasExactUniqueSourceProvenance =>
+        HasResolvedUniqueSourceSemantics &&
+        ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+        (UniqueCatalogBlockIds.Count > 0 || UniqueFoulbornRelationshipIds.Count > 0) &&
+        UniqueSourceObservationIds.Count > 0 &&
+        string.IsNullOrWhiteSpace(UniqueResolutionDiagnosticCode) &&
+        ResolvedStatIds.Count > 0;
+
+    private bool HasProvenRecoveredUniqueSourceSemantics =>
+        UsesIdentityBoundUniqueRecovery &&
+        ParsedKind == ParsedModifierKind.Unknown &&
+        UniqueOrigin == ParsedUniqueModifierOrigin.Unspecified &&
+        RecoveredSourceKind == ParsedModifierKind.Unique &&
+        RecoveredSourceUniqueOrigin is
+            ParsedUniqueModifierOrigin.Ordinary or ParsedUniqueModifierOrigin.Foulborn &&
+        ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+        (UniqueCatalogBlockIds.Count > 0 || UniqueFoulbornRelationshipIds.Count > 0) &&
+        UniqueSourceObservationIds.Count > 0 &&
+        string.IsNullOrWhiteSpace(UniqueResolutionDiagnosticCode) &&
+        ResolvedStatIds.Count > 0;
+
     public bool IsSearchable { get; init; }
 
     public string? NotSearchableReason { get; init; }

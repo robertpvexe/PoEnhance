@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Text.Json;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
@@ -13,6 +14,8 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
 {
     private static readonly Lazy<GameDataCatalog> GameData = new(LoadGameData);
     private static readonly PathOfExileTradeStatCatalog TradeCatalog = CreateTradeCatalog();
+    private static readonly Lazy<PathOfExileTradeStatCatalog> OfficialTradeCatalog =
+        new(LoadOfficialTradeCatalog);
     private static readonly PathOfExileTradeItemCatalog TradeItemCatalog = CreateTradeItemCatalog();
     private static readonly PathOfExileTradeFilterCatalog FilterCatalog =
         PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
@@ -21,6 +24,9 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static readonly MethodInfo InteractionReadyMethod = typeof(PriceCheckerSearchController)
         .GetMethod("IsModifierInteractionReady", BindingFlags.Static | BindingFlags.NonPublic) ??
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "IsModifierInteractionReady");
+    private static readonly MethodInfo StaticModifierLabelMethod = typeof(PriceCheckerSearchController)
+        .GetMethod("StaticModifierLabel", BindingFlags.Static | BindingFlags.NonPublic) ??
+        throw new MissingMethodException(nameof(PriceCheckerSearchController), "StaticModifierLabel");
 
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithEquivalentSourceProvenance()
@@ -345,7 +351,122 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Null(filter.Maximum);
     }
 
-    private static RuntimeResult Resolve(string rawText)
+    [Theory]
+    [InlineData(nameof(WindscreamText))]
+    [InlineData(nameof(DoedresDamningText))]
+    public void ResolveRawCopiedItem_MonsterModifierCurseOnResolvedUnique_RecoversPresenceOnlyWithoutRewritingMetadata(
+        string fixtureName)
+    {
+        var runtime = Resolve(RawText(fixtureName), OfficialTradeCatalog.Value);
+        var parsedModifier = Assert.Single(
+            runtime.Parsed.Modifiers,
+            modifier => modifier.ValueLines.Contains(AdditionalCurseText));
+
+        // The parser must keep telling the truth about what the client emitted.
+        Assert.Contains("Monster Modifier", parsedModifier.RawMetadataLine!, StringComparison.Ordinal);
+        Assert.Equal(ParsedModifierKind.Unknown, parsedModifier.Kind);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, parsedModifier.UniqueOrigin);
+
+        var component = FindComponent(runtime.ProviderDraft, AdditionalCurseText);
+        AssertExactSelectable(component, AdditionalCurseProviderStatId);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Single(component.UniqueCatalogBlockIds);
+        Assert.NotEmpty(component.UniqueSourceObservationIds);
+        Assert.Null(component.UniqueResolutionDiagnosticCode);
+        Assert.True(component.UsesIdentityBoundUniqueRecovery);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, component.UniqueOrigin);
+        Assert.Equal(ParsedModifierKind.Unique, component.ResolvedSourceKind);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, component.ResolvedSourceUniqueOrigin);
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Equal("Unique", StaticModifierLabel(component));
+        Assert.Equal([AdditionalCurseProviderStatId], component.ProviderCandidateStatIds);
+        Assert.NotEqual(
+            PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+            component.ProviderDiagnosticCode);
+
+        AssertOfficialAdditionalCurseDomains();
+        var filter = MapSingle(runtime.ProviderDraft, component, OfficialTradeCatalog.Value);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleBoundlessQueryFilter(runtime, component, OfficialTradeCatalog.Value);
+
+        if (fixtureName == nameof(WindscreamText))
+        {
+            var armour = FindComponent(runtime.ProviderDraft, "59(50-80)% increased Armour");
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, armour.ResolutionStatus);
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, armour.ProviderResolutionStatus);
+            Assert.StartsWith("explicit.", armour.ProviderStatId, StringComparison.Ordinal);
+            Assert.True(armour.IsSearchable, armour.NotSearchableReason);
+            Assert.True(IsInteractionReady(armour));
+            Assert.Equal(ModifierBoundShape.Scalar, armour.ValueBoundShape);
+            Assert.True(armour.SupportsValueBounds);
+            Assert.Equal(59m, armour.RequestedMinimum);
+            var armourFilter = MapSingle(runtime.ProviderDraft, armour, OfficialTradeCatalog.Value);
+            Assert.Equal(59m, armourFilter.Minimum);
+        }
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_UniqueModifierCurseControl_StaysOnOrdinaryUniquePathWithoutRecovery()
+    {
+        var runtime = Resolve(CospriWillText, OfficialTradeCatalog.Value);
+        var parsedModifier = Assert.Single(
+            runtime.Parsed.Modifiers,
+            modifier => modifier.ValueLines.Contains(AdditionalCurseText));
+
+        Assert.Contains("Unique Modifier", parsedModifier.RawMetadataLine!, StringComparison.Ordinal);
+        Assert.Equal(ParsedModifierKind.Unique, parsedModifier.Kind);
+
+        var component = FindComponent(runtime.ProviderDraft, AdditionalCurseText);
+        AssertExactSelectable(component, AdditionalCurseProviderStatId);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Null(component.UniqueResolutionDiagnosticCode);
+        Assert.False(component.UsesIdentityBoundUniqueRecovery);
+        Assert.Equal(ParsedModifierKind.Unique, component.ResolvedSourceKind);
+        Assert.Equal(ParsedUniqueModifierOrigin.Ordinary, component.ResolvedSourceUniqueOrigin);
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Equal("Unique", StaticModifierLabel(component));
+
+        var filter = MapSingle(runtime.ProviderDraft, component, OfficialTradeCatalog.Value);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleBoundlessQueryFilter(runtime, component, OfficialTradeCatalog.Value);
+    }
+
+    [Fact]
+    public void UiSemanticLabel_DoesNotPromoteRawUnknownFromUnprovenRecoveredFields()
+    {
+        var component = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            ParsedKind = ParsedModifierKind.Unknown,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Unspecified,
+            UsesIdentityBoundUniqueRecovery = true,
+            RecoveredSourceKind = ParsedModifierKind.Unique,
+            RecoveredSourceUniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Unknown,
+        };
+
+        Assert.Equal(ParsedModifierKind.Unknown, component.ResolvedSourceKind);
+        Assert.Equal("modifier", StaticModifierLabel(component));
+    }
+
+    private const string AdditionalCurseText = "You can apply an additional Curse";
+    private const string AdditionalCurseProviderStatId = "explicit.stat_30642521";
+
+    private static string RawText(string fixtureName) => fixtureName switch
+    {
+        nameof(WindscreamText) => WindscreamText,
+        nameof(DoedresDamningText) => DoedresDamningText,
+        nameof(CospriWillText) => CospriWillText,
+        _ => throw new ArgumentOutOfRangeException(nameof(fixtureName), fixtureName, "Unknown fixture."),
+    };
+
+    private static RuntimeResult Resolve(
+        string rawText,
+        PathOfExileTradeStatCatalog? tradeCatalog = null)
     {
         var parsed = new ItemTextParser().Parse(rawText);
         var baseResolution = new ParsedItemBaseResolver().Resolve(parsed, GameData.Value);
@@ -365,7 +486,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         var propertyDraft = ItemPropertyResolver.Resolve(draft, FilterCatalog);
         var providerDraft = CreatePriceCheckService().ResolveProviderComponents(
             propertyDraft,
-            TradeCatalog,
+            tradeCatalog ?? TradeCatalog,
             uniqueIdentity,
             FilterCatalog);
         return new RuntimeResult(parsed, baseResolution, sourceResolutions, providerDraft, uniqueIdentity);
@@ -414,7 +535,8 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
 
     private static PathOfExileTradeSelectedModifierFilter MapSingle(
         TradeSearchDraft draft,
-        ResolvedSearchComponent component)
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog? catalog = null)
     {
         var selectedDraft = draft with
         {
@@ -428,7 +550,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
                 })
                 .ToArray(),
         };
-        var mapping = SelectedMapper.Map(selectedDraft, TradeCatalog);
+        var mapping = SelectedMapper.Map(selectedDraft, catalog ?? TradeCatalog);
         Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
         return Assert.Single(mapping.Filters);
     }
@@ -455,6 +577,66 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static bool IsInteractionReady(ResolvedSearchComponent component)
     {
         return (bool)(InteractionReadyMethod.Invoke(null, [component]) ?? false);
+    }
+
+    private static string StaticModifierLabel(ResolvedSearchComponent component)
+    {
+        return (string)(StaticModifierLabelMethod.Invoke(null, [component]) ?? string.Empty);
+    }
+
+    private static void AssertOfficialAdditionalCurseDomains()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        Assert.True(catalog.Entries.Count > 17_900);
+        var template = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            "You can apply # additional Curses");
+        var providerKinds = catalog.FindByNormalizedTemplate(template)
+            .Select(PathOfExileTradeStatCandidateClassifier.ToCandidate)
+            .Select(PathOfExileTradeStatCandidateClassifier.GetProviderKind)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("crafted", providerKinds);
+        Assert.Contains("enchant", providerKinds);
+        Assert.Contains("explicit", providerKinds);
+        Assert.Contains("fractured", providerKinds);
+        Assert.Contains("implicit", providerKinds);
+        Assert.Contains("scourge", providerKinds);
+    }
+
+    private static void AssertSingleBoundlessQueryFilter(
+        RuntimeResult runtime,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        var selectedDraft = runtime.ProviderDraft with
+        {
+            ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                .Select(candidate => candidate with
+                {
+                    IsSelected = string.Equals(
+                        candidate.ComponentId,
+                        component.ComponentId,
+                        StringComparison.Ordinal),
+                })
+                .ToArray(),
+        };
+        var mapping = SelectedMapper.Map(selectedDraft, catalog);
+        Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        var query = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            "Standard",
+            mapping.Filters,
+            runtime.UniqueIdentity,
+            FilterCatalog);
+        Assert.True(query.IsSuccess, string.Join(" | ", query.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        using var document = JsonDocument.Parse(query.SerializedJson!);
+        var serializedFilter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal(AdditionalCurseProviderStatId, serializedFilter.GetProperty("id").GetString());
+        Assert.False(serializedFilter.TryGetProperty("value", out _));
     }
 
     private static PathOfExileTradePriceCheckService CreatePriceCheckService()
@@ -488,6 +670,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Entry(11, "explicit.stat_3986704288", "Magic Utility Flasks cannot be Used", "explicit"),
             Entry(12, "explicit.stat_1509134228", "#% increased Physical Damage", "explicit"),
             Entry(13, "explicit.stat_752930724", "Items and Gems have #% increased Attribute Requirements", "explicit"),
+            Entry(14, "explicit.stat_30642521", "You can apply # additional Curses", "explicit"),
         ]);
     }
 
@@ -515,6 +698,9 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(4, "The Squire", "Elegant Round Shield", "armour"),
             UniqueItem(5, "Mageblood", "Heavy Belt", "accessory"),
             UniqueItem(6, "Last Resort", "Nailed Fist", "weapon"),
+            UniqueItem(7, "Windscream", "Reinforced Greaves", "armour"),
+            UniqueItem(8, "Doedre's Damning", "Paua Ring", "accessory"),
+            UniqueItem(9, "Cospri's Will", "Assassin's Garb", "armour"),
         ]);
     }
 
@@ -543,6 +729,18 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
         return GameDataCatalog.FromPackage(Assert.IsType<GameDataPackage>(result.Package));
+    }
+
+    private static PathOfExileTradeStatCatalog LoadOfficialTradeCatalog()
+    {
+        var path = FindRepoFile(
+            "PoEnhance.App.Tests",
+            "TestData",
+            "Trade",
+            "official-stats-2026-08-19.json");
+        var result = new PathOfExileTradeStatsResponseParser().ParseStatsResponse(File.ReadAllText(path));
+        Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        return Assert.IsType<PathOfExileTradeStatCatalog>(result.Catalog);
     }
 
     private static string FindRepoFile(params string[] relativeParts)
@@ -800,6 +998,100 @@ Magic Utility Flask Effects cannot be removed
 Rightmost 4(2-4) Magic Utility Flasks constantly apply their Flask Effects to you
 --------
 Rivers of power course through your veins.
+""";
+
+    // Verbatim Ctrl+D bodies from the authoritative E6 live capture. Windscream and Doedre's
+    // Damning emit "Monster Modifier" for the additional-curse row; Cospri's Will emits
+    // "Unique Modifier" for the same semantic stat and acts as the control.
+    private const string WindscreamText = """
+Item Class: Boots
+Rarity: Unique
+Windscream
+Reinforced Greaves
+--------
+Armour: 173 (augmented)
+--------
+Requirements:
+Level: 33
+Str: 61
+--------
+Sockets: W-W-W
+--------
+Item Level: 85
+--------
+{ Unique Modifier — Defences, Armour }
+59(50-80)% increased Armour
+{ Unique Modifier — Elemental, Resistance }
++11(10-15)% to all Elemental Resistances
+{ Monster Modifier — Caster, Curse }
+You can apply an additional Curse
+{ Unique Modifier — Speed }
+20% increased Movement Speed
+{ Unique Modifier — Caster, Curse }
+50% increased Area of Effect of Hex Skills
+--------
+The mocking wind, a shielding spell,
+The haunting screams, a maddening hell.
+""";
+
+    private const string DoedresDamningText = """
+Item Class: Rings
+Rarity: Unique
+Doedre's Damning
+Paua Ring
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Mana }
++28(20-30) to maximum Mana
+--------
+{ Unique Modifier — Attribute }
++11(5-20) to Intelligence
+{ Unique Modifier — Elemental, Resistance }
++18(5-20)% to all Elemental Resistances
+{ Unique Modifier — Mana }
+Gain 17(5-20) Mana per Enemy Killed
+{ Monster Modifier — Caster, Curse }
+You can apply an additional Curse
+--------
+Where her mouth should have been
+there was only a whirling, black void.
+""";
+
+    private const string CospriWillText = """
+Item Class: Body Armours
+Rarity: Unique
+Cospri's Will
+Assassin's Garb
+--------
+Evasion Rating: 2045 (augmented)
+--------
+Requirements:
+Level: 68
+Dex: 183 (unmet)
+--------
+Sockets: W W-W
+--------
+Item Level: 83
+--------
+{ Implicit Modifier — Speed }
+3% increased Movement Speed
+--------
+{ Unique Modifier — Defences, Evasion }
+168(150-200)% increased Evasion Rating
+{ Unique Modifier — Caster, Curse }
+You can apply an additional Curse
+{ Unique Modifier — Chaos, Resistance }
++43(31-53)% to Chaos Resistance
+{ Unique Modifier }
+Your Hexes can affect Hexproof Enemies — Unscalable Value
+{ Unique Modifier — Chaos, Ailment }
+Always Poison on Hit against Cursed Enemies
+(Poison deals Chaos Damage over time, based on the base Physical and Chaos Damage of the Skill. Multiple instances of Poison stack)
+--------
+Curse their vile Council,
+They cast me aside as if I am some bastard child.
+If they only knew the power I possess.
 """;
 
     private const string LastResortText = """

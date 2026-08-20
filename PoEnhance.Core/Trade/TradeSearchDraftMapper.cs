@@ -661,7 +661,11 @@ public sealed class TradeSearchDraftMapper
             yield break;
         }
 
-        if (modifier.Kind == ParsedModifierKind.Unique)
+        // A row recovered from identity-bound Unique source evidence carries the same mechanics as a
+        // Unique-labelled row, so it takes the Unique source component path even though the client
+        // labelled it with another domain.
+        if (modifier.Kind == ParsedModifierKind.Unique ||
+            uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true)
         {
             yield return CreateComponent(
                 modifierIndex,
@@ -854,6 +858,11 @@ public sealed class TradeSearchDraftMapper
         GameDataCatalog? baseIdentityCatalog = null,
         UniqueModifierBlockResolution? uniqueBlockResolution = null)
     {
+        // True when this component's mechanics come from Unique source-block evidence rather than a
+        // normal modifier candidate, whether the client labelled the row as a Unique modifier or the
+        // row was recovered from the resolved Unique identity.
+        var usesUniqueSourceMechanics = modifier.Kind == ParsedModifierKind.Unique ||
+            uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true;
         var uniqueModifierCandidates = ResolveUniqueModifierCandidates(uniqueBlockResolution, catalog);
         var uniqueBoundCandidate = ResolveUniqueBoundCandidate(uniqueModifierCandidates);
         var boundCandidate = exactCandidate ?? uniqueBoundCandidate;
@@ -896,7 +905,7 @@ public sealed class TradeSearchDraftMapper
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.TextualOptionRange is not null;
         var treatAsUnscalablePresence = hasUnscalableValue &&
             !hasProvenGeneratedTextualOptionRange;
-        var providerOnlyUniqueValues = modifier.Kind == ParsedModifierKind.Unique &&
+        var providerOnlyUniqueValues = usesUniqueSourceMechanics &&
             (boundCandidate is null || boundDefault.Shape == ModifierBoundShape.Unsupported) &&
             componentLines.Count == 1
                 ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
@@ -910,11 +919,11 @@ public sealed class TradeSearchDraftMapper
             ? ModifierBoundShape.PresenceOnly
             : hasProviderOnlyUniqueScalar
                 ? ModifierBoundShape.Scalar
-                : boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique && providerOnlyUniqueValues.Count == 0
+                : boundCandidate is null && usesUniqueSourceMechanics && providerOnlyUniqueValues.Count == 0
                     ? ModifierBoundShape.PresenceOnly
             : boundDefault.Shape;
         var observedNumericValues = hasProviderOnlyUniqueScalar ||
-            boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique
+            boundCandidate is null && usesUniqueSourceMechanics
             ? providerOnlyUniqueValues
             : boundDefault.ObservedValues;
         var canonicalNumericValues = hasProviderOnlyUniqueScalar
@@ -1021,10 +1030,14 @@ public sealed class TradeSearchDraftMapper
             UniqueNormalCounterpartModifierIds = uniqueBlockResolution?.NormalCounterpartModifierIds ?? [],
             UniqueSourceObservationIds = uniqueBlockResolution?.SourceObservationIds ?? [],
             UniqueResolutionDiagnosticCode = uniqueBlockResolution?.DiagnosticCode,
+            UsesIdentityBoundUniqueRecovery =
+                uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true,
+            RecoveredSourceKind = uniqueBlockResolution?.RecoveredSourceKind,
+            RecoveredSourceUniqueOrigin = uniqueBlockResolution?.RecoveredSourceUniqueOrigin,
             IsSearchable = isSearchable,
             NotSearchableReason = isSearchable
                 ? null
-                : modifier.Kind == ParsedModifierKind.Unique && uniqueBlockResolution is { IsResolved: false }
+                : usesUniqueSourceMechanics && uniqueBlockResolution is { IsResolved: false }
                     ? uniqueBlockResolution.Diagnostic
                 : exactCandidate is null
                     ? "The source modifier did not resolve to one exact GameData modifier."
@@ -1034,7 +1047,7 @@ public sealed class TradeSearchDraftMapper
                 ? "The copied modifier is a presence-only value and has no numeric Trade bound."
                 : hasProviderOnlyUniqueScalar
                     ? null
-                : boundCandidate is null && modifier.Kind == ParsedModifierKind.Unique &&
+                : boundCandidate is null && usesUniqueSourceMechanics &&
                     !hasProviderOnlyUniqueScalar
                     ? providerOnlyUniqueValues.Count > 1
                         ? "The provider-owned Unique modifier has multiple numeric values without a proven scalar projection."

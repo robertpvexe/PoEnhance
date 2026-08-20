@@ -138,30 +138,63 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_FixedPresenceSourceAddsRequiredProviderScalarAtFinalMapping()
+    public void Map_FixedPresenceSourceKeepsProviderFilterBoundlessAtFinalMapping()
     {
         var component = Modifier(
-            "Bow Attacks fire an additional Arrow",
-            providerStatId: "explicit.additional-arrows",
-            canonicalSignature: "Bow Attacks fire an additional Arrow") with
+            "You can apply an additional Curse",
+            providerStatId: "explicit.stat_30642521",
+            canonicalSignature: "You can apply an additional Curse") with
         {
-            ProviderCanonicalSignature = "Bow Attacks fire an additional Arrow",
+            ProviderCanonicalSignature = "You can apply an additional Curse",
             SupportsValueBounds = false,
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
             ProviderFallbackNumericValues = [1m],
         };
+        var draft = Draft([component]) with
+        {
+            Rarity = "Unique",
+            DisplayName = "Doedre's Damning",
+            ParsedBaseType = "Paua Ring",
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Exact,
+                ResolvedBaseId = "Metadata/Items/Rings/Ring2",
+                ResolvedBaseName = "Paua Ring",
+            },
+        };
 
         var result = mapper.Map(
-            Draft([component]),
+            draft,
             Catalog(
-                "explicit.additional-arrows",
-                "Bow Attacks fire # additional Arrows",
+                "explicit.stat_30642521",
+                "You can apply # additional Curses",
                 "Explicit"));
 
         Assert.True(result.IsSuccess);
         var filter = Assert.Single(result.Filters);
-        Assert.Equal(1m, filter.Minimum);
+        Assert.Null(filter.Minimum);
         Assert.Null(filter.Maximum);
+
+        var query = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            TradeSearchValidationResult.FromDiagnostics([]),
+            "Standard",
+            result.Filters,
+            new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Doedre's Damning",
+                CanonicalType = "Paua Ring",
+            });
+
+        Assert.True(query.IsSuccess);
+        using var document = JsonDocument.Parse(query.SerializedJson!);
+        var serializedFilter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal("explicit.stat_30642521", serializedFilter.GetProperty("id").GetString());
+        Assert.False(serializedFilter.TryGetProperty("value", out _));
     }
 
     [Fact]
@@ -190,6 +223,39 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
         Assert.Equal("explicit.stat_life", filter.StatId);
         Assert.Equal(69m, filter.Minimum);
         Assert.Equal([0, 1], filter.SourceIndexes);
+    }
+
+    [Fact]
+    public void Map_ExactRecoveredUniqueWithNonExactProviderResolutionFailsClosed()
+    {
+        var recovered = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            OriginalText = "You can apply an additional Curse",
+            CanonicalSignature = "You can apply an additional Curse",
+            ParsedKind = ParsedModifierKind.Unknown,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Unspecified,
+            UsesIdentityBoundUniqueRecovery = true,
+            RecoveredSourceKind = ParsedModifierKind.Unique,
+            RecoveredSourceUniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            UniqueCatalogBlockIds = ["block:curse"],
+            UniqueSourceObservationIds = ["observation:curse"],
+            ResolvedStatIds = ["curse_stat"],
+            IsSearchable = true,
+            IsSelected = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Ambiguous,
+            ProviderCandidateStatIds = ["explicit.curse", "implicit.curse"],
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+
+        var result = mapper.Map(Draft([recovered]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+            Assert.Single(result.Diagnostics).Code);
     }
 
     [Fact]

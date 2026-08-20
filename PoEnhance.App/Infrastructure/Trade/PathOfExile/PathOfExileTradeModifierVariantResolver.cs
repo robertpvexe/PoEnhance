@@ -369,7 +369,7 @@ internal static class PathOfExileTradeModifierVariantResolver
             component,
             catalog,
             sourceExactCandidate);
-        var requiresExactSourceIdentity = component.ParsedKind == ParsedModifierKind.Unique ||
+        var requiresExactSourceIdentity = component.HasResolvedUniqueSourceSemantics ||
             component.IsVeiled;
         var sourceCandidateIds = sourceExactCandidates
             .Select(candidate => candidate.StatId)

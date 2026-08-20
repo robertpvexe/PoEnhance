@@ -1104,6 +1104,236 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal([expectedStatId], block.StatIds);
     }
 
+    [Fact]
+    public void Resolve_UnrecognizedMetadataKindOnResolvedUnique_RecoversExactIdentityBoundBlock()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        var catalog = UnrecognizedKindCatalog(
+            EvidenceBlock("armour", "59% increased Armour", "<number>% increased Armour", "armour_stat"),
+            EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var row = Assert.Single(parsed.Modifiers, modifier => modifier.ValueLines.Contains(CurseLine));
+        Assert.Equal(ParsedModifierKind.Unknown, row.Kind);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, row.UniqueOrigin);
+        Assert.Contains("Monster Modifier", row.RawMetadataLine!, StringComparison.Ordinal);
+
+        var recovered = Assert.Single(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+        Assert.True(recovered.IsResolved);
+        Assert.Null(recovered.DiagnosticCode);
+        Assert.Equal(["curse_stat"], recovered.StatIds);
+        Assert.Equal("block:curse", Assert.Single(recovered.CatalogBlocks).Id);
+        Assert.NotEmpty(recovered.SourceObservationIds);
+    }
+
+    [Theory]
+    // The label itself is irrelevant; any unrecognized kind is eligible on identity-bound proof.
+    [InlineData("{ Monster Modifier — Caster, Curse }")]
+    [InlineData("{ Corrupted Modifier — Caster, Curse }")]
+    public void Resolve_AnyUnrecognizedMetadataKind_UsesTheSameIdentityBoundProof(string metadataLine)
+    {
+        var parsed = ParseWithUnrecognizedKindRow(metadataLine);
+        var catalog = UnrecognizedKindCatalog(EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var recovered = Assert.Single(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+        Assert.True(recovered.IsResolved);
+        Assert.Equal(["curse_stat"], recovered.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowWithNoMatchingSourceBlock_DeclinesRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        var catalog = UnrecognizedKindCatalog(
+            EvidenceBlock("other", "Some other unique line", "Some other unique line", "other_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowMatchingAnotherIdentityOnly_DeclinesRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        // The block text exists in the catalog, but only under a different Unique identity.
+        var catalog = CreateCatalog(
+            "Other Identity",
+            "Reinforced Greaves",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(UniqueItemResolutionStatus.Unsupported, result.Status);
+        Assert.Equal("UNIQUE_IDENTITY_NOT_FOUND", result.DiagnosticCode);
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowWithTwoIndependentMatchingBlocks_DeclinesRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        var catalog = UnrecognizedKindCatalog(
+            EvidenceBlock("curse-a", CurseLine, CurseLine, "curse_stat_a"),
+            EvidenceBlock("curse-b", CurseLine, CurseLine, "curse_stat_b", "pob-observation:test-two"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowMatchingFixedAndGeneratedCandidate_DeclinesRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        var version = Version("Current", UniqueItemVersionRole.Current,
+            EvidenceBlock("curse-fixed", CurseLine, CurseLine, "curse_stat"),
+            GeneratedEvidenceBlock("curse-generated", CurseLine, CurseLine, "curse_stat", "pool:curse")) with
+        {
+            GeneratedCandidateSelectionLimit = 1,
+        };
+        var catalog = CreateCatalog(
+            "Test Greaves",
+            "Reinforced Greaves",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowWhenVersionsDisagree_DeclinesRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Monster Modifier — Caster, Curse }");
+        // Both versions match the armour row equally, so neither can be narrowed away; only one of
+        // them contains the curse block, so the identity-bound proof is not exact.
+        var armour = EvidenceBlock("armour", "59% increased Armour", "<number>% increased Armour", "armour_stat");
+        var catalog = CreateCatalog(
+            "Test Greaves",
+            "Reinforced Greaves",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                armour,
+                EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat")),
+            Version("Pre 3.29.0", UniqueItemVersionRole.Historical, armour));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowOnNonUniqueItem_IsNotApplicable()
+    {
+        var parsed = parser.Parse($$"""
+            Item Class: Boots
+            Rarity: Rare
+            Test Tread
+            Reinforced Greaves
+            --------
+            Item Level: 85
+            --------
+            { Monster Modifier — Caster, Curse }
+            {{CurseLine}}
+            """);
+        var catalog = UnrecognizedKindCatalog(EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(UniqueItemResolutionStatus.NotApplicable, result.Status);
+        Assert.Empty(result.ModifierBlocks);
+    }
+
+    [Theory]
+    // Rows the parser does recognize keep their own domain and are never diverted into the fallback.
+    [InlineData("{ Prefix Modifier \"Test\" (Tier: 1) — Caster, Curse }")]
+    [InlineData("{ Suffix Modifier \"Test\" (Tier: 1) — Caster, Curse }")]
+    [InlineData("{ Implicit Modifier — Caster, Curse }")]
+    [InlineData("{ Corruption Implicit Modifier — Caster, Curse }")]
+    [InlineData("{ Crafted Modifier — Caster, Curse }")]
+    [InlineData("{ Fractured Modifier — Caster, Curse }")]
+    public void Resolve_RecognizedNonUniqueKindRow_IsNeverStolenByIdentityBoundRecovery(string metadataLine)
+    {
+        var parsed = ParseWithUnrecognizedKindRow(metadataLine);
+        var catalog = UnrecognizedKindCatalog(EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var row = Assert.Single(parsed.Modifiers, modifier => modifier.ValueLines.Contains(CurseLine));
+        Assert.NotEqual(ParsedModifierKind.Unique, row.Kind);
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UniqueModifierRow_IsNeverMarkedAsIdentityBoundRecovery()
+    {
+        var parsed = ParseWithUnrecognizedKindRow("{ Unique Modifier — Caster, Curse }");
+        var catalog = UnrecognizedKindCatalog(EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks, candidate => candidate.StatIds.Contains("curse_stat"));
+        Assert.True(block.IsResolved);
+        Assert.False(block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Resolve_UnrecognizedKindRowOnFoulbornItem_DoesNotAssumeOrdinaryOrigin()
+    {
+        var parsed = parser.Parse($$"""
+            Item Class: Boots
+            Rarity: Unique
+            Foulborn Test Greaves
+            Reinforced Greaves
+            --------
+            Item Level: 85
+            --------
+            { Monster Modifier — Caster, Curse }
+            {{CurseLine}}
+            """);
+        var catalog = UnrecognizedKindCatalog(EvidenceBlock("curse", CurseLine, CurseLine, "curse_stat"));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.True(result.IsFoulborn);
+        Assert.DoesNotContain(result.ModifierBlocks, block => block.IsIdentityBoundRecovery);
+    }
+
+    private const string CurseLine = "You can apply an additional Curse";
+
+    private ParsedItem ParseWithUnrecognizedKindRow(string metadataLine)
+    {
+        return parser.Parse($$"""
+            Item Class: Boots
+            Rarity: Unique
+            Test Greaves
+            Reinforced Greaves
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier — Defences, Armour }
+            59% increased Armour
+            {{metadataLine}}
+            {{CurseLine}}
+            """);
+    }
+
+    private static GameDataCatalog UnrecognizedKindCatalog(params UniqueModifierBlock[] blocks)
+    {
+        return CreateCatalog(
+            "Test Greaves",
+            "Reinforced Greaves",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, blocks));
+    }
+
     private static GameDataCatalog CreateCatalog(
         string name,
         string baseType,

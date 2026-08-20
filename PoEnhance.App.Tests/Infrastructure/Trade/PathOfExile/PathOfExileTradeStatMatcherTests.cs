@@ -1091,6 +1091,45 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_ExactRecoveredOrdinaryUniqueNarrowsDuplicateProviderDomainsToExplicit()
+    {
+        var component = ExactRecoveredUniqueComponent();
+        var catalog = DuplicateAdditionalCurseDomains();
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.curse", result.ExactCandidate?.StatId);
+        Assert.Equal(["explicit.curse"], result.Candidates.Select(candidate => candidate.StatId));
+    }
+
+    [Theory]
+    [InlineData(false, ModifierCandidateResolutionStatus.Exact, null)]
+    [InlineData(true, ModifierCandidateResolutionStatus.Unknown, null)]
+    [InlineData(true, ModifierCandidateResolutionStatus.Exact, "UNIQUE_BLOCK_INDEPENDENT_DIMENSIONS")]
+    public void Match_UnprovenRecoveredFieldsDoNotNarrowUnknownProviderDomain(
+        bool usesRecovery,
+        ModifierCandidateResolutionStatus status,
+        string? diagnosticCode)
+    {
+        var component = ExactRecoveredUniqueComponent() with
+        {
+            UsesIdentityBoundUniqueRecovery = usesRecovery,
+            ResolutionStatus = status,
+            UniqueResolutionDiagnosticCode = diagnosticCode,
+        };
+
+        var result = matcher.Match(component, DuplicateAdditionalCurseDomains());
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Contains(result.Candidates, candidate => candidate.StatId == "explicit.curse");
+        Assert.Contains(result.Candidates, candidate => candidate.StatId == "implicit.curse");
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Match_RepeatedMatchingIsDeterministic()
     {
         var catalog = Catalog(
@@ -1126,6 +1165,42 @@ public sealed class PathOfExileTradeStatMatcherTests
             Id = id,
             Text = text,
             Type = groupId,
+        };
+    }
+
+    private static PathOfExileTradeStatCatalog DuplicateAdditionalCurseDomains()
+    {
+        return Catalog(
+            Entry("crafted.curse", "You can apply # additional Curses", "crafted"),
+            Entry("enchant.curse", "You can apply # additional Curses", "enchant"),
+            Entry("explicit.curse", "You can apply # additional Curses", "explicit"),
+            Entry("fractured.curse", "You can apply # additional Curses", "fractured"),
+            Entry("implicit.curse", "You can apply # additional Curses", "implicit"),
+            Entry("scourge.curse", "You can apply # additional Curses", "scourge"));
+    }
+
+    private static ResolvedSearchComponent ExactRecoveredUniqueComponent()
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = 0,
+            OriginalText = "You can apply an additional Curse",
+            CanonicalSignature = "You can apply an additional Curse",
+            ProviderSearchSignatures = ["You can apply an additional Curse"],
+            ParsedKind = ParsedModifierKind.Unknown,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Unspecified,
+            UsesIdentityBoundUniqueRecovery = true,
+            RecoveredSourceKind = ParsedModifierKind.Unique,
+            RecoveredSourceUniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedStatIds = ["curse_stat"],
+            UniqueCatalogBlockIds = ["unique-block:test"],
+            UniqueSourceObservationIds = ["observation:test"],
+            IsSearchable = true,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ProviderFallbackNumericValues = [1m],
         };
     }
 
