@@ -1319,6 +1319,180 @@ The judge determines worthiness by comparison to the paragon: himself.
         Assert.Empty(result.UnclassifiedLines);
     }
 
+    [Fact]
+    public void Parse_SingleLineReminder_IsExcludedFromValueLines()
+    {
+        var parsed = ParseUniqueWithModifierLines(
+            "{ Unique Modifier — Life }",
+            "Keystone Alpha — Unscalable Value",
+            "(Reminder opens and closes here)");
+
+        var modifier = Assert.Single(parsed.UniqueModifiers);
+        Assert.Equal(["Keystone Alpha"], modifier.ValueLines);
+        var effect = Assert.Single(modifier.Effects);
+        Assert.Equal(["(Reminder opens and closes here)"], effect.ReminderLines);
+    }
+
+    [Fact]
+    public void Parse_TwoLineReminder_IsExcludedFromValueLines()
+    {
+        var parsed = ParseUniqueWithModifierLines(
+            "{ Unique Modifier — Chaos }",
+            "Keystone Alpha — Unscalable Value",
+            "(Reminder opens here",
+            "and closes here)");
+
+        var modifier = Assert.Single(parsed.UniqueModifiers);
+        Assert.Equal(["Keystone Alpha"], modifier.ValueLines);
+        var effect = Assert.Single(modifier.Effects);
+        Assert.Equal(
+            ["(Reminder opens here", "and closes here)"],
+            effect.ReminderLines);
+    }
+
+    [Fact]
+    public void Parse_ThreeLineReminder_IsExcludedFromValueLines()
+    {
+        var parsed = ParseUniqueWithModifierLines(
+            "{ Unique Modifier — Chaos }",
+            "Keystone Alpha — Unscalable Value",
+            "(Reminder opens here",
+            "50% of Elemental Damage taken as Chaos Damage",
+            "+5% to maximum Chaos Resistance)");
+
+        var modifier = Assert.Single(parsed.UniqueModifiers);
+        Assert.Equal(["Keystone Alpha"], modifier.ValueLines);
+        var effect = Assert.Single(modifier.Effects);
+        Assert.Equal(
+            [
+                "(Reminder opens here",
+                "50% of Elemental Damage taken as Chaos Damage",
+                "+5% to maximum Chaos Resistance)",
+            ],
+            effect.ReminderLines);
+    }
+
+    [Fact]
+    public void Parse_MultiLineReminderFollowedByReminderAndModifier_KeepsRowsSeparate()
+    {
+        var parsed = _parser.Parse("""
+            Item Class: Shields
+            Rarity: Unique
+            Test Machination
+            Steel Kite Shield
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier — Chaos }
+            Keystone Alpha — Unscalable Value
+            (Reminder opens here
+            and closes here)
+            (Trailing single-line reminder)
+            { Unique Modifier — Life }
+            Keystone Beta — Unscalable Value
+            (Beta reminder)
+            { Unique Modifier — Defences }
+            +25 to maximum Energy Shield
+            """);
+
+        Assert.Collection(
+            parsed.UniqueModifiers,
+            alpha =>
+            {
+                Assert.Equal(["Keystone Alpha"], alpha.ValueLines);
+                Assert.Equal(
+                    ["(Reminder opens here", "and closes here)", "(Trailing single-line reminder)"],
+                    Assert.Single(alpha.Effects).ReminderLines);
+            },
+            beta =>
+            {
+                Assert.Equal(["Keystone Beta"], beta.ValueLines);
+                Assert.Equal(["(Beta reminder)"], Assert.Single(beta.Effects).ReminderLines);
+            },
+            plain =>
+            {
+                Assert.Equal(["+25 to maximum Energy Shield"], plain.ValueLines);
+                Assert.Empty(Assert.Single(plain.Effects).ReminderLines);
+            });
+    }
+
+    [Fact]
+    public void Parse_MultiLineUniqueBlockWithoutReminder_KeepsEveryValueLine()
+    {
+        var parsed = ParseUniqueWithModifierLines(
+            "{ Unique Modifier — Minion }",
+            "+1 to maximum number of Raised Zombies",
+            "+1 to maximum number of Spectres");
+
+        var modifier = Assert.Single(parsed.UniqueModifiers);
+        Assert.Equal(
+            ["+1 to maximum number of Raised Zombies", "+1 to maximum number of Spectres"],
+            modifier.ValueLines);
+        Assert.All(modifier.Effects, effect => Assert.Empty(effect.ReminderLines));
+    }
+
+    [Fact]
+    public void Parse_UnclosedReminder_KeepsLinesAsValueLinesInsteadOfSwallowingThem()
+    {
+        var parsed = _parser.Parse("""
+            Item Class: Shields
+            Rarity: Unique
+            Test Machination
+            Steel Kite Shield
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier — Chaos }
+            Keystone Alpha — Unscalable Value
+            (Reminder opens but never closes
+            still unclosed
+            { Unique Modifier — Defences }
+            +25 to maximum Energy Shield
+            """);
+
+        Assert.Collection(
+            parsed.UniqueModifiers,
+            alpha =>
+            {
+                Assert.Equal(
+                    ["Keystone Alpha", "(Reminder opens but never closes", "still unclosed"],
+                    alpha.ValueLines);
+                Assert.All(alpha.Effects, effect => Assert.Empty(effect.ReminderLines));
+            },
+            plain => Assert.Equal(["+25 to maximum Energy Shield"], plain.ValueLines));
+    }
+
+    [Fact]
+    public void Parse_ReminderBeforeAnyValueLine_IsNotTreatedAsReminderText()
+    {
+        var parsed = ParseUniqueWithModifierLines(
+            "{ Unique Modifier — Chaos }",
+            "(Leading parenthesis opens here",
+            "and closes here)");
+
+        var modifier = Assert.Single(parsed.UniqueModifiers);
+        Assert.Equal(
+            ["(Leading parenthesis opens here", "and closes here)"],
+            modifier.ValueLines);
+        Assert.All(modifier.Effects, effect => Assert.Empty(effect.ReminderLines));
+    }
+
+    private ParsedItem ParseUniqueWithModifierLines(params string[] modifierLines)
+    {
+        return _parser.Parse(string.Join(
+            Environment.NewLine,
+            [
+                "Item Class: Shields",
+                "Rarity: Unique",
+                "Test Machination",
+                "Steel Kite Shield",
+                "--------",
+                "Item Level: 85",
+                "--------",
+                .. modifierLines,
+            ]));
+    }
+
     private static string ReadSample(string fileName)
     {
         return File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Items", fileName));

@@ -709,18 +709,32 @@ public sealed partial class ItemTextParser
     private static IReadOnlyList<ParsedModifierEffect> CreateModifierEffects(IReadOnlyList<string> valueLines)
     {
         var effects = new List<PendingModifierEffect>();
-        foreach (var rawLine in valueLines)
+        for (var lineIndex = 0; lineIndex < valueLines.Count; lineIndex++)
         {
-            var line = rawLine.Trim();
+            var line = valueLines[lineIndex].Trim();
             if (line.Length == 0)
             {
                 continue;
             }
 
-            if (IsReminderLine(line) && effects.Count > 0)
+            if (effects.Count > 0)
             {
-                effects[^1].ReminderLines.Add(line);
-                continue;
+                if (IsReminderLine(line))
+                {
+                    effects[^1].ReminderLines.Add(line);
+                    continue;
+                }
+
+                if (TryReadContinuedReminder(valueLines, lineIndex, out var reminderLines, out var closingIndex))
+                {
+                    foreach (var reminderLine in reminderLines)
+                    {
+                        effects[^1].ReminderLines.Add(reminderLine);
+                    }
+
+                    lineIndex = closingIndex;
+                    continue;
+                }
             }
 
             var cleanedLine = RemoveTerminalUnscalableValue(line, out var hasUnscalableValue);
@@ -805,6 +819,72 @@ public sealed partial class ItemTextParser
         return line.Length >= 2 &&
             line[0] == '(' &&
             line[^1] == ')';
+    }
+
+    /// <summary>
+    /// Recognizes a reminder whose parenthesis opens on <paramref name="startIndex"/> and closes on a
+    /// later line. The reminder is only accepted once the closing parenthesis is found, so an unclosed
+    /// parenthesis leaves every line to be parsed as an ordinary modifier value line.
+    /// </summary>
+    private static bool TryReadContinuedReminder(
+        IReadOnlyList<string> valueLines,
+        int startIndex,
+        out IReadOnlyList<string> reminderLines,
+        out int closingIndex)
+    {
+        reminderLines = [];
+        closingIndex = startIndex;
+
+        var openingLine = valueLines[startIndex].Trim();
+        if (openingLine.Length == 0 || openingLine[0] != '(')
+        {
+            return false;
+        }
+
+        var depth = CountUnclosedParentheses(openingLine);
+        if (depth <= 0)
+        {
+            return false;
+        }
+
+        var lines = new List<string> { openingLine };
+        for (var lineIndex = startIndex + 1; lineIndex < valueLines.Count; lineIndex++)
+        {
+            var line = valueLines[lineIndex].Trim();
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            lines.Add(line);
+            depth += CountUnclosedParentheses(line);
+            if (depth <= 0)
+            {
+                reminderLines = lines;
+                closingIndex = lineIndex;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int CountUnclosedParentheses(string line)
+    {
+        var depth = 0;
+        foreach (var character in line)
+        {
+            if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')')
+            {
+                depth--;
+            }
+        }
+
+        return depth;
     }
 
     private static string RemoveTerminalUnscalableValue(string line, out bool hasUnscalableValue)

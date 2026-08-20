@@ -1037,6 +1037,73 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Empty(block.TextualOptionRangeAnnotations);
     }
 
+    [Fact]
+    public void Resolve_KeystoneBlocksWithMultiLineReminders_ResolvesEveryCopiedBlock()
+    {
+        // Faithful reproduction of the captured shield body: the first two keystone rows carry
+        // reminder text spanning several physical lines, the third closes on one line.
+        var parsed = parser.Parse("""
+            Item Class: Shields
+            Rarity: Unique
+            Test Machination
+            Steel Kite Shield
+            --------
+            Chance to Block: 26%
+            Armour: 164
+            Energy Shield: 34
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier — Defences, Energy Shield, Chaos }
+            Corrupted Soul — Unscalable Value
+            (50% of Non-Chaos Damage taken bypasses Energy Shield
+            Gain 15% of Maximum Life as Extra Maximum Energy Shield)
+            { Unique Modifier — Chaos, Resistance }
+            Divine Flesh — Unscalable Value
+            (All Damage taken bypasses Energy Shield
+            50% of Elemental Damage taken as Chaos Damage
+            +5% to maximum Chaos Resistance)
+            (Maximum Resistances cannot be raised above 90%)
+            { Unique Modifier — Life }
+            Vaal Pact — Unscalable Value
+            (Life Leech from Melee Damage is Instant. Cannot Recover Life other than from Leech)
+            --------
+            Corrupted
+            """);
+
+        Assert.Collection(
+            parsed.UniqueModifiers,
+            corruptedSoul => Assert.Equal(["Corrupted Soul"], corruptedSoul.ValueLines),
+            divineFlesh => Assert.Equal(["Divine Flesh"], divineFlesh.ValueLines),
+            vaalPact => Assert.Equal(["Vaal Pact"], vaalPact.ValueLines));
+
+        var catalog = CreateCatalog(
+            "Test Machination",
+            "Steel Kite Shield",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                EvidenceBlock("corrupted-soul", "Corrupted Soul", "Corrupted Soul", "corrupted_soul_stat"),
+                EvidenceBlock("divine-flesh", "Divine Flesh", "Divine Flesh", "divine_flesh_stat"),
+                EvidenceBlock("vaal-pact", "Vaal Pact", "Vaal Pact", "vaal_pact_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, result.Status);
+        Assert.Collection(
+            result.ModifierBlocks,
+            corruptedSoul => AssertResolvedKeystoneBlock(corruptedSoul, "corrupted_soul_stat"),
+            divineFlesh => AssertResolvedKeystoneBlock(divineFlesh, "divine_flesh_stat"),
+            vaalPact => AssertResolvedKeystoneBlock(vaalPact, "vaal_pact_stat"));
+    }
+
+    private static void AssertResolvedKeystoneBlock(UniqueModifierBlockResolution block, string expectedStatId)
+    {
+        Assert.True(block.IsResolved);
+        Assert.Null(block.DiagnosticCode);
+        Assert.Single(block.CatalogBlocks);
+        Assert.Equal([expectedStatId], block.StatIds);
+    }
+
     private static GameDataCatalog CreateCatalog(
         string name,
         string baseType,
