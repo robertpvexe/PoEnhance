@@ -743,7 +743,11 @@ public sealed partial class ParsedUniqueItemResolver
             for (var tokenIndex = 0; tokenIndex < parsedTokens.Count; tokenIndex++)
             {
                 if (parsedTokens[tokenIndex].IsEvaluatedAnnotation &&
-                    parsedTokens[tokenIndex].CanonicalRoll != catalogTokens[tokenIndex].CanonicalRoll)
+                    !AreCompatibleAnnotatedRollTokens(
+                        parsedTokens[tokenIndex],
+                        catalogTokens[tokenIndex],
+                        parsedLines[lineIndex],
+                        catalogLines[lineIndex]))
                 {
                     return false;
                 }
@@ -790,6 +794,41 @@ public sealed partial class ParsedUniqueItemResolver
         }
 
         return true;
+    }
+
+    private static bool AreCompatibleAnnotatedRollTokens(
+        LogicalRollToken parsed,
+        LogicalRollToken catalog,
+        string parsedLine,
+        string catalogLine)
+    {
+        if (string.Equals(parsed.CanonicalRoll, catalog.CanonicalRoll, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!parsed.IsEvaluatedAnnotation || catalog.IsEvaluatedAnnotation)
+        {
+            return false;
+        }
+
+        if (!TryReadRollBounds(parsed.CanonicalRoll, out var parsedMinimum, out var parsedMaximum) ||
+            !TryReadRollBounds(catalog.CanonicalRoll, out var catalogMinimum, out var catalogMaximum))
+        {
+            return false;
+        }
+
+        if (parsedMinimum >= 0 || parsedMaximum >= 0)
+        {
+            return false;
+        }
+
+        var unsignedMinimum = Math.Min(catalogMinimum, catalogMaximum);
+        var unsignedMaximum = Math.Max(catalogMinimum, catalogMaximum);
+        var trimmedCatalogLine = catalogLine.TrimStart();
+        return trimmedCatalogLine.StartsWith("-", StringComparison.Ordinal) &&
+            parsedMinimum == -unsignedMaximum &&
+            parsedMaximum == -unsignedMinimum;
     }
 
     private static bool TryReadRollBounds(string roll, out decimal minimum, out decimal maximum)

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using PoEnhance.App.Infrastructure.Settings;
+using PoEnhance.App.Diagnostics;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -235,6 +236,9 @@ internal sealed class PriceCheckerSearchController
         initialItemSnapshot = CaptureInitialItemSnapshot();
         PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
+        ModifierPipelineDiagnosticRecorder.TryCompleteCapture(
+            currentDraft,
+            currentValidationResult);
     }
 
     public async Task SearchAsync()

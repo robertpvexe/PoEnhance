@@ -174,13 +174,17 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         var runtime = Resolve(SquireText);
         var sockets = FindComponent(runtime.ProviderDraft, "Has 3 Sockets");
 
+        // Official Trade text is the fixed literal "Has 1 Socket" (no # placeholder).
+        // Presence-only: do not invent Min/Max from the clipboard "3".
         AssertExactSelectable(sockets, "explicit.stat_4077843608");
         Assert.Equal([3m], sockets.ObservedNumericValues);
-        Assert.Equal(3m, sockets.RequestedMinimum);
-        Assert.Equal(3m, sockets.RequestedMaximum);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, sockets.ValueBoundShape);
+        Assert.False(sockets.SupportsValueBounds);
+        Assert.Null(sockets.RequestedMinimum);
+        Assert.Null(sockets.RequestedMaximum);
         var filter = MapSingle(runtime.ProviderDraft, sockets);
-        Assert.Equal(3m, filter.Minimum);
-        Assert.Equal(3m, filter.Maximum);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
     }
 
     [Fact]
@@ -433,6 +437,98 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Null(filter.Minimum);
         Assert.Null(filter.Maximum);
         AssertSingleBoundlessQueryFilter(runtime, component, OfficialTradeCatalog.Value);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_ReverberationRod_FixedSupportsUseGenericExactQueryConstraints()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve(ReverberationRodText, catalog);
+        var fixedSupports = new[]
+        {
+            FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Spell Echo"),
+            FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Controlled Destruction"),
+            FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Arcane Surge"),
+        };
+
+        foreach (var component in fixedSupports)
+        {
+            Assert.Equal(
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+                component.ProviderResolutionStatus);
+            Assert.Null(component.ProviderStatId);
+            Assert.True(component.ProviderStatAlternativeIds.Count > 1);
+            Assert.All(component.ProviderStatAlternativeIds, statId =>
+            {
+                Assert.True(catalog.TryGetById(statId, out var entry));
+                Assert.Contains('#', entry.Text);
+            });
+            Assert.True(component.IsSearchable, component.NotSearchableReason);
+            Assert.True(IsInteractionReady(component));
+            Assert.False(component.SupportsValueBounds);
+            Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+            Assert.Null(component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            Assert.Equal([10m], component.ObservedNumericValues);
+            Assert.Equal([10m], component.CanonicalNumericValues);
+            Assert.Equal(10m, component.FixedQueryValue);
+
+            var selectedDraft = runtime.ProviderDraft with
+            {
+                ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                    .Select(candidate => candidate with
+                    {
+                        IsSelected = candidate.ComponentId == component.ComponentId,
+                    })
+                    .ToArray(),
+            };
+            var mapping = SelectedMapper.Map(selectedDraft, catalog);
+            Assert.True(
+                mapping.IsSuccess,
+                string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+            var mapped = Assert.Single(mapping.Filters);
+            Assert.Equal(component.ProviderStatAlternativeIds.Count, mapped.Alternatives.Count);
+            Assert.All(mapped.Alternatives, alternative =>
+            {
+                Assert.Equal(10m, alternative.Minimum);
+                Assert.Equal(10m, alternative.Maximum);
+            });
+
+            var query = new PathOfExileTradeQueryBuilder().Build(
+                selectedDraft,
+                new TradeSearchDraftValidator().Validate(selectedDraft),
+                "Allflame",
+                mapping.Filters,
+                runtime.UniqueIdentity,
+                FilterCatalog);
+            Assert.True(
+                query.IsSuccess,
+                string.Join(" | ", query.Diagnostics.Select(diagnostic => diagnostic.Message)));
+            using var document = JsonDocument.Parse(query.SerializedJson!);
+            var serialized = Assert.Single(document.RootElement
+                .GetProperty("query")
+                .GetProperty("stats")
+                .EnumerateArray())
+                .GetProperty("filters")
+                .EnumerateArray()
+                .ToArray();
+            Assert.Equal(component.ProviderStatAlternativeIds.Count, serialized.Length);
+            Assert.All(serialized, filter =>
+            {
+                var value = filter.GetProperty("value");
+                Assert.Equal(10m, value.GetProperty("min").GetDecimal());
+                Assert.Equal(10m, value.GetProperty("max").GetDecimal());
+            });
+        }
+
+        var gemLevels = FindComponent(runtime.ProviderDraft, "+2 to Level of Socketed Gems");
+        var intelligence = FindComponent(runtime.ProviderDraft, "+21(10-30) to Intelligence");
+        Assert.True(gemLevels.SupportsValueBounds);
+        Assert.Equal(2m, gemLevels.RequestedMinimum);
+        Assert.Null(gemLevels.FixedQueryValue);
+        Assert.True(intelligence.SupportsValueBounds);
+        Assert.Equal(21m, intelligence.RequestedMinimum);
+        Assert.Null(intelligence.FixedQueryValue);
     }
 
     [Fact]
@@ -701,6 +797,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(7, "Windscream", "Reinforced Greaves", "armour"),
             UniqueItem(8, "Doedre's Damning", "Paua Ring", "accessory"),
             UniqueItem(9, "Cospri's Will", "Assassin's Garb", "armour"),
+            UniqueItem(10, "Reverberation Rod", "Spiraled Wand", "weapon"),
         ]);
     }
 
@@ -1132,5 +1229,30 @@ Items and Gems have 5(10-5)% reduced Attribute Requirements
 "Did we make this? Why do we have no record of it?
 We were warned that there would be consequences..."
 - Administrator Qotra
+""";
+
+    private const string ReverberationRodText = """
+Item Class: Wands
+Rarity: Unique
+Reverberation Rod
+Spiraled Wand
+--------
+Wand
+--------
+Item Level: 85
+--------
+{ Implicit Modifier }
+Adds 2(1-2) to 10(9-11) Lightning Damage to Spells and Attacks
+--------
+{ Unique Modifier }
++2 to Level of Socketed Gems
+{ Unique Modifier }
+Socketed Gems are Supported by Level 10 Spell Echo — Unscalable Value
+{ Unique Modifier }
+Socketed Gems are Supported by Level 10 Controlled Destruction — Unscalable Value
+{ Unique Modifier }
+Socketed Gems are Supported by Level 10 Arcane Surge — Unscalable Value
+{ Unique Modifier }
++21(10-30) to Intelligence
 """;
 }

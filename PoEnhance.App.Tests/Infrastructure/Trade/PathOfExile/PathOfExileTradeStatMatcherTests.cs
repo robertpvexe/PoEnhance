@@ -440,6 +440,123 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_ExactUniqueFixedNumericSource_PrefersParametricPeersOverLiteralProviderText()
+    {
+        var catalog = Catalog(
+            Entry(
+                "explicit.spell_echo_a",
+                "Socketed Gems are Supported by Level # Spell Echo",
+                "explicit"),
+            Entry(
+                "explicit.spell_echo_literal",
+                "Socketed Gems are Supported by Level 10 Spell Echo",
+                "explicit"),
+            Entry(
+                "explicit.spell_echo_b",
+                "Socketed Gems are Supported by Level # Spell Echo",
+                "explicit"));
+        var component = ExactUniqueComponent(
+            "Socketed Gems are Supported by Level 10 Spell Echo",
+            "Socketed Gems are Supported by Level <number> Spell Echo",
+            "support_spell_echo",
+            ModifierLocality.Global) with
+        {
+            ProviderSearchSignatures =
+            [
+                "Socketed Gems are Supported by Level <number> Spell Echo",
+                "Socketed Gems are Supported by Level 10 Spell Echo",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            FixedQueryValue = 10m,
+        };
+
+        var literalCandidate = PathOfExileTradeStatCandidateClassifier.ToCandidate(
+            catalog.Entries.Single(entry => entry.Id == "explicit.spell_echo_literal"));
+        Assert.Contains('#', literalCandidate.LookupTemplate);
+        Assert.DoesNotContain('#', literalCandidate.Text);
+
+        var result = matcher.Match(
+            component,
+            catalog,
+            Context(
+                locality: ModifierLocality.Global,
+                internalStatIds: ["support_spell_echo"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(
+            ["explicit.spell_echo_a", "explicit.spell_echo_b"],
+            result.ExactEquivalentCandidates.Select(candidate => candidate.StatId).Order());
+        Assert.DoesNotContain(
+            result.Candidates,
+            candidate => candidate.StatId == "explicit.spell_echo_literal");
+        Assert.All(result.ExactEquivalentCandidates, candidate =>
+        {
+            Assert.Contains('#', candidate.Text);
+            var projection = PathOfExileTradeModifierBoundProjector.ProjectBounds(component, candidate);
+            Assert.Equal("FixedNumericQueryConstraint", projection.ProjectionKind);
+            Assert.Equal(10m, projection.Minimum);
+            Assert.Equal(10m, projection.Maximum);
+        });
+    }
+
+    [Fact]
+    public void Match_ExactUniqueFixedNumericGenericControl_RemainsExactEquivalentSet()
+    {
+        var catalog = Catalog(
+            Entry(
+                "explicit.arcane_surge_a",
+                "Socketed Gems are Supported by Level # Arcane Surge",
+                "explicit"),
+            Entry(
+                "explicit.arcane_surge_b",
+                "Socketed Gems are Supported by Level # Arcane Surge",
+                "explicit"));
+        var component = ExactUniqueComponent(
+            "Socketed Gems are Supported by Level 10 Arcane Surge",
+            "Socketed Gems are Supported by Level <number> Arcane Surge",
+            "support_arcane_surge",
+            ModifierLocality.Global) with
+        {
+            ProviderSearchSignatures =
+            [
+                "Socketed Gems are Supported by Level <number> Arcane Surge",
+                "Socketed Gems are Supported by Level 1 Arcane Surge",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            FixedQueryValue = 10m,
+        };
+
+        var result = matcher.Match(
+            component,
+            catalog,
+            Context(
+                locality: ModifierLocality.Global,
+                internalStatIds: ["support_arcane_surge"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, result.Status);
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(2, result.ExactEquivalentCandidates.Count);
+        Assert.All(
+            result.ExactEquivalentCandidates,
+            candidate =>
+            {
+                Assert.Contains('#', candidate.Text);
+                var projection = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+                    component,
+                    candidate);
+                Assert.Equal(10m, projection.Minimum);
+                Assert.Equal(10m, projection.Maximum);
+            });
+    }
+
+    [Fact]
     public void Match_ExactUniqueShieldBlock_DiscoversProviderBaseClassQualifiedCandidate()
     {
         var catalog = Catalog(

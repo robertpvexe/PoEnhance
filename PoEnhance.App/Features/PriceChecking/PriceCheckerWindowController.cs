@@ -1,5 +1,6 @@
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Settings;
+using PoEnhance.App.Diagnostics;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -203,6 +204,11 @@ internal sealed class PriceCheckerWindowController
 
         var validationResult = draftValidator.Validate(draftResult.Draft);
         var presentation = PriceCheckerItemPresentation.FromParsedItem(parsedItem);
+        ModifierPipelineDiagnosticRecorder.TryBeginCapture(
+            parsedItem,
+            itemBaseResolution,
+            modifierResolutions,
+            draftResult.Draft);
         update = new PendingPriceCheckerUpdate(
             draftResult.Draft,
             validationResult,

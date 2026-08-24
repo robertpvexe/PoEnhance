@@ -55,7 +55,7 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(providerStat);
 
-        if (TryGetExactFixedLiteralValue(component, providerStat, out _))
+        if (IsProvenFixedLiteralProviderCandidate(component, providerStat))
         {
             return true;
         }
@@ -75,15 +75,27 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(providerStat);
 
-        if (TryGetExactFixedLiteralValue(component, providerStat, out var exactValue))
+        if (CanApplyFixedQueryValue(component, providerStat))
         {
             return new PathOfExileTradeProviderBoundProjection
             {
                 IsFaithful = true,
                 ValueBoundShape = ModifierBoundShape.Scalar,
-                Minimum = exactValue,
-                Maximum = exactValue,
-                ProjectionKind = "ExactFixedLiteralScalar",
+                Minimum = component.FixedQueryValue,
+                Maximum = component.FixedQueryValue,
+                ProjectionKind = "FixedNumericQueryConstraint",
+            };
+        }
+
+        if (IsProvenFixedLiteralProviderCandidate(component, providerStat))
+        {
+            return new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                Minimum = null,
+                Maximum = null,
+                ProjectionKind = "ExactFixedLiteralPresence",
             };
         }
 
@@ -152,15 +164,29 @@ internal static partial class PathOfExileTradeModifierBoundProjector
 
         var providerArity = PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
             providerStat.Text);
-        if (TryGetExactFixedLiteralValue(component, providerStat, out var exactValue))
+        if (CanApplyFixedQueryValue(component, providerStat))
         {
             return component with
             {
-                SupportsValueBounds = true,
+                SupportsValueBounds = false,
                 ValueBoundShape = ModifierBoundShape.Scalar,
-                RequestedMinimum = exactValue,
-                RequestedMaximum = exactValue,
-                ValueBoundsUnsupportedReason = null,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "The source proves a fixed numeric query value, but it is not user-editable.",
+            };
+        }
+
+        if (IsProvenFixedLiteralProviderCandidate(component, providerStat))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "This Trade filter represents a fixed literal provider variant and has no numeric Min/Max.",
             };
         }
 
@@ -230,45 +256,54 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             NegateHandler,
             StringComparison.OrdinalIgnoreCase);
 
+    internal static bool CanApplyFixedQueryValue(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat) =>
+        component.FixedQueryValue.HasValue &&
+        component.CanonicalNumericValues.Count == 1 &&
+        component.CanonicalNumericValues[0] == component.FixedQueryValue.Value &&
+        PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) == 1;
+
+    internal static bool IsProvenFixedLiteralProviderCandidate(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat)
+    {
+        // Official Trade may expose a fixed-literal entry whose lookupTemplate is intentionally
+        // generalized to #. Literal proof must use the provider entry text, not LookupTemplate.
+        if (PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 0 ||
+            !FixedNumericLiteralRegex().IsMatch(providerStat.Text))
+        {
+            return false;
+        }
+
+        var normalizedProviderText = PathOfExileTradeStatTemplateNormalizer.NormalizeComparableProviderText(
+            providerStat.Text);
+        return component.ProviderSearchSignatures.Any(signature =>
+        {
+            var retainedTemplate = ToProviderTemplateMarkers(signature);
+            if (PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(retainedTemplate) != 0 ||
+                !FixedNumericLiteralRegex().IsMatch(retainedTemplate))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                PathOfExileTradeStatTemplateNormalizer.NormalizeComparableProviderText(retainedTemplate),
+                normalizedProviderText,
+                StringComparison.Ordinal);
+        });
+    }
+
+    private static string ToProviderTemplateMarkers(string signature) =>
+        signature
+            .Replace("+<number>", "+#", StringComparison.Ordinal)
+            .Replace("-<number>", "-#", StringComparison.Ordinal)
+            .Replace("<number>", "#", StringComparison.Ordinal);
+
     private static bool HasFixedPresenceOneProjection(ResolvedSearchComponent component) =>
         component.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
         component.ProviderFallbackNumericValues.Count == 1 &&
         component.ProviderFallbackNumericValues[0] == 1m;
-
-    private static bool TryGetExactFixedLiteralValue(
-        ResolvedSearchComponent component,
-        PathOfExileTradeStatMatchCandidate providerStat,
-        out decimal value)
-    {
-        value = default;
-        if (component.ValueBoundShape != ModifierBoundShape.Scalar ||
-            component.CanonicalNumericValues.Count != 1 ||
-            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 0)
-        {
-            return false;
-        }
-
-        var hasMechanicallyRetainedFixedSignature = component.ProviderSearchSignatures.Any(signature =>
-        {
-            var providerTemplate = signature
-                .Replace("+<number>", "+#", StringComparison.Ordinal)
-                .Replace("-<number>", "-#", StringComparison.Ordinal)
-                .Replace("<number>", "#", StringComparison.Ordinal);
-            return PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerTemplate) == 0 &&
-                FixedNumericLiteralRegex().IsMatch(providerTemplate) &&
-                string.Equals(
-                    PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(providerTemplate),
-                    providerStat.LookupTemplate,
-                    StringComparison.Ordinal);
-        });
-        if (!hasMechanicallyRetainedFixedSignature)
-        {
-            return false;
-        }
-
-        value = component.CanonicalNumericValues[0];
-        return true;
-    }
 
     private static string Pluralize(string noun) =>
         noun.EndsWith('s') ? noun : $"{noun}s";

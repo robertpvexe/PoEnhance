@@ -257,6 +257,191 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
+    public void CreateDraft_FixedNumericUniqueSource_RetainsNonEditableQueryConstraintAndProviderSignatures()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Test Echo Wand
+            Carved Wand
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Socketed Gems are Supported by Level 10 Spell Echo — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Echo Wand",
+            "Carved Wand",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "spell-echo",
+                        "Socketed Gems are Supported by Level 10 Spell Echo",
+                        "Socketed Gems are Supported by Level <number> Spell Echo",
+                        "support_spell_echo")),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:spell-echo",
+                    StatIds = ["support_spell_echo"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Socketed Gems are Supported by Level {0} Spell Echo",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.Contains(
+            "Socketed Gems are Supported by Level <number> Spell Echo",
+            row.ProviderSearchSignatures);
+        Assert.Contains(
+            "Socketed Gems are Supported by Level 10 Spell Echo",
+            row.ProviderSearchSignatures);
+        Assert.True(row.IsSearchable);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.Scalar, row.ValueBoundShape);
+        Assert.Null(row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Equal([10m], row.ObservedNumericValues);
+        Assert.Equal([10m], row.CanonicalNumericValues);
+        Assert.Equal(10m, row.FixedQueryValue);
+    }
+
+    [Fact]
+    public void CreateDraft_ProvenMultilineUniqueBlock_ExpandsIntoIndependentComponents()
+    {
+        var presenceLine = "You do not inherently take less Damage for having Fortification";
+        var suppressLine = "+4% chance to Suppress Spell Damage per Fortification";
+        var parsed = parser.Parse($$"""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Fortify Amulet
+            Jade Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{presenceLine}}
+            {{suppressLine}}
+            """);
+        var catalog = CreateCatalog(
+            "Test Fortify Amulet",
+            "Jade Amulet",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    new UniqueModifierBlock
+                    {
+                        Id = "block:fortification",
+                        Kind = UniqueModifierBlockKind.Unique,
+                        Lines = [presenceLine, suppressLine],
+                        CanonicalSignatures =
+                        [
+                            presenceLine,
+                            "+<number>% chance to Suppress Spell Damage per Fortification",
+                        ],
+                        MechanicalMapping = new UniqueModifierMechanicalMapping
+                        {
+                            Status = UniqueModifierMechanicalMappingStatus.Exact,
+                            ModifierIds = ["modifier:fortification"],
+                            StatIds =
+                            [
+                                "should_use_alternate_fortify",
+                                "spell_suppression_chance_%_per_fortification",
+                            ],
+                        },
+                        SourceObservationIds = ["pob-observation:test"],
+                    }),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:fortify-presence",
+                    StatIds = ["should_use_alternate_fortify"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = [presenceLine],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "translation:fortify-suppress",
+                    StatIds = ["spell_suppression_chance_%_per_fortification"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "{0}% chance to Suppress Spell Damage per Fortification",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+
+        Assert.Equal(2, draft.ModifierFilters.Count);
+        Assert.All(draft.ModifierFilters, row =>
+        {
+            Assert.Equal(0, row.SourceModifierIndex);
+            Assert.Equal("block:fortification", Assert.Single(row.UniqueCatalogBlockIds));
+            Assert.True(row.IsSearchable);
+            Assert.Empty(row.Contributors);
+            Assert.Equal(SearchComponentContributorProjection.None, row.ContributorProjection);
+        });
+
+        var presence = Assert.Single(draft.ModifierFilters, row => row.SourceLineIndex == 0);
+        Assert.Equal(presenceLine, presence.OriginalText);
+        Assert.Equal(["should_use_alternate_fortify"], presence.ResolvedStatIds);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, presence.ValueBoundShape);
+        Assert.False(presence.SupportsValueBounds);
+
+        var suppress = Assert.Single(draft.ModifierFilters, row => row.SourceLineIndex == 1);
+        Assert.Equal(suppressLine, suppress.OriginalText);
+        Assert.Equal(["spell_suppression_chance_%_per_fortification"], suppress.ResolvedStatIds);
+        Assert.Equal(ModifierBoundShape.Scalar, suppress.ValueBoundShape);
+        Assert.Equal(4m, suppress.RequestedMinimum);
+        Assert.Contains(suppressLine, suppress.ProviderSearchSignatures);
+    }
+
+    [Fact]
     public void CreateDraft_MultiLineUniqueSourceBlock_RemainsOneProvenanceBackedRow()
     {
         var parsed = parser.Parse("""
@@ -406,6 +591,41 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal(
             ["chaos_stat", "speed_stat"],
             result.ModifierBlocks.SelectMany(block => block.StatIds).Order().ToArray());
+    }
+
+    [Fact]
+    public void Resolve_NegativeEvaluatedResistanceRange_MatchesSignedCatalogRangeBlock()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Body Armours
+            Rarity: Unique
+            Test Negative Res Body
+            Test Garb
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            -29(-30--20)% to Fire Resistance
+            """);
+        var catalog = CreateCatalog(
+            "Test Negative Res Body",
+            "Test Garb",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "negative-fire-res",
+                    "-(30-20)% to Fire Resistance",
+                    "-<number>% to Fire Resistance",
+                    "base_fire_damage_resistance_%")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var version = Assert.Single(result.CompatibleVersions);
+        Assert.Equal("Current", version.Label);
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.NotEqual("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+        Assert.Single(block.CatalogBlocks);
+        Assert.Contains("negative-fire-res", block.CatalogBlocks[0].Id, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -193,6 +193,12 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
 
+    /// <summary>
+    /// Exact provider-neutral numeric identity retained from proven source mechanics for query
+    /// serialization. This is intentionally independent from user-editable Min/Max bounds.
+    /// </summary>
+    public decimal? FixedQueryValue { get; init; }
+
     public IReadOnlyList<decimal> ProviderFallbackNumericValues { get; init; } = [];
 
     public string? ProviderCanonicalSignature { get; init; }

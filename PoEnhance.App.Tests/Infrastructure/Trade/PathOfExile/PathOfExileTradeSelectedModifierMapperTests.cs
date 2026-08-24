@@ -112,7 +112,7 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
-    public void Map_FixedProviderTranslationSiblingEmitsExactCopiedScalar()
+    public void Map_FixedLiteralProviderTextEmitsPresenceOnlyFilter()
     {
         var component = Modifier(
             "Has 3 Sockets",
@@ -133,8 +133,71 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
 
         Assert.True(result.IsSuccess);
         var filter = Assert.Single(result.Filters);
-        Assert.Equal(3m, filter.Minimum);
-        Assert.Equal(3m, filter.Maximum);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
+    [Fact]
+    public void Map_FixedNumericIdentityAppliesExactConstraintToEveryParametricAlternative()
+    {
+        var component = Modifier(
+            "Socketed Gems are Supported by Level 10 Test Support",
+            providerResolutionStatus: SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            providerStatId: null,
+            canonicalSignature: "Socketed Gems are Supported by Level <number> Test Support") with
+        {
+            ProviderStatText = "Socketed Gems are Supported by Level # Test Support",
+            ProviderStatAlternativeIds = ["explicit.test-support-a", "explicit.test-support-b"],
+            ProviderCandidateStatIds = ["explicit.test-support-a", "explicit.test-support-b"],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            FixedQueryValue = 10m,
+        };
+        var draft = Draft([component]);
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry("explicit.test-support-a", "Socketed Gems are Supported by Level # Test Support"),
+            Entry("explicit.test-support-b", "Socketed Gems are Supported by Level # Test Support"),
+        ]);
+
+        var result = mapper.Map(draft, catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(10m, filter.Minimum);
+        Assert.Equal(10m, filter.Maximum);
+        Assert.Equal(2, filter.Alternatives.Count);
+        Assert.All(filter.Alternatives, alternative =>
+        {
+            Assert.Equal(10m, alternative.Minimum);
+            Assert.Equal(10m, alternative.Maximum);
+        });
+
+        var query = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            TradeSearchValidationResult.FromDiagnostics([]),
+            "Standard",
+            result.Filters);
+        Assert.True(query.IsSuccess);
+        using var document = JsonDocument.Parse(query.SerializedJson!);
+        var filters = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray())
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(2, filters.Length);
+        Assert.All(filters, serialized =>
+        {
+            var value = serialized.GetProperty("value");
+            Assert.Equal(10m, value.GetProperty("min").GetDecimal());
+            Assert.Equal(10m, value.GetProperty("max").GetDecimal());
+        });
     }
 
     [Fact]
@@ -1248,6 +1311,16 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
             Type = kind.ToLowerInvariant(),
         },
     ]);
+
+    private static PathOfExileTradeStatEntry Entry(string id, string text) => new()
+    {
+        ProviderOrder = 0,
+        GroupId = "explicit",
+        GroupLabel = "Explicit",
+        Id = id,
+        Text = text,
+        Type = "explicit",
+    };
 
     private static ItemPropertySemanticDescriptor LocalDisplayedSemantic() => new()
     {

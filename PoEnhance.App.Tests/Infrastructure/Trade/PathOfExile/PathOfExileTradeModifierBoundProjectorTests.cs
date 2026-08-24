@@ -52,7 +52,7 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
     }
 
     [Fact]
-    public void Project_FixedProviderTranslationSiblingUsesExactCopiedScalar()
+    public void Project_FixedLiteralProviderTextIsPresenceOnly()
     {
         var result = PathOfExileTradeModifierBoundProjector.Project(
             new ResolvedSearchComponent
@@ -67,9 +67,10 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
             },
             Candidate("Has 1 Socket"));
 
-        Assert.True(result.SupportsValueBounds);
-        Assert.Equal(3m, result.RequestedMinimum);
-        Assert.Equal(3m, result.RequestedMaximum);
+        Assert.False(result.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
+        Assert.Null(result.RequestedMinimum);
+        Assert.Null(result.RequestedMaximum);
     }
 
     [Fact]
@@ -95,6 +96,30 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
         Assert.Null(result.Minimum);
         Assert.Equal(-14m, result.Maximum);
         Assert.Equal("CanonicalNegatedScalar", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_NonEditableFixedQueryValueUsesExactParametricConstraint()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature =
+                    "Socketed Gems are Supported by Level <number> Test Support",
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                SupportsValueBounds = false,
+                ObservedNumericValues = [10m],
+                CanonicalNumericValues = [10m],
+                FixedQueryValue = 10m,
+            },
+            Candidate("Socketed Gems are Supported by Level # Test Support"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(ModifierBoundShape.Scalar, result.ValueBoundShape);
+        Assert.Equal(10m, result.Minimum);
+        Assert.Equal(10m, result.Maximum);
+        Assert.Equal("FixedNumericQueryConstraint", result.ProjectionKind);
     }
 
     [Fact]

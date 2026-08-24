@@ -26,6 +26,15 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
         return StripProviderLocalityAnnotation(NormalizeTemplate(text));
     }
 
+    /// <summary>
+    /// Whitespace/punctuation normalization for comparing retained source signatures to official
+    /// provider entry text without collapsing fixed numeric literals into <c>#</c>.
+    /// </summary>
+    public static string NormalizeComparableProviderText(string? text)
+    {
+        return StripProviderLocalityAnnotation(NormalizeText(text));
+    }
+
     public static bool HasProviderLocalAnnotation(string? text)
     {
         return NormalizeText(text).EndsWith(

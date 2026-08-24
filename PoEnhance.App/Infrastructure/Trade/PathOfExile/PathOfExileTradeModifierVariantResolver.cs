@@ -738,12 +738,19 @@ internal static class PathOfExileTradeModifierVariantResolver
                 projection.ValueBoundShape == ModifierBoundShape.PresenceOnly);
         if (!option.SupportsValueBounds)
         {
+            var hasFixedParametricQueryConstraint = component.FixedQueryValue.HasValue &&
+                candidates.All(candidate =>
+                    PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(
+                        component,
+                        candidate));
             return component with
             {
                 IsSearchable = component.IsSearchable,
                 NotSearchableReason = component.IsSearchable ? null : component.NotSearchableReason,
                 SupportsValueBounds = false,
-                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                ValueBoundShape = hasFixedParametricQueryConstraint
+                    ? ModifierBoundShape.Scalar
+                    : ModifierBoundShape.PresenceOnly,
                 RequestedMinimum = null,
                 RequestedMaximum = null,
                 ValueBoundsUnsupportedReason = option.ValueBoundsUnsupportedReason ??

@@ -263,7 +263,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 localityRejections,
                 context,
                 group.Key.ToString(),
-                source.CanProveEquivalentSet);
+                source.CanProveEquivalentSet,
+                source.Component);
         }
 
         return ResolveRemainingCandidates(
@@ -274,7 +275,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             kindRejections,
             context,
             group.Key.ToString(),
-            source.CanProveEquivalentSet);
+            source.CanProveEquivalentSet,
+            source.Component);
     }
 
     private static (string LookupTemplate, PathOfExileTradeStatCandidateGroup[] Groups)
@@ -392,19 +394,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         return catalog.FindCandidateGroupsByItemClassQualifiedTemplate(lookupTemplate, itemClass).ToArray();
     }
 
-    private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component)
-    {
-        return component is
-        {
-            ParsedKind: ParsedModifierKind.Unique,
-            ResolutionStatus: ModifierCandidateResolutionStatus.Exact,
-        } &&
-            component.ResolvedStatIds.Count > 0 &&
-            (component.UniqueCatalogBlockIds.Count > 0 ||
-                component.UniqueFoulbornRelationshipIds.Count > 0) &&
-            component.UniqueSourceObservationIds.Count > 0 &&
-            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode);
-    }
+    private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component) =>
+        component?.HasExactUniqueSourceProvenance == true;
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
         PathOfExileTradeStatModifierNormalization normalization,
@@ -414,8 +405,26 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
         PathOfExileTradeStatMatchContext? context,
         string providerCandidateGroupKey,
-        bool canProveEquivalentSet)
+        bool canProveEquivalentSet,
+        ResolvedSearchComponent? component)
     {
+        if (candidates.Count > 1 &&
+            HasExactUniqueEvidence(component) &&
+            component!.FixedQueryValue.HasValue)
+        {
+            var parametricCandidates = candidates
+                .Where(candidate =>
+                    PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(
+                        component,
+                        candidate))
+                .ToArray();
+            if (parametricCandidates.Length > 0 &&
+                parametricCandidates.Length < candidates.Count)
+            {
+                candidates = parametricCandidates;
+            }
+        }
+
         if (candidates.Count == 1)
         {
             return Exact(
