@@ -1,0 +1,50 @@
+{
+  "diagnosticVersion": "E6b-generic-live-1",
+  "capturedAtUtc": "2026-08-24T11:00:00Z",
+  "completedAtUtc": "2026-08-24T11:00:01Z",
+  "item": {
+    "itemClass": "Wands",
+    "rarity": "Unique",
+    "displayName": "Fixture Rod",
+    "parsedBaseType": "Spiraled Wand",
+    "resolvedBaseName": "Spiraled Wand"
+  },
+  "uniqueIdentity": {
+    "canonicalName": "Fixture Rod",
+    "canonicalType": "Spiraled Wand"
+  },
+  "modifiers": [
+    {
+      "componentId": "modifier:0:0",
+      "raw": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "originalText": "+2 to Level of Socketed Gems"
+      },
+      "sourceResolution": {
+        "status": "Exact",
+        "resolvedModifierId": "UniqueSocketedGemLevel",
+        "resolvedStatIds": ["socketed_gem_level_+"]
+      },
+      "resolvedSemantics": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "resolvedSourceKind": "Unique",
+        "hasResolvedUniqueSourceSemantics": true,
+        "hasExactUniqueSourceProvenance": true
+      },
+      "signatures": {
+        "originalText": "+2 to Level of Socketed Gems",
+        "canonicalSignature": "+<number> to Level of Socketed Gems"
+      },
+      "providerResolution": {
+        "providerResolutionStatus": "Exact",
+        "providerStatId": "explicit.stat_gem_level"
+      },
+      "consumer": {
+        "isSearchable": true,
+        "availabilityStatus": "Supported"
+      }
+    }
+  ]
+}

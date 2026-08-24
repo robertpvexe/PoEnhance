@@ -724,6 +724,11 @@ and they welcomed him.
         Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, unsupported.ProviderResolutionStatus);
         Assert.False(unsupported.IsSearchable);
         Assert.False(unsupported.IsSelected);
+        Assert.Null(unsupported.ProviderStatId);
+        Assert.Empty(unsupported.ProviderStatAlternativeIds);
+        Assert.NotEqual(ModifierStatMappingProofStatus.ProviderExact, unsupported.StatMappingProof);
+        Assert.Equal(["foulborn-relationship:test"], unsupported.UniqueFoulbornRelationshipIds);
+        Assert.Equal(["normal.modifier.test"], unsupported.UniqueNormalCounterpartModifierIds);
 
         var exact = Assert.Single(foulbornIdentity.ModifierFilters);
         Assert.True(
@@ -1027,6 +1032,193 @@ and they welcomed him.
         Assert.NotEqual(SearchComponentProviderResolutionStatus.Exact,
             unsupported.ProviderResolutionStatus);
         Assert.Null(unsupported.ProviderStatId);
+    }
+
+    [Theory]
+    [InlineData(
+        "Commanded leadership over 14245(10000-18000) warriors under Rakiata(Akoya-Rakiata)",
+        "Commanded leadership over <number> warriors under Rakiata",
+        "Passives in radius are Conquered by the Karui",
+        "explicit.pseudo_timeless_jewel_rakiata",
+        14245)]
+    [InlineData(
+        "Denoted service of 4321(500-8000) dekhara in the akhara of Balbala(Nasima-Balbala)",
+        "Denoted service of <number> dekhara in the akhara of Balbala",
+        "Passives in radius are Conquered by the Maraketh",
+        "explicit.pseudo_timeless_jewel_balbala",
+        4321)]
+    [InlineData(
+        "Bathed in the blood of 6789(100-8000) sacrificed in the name of Doryani(Xibaqua-Doryani)",
+        "Bathed in the blood of <number> sacrificed in the name of Doryani",
+        "Passives in radius are Conquered by the Vaal",
+        "explicit.pseudo_timeless_jewel_doryani",
+        6789)]
+    [InlineData(
+        "Carved to glorify 7654(2000-10000) new faithful converted by High Templar Avarius(Dominus-Avarius)",
+        "Carved to glorify <number> new faithful converted by High Templar Avarius",
+        "Passives in radius are Conquered by the Templars",
+        "explicit.pseudo_timeless_jewel_avarius",
+        7654)]
+    public void ResolveProviderComponents_TimelessShapedAtomicSourceUsesExactPerLineQuery(
+        string copiedFirstLine,
+        string providerSignature,
+        string conqueredLine,
+        string providerStatId,
+        int seed)
+    {
+        var component = TimelessProviderComponent(
+            copiedFirstLine,
+            providerSignature,
+            conqueredLine,
+            seed);
+        var draft = UniqueDraft("Test Timeless Jewel", "Timeless Jewel") with
+        {
+            ItemClass = "Jewels",
+            ModifierFilters = [component],
+        };
+        var identity = new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = "Test Timeless Jewel",
+            CanonicalType = "Timeless Jewel",
+            Foulborn = TradeTriState.No,
+        };
+        var providerText = providerSignature.Replace("<number>", "#", StringComparison.Ordinal);
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(providerStatId, providerText, "explicit"),
+        ]);
+        var fixture = ServiceFixture.Create();
+
+        var resolvedDraft = fixture.Service.ResolveProviderComponents(draft, catalog, identity);
+
+        var resolved = Assert.Single(resolvedDraft.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, resolved.StatMappingProof);
+        Assert.Equal(providerStatId, resolved.ProviderStatId);
+        Assert.Equal(providerText, resolved.ProviderStatText);
+        Assert.True(resolved.IsSearchable, resolved.NotSearchableReason);
+        Assert.True(resolved.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.Scalar, resolved.ValueBoundShape);
+        Assert.Null(resolved.FixedQueryValue);
+        Assert.Equal(seed, resolved.RequestedMinimum);
+        Assert.Equal(seed, resolved.RequestedMaximum);
+        var variant = Assert.Single(resolved.FilterVariants);
+        Assert.Equal("explicit", variant.ProviderKind);
+        Assert.Equal(resolved.SelectedFilterVariantIdentity, variant.Identity);
+
+        var selectedDraft = resolvedDraft with
+        {
+            ModifierFilters = [resolved with { IsSelected = true }],
+        };
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(selectedDraft, catalog);
+        Assert.True(
+            mapping.IsSuccess,
+            string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        var filter = Assert.Single(mapping.Filters);
+        Assert.Equal(providerStatId, filter.StatId);
+        Assert.Equal(seed, filter.Minimum);
+        Assert.Equal(seed, filter.Maximum);
+
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            League,
+            mapping.Filters,
+            identity);
+        Assert.True(
+            build.IsSuccess,
+            string.Join(" | ", build.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var serialized = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray()
+            .SelectMany(group => group.GetProperty("filters").EnumerateArray()));
+        Assert.Equal(providerStatId, serialized.GetProperty("id").GetString());
+        var value = serialized.GetProperty("value");
+        Assert.Equal(seed, value.GetProperty("min").GetDecimal());
+        Assert.Equal(seed, value.GetProperty("max").GetDecimal());
+
+        var editedDraft = selectedDraft with
+        {
+            ModifierFilters =
+            [
+                resolved with
+                {
+                    IsSelected = true,
+                    RequestedMinimum = seed - 100m,
+                    RequestedMaximum = seed + 200m,
+                },
+            ],
+        };
+        var editedMapping = new PathOfExileTradeSelectedModifierMapper().Map(editedDraft, catalog);
+        Assert.True(editedMapping.IsSuccess);
+        var editedFilter = Assert.Single(editedMapping.Filters);
+        Assert.Equal(seed - 100m, editedFilter.Minimum);
+        Assert.Equal(seed + 200m, editedFilter.Maximum);
+
+        var openEndedDraft = selectedDraft with
+        {
+            ModifierFilters =
+            [
+                resolved with
+                {
+                    IsSelected = true,
+                    RequestedMinimum = seed,
+                    RequestedMaximum = null,
+                },
+            ],
+        };
+        var openEndedMapping = new PathOfExileTradeSelectedModifierMapper().Map(openEndedDraft, catalog);
+        Assert.True(openEndedMapping.IsSuccess);
+        var openEndedFilter = Assert.Single(openEndedMapping.Filters);
+        Assert.Equal(seed, openEndedFilter.Minimum);
+        Assert.Null(openEndedFilter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_AtomicSourceWithMultiplePerLineMechanicsFailsClosed()
+    {
+        var component = TimelessProviderComponent(
+            "First source mechanic 14245(10000-18000)",
+            "First source mechanic <number>",
+            "Second source mechanic <number>",
+            14245) with
+        {
+            ProviderSearchSignatures =
+            [
+                "First source mechanic <number>",
+                "Second source mechanic <number>",
+                "Historic",
+            ],
+        };
+        var draft = UniqueDraft("Test Timeless Jewel", "Timeless Jewel") with
+        {
+            ItemClass = "Jewels",
+            ModifierFilters = [component],
+        };
+        var identity = new PathOfExileTradeItemIdentity
+        {
+            CanonicalName = "Test Timeless Jewel",
+            CanonicalType = "Timeless Jewel",
+            Foulborn = TradeTriState.No,
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.first", "First source mechanic #", "explicit"),
+            Stat("explicit.second", "Second source mechanic #", "explicit"),
+        ]);
+
+        var resolvedDraft = ServiceFixture.Create().Service.ResolveProviderComponents(
+            draft,
+            catalog,
+            identity);
+
+        var resolved = Assert.Single(resolvedDraft.ModifierFilters);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous, resolved.ProviderResolutionStatus);
+        Assert.False(resolved.IsSearchable);
+        Assert.Null(resolved.ProviderStatId);
+        Assert.Empty(resolved.FilterVariants);
     }
 
     [Fact]
@@ -2228,6 +2420,34 @@ and they welcomed him.
         var component = Assert.Single(resolved.ModifierFilters);
         Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
         Assert.Null(component.ProviderStatId);
+    }
+
+    [Fact]
+    public void ResolveProviderComponents_BaseImplicitWithoutExactSourceProvenanceFailsClosed()
+    {
+        var fixture = ServiceFixture.Create();
+        var source = BaseImplicitDraft(BaseSearchMode.Category);
+        var draft = source with
+        {
+            ModifierFilters =
+            [
+                source.ModifierFilters[0] with
+                {
+                    ProviderDomainEvidence = [],
+                    BaseImplicitProvenance = null,
+                },
+            ],
+        };
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, ImplicitCatalog());
+        var component = Assert.Single(resolved.ModifierFilters);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(resolved, ImplicitCatalog());
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.False(component.IsSearchable);
+        Assert.Null(component.ProviderStatId);
+        Assert.False(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
     }
 
     [Fact]
@@ -3559,6 +3779,20 @@ and they welcomed him.
                     ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
                     ResolvedModifierId = "mod.implicit.caster",
                     ResolvedStatIds = ["kinetic_wand_implicit_cannot_roll_caster_modifiers"],
+                    ProviderDomainEvidence =
+                    [
+                        new SearchComponentProviderDomainEvidence
+                        {
+                            ProviderDomain = "Implicit",
+                            ModifierId = "mod.implicit.caster",
+                            GenerationType = ModifierGenerationType.Implicit,
+                            Locality = ModifierLocality.Global,
+                            IsSourceExact = true,
+                            EvidenceStrength = 1000,
+                            ItemBaseId = "base.blasting-wand",
+                            ApplicabilityReason = "The resolved base declares this implicit source.",
+                        },
+                    ],
                     IsSearchable = true,
                     IsSelected = true,
                 },
@@ -3617,6 +3851,20 @@ and they welcomed him.
                     GuaranteedExactBaseName = exactBaseName,
                     ResolvedModifierId = "StygianBeltImplicit1",
                     ResolvedStatIds = ["local_has_X_abyss_sockets"],
+                    ProviderDomainEvidence =
+                    [
+                        new SearchComponentProviderDomainEvidence
+                        {
+                            ProviderDomain = "Implicit",
+                            ModifierId = "StygianBeltImplicit1",
+                            GenerationType = ModifierGenerationType.Implicit,
+                            Locality = ModifierLocality.Global,
+                            IsSourceExact = true,
+                            EvidenceStrength = 1000,
+                            ItemBaseId = "base.stygian-vise",
+                            ApplicabilityReason = "The resolved base declares this implicit source.",
+                        },
+                    ],
                 },
             ],
         };
@@ -3664,6 +3912,7 @@ and they welcomed him.
                             Locality = ModifierLocality.Global,
                             IsSourceExact = true,
                             EvidenceStrength = 1000,
+                            ItemBaseId = "base.blasting-wand",
                             ApplicabilityReason = "Exact recognized base-implicit mechanics.",
                         },
                     ],
@@ -3842,6 +4091,62 @@ and they welcomed him.
             ParsedKind = ParsedModifierKind.Unique,
             UniqueOrigin = origin,
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            IsSelected = false,
+        };
+    }
+
+    private static ResolvedSearchComponent TimelessProviderComponent(
+        string copiedFirstLine,
+        string providerSignature,
+        string conqueredLine,
+        decimal seed)
+    {
+        var cleanFirstLine = providerSignature.Replace(
+            "<number>",
+            seed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            StringComparison.Ordinal);
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = -1,
+            SourceComponentIndex = 0,
+            OriginalText = string.Join(Environment.NewLine, copiedFirstLine, conqueredLine, "Historic"),
+            RawCopiedText = string.Join(Environment.NewLine, copiedFirstLine, conqueredLine, "Historic"),
+            PresentationText = string.Join(Environment.NewLine, cleanFirstLine, conqueredLine, "Historic"),
+            CanonicalSignature = string.Join(
+                "\n",
+                PathOfExileTradeStatTemplateNormalizer.NormalizeModifierText(copiedFirstLine).NormalizedTemplate
+                    .Replace("#", "<number>", StringComparison.Ordinal),
+                conqueredLine,
+                "Historic"),
+            ProviderSearchSignatures =
+            [
+                string.Join("\n", providerSignature, conqueredLine, "Historic"),
+                providerSignature,
+                conqueredLine,
+                "Historic",
+            ],
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            GenerationType = ModifierGenerationType.Implicit,
+            Locality = ModifierLocality.Local,
+            StatMappingProof = ModifierStatMappingProofStatus.WholeVector,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = "UniqueJewelAlternateTreeInRadiusTest",
+            ResolvedStatIds = ["local_unique_jewel_alternate_tree_seed"],
+            ResolvedStatLocalities = [ModifierLocality.Local],
+            UniqueCatalogBlockIds = ["unique-block:timeless-test"],
+            UniqueSourceObservationIds = ["pob-observation:timeless-test"],
+            IsSearchable = true,
+            SupportsValueBounds = true,
+            ValueBoundsUnsupportedReason = null,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [seed],
+            CanonicalNumericValues = [seed],
+            FixedQueryValue = null,
+            RequestedMinimum = seed,
+            RequestedMaximum = seed,
             IsSelected = false,
         };
     }

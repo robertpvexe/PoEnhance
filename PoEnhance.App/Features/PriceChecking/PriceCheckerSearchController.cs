@@ -1974,6 +1974,7 @@ internal sealed class PriceCheckerSearchController
     {
         return modifier.HasResolvedUniqueSourceSemantics ||
             modifier.IsVeiled ||
+            modifier.ResolvedSourceKind == ParsedModifierKind.Enchantment ||
             IsImplicitPresentationModifier(modifier);
     }
 
@@ -1998,6 +1999,7 @@ internal sealed class PriceCheckerSearchController
 
         return modifier.ResolvedSourceKind switch
         {
+            ParsedModifierKind.Enchantment => "Enchant",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
             ParsedModifierKind.Implicit when
@@ -2438,6 +2440,7 @@ internal sealed class PriceCheckerSearchController
 
         return modifier.ResolvedSourceKind switch
         {
+            ParsedModifierKind.Enchantment => "Enchant",
             ParsedModifierKind.Implicit when
                 modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
                 "Corrupted",
@@ -2472,6 +2475,7 @@ internal sealed class PriceCheckerSearchController
     {
         var section = source.ResolvedSourceKind switch
         {
+            ParsedModifierKind.Enchantment => "Enchant",
             ParsedModifierKind.Prefix => "Prefix",
             ParsedModifierKind.Suffix => "Suffix",
             ParsedModifierKind.Implicit => "Implicit",

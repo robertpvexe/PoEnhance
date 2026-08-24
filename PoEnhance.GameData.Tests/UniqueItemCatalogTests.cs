@@ -23,9 +23,13 @@ public sealed class UniqueItemCatalogTests
     public void JsonRoundTrip_ValidCatalog_PreservesVersionBlockAndProvenance()
     {
         var package = CreatePackage();
+        var json = GameDataPackageJson.Serialize(package);
+
+        Assert.Contains("\"locality\": \"global\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"valueShape\": \"scalar\"", json, StringComparison.Ordinal);
 
         var roundTripped = Assert.IsType<GameDataPackage>(
-            GameDataPackageJson.Deserialize(GameDataPackageJson.Serialize(package)));
+            GameDataPackageJson.Deserialize(json));
 
         Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
         var identity = Assert.Single(Assert.IsType<UniqueItemCatalog>(roundTripped.UniqueItems).Items);
@@ -33,6 +37,8 @@ public sealed class UniqueItemCatalogTests
         var version = Assert.Single(identity.Versions);
         Assert.Equal(UniqueItemVersionRole.Historical, version.Role);
         var block = Assert.Single(version.ModifierBlocks);
+        Assert.Equal(UniqueModifierSemanticLocality.Global,
+            block.SourceSemanticFingerprint.Locality);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
         Assert.Equal(["mod.prefix.maximum-life.t5"], block.MechanicalMapping.ModifierIds);
         Assert.Equal(["base_maximum_life"], block.MechanicalMapping.StatIds);
@@ -41,6 +47,11 @@ public sealed class UniqueItemCatalogTests
         Assert.Equal(["implicit-zero-stat-composition"], provenance.ResolutionReasons);
         Assert.Equal("copiedInstance", provenance.ValueAuthority);
         Assert.Equal("translation.maximum-life", Assert.Single(provenance.Translations).TranslationId);
+        Assert.Equal(UniqueModifierSemanticLocality.Global,
+            provenance.SourceSemanticFingerprint!.Locality);
+        Assert.Equal(["base_maximum_life"],
+            provenance.MatchedSemanticFingerprint!.OrderedStatIds);
+        Assert.Equal("number", Assert.Single(provenance.MatchedSemanticFingerprint.Values).Unit);
         Assert.Equal(["pob:test"], block.SourceObservationIds);
     }
 
@@ -97,6 +108,60 @@ public sealed class UniqueItemCatalogTests
 
         Assert.Contains(result.Errors, error =>
             error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid);
+    }
+
+    [Fact]
+    public void Validate_MechanicalFingerprintWithRepeatedOrderedStatPositions_IsValid()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        var fingerprint = Assert.IsType<UniqueModifierSemanticFingerprint>(
+            provenance.MatchedSemanticFingerprint);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        MechanicalMapping = block.MechanicalMapping with
+                                        {
+                                            Provenance = provenance with
+                                            {
+                                                MatchedSemanticFingerprint = fingerprint with
+                                                {
+                                                    OrderedStatIds =
+                                                    [
+                                                        "base_maximum_life",
+                                                        "base_maximum_life",
+                                                    ],
+                                                },
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        Assert.True(GameDataPackageValidator.Validate(package).IsValid);
     }
 
     [Fact]
@@ -420,6 +485,11 @@ public sealed class UniqueItemCatalogTests
                                         Kind = UniqueModifierBlockKind.Unique,
                                         Lines = ["+(50-59) to maximum Life"],
                                         CanonicalSignatures = ["+<number> to maximum Life"],
+                                        SourceSemanticFingerprint = new UniqueModifierSemanticFingerprint
+                                        {
+                                            Locality = UniqueModifierSemanticLocality.Global,
+                                            EvidenceMethods = ["pob-item-context-v1"],
+                                        },
                                         SourceObservationIds = [sourceObservationId],
                                         MechanicalMapping = new UniqueModifierMechanicalMapping
                                         {
@@ -429,6 +499,28 @@ public sealed class UniqueItemCatalogTests
                                             Provenance = new UniqueModifierMechanicalProvenance
                                             {
                                                 ResolutionReasons = ["implicit-zero-stat-composition"],
+                                                SourceSemanticFingerprint = new UniqueModifierSemanticFingerprint
+                                                {
+                                                    Locality = UniqueModifierSemanticLocality.Global,
+                                                    EvidenceMethods = ["pob-item-context-v1"],
+                                                },
+                                                MatchedSemanticFingerprint = new UniqueModifierSemanticFingerprint
+                                                {
+                                                    Locality = UniqueModifierSemanticLocality.Global,
+                                                    OrderedStatIds = ["base_maximum_life"],
+                                                    ValueShape = UniqueModifierSemanticValueShape.Scalar,
+                                                    Values =
+                                                    [
+                                                        new UniqueModifierSemanticValue
+                                                        {
+                                                            Index = 0,
+                                                            StatId = "base_maximum_life",
+                                                            Format = "+#",
+                                                            Unit = "number",
+                                                        },
+                                                    ],
+                                                    EvidenceMethods = ["repoe-stat-vector-v1"],
+                                                },
                                                 Translations =
                                                 [
                                                     new UniqueModifierTranslationEvidence
@@ -442,6 +534,12 @@ public sealed class UniqueItemCatalogTests
                                                             {
                                                                 Index = 0,
                                                             },
+                                                        ],
+                                                        ValueFormats = ["+#"],
+                                                        FormatLines = ["{0} to maximum Life"],
+                                                        IndexHandlers =
+                                                        [
+                                                            new StatTranslationIndexHandler { Index = 0 },
                                                         ],
                                                     },
                                                 ],

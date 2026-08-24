@@ -168,6 +168,36 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_EnchantmentAndExplicitTextCollisionRemainIndependent()
+    {
+        var explicitComponent = Scalar(
+            "modifier:0:0",
+            0,
+            "12% increased Movement Speed",
+            12m,
+            "explicit-movement",
+            "<number>% increased Movement Speed",
+            "movement_speed_+%");
+        var enchantment = explicitComponent with
+        {
+            ComponentId = "modifier:1:0",
+            SourceModifierIndex = 1,
+            ParsedKind = ParsedModifierKind.Enchantment,
+            GenerationType = ModifierGenerationType.Enchantment,
+            ResolvedModifierId = "enchantment-movement",
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([explicitComponent, enchantment]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal(
+            [ParsedModifierKind.Prefix, ParsedModifierKind.Enchantment],
+            result.Components.Select(component => component.ParsedKind));
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Message.Contains("enchantment source provenance", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Aggregate_UniqueSourceWithImplicitMechanicalGeneration_RemainsIndependentFromItemImplicit()
     {
         var uniqueComponent = Scalar(

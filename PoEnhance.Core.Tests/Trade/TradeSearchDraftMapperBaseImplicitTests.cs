@@ -116,6 +116,29 @@ public sealed class TradeSearchDraftMapperBaseImplicitTests
         Assert.Empty(component.ProviderDomainEvidence);
     }
 
+    [Fact]
+    public void CreateDraft_UnresolvedRawImplicitRetainsBaseSemanticsWithoutUniqueProvenance()
+    {
+        var item = ParseStaffBlock() with { Rarity = "Unique" };
+        var recognition = BaseImplicitRecognitionResult.Unknown(
+            "base-implicit-unproven",
+            "No exact base mechanic matched.");
+
+        var result = mapper.CreateDraft(item, modifierResolutions: [Resolution(item, recognition)]);
+
+        var component = Assert.Single(Assert.IsType<TradeSearchDraft>(result.Draft).ModifierFilters);
+        Assert.Equal(ParsedModifierKind.Implicit, component.ParsedKind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Unspecified, component.ImplicitOrigin);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, component.UniqueOrigin);
+        Assert.True(component.IsBaseImplicit);
+        Assert.False(component.IsSearchable);
+        Assert.Null(component.BaseImplicitProvenance);
+        Assert.Empty(component.UniqueCatalogBlockIds);
+        Assert.Empty(component.UniqueSourceObservationIds);
+        Assert.Null(component.RecoveredSourceKind);
+        Assert.Null(component.RecoveredSourceUniqueOrigin);
+    }
+
     [Theory]
     [InlineData(BaseImplicitRecognitionStatus.CurrentExact, BaseImplicitSnapshotRole.CurrentCandidate, "Test Belt")]
     [InlineData(BaseImplicitRecognitionStatus.HistoricalExact, BaseImplicitSnapshotRole.HistoricalObserved, null)]

@@ -60,6 +60,24 @@ public sealed class ModifierEligibilityEvaluatorTests
     }
 
     [Fact]
+    public void Evaluate_EnchantSourceUsesTargetBaseTagsAcrossProviderOwnedDomain()
+    {
+        var enchantment = Modifier("item", SpawnWeight("flask", 100)) with
+        {
+            GenerationType = ModifierGenerationType.Unknown,
+            SourceGenerationType = "flask_enchantment_instilling",
+        };
+
+        var result = evaluator.Evaluate(
+            enchantment,
+            Base(domain: "flask", tags: ["flask", "default"]));
+
+        Assert.True(result.Evaluated);
+        Assert.Equal(ModifierEligibilityOutcome.Eligible, result.Outcome);
+        Assert.Equal("flask", result.MatchedTag);
+    }
+
+    [Fact]
     public void Evaluate_MissingRequiredData_ReturnsUnknown()
     {
         var missingBaseDomain = evaluator.Evaluate(

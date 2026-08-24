@@ -194,8 +194,12 @@ public sealed record ResolvedSearchComponent
     public IReadOnlyList<decimal> CanonicalNumericValues { get; init; } = [];
 
     /// <summary>
-    /// Exact provider-neutral numeric identity retained from proven source mechanics for query
-    /// serialization. This is intentionally independent from user-editable Min/Max bounds.
+    /// Identity-fixed numeric query value. When set, Search serializes an exact min=max constraint
+    /// and Min/Max remain non-editable (for example fixed support gem level identity).
+    /// Distinct from editable exact-initialized bounds, which use
+    /// <see cref="SupportsValueBounds"/> with both <see cref="RequestedMinimum"/> and
+    /// <see cref="RequestedMaximum"/> set to the observed value and leave
+    /// <see cref="FixedQueryValue"/> null.
     /// </summary>
     public decimal? FixedQueryValue { get; init; }
 

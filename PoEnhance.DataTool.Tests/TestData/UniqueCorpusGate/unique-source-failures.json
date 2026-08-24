@@ -1,0 +1,79 @@
+{
+  "diagnosticVersion": "E6b-generic-live-1",
+  "capturedAtUtc": "2026-08-24T10:05:00Z",
+  "completedAtUtc": "2026-08-24T10:05:01Z",
+  "item": {
+    "itemClass": "Bows",
+    "rarity": "Unique",
+    "displayName": "Fixture Vigil",
+    "parsedBaseType": "Imperial Bow"
+  },
+  "uniqueIdentity": {
+    "canonicalName": "Fixture Vigil",
+    "canonicalType": "Imperial Bow"
+  },
+  "modifiers": [
+    {
+      "componentId": "modifier:1:0",
+      "raw": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "originalText": "12% increased Attack Speed"
+      },
+      "sourceResolution": {
+        "status": "Unknown",
+        "uniqueResolutionDiagnosticCode": "UNIQUE_MECHANICS_EXACT_CONFLICT",
+        "resolvedStatIds": []
+      },
+      "resolvedSemantics": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "resolvedSourceKind": "Unique",
+        "hasResolvedUniqueSourceSemantics": false,
+        "hasExactUniqueSourceProvenance": false
+      },
+      "signatures": {
+        "originalText": "12% increased Attack Speed",
+        "canonicalSignature": "<number>% increased Attack Speed"
+      },
+      "providerResolution": {
+        "providerResolutionStatus": "Unsupported",
+        "providerDiagnosticCode": "POE_TRADE_SELECTED_MODIFIER_MISSING_GAMEDATA_PROVENANCE"
+      },
+      "consumer": {
+        "isSearchable": false,
+        "availabilityStatus": "Ambiguous",
+        "notSearchableReason": "Unique mechanics conflict."
+      }
+    },
+    {
+      "componentId": "modifier:2:0",
+      "raw": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "originalText": "20% increased Accuracy Rating"
+      },
+      "sourceResolution": {
+        "status": "Unknown",
+        "uniqueResolutionDiagnosticCode": "UNIQUE_BLOCK_VERSION_MISMATCH",
+        "resolvedStatIds": []
+      },
+      "resolvedSemantics": {
+        "parsedKind": "Unique",
+        "uniqueOrigin": "Ordinary",
+        "resolvedSourceKind": "Unique"
+      },
+      "signatures": {
+        "originalText": "20% increased Accuracy Rating",
+        "canonicalSignature": "<number>% increased Accuracy Rating"
+      },
+      "providerResolution": {
+        "providerResolutionStatus": "Unsupported"
+      },
+      "consumer": {
+        "isSearchable": false,
+        "availabilityStatus": "Ambiguous"
+      }
+    }
+  ]
+}

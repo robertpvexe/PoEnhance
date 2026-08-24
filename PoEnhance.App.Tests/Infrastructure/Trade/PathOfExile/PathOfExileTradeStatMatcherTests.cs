@@ -1208,6 +1208,42 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_EnchantmentKindSelectsEnchantFromExplicitTextCollision()
+    {
+        var catalog = Catalog(
+            Entry("explicit.movement", "#% increased Movement Speed", "explicit"),
+            Entry("enchant.movement", "#% increased Movement Speed", "enchant"));
+
+        var result = matcher.Match(
+            Modifier("12% increased Movement Speed", ParsedModifierKind.Enchantment),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("enchant.movement", result.ExactCandidate?.StatId);
+        Assert.Equal(["enchant.movement"], result.Candidates.Select(candidate => candidate.StatId));
+    }
+
+    [Fact]
+    public void Match_EnchantmentKindWithNonEquivalentEnchantCandidatesFailsClosed()
+    {
+        var catalog = Catalog(
+            Entry("enchant.movement-a", "#% increased Movement Speed", "enchant-a"),
+            Entry("enchant.movement-b", "#% increased Movement Speed", "enchant-b"));
+
+        var result = matcher.Match(
+            Modifier("12% increased Movement Speed", ParsedModifierKind.Enchantment),
+            catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Equal(
+            ["enchant.movement-a", "enchant.movement-b"],
+            result.Candidates.Select(candidate => candidate.StatId));
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Match_ExactRecoveredOrdinaryUniqueNarrowsDuplicateProviderDomainsToExplicit()
     {
         var component = ExactRecoveredUniqueComponent();
@@ -1244,6 +1280,112 @@ public sealed class PathOfExileTradeStatMatcherTests
         Assert.Equal(
             PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
             Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Match_ExactAtomicMultiLineUniqueUsesOneSourceLineProviderSignature()
+    {
+        var providerSignature = "Commanded leadership over <number> warriors under Rakiata";
+        var component = ExactAtomicMultiLineUniqueComponent(
+            providerSignature,
+            "Passives in radius are Conquered by the Karui",
+            "Historic");
+        var catalog = Catalog(Entry(
+            "explicit.pseudo_timeless_jewel_rakiata",
+            "Commanded leadership over # warriors under Rakiata",
+            "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal(
+            "explicit.pseudo_timeless_jewel_rakiata",
+            result.ExactCandidate?.StatId);
+    }
+
+    [Theory]
+    [InlineData(ModifierCandidateResolutionStatus.Unknown, null)]
+    [InlineData(ModifierCandidateResolutionStatus.Exact, "UNIQUE_BLOCK_VERSION_MISMATCH")]
+    public void Match_NonExactAtomicMultiLineUniqueCannotUsePerLineProviderSignatures(
+        ModifierCandidateResolutionStatus status,
+        string? diagnosticCode)
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Commanded leadership over <number> warriors under Rakiata",
+            "Passives in radius are Conquered by the Karui",
+            "Historic") with
+        {
+            ResolutionStatus = status,
+            UniqueResolutionDiagnosticCode = diagnosticCode,
+        };
+        var catalog = Catalog(Entry(
+            "explicit.pseudo_timeless_jewel_rakiata",
+            "Commanded leadership over # warriors under Rakiata",
+            "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void Match_AtomicMultiLineUniqueWithDifferentPerLineProviderMechanicsFailsAmbiguous()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "First exact source mechanic <number>",
+            "Second exact source mechanic <number>",
+            "Visible source provenance") with
+        {
+            ProviderSearchSignatures =
+            [
+                "First exact source mechanic <number>",
+                "Second exact source mechanic <number>",
+                "Visible source provenance",
+            ],
+        };
+        var catalog = Catalog(
+            Entry("explicit.first", "First exact source mechanic #", "explicit"),
+            Entry("explicit.second", "Second exact source mechanic #", "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+        Assert.Equal(
+            ["explicit.first", "explicit.second"],
+            result.Candidates.Select(candidate => candidate.StatId).Order().ToArray());
+    }
+
+    [Fact]
+    public void Match_AtomicMultiLineUniqueDoesNotStripArbitraryParentheticalText()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Commanded leadership over <number> warriors under Rakiata (memorial)",
+            "Passives in radius are Conquered by the Karui",
+            "Historic");
+        var catalog = Catalog(Entry(
+            "explicit.unsafe_parenthetical_projection",
+            "Commanded leadership over # warriors under Rakiata",
+            "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void Match_ExactAtomicMultiLineUniqueWithoutProviderLineRemainsNotFound()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Uncatalogued source mechanic <number>",
+            "Visible source provenance",
+            "Historic");
+
+        var result = matcher.Match(component, Catalog());
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Empty(result.Candidates);
     }
 
     [Fact]
@@ -1391,6 +1533,35 @@ public sealed class PathOfExileTradeStatMatcherTests
             UniqueSourceObservationIds = ["pob-observation:test"],
             IsSearchable = true,
             ValueBoundShape = ModifierBoundShape.PresenceOnly,
+        };
+    }
+
+    private static ResolvedSearchComponent ExactAtomicMultiLineUniqueComponent(
+        params string[] perLineSignatures)
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            SourceLineIndex = -1,
+            OriginalText = string.Join(Environment.NewLine, perLineSignatures),
+            CanonicalSignature = string.Join("\n", perLineSignatures),
+            ProviderSearchSignatures = perLineSignatures,
+            ParsedKind = ParsedModifierKind.Unique,
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = "modifier:exact-multiline-unique",
+            ResolvedStatIds = ["exact_multiline_unique_stat"],
+            UniqueCatalogBlockIds = ["unique-block:exact-multiline"],
+            UniqueSourceObservationIds = ["pob-observation:exact-multiline"],
+            IsSearchable = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [14245m],
+            CanonicalNumericValues = [14245m],
+            RequestedMinimum = 14245m,
+            RequestedMaximum = 14245m,
+            FixedQueryValue = null,
         };
     }
 }

@@ -6,5 +6,6 @@ public enum ParsedModifierKind
     Prefix,
     Suffix,
     Implicit,
+    Enchantment,
     Unique,
 }

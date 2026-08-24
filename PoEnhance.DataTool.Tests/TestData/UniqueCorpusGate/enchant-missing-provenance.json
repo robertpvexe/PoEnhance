@@ -1,0 +1,53 @@
+{
+  "diagnosticVersion": "E6b-generic-live-1",
+  "capturedAtUtc": "2026-08-24T10:15:00Z",
+  "completedAtUtc": "2026-08-24T10:15:01Z",
+  "item": {
+    "itemClass": "Amulets",
+    "rarity": "Unique",
+    "displayName": "Fixture Omniscience",
+    "parsedBaseType": "Onyx Amulet"
+  },
+  "uniqueIdentity": {
+    "canonicalName": "Fixture Omniscience",
+    "canonicalType": "Onyx Amulet"
+  },
+  "modifiers": [
+    {
+      "componentId": "modifier:0:0",
+      "raw": {
+        "parsedKind": "Enchantment",
+        "originalText": "Allocates Mind Drinker"
+      },
+      "sourceResolution": {
+        "status": "Unknown",
+        "resolvedStatIds": [],
+        "sourceCandidateCount": 0
+      },
+      "resolvedSemantics": {
+        "parsedKind": "Enchantment",
+        "resolvedSourceKind": "Enchantment",
+        "hasResolvedUniqueSourceSemantics": false
+      },
+      "signatures": {
+        "originalText": "Allocates Mind Drinker",
+        "canonicalSignature": "Allocates Mind Drinker"
+      },
+      "providerPasses": [
+        {
+          "resolutionPhase": "unsupported-before-match",
+          "skipReason": "POE_TRADE_SELECTED_MODIFIER_MISSING_GAMEDATA_PROVENANCE",
+          "canResolveProviderComponent": false
+        }
+      ],
+      "providerResolution": {
+        "providerResolutionStatus": "Unsupported",
+        "providerDiagnosticCode": "POE_TRADE_SELECTED_MODIFIER_MISSING_GAMEDATA_PROVENANCE"
+      },
+      "consumer": {
+        "isSearchable": false,
+        "availabilityStatus": "Unsupported"
+      }
+    }
+  ]
+}

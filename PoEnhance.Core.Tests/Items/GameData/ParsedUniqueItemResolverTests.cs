@@ -689,6 +689,602 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
+    public void Resolve_AnnotatedBoundsDifferButObservedRollFitsExactSemanticSource_Resolves()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Bounded Crit
+            Amber Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            48(30-50)% increased Global Critical Strike Chance
+            """);
+        var catalog = CreateCatalog("Test Bounded Crit", "Amber Amulet", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "bounded-crit",
+                    "(40-50)% increased Global Critical Strike Chance",
+                    "<number>% increased Global Critical Strike Chance",
+                    "critical_strike_chance_+%")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.True(block.IsResolved, $"{block.DiagnosticCode}: {block.Diagnostic}");
+        Assert.Equal(["critical_strike_chance_+%"], block.StatIds);
+        Assert.Equal(["block:bounded-crit"], block.CatalogBlocks.Select(candidate => candidate.Id));
+    }
+
+    [Fact]
+    public void Resolve_AnnotatedBoundsDifferAndObservedRollIsOutsideSource_RemainsVersionMismatch()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Bounded Crit
+            Amber Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            38(30-50)% increased Global Critical Strike Chance
+            """);
+        var catalog = CreateCatalog("Test Bounded Crit", "Amber Amulet", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "bounded-crit",
+                    "(40-50)% increased Global Critical Strike Chance",
+                    "<number>% increased Global Critical Strike Chance",
+                    "critical_strike_chance_+%")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_AnnotatedBoundCandidatesWithConflictingSemanticFingerprints_RemainVersionMismatch()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Bounded Defence
+            Test Circlet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            48(30-50)% increased Energy Shield
+            """);
+        var catalog = CreateCatalog("Test Bounded Defence", "Test Circlet", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "global-defence",
+                    "(40-50)% increased Energy Shield",
+                    "<number>% increased Energy Shield",
+                    "energy_shield_+%",
+                    UniqueModifierSemanticLocality.Global)),
+            Version("Historical", UniqueItemVersionRole.Historical,
+                RuntimeEvidenceBlock(
+                    "local-defence",
+                    "(40-50)% increased Energy Shield",
+                    "<number>% increased Energy Shield",
+                    "energy_shield_+%",
+                    UniqueModifierSemanticLocality.Local)));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_AnnotatedBoundCandidatesWithConflictingValueTransforms_RemainVersionMismatch()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Bounded Recovery
+            Coral Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            25(20-30)% increased Recovery Rate
+            """);
+        var catalog = CreateCatalog("Test Bounded Recovery", "Coral Amulet", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "ordinary-recovery",
+                    "(22-28)% increased Recovery Rate",
+                    "<number>% increased Recovery Rate",
+                    "recovery_rate_+%")),
+            Version("Historical", UniqueItemVersionRole.Historical,
+                RuntimeEvidenceBlock(
+                    "transformed-recovery",
+                    "(22-28)% increased Recovery Rate",
+                    "<number>% increased Recovery Rate",
+                    "recovery_rate_+%",
+                    matchedTransformations: ["negate"])));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_DeterministicNumericPluralPresentation_Resolves()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Test Charge Flask
+            Test Flask
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Gain 2(1-3) Power Charges on use
+            """);
+        var catalog = CreateCatalog("Test Charge Flask", "Test Flask", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "power-charge",
+                    "Gain (1-3) Power Charge on use",
+                    "Gain <number> Power Charge on use",
+                    "gain_power_charges_on_use")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.True(block.IsResolved, $"{block.DiagnosticCode}: {block.Diagnostic}");
+        Assert.Equal(["gain_power_charges_on_use"], block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_ArbitraryLexicalDifference_DoesNotUsePresentationFallback()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Test Charge Flask
+            Test Flask
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Gain 2(1-3) Power Charges when used
+            """);
+        var catalog = CreateCatalog("Test Charge Flask", "Test Flask", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "power-charge",
+                    "Gain (1-3) Power Charge on use",
+                    "Gain <number> Power Charge on use",
+                    "gain_power_charges_on_use")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_SignedMixedRangePresentationWithContainedObservedValue_Resolves()
+    {
+        var parsed = parser.Parse("""
+            Item Class: One Hand Axes
+            Rarity: Unique
+            Test Signed Rage
+            Test Axe
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            -3(-5-5) to Maximum Rage
+            """);
+        var catalog = CreateCatalog("Test Signed Rage", "Test Axe", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "maximum-rage",
+                    "+(-5-5) to Maximum Rage",
+                    "+<number> to Maximum Rage",
+                    "maximum_rage")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.True(block.IsResolved, $"{block.DiagnosticCode}: {block.Diagnostic}");
+        Assert.Equal(["maximum_rage"], block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_PositiveSourceDomainCannotProveNegativeObservedValue()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Belts
+            Rarity: Unique
+            Test Signed Attribute
+            Chain Belt
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            -20(-25--15) to Intelligence
+            """);
+        var catalog = CreateCatalog("Test Signed Attribute", "Chain Belt", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "positive-intelligence",
+                    "+(15-25) to Intelligence",
+                    "+<number> to Intelligence",
+                    "additional_intelligence")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_SignedRangeDoesNotMakeIncreasedAndReducedInterchangeable()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Tinctures
+            Rarity: Unique
+            Test Mana Burn
+            Prismatic Tincture
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            18(35--35)% reduced Mana Burn rate
+            """);
+        var catalog = CreateCatalog("Test Mana Burn", "Prismatic Tincture", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "mana-burn",
+                    "(35--35)% increased Mana Burn rate",
+                    "<number>% increased Mana Burn rate",
+                    "mana_burn_rate_+%")));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_ParserSeparatedOptionAnnotationRetainsSelectedMechanicalIdentity()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Test Historic Jewel
+            Timeless Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Commanded leadership over 14245(10000-18000) warriors under Rakiata(Akoya-Rakiata)
+            Passives in radius are Conquered by the Karui
+            Historic
+            """);
+        var catalog = CreateCatalog("Test Historic Jewel", "Timeless Jewel", UniqueItemKind.Ordinary,
+            Version("Rakiata", UniqueItemVersionRole.Current,
+                RuntimeMultiLineEvidenceBlock(
+                    "rakiata",
+                    [
+                        "Commanded leadership over (10000-18000) warriors under Rakiata",
+                        "Passives in radius are Conquered by the Karui",
+                        "Historic",
+                    ],
+                    "rakiata_mechanics") with
+                {
+                    CanonicalSignatures =
+                    [
+                        "Commanded leadership over <number> warriors under Rakiata",
+                        "Passives in radius are Conquered by the Karui",
+                        "Historic",
+                    ],
+                }),
+            Version("Akoya", UniqueItemVersionRole.Current,
+                RuntimeMultiLineEvidenceBlock(
+                    "akoya",
+                    [
+                        "Commanded leadership over (10000-18000) warriors under Akoya",
+                        "Passives in radius are Conquered by the Karui",
+                        "Historic",
+                    ],
+                    "akoya_mechanics") with
+                {
+                    CanonicalSignatures =
+                    [
+                        "Commanded leadership over <number> warriors under Akoya",
+                        "Passives in radius are Conquered by the Karui",
+                        "Historic",
+                    ],
+                }));
+
+        var block = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.True(block.IsResolved, $"{block.DiagnosticCode}: {block.Diagnostic}");
+        Assert.Equal(["rakiata_mechanics"], block.StatIds);
+        Assert.Equal(["block:rakiata"], block.CatalogBlocks.Select(candidate => candidate.Id));
+        Assert.DoesNotContain(block.CatalogBlocks, candidate => candidate.Id == "block:akoya");
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var component = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(3, component.OriginalText.Split(Environment.NewLine).Length);
+        Assert.Contains(
+            "Commanded leadership over <number> warriors under Rakiata",
+            component.ProviderSearchSignatures);
+        Assert.DoesNotContain(
+            "Commanded leadership over <number> warriors under Rakiata(Akoya-Rakiata)",
+            component.ProviderSearchSignatures);
+        Assert.Equal(14245m, component.ObservedNumericValues.Single());
+        Assert.Equal([14245m], component.CanonicalNumericValues);
+        Assert.Null(component.FixedQueryValue);
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(14245m, component.RequestedMinimum);
+        Assert.Equal(14245m, component.RequestedMaximum);
+        Assert.Contains("Rakiata(Akoya-Rakiata)", component.OriginalText, StringComparison.Ordinal);
+        Assert.Contains("under Rakiata", component.PresentationText, StringComparison.Ordinal);
+        Assert.DoesNotContain("(Akoya-Rakiata)", component.PresentationText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "Test Maraketh Jewel",
+        "Denoted service of 4321(500-8000) dekhara in the akhara of Balbala(Nasima-Balbala)",
+        "Denoted service of (500-8000) dekhara in the akhara of Balbala",
+        "Denoted service of <number> dekhara in the akhara of Balbala",
+        "Passives in radius are Conquered by the Maraketh",
+        4321)]
+    [InlineData(
+        "Test Vaal Jewel",
+        "Bathed in the blood of 6789(100-8000) sacrificed in the name of Doryani(Xibaqua-Doryani)",
+        "Bathed in the blood of (100-8000) sacrificed in the name of Doryani",
+        "Bathed in the blood of <number> sacrificed in the name of Doryani",
+        "Passives in radius are Conquered by the Vaal",
+        6789)]
+    [InlineData(
+        "Test Templar Jewel",
+        "Carved to glorify 7654(2000-10000) new faithful converted by High Templar Avarius(Dominus-Avarius)",
+        "Carved to glorify (2000-10000) new faithful converted by High Templar Avarius",
+        "Carved to glorify <number> new faithful converted by High Templar Avarius",
+        "Passives in radius are Conquered by the Templars",
+        7654)]
+    public void CreateDraft_ExactMultilineUniqueSourceExposesGenericPerLineProviderEvidence(
+        string itemName,
+        string copiedFirstLine,
+        string sourceFirstLine,
+        string providerSignature,
+        string conqueredLine,
+        int seed)
+    {
+        var parsed = parser.Parse($$"""
+            Item Class: Jewels
+            Rarity: Unique
+            {{itemName}}
+            Timeless Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{copiedFirstLine}}
+            {{conqueredLine}}
+            Historic
+            """);
+        var catalog = CreateCatalog(itemName, "Timeless Jewel", UniqueItemKind.Ordinary,
+            Version("Selected", UniqueItemVersionRole.Current,
+                RuntimeMultiLineEvidenceBlock(
+                    "selected-timeless",
+                    [sourceFirstLine, conqueredLine, "Historic"],
+                    "selected_timeless_mechanics") with
+                {
+                    CanonicalSignatures = [providerSignature, conqueredLine, "Historic"],
+                }));
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var component = Assert.Single(draft.ModifierFilters);
+
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Contains(providerSignature, component.ProviderSearchSignatures);
+        Assert.Null(component.FixedQueryValue);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.Equal(seed, component.RequestedMinimum);
+        Assert.Equal(seed, component.RequestedMaximum);
+        Assert.Equal([seed], component.ObservedNumericValues);
+        Assert.Equal([seed], component.CanonicalNumericValues);
+    }
+
+    [Fact]
+    public void Resolve_ExactCurrentAndHistoricalRowsRetainPerRowProvenanceWithoutSyntheticVersion()
+    {
+        var parsed = parser.Parse("""
+            Item Class: One Hand Maces
+            Rarity: Unique
+            Test Hybrid Sceptre
+            Crystal Sceptre
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            60% increased Intelligence Requirement
+            { Unique Modifier }
+            Attacks with this weapon inflict Hallowing Flame on Hit
+            { Unique Modifier }
+            3% increased Experience gain
+            """);
+        var catalog = CreateCatalog("Test Hybrid Sceptre", "Crystal Sceptre", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock(
+                    "shared-requirement-current",
+                    "60% increased Intelligence Requirement",
+                    "<number>% increased Intelligence Requirement",
+                    "int_requirement"),
+                RuntimeEvidenceBlock(
+                    "current-flame",
+                    "Attacks with this weapon inflict Hallowing Flame on Hit",
+                    "Attacks with this weapon inflict Hallowing Flame on Hit",
+                    "hallowing_flame")),
+            Version("Historical", UniqueItemVersionRole.Historical,
+                RuntimeEvidenceBlock(
+                    "shared-requirement-historical",
+                    "60% increased Intelligence Requirement",
+                    "<number>% increased Intelligence Requirement",
+                    "int_requirement"),
+                RuntimeEvidenceBlock(
+                    "historical-experience",
+                    "3% increased Experience gain",
+                    "<number>% increased Experience gain",
+                    "experience_gain_+%")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        Assert.Equal("UNIQUE_VERSION_NOT_FOUND", result.DiagnosticCode);
+        Assert.Equal(3, result.ModifierBlocks.Count);
+        Assert.All(result.ModifierBlocks, block => Assert.True(
+            block.IsResolved,
+            $"{block.DiagnosticCode}: {block.Diagnostic}"));
+        Assert.Equal(
+            ["experience_gain_+%", "hallowing_flame", "int_requirement"],
+            result.ModifierBlocks.SelectMany(block => block.StatIds).Order().ToArray());
+        Assert.Contains(result.ModifierBlocks, block =>
+            block.CatalogBlocks.Any(candidate => candidate.Id == "block:current-flame"));
+        Assert.Contains(result.ModifierBlocks, block =>
+            block.CatalogBlocks.Any(candidate => candidate.Id == "block:historical-experience"));
+    }
+
+    [Fact]
+    public void Resolve_HybridRowWithDifferentExactSemanticCandidates_RemainsAmbiguous()
+    {
+        var parsed = parser.Parse("""
+            Item Class: One Hand Maces
+            Rarity: Unique
+            Test Hybrid Conflict
+            Crystal Sceptre
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Current-only effect
+            { Unique Modifier }
+            Historical-only effect
+            { Unique Modifier }
+            Shared rendered effect
+            """);
+        var catalog = CreateCatalog("Test Hybrid Conflict", "Crystal Sceptre", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock("current-only", "Current-only effect", "Current-only effect", "current_stat"),
+                RuntimeEvidenceBlock("shared-current", "Shared rendered effect", "Shared rendered effect", "first_stat")),
+            Version("Historical", UniqueItemVersionRole.Historical,
+                RuntimeEvidenceBlock("historical-only", "Historical-only effect", "Historical-only effect", "historical_stat"),
+                RuntimeEvidenceBlock("shared-historical", "Shared rendered effect", "Shared rendered effect", "second_stat")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        var shared = result.ModifierBlocks.Single(block => block.ParsedModifierIndex == 2);
+        Assert.False(shared.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_INDEPENDENT_DIMENSIONS", shared.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_RangeOnlyHistoricalEvidenceDoesNotEnableHybridFallback()
+    {
+        var parsed = parser.Parse("""
+            Item Class: One Hand Maces
+            Rarity: Unique
+            Test Range Hybrid
+            Crystal Sceptre
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Current-only effect
+            { Unique Modifier }
+            Historical-only effect
+            { Unique Modifier }
+            4(3-5)% increased Experience gain
+            """);
+        var catalog = CreateCatalog("Test Range Hybrid", "Crystal Sceptre", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                RuntimeEvidenceBlock("current-only", "Current-only effect", "Current-only effect", "current_stat")),
+            Version("Historical", UniqueItemVersionRole.Historical,
+                RuntimeEvidenceBlock("historical-only", "Historical-only effect", "Historical-only effect", "historical_stat"),
+                EvidenceBlock(
+                    "historical-range",
+                    "(1-10)% increased Experience gain",
+                    "<number>% increased Experience gain",
+                    "experience_gain_+%")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        var rangeOnly = result.ModifierBlocks.Single(block => block.ParsedModifierIndex == 2);
+        Assert.False(rangeOnly.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", rangeOnly.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_IndependentCurrentOptionAxesRemainVersionMismatch()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Test Option Jewel
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Limited to: 2
+            { Unique Modifier }
+            +5 to maximum Energy Shield
+            { Unique Modifier }
+            +5 to Intelligence
+            """);
+        var shared = RuntimeEvidenceBlock(
+            "shared-limit",
+            "Limited to: 2",
+            "Limited to: <number>",
+            "limit_stat");
+        var catalog = CreateCatalog("Test Option Jewel", "Crimson Jewel", UniqueItemKind.Ordinary,
+            Version("Energy Shield", UniqueItemVersionRole.Current,
+                shared,
+                RuntimeEvidenceBlock("energy-shield", "+5 to maximum Energy Shield", "+<number> to maximum Energy Shield", "energy_shield")),
+            Version("Intelligence", UniqueItemVersionRole.Current,
+                shared with { Id = "block:shared-limit-intelligence" },
+                RuntimeEvidenceBlock("intelligence", "+5 to Intelligence", "+<number> to Intelligence", "intelligence")),
+            Version("Strength", UniqueItemVersionRole.Current,
+                shared with { Id = "block:shared-limit-strength" },
+                RuntimeEvidenceBlock("strength", "+5 to Strength", "+<number> to Strength", "strength")));
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(2, result.CompatibleVersions.Count);
+        Assert.Equal(2, result.ModifierBlocks.Count(block =>
+            block.DiagnosticCode == "UNIQUE_BLOCK_VERSION_MISMATCH"));
+        Assert.DoesNotContain(result.ModifierBlocks.Where(block => block.ParsedModifierIndex > 0),
+            block => block.IsResolved);
+    }
+
+    [Fact]
     public void Resolve_NoCoherentVersion_StillResolvesACommonBlockProvenAcrossEveryIdentityVersion()
     {
         var parsed = parser.Parse("""
@@ -1752,6 +2348,66 @@ public sealed class ParsedUniqueItemResolverTests
             StatIds = [statId],
         },
         SourceObservationIds = [sourceObservationId],
+    };
+
+    private static UniqueModifierBlock RuntimeEvidenceBlock(
+        string id,
+        string line,
+        string canonicalSignature,
+        string statId,
+        UniqueModifierSemanticLocality sourceLocality = UniqueModifierSemanticLocality.Global,
+        IReadOnlyList<string>? matchedTransformations = null)
+    {
+        var block = EvidenceBlock(id, line, canonicalSignature, statId);
+        var sourceFingerprint = new UniqueModifierSemanticFingerprint
+        {
+            Locality = sourceLocality,
+            OrderedStatIds = matchedTransformations is null ? [] : [statId],
+            ValueShape = matchedTransformations is null
+                ? UniqueModifierSemanticValueShape.Unknown
+                : UniqueModifierSemanticValueShape.Scalar,
+            Values = matchedTransformations is null
+                ? []
+                :
+                [
+                    new UniqueModifierSemanticValue
+                    {
+                        Index = 0,
+                        StatId = statId,
+                        Format = "#",
+                        Unit = "number",
+                        Transformations = matchedTransformations,
+                    },
+                ],
+            EvidenceMethods = ["pob-item-context-v1"],
+        };
+        return block with
+        {
+            SourceSemanticFingerprint = sourceFingerprint,
+        };
+    }
+
+    private static UniqueModifierBlock RuntimeMultiLineEvidenceBlock(
+        string id,
+        IReadOnlyList<string> lines,
+        string statId) => new()
+    {
+        Id = $"block:{id}",
+        Kind = UniqueModifierBlockKind.Unique,
+        Lines = lines,
+        CanonicalSignatures = ModifierTextSignatureNormalizer.CreateSignature(lines).Lines,
+        SourceSemanticFingerprint = new UniqueModifierSemanticFingerprint
+        {
+            Locality = UniqueModifierSemanticLocality.Local,
+            EvidenceMethods = ["pob-item-context-v1"],
+        },
+        MechanicalMapping = new UniqueModifierMechanicalMapping
+        {
+            Status = UniqueModifierMechanicalMappingStatus.Exact,
+            ModifierIds = [$"modifier:{id}"],
+            StatIds = [statId],
+        },
+        SourceObservationIds = ["pob-observation:test"],
     };
 
     private static UniqueModifierBlock GeneratedEvidenceBlock(

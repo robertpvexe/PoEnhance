@@ -45,6 +45,72 @@ $conflicts = @()
 $allVersions = @($package.uniqueItems.items | ForEach-Object { $_.versions })
 $allBlocks = @($allVersions | ForEach-Object { $_.modifierBlocks })
 $uniqueBlocks = @($allBlocks | Where-Object { $_.kind -eq 'unique' })
+$fingerprintedBlocks = @($allBlocks | Where-Object { $null -ne $_.sourceSemanticFingerprint })
+$sourceFingerprintLocalityCounts = [ordered]@{}
+foreach ($locality in @('global', 'local', 'mixed', 'unknown'))
+{
+    $sourceFingerprintLocalityCounts[$locality] = @($fingerprintedBlocks | Where-Object {
+        $_.sourceSemanticFingerprint.locality -eq $locality
+    }).Count
+}
+$matchedFingerprintBlocks = @($allBlocks | Where-Object {
+    $provenanceProperty = $_.mechanicalMapping.PSObject.Properties['provenance']
+    $null -ne $provenanceProperty -and
+    $null -ne $provenanceProperty.Value.matchedSemanticFingerprint
+})
+$comparableMatchedFingerprintBlocks = @($matchedFingerprintBlocks | Where-Object {
+    $fingerprint = $_.mechanicalMapping.PSObject.Properties['provenance'].Value.matchedSemanticFingerprint
+    $fingerprint.locality -ne 'unknown' -and
+    @($fingerprint.orderedStatIds).Count -gt 0 -and
+    $fingerprint.valueShape -ne 'unknown' -and
+    @($fingerprint.values).Count -gt 0
+})
+$multipleSemanticKeyObservationIds = @($allBlocks | Where-Object {
+    $_.mechanicalMapping.status -eq 'ambiguous' -and
+    $_.mechanicalMapping.diagnosticCode -eq 'UNIQUE_MECHANICS_EXACT_CONFLICT'
+} | ForEach-Object { $_.sourceObservationIds } | Sort-Object -Unique)
+$blockContexts = @($package.uniqueItems.items | ForEach-Object {
+    $item = $_
+    $item.versions | ForEach-Object {
+        $version = $_
+        $version.modifierBlocks | Where-Object { $_.kind -eq 'unique' } | ForEach-Object {
+            [pscustomobject]@{
+                canonicalName = $item.canonicalName
+                versionLabel = $version.label
+                lines = @($_.lines)
+                locality = $_.sourceSemanticFingerprint.locality
+                status = $_.mechanicalMapping.status
+                diagnosticCode = $_.mechanicalMapping.diagnosticCode
+                modifierIds = @($_.mechanicalMapping.modifierIds)
+                statIds = @($_.mechanicalMapping.statIds)
+            }
+        }
+    }
+})
+$familyDefinitions = [ordered]@{
+    attackSpeed = 'increased Attack Speed'
+    energyShield = 'maximum Energy Shield'
+    accuracy = 'Accuracy Rating'
+    armourEvasion = '(Armour|Evasion Rating)'
+    leech = 'Leeched as (Life|Mana)'
+}
+$semanticFamilyAudit = [ordered]@{}
+foreach ($family in $familyDefinitions.GetEnumerator())
+{
+    $matches = @($blockContexts | Where-Object { (@($_.lines) -join "`n") -match $family.Value })
+    $semanticFamilyAudit[$family.Key] = [ordered]@{
+        pattern = $family.Value
+        total = $matches.Count
+        knownLocality = @($matches | Where-Object { $_.locality -ne 'unknown' }).Count
+        resolved = @($matches | Where-Object {
+            $_.status -eq 'exact' -or $_.status -eq 'equivalentSourceSet'
+        }).Count
+        exactConflict = @($matches | Where-Object {
+            $_.diagnosticCode -eq 'UNIQUE_MECHANICS_EXACT_CONFLICT'
+        }).Count
+        samples = @($matches | Select-Object -First 8)
+    }
+}
 foreach ($item in $package.uniqueItems.items)
 {
     $blocks = @($item.versions | ForEach-Object { $_.modifierBlocks } | Where-Object { $_.kind -eq 'unique' })
@@ -222,6 +288,11 @@ if ($null -ne $baselineCandidate)
         $baselineById[$_.id].mechanicalMapping.diagnosticCode -eq 'UNIQUE_MECHANICS_CONFLICT' -and
         $resolvedStatuses -contains $_.mechanicalMapping.status
     })
+    $exactConflictMigrations = @($uniqueBlocks | Where-Object {
+        $baselineById.ContainsKey($_.id) -and
+        $baselineById[$_.id].mechanicalMapping.diagnosticCode -eq 'UNIQUE_MECHANICS_EXACT_CONFLICT' -and
+        $resolvedStatuses -contains $_.mechanicalMapping.status
+    })
     $currentById = @{}
     foreach ($block in $uniqueBlocks) { $currentById[$block.id] = $block }
     $resolvedRegressions = @($baselineBlocks | Where-Object {
@@ -272,6 +343,13 @@ if ($null -ne $baselineCandidate)
                 $_.mechanicalMapping.status -eq 'exact'
             }).Count
             uniqueMechanicsConflictToEquivalentSourceSet = @($conflictMigrations | Where-Object {
+                $_.mechanicalMapping.status -eq 'equivalentSourceSet'
+            }).Count
+            uniqueMechanicsExactConflictToResolved = $exactConflictMigrations.Count
+            uniqueMechanicsExactConflictToExact = @($exactConflictMigrations | Where-Object {
+                $_.mechanicalMapping.status -eq 'exact'
+            }).Count
+            uniqueMechanicsExactConflictToEquivalentSourceSet = @($exactConflictMigrations | Where-Object {
                 $_.mechanicalMapping.status -eq 'equivalentSourceSet'
             }).Count
             genuinelyUnresolvedAfter = @($uniqueBlocks | Where-Object {
@@ -380,6 +458,22 @@ $coverage = [ordered]@{
         ambiguousByDiagnostic = $ambiguousReasonCounts
         shapeClassificationNote = 'Presence/scalar/multi-effect counts are provider-neutral lexical candidates; official Trade safety is decided at runtime and may still fail closed.'
     }
+    semanticFingerprintCoverage = [ordered]@{
+        sourceObservations = @($package.uniqueItems.sourceObservations).Count
+        totalModifierBlocks = $allBlocks.Count
+        blocksWithSourceFingerprint = $fingerprintedBlocks.Count
+        sourceLocality = $sourceFingerprintLocalityCounts
+        sourceFingerprintKnown = $fingerprintedBlocks.Count - $sourceFingerprintLocalityCounts.unknown
+        sourceFingerprintIncomplete = $sourceFingerprintLocalityCounts.unknown
+        blocksWithMatchedCandidateFingerprint = $matchedFingerprintBlocks.Count
+        comparableMatchedCandidateFingerprints = $comparableMatchedFingerprintBlocks.Count
+        incompleteMatchedCandidateFingerprints = $matchedFingerprintBlocks.Count -
+            $comparableMatchedFingerprintBlocks.Count
+        observationsWithMultipleCandidateSemanticKeys = $multipleSemanticKeyObservationIds.Count
+        observationsWithMultipleCandidateSemanticKeyIds = $multipleSemanticKeyObservationIds
+        validationFailures = 0
+    }
+    semanticFamilyAudit = $semanticFamilyAudit
     tradeCoverage = [ordered]@{
         exactModifierMappings = $null
         exactModifierMappingsStatus = 'DeferredToRuntimeOfficialCatalog'
@@ -455,6 +549,21 @@ Write-Json 'candidate-metadata.json' $candidateMetadata
 Write-Json 'pob-source-metadata.json' $pobMetadata
 Write-Json 'unique-conflicts.json' ([ordered]@{ count = $conflicts.Count; conflicts = $conflicts })
 
+$stageDeltaMarkdown = if ($null -eq $coverage.baselineComparison)
+{
+    '- Baseline comparison: **not requested**'
+}
+else
+{
+    @"
+- ``UNIQUE_MECHANICS_NOT_FOUND`` to Exact/Equivalent: **$($coverage.baselineComparison.migrations.uniqueMechanicsNotFoundToResolved)**
+- ``UNIQUE_MECHANICS_CONFLICT`` to Exact/Equivalent: **$($coverage.baselineComparison.migrations.uniqueMechanicsConflictToResolved)**
+- Genuinely unresolved after: **$($coverage.baselineComparison.migrations.genuinelyUnresolvedAfter)**
+- Generated/special resolved before: **$($coverage.baselineComparison.generatedSpecial.before.exact + $coverage.baselineComparison.generatedSpecial.before.equivalentSourceSet)** / $($coverage.baselineComparison.generatedSpecial.before.total)
+- Generated/special resolved after: **$($coverage.baselineComparison.generatedSpecial.after.exact + $coverage.baselineComparison.generatedSpecial.after.equivalentSourceSet)** / $($coverage.baselineComparison.generatedSpecial.after.total)
+"@
+}
+
 $markdown = @"
 # PoEnhance Unique catalog coverage
 
@@ -495,11 +604,7 @@ $markdown = @"
 
 ## Stage delta
 
-- `UNIQUE_MECHANICS_NOT_FOUND` to Exact/Equivalent: **$($coverage.baselineComparison.migrations.uniqueMechanicsNotFoundToResolved)**
-- `UNIQUE_MECHANICS_CONFLICT` to Exact/Equivalent: **$($coverage.baselineComparison.migrations.uniqueMechanicsConflictToResolved)**
-- Genuinely unresolved after: **$($coverage.baselineComparison.migrations.genuinelyUnresolvedAfter)**
-- Generated/special resolved before: **$($coverage.baselineComparison.generatedSpecial.before.exact + $coverage.baselineComparison.generatedSpecial.before.equivalentSourceSet)** / $($coverage.baselineComparison.generatedSpecial.before.total)
-- Generated/special resolved after: **$($coverage.baselineComparison.generatedSpecial.after.exact + $coverage.baselineComparison.generatedSpecial.after.equivalentSourceSet)** / $($coverage.baselineComparison.generatedSpecial.after.total)
+$stageDeltaMarkdown
 
 Official Trade identity/stat coverage is deliberately deferred to runtime catalog matching; provider IDs are not stored in this package. Foundation identity ready with Unsupported blocks: **$($coverage.tradeCoverage.identityReadyWithUnsupportedModifierBlocks)**.
 

@@ -10,6 +10,10 @@ public sealed record UniqueModifierMechanicalProvenance
 
     public IReadOnlyList<UniqueModifierTranslationEvidence> Translations { get; init; } = [];
 
+    public UniqueModifierSemanticFingerprint? SourceSemanticFingerprint { get; init; }
+
+    public UniqueModifierSemanticFingerprint? MatchedSemanticFingerprint { get; init; }
+
     public bool UsedComposition { get; init; }
 
     public bool CatalogValuesUsedForSelection { get; init; }

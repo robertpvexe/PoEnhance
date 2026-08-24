@@ -90,6 +90,17 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         if (string.IsNullOrWhiteSpace(modifier.Name))
         {
+            var enchantmentResult = TryResolveEnchantment(
+                index,
+                modifier,
+                catalog,
+                eligibilityContexts,
+                generationType);
+            if (enchantmentResult is not null)
+            {
+                return enchantmentResult;
+            }
+
             var specialImplicitResult = TryResolveSpecialImplicit(
                 index,
                 modifier,
@@ -316,6 +327,197 @@ public sealed partial class ParsedItemModifierCandidateResolver
             excludedCandidates);
     }
 
+    private ModifierCandidateResolutionResult? TryResolveEnchantment(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        IReadOnlyList<ItemModifierEligibilityContext> eligibilityContexts,
+        ModifierGenerationType generationType)
+    {
+        if (generationType != ModifierGenerationType.Enchantment)
+        {
+            return null;
+        }
+
+        var candidates = catalog.Modifiers
+            .Where(IsEnchantmentSourceCandidate)
+            .ToArray();
+        var hasNumericEvidence = ExtractAdvancedStatRanges(modifier.ValueLines).Count > 0 ||
+            ExtractDisplayedStatValues(modifier.ValueLines).Count > 0;
+        if (hasNumericEvidence)
+        {
+            candidates = candidates
+                .Where(candidate => EnchantmentValuesMatchCandidate(modifier, candidate, catalog))
+                .ToArray();
+        }
+
+        if (candidates.Length == 0)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                candidates: [],
+                ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound,
+                "No current GameData enchantment matched the copied source text and roll values.");
+        }
+
+        if (eligibilityContexts.Count == 0)
+        {
+            return ResolveTextSignatures(
+                index,
+                modifier,
+                catalog,
+                generationType,
+                nameCandidateCount: 0,
+                generationKindCandidateCount: candidates.Length,
+                candidates,
+                eligibilityExcludedCandidates: []);
+        }
+
+        var evaluations = candidates
+            .Select(candidate => new
+            {
+                Candidate = candidate,
+                Results = eligibilityContexts
+                    .Select(context => eligibilityEvaluator.Evaluate(candidate, context))
+                    .ToArray(),
+            })
+            .ToArray();
+        var retainedCandidates = evaluations
+            .Where(evaluation => eligibilityContexts.Count == 1
+                ? evaluation.Results[0].Outcome != ModifierEligibilityOutcome.Ineligible
+                : evaluation.Results.All(result => result.Outcome == ModifierEligibilityOutcome.Eligible))
+            .Select(evaluation => evaluation.Candidate)
+            .ToArray();
+        var excludedCandidates = evaluations
+            .Where(evaluation => !retainedCandidates.Contains(evaluation.Candidate))
+            .Select(evaluation => evaluation.Candidate)
+            .ToArray();
+        if (retainedCandidates.Length == 0)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                candidates: [],
+                ModifierCandidateResolutionDiagnosticCodes.ModifierNoEligibleCandidates,
+                "All copied enchantment candidates were excluded by item-base eligibility.",
+                nameCandidateCount: 0,
+                generationKindCandidateCount: candidates.Length,
+                eligibilityCandidateCount: 0,
+                excludedCandidates);
+        }
+
+        var exactTextCandidates = retainedCandidates
+            .Where(candidate => textSignatureMatcher.Match(candidate, catalog, modifier.ValueLines).Outcome ==
+                ModifierTextSignatureMatchOutcome.Match)
+            .ToArray();
+        if (exactTextCandidates.Length == 1)
+        {
+            excludedCandidates = excludedCandidates
+                .Concat(retainedCandidates.Where(candidate => !ReferenceEquals(
+                    candidate,
+                    exactTextCandidates[0])))
+                .ToArray();
+            retainedCandidates = exactTextCandidates;
+        }
+
+        return ResolveTextSignatures(
+            index,
+            modifier,
+            catalog,
+            generationType,
+            nameCandidateCount: 0,
+            generationKindCandidateCount: candidates.Length,
+            retainedCandidates,
+            excludedCandidates);
+    }
+
+    private static bool EnchantmentValuesMatchCandidate(
+        ParsedModifier modifier,
+        ModifierDefinition candidate,
+        GameDataCatalog catalog)
+    {
+        var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
+        if (advancedRanges.Count > 0)
+        {
+            return CandidateAdvancedValuesMatch(
+                candidate,
+                catalog,
+                modifier.ValueLines,
+                advancedRanges);
+        }
+
+        var observedValues = ExtractDisplayedStatValues(modifier.ValueLines);
+        if (observedValues.Count == 0)
+        {
+            return true;
+        }
+
+        var stats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (stats.Length != observedValues.Count)
+        {
+            return false;
+        }
+
+        var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
+        return catalog.FindStatTranslationsByStatIdGroup(statIds)
+            .SelectMany(translation => translation.Variants)
+            .Any(variant => TranslationDisplayedValuesMatch(stats, variant, observedValues));
+    }
+
+    private static bool TranslationDisplayedValuesMatch(
+        IReadOnlyList<ModifierStat> stats,
+        StatTranslationVariant variant,
+        IReadOnlyList<decimal> observedValues)
+    {
+        if (variant.ValueFormats.Count != stats.Count ||
+            variant.Conditions.Count != stats.Count)
+        {
+            return false;
+        }
+
+        var conditions = variant.Conditions
+            .GroupBy(condition => condition.Index)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var stat = stats[index];
+            if (!stat.MinValue.HasValue ||
+                !stat.MaxValue.HasValue ||
+                !conditions.TryGetValue(index, out var indexedConditions) ||
+                indexedConditions.Length != 1 ||
+                !ConditionContainsRange(
+                    indexedConditions[0],
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value) ||
+                variant.ValueFormats[index] is not ("#" or "+#"))
+            {
+                return false;
+            }
+
+            var handlerGroups = variant.IndexHandlers
+                .Where(handler => handler.Index == index)
+                .ToArray();
+            if (handlerGroups.Length != 1 ||
+                !TryProjectDiscreteRange(
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value,
+                    handlerGroups[0].Handlers,
+                    out var projectedValues) ||
+                !projectedValues.Contains(observedValues[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private ModifierCandidateResolutionResult? TryResolveSpecialImplicit(
         int index,
         ParsedModifier modifier,
@@ -437,11 +639,16 @@ public sealed partial class ParsedItemModifierCandidateResolver
         }
 
         var observedValues = ExtractDisplayedStatValues(modifier.ValueLines);
+        if (observedValues.Count == 0)
+        {
+            return true;
+        }
+
         var stats = candidate.Stats
             .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
             .OrderBy(stat => stat.Index)
             .ToArray();
-        if (observedValues.Count == 0 || stats.Length != observedValues.Count)
+        if (stats.Length != observedValues.Count)
         {
             return false;
         }
@@ -1263,10 +1470,18 @@ public sealed partial class ParsedItemModifierCandidateResolver
     private static bool HasCandidateDiscoverySignal(ParsedModifier modifier)
     {
         return modifier.RawMetadataLine is not null
+            || modifier.Kind == ParsedModifierKind.Enchantment
             || modifier.IsCrafted
             || modifier.IsFractured
             || modifier.IsVeiled;
     }
+
+    private static bool IsEnchantmentSourceCandidate(ModifierDefinition candidate) =>
+        candidate.SourceAvailability != ModifierSourceAvailability.Disabled &&
+        (candidate.GenerationType == ModifierGenerationType.Enchantment ||
+            candidate.SourceGenerationType?.Contains(
+                "enchant",
+                StringComparison.OrdinalIgnoreCase) == true);
 
     private static bool TryMapGenerationType(
         ParsedModifier modifier,
@@ -1276,6 +1491,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
         {
             ParsedModifierKind.Prefix => ModifierGenerationType.Prefix,
             ParsedModifierKind.Suffix => ModifierGenerationType.Suffix,
+            ParsedModifierKind.Enchantment => ModifierGenerationType.Enchantment,
             ParsedModifierKind.Implicit
                 when modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted =>
                 ModifierGenerationType.Corrupted,

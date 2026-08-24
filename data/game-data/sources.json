@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-unique-stage-e5",
-    "createdAtUtc": "2026-08-14T18:00:00+00:00",
-    "sizeBytes": 171556723,
-    "sha256": "326db7d0603aee938bab9a347473aab6410021aa38bbb23a2c07310f686067f6",
+    "dataVersion": "3.29.1.2.2-unique-semantic-fingerprint",
+    "createdAtUtc": "2026-08-24T12:00:00+00:00",
+    "sizeBytes": 184934455,
+    "sha256": "e0436dd56a2003570db7f7ebf3807f8ef782e8e03179ea6ad00aeb82c1ec28c8",
     "foulbornRelationshipCount": 353,
     "exactFoulbornRelationshipCount": 353,
     "unsupportedFoulbornRelationshipCount": 0
@@ -49,6 +49,6 @@
     "commitSha": "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
     "foulbornMapRelativePath": "src/Data/ModFoulbornMap.jsonc",
     "foulbornMapSha256": "8f71e2379ebcc17bfa9c0e1f15b1c1f69b01886f4e7d5345a9c8b6b0c67ba13d",
-    "evaluatedUniquesSha256": "9561dabd97efe99f1f4d441e5649687299265737d76ebd96d1989d1fbfa23036"
+    "evaluatedUniquesSha256": "cc63eb0ffcc3c15267d77a4eb40e6e4f62eca793ec60fdf9ee5e24657b0b5806"
   }
 }

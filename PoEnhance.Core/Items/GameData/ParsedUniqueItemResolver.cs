@@ -104,6 +104,11 @@ public sealed partial class ParsedUniqueItemResolver
         GameDataCatalog catalog)
     {
         var results = new List<UniqueModifierBlockResolution>();
+        var allowExactHybridRowFallback = versions.Count == 0 &&
+            HasExactCrossRoleHybridEvidence(
+                identityVersions,
+                parsedItem.UniqueModifiers,
+                isFoulborn);
         for (var modifierIndex = 0; modifierIndex < parsedItem.Modifiers.Count; modifierIndex++)
         {
             var parsedModifier = parsedItem.Modifiers[modifierIndex];
@@ -124,7 +129,8 @@ public sealed partial class ParsedUniqueItemResolver
                         identityVersions,
                         isFoulborn,
                         catalog,
-                        isIdentityBoundRecovery: false));
+                        isIdentityBoundRecovery: false,
+                        allowExactHybridRowFallback));
                 continue;
             }
 
@@ -143,7 +149,8 @@ public sealed partial class ParsedUniqueItemResolver
                 identityVersions,
                 isFoulborn,
                 catalog,
-                isIdentityBoundRecovery: true);
+                isIdentityBoundRecovery: true,
+                allowExactHybridRowFallback);
             if (recovered.IsResolved)
             {
                 results.Add(recovered);
@@ -181,7 +188,8 @@ public sealed partial class ParsedUniqueItemResolver
         IReadOnlyList<UniqueItemVersionObservation> identityVersions,
         bool isFoulborn,
         GameDataCatalog catalog,
-        bool isIdentityBoundRecovery)
+        bool isIdentityBoundRecovery,
+        bool allowExactHybridRowFallback)
     {
         var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
         var matchedByVersion = blockScopeVersions
@@ -189,6 +197,20 @@ public sealed partial class ParsedUniqueItemResolver
                 version,
                 MatchVersionBlocks(version, parsedModifier)))
             .ToArray();
+        var hasSafeRowFallback = false;
+        if (!MatchesCoverEveryRetainedVersion(matchedByVersion) &&
+            (allowExactHybridRowFallback && TrySelectExactHybridRowMatches(
+                    identityVersions,
+                    parsedModifier,
+                    out var hybridMatches) ||
+                TrySelectSafeRuntimeFallbackMatches(
+                    identityVersions,
+                    parsedModifier,
+                    out hybridMatches)))
+        {
+            matchedByVersion = hybridMatches;
+            hasSafeRowFallback = true;
+        }
         var matchedBlocks = matchedByVersion
             .SelectMany(version => version.Matches)
             .ToArray();
@@ -216,7 +238,7 @@ public sealed partial class ParsedUniqueItemResolver
         var coversEveryLine = parsedModifier.ValueLines.Count > 0 &&
             blocks.Length > 0 &&
             matchedByVersion.Length > 0 &&
-            matchedByVersion.All(version => version.Matches.Count > 0);
+            (hasSafeRowFallback || MatchesCoverEveryRetainedVersion(matchedByVersion));
         var mappings = blocks.Select(block => block.MechanicalMapping).ToArray();
         var sourceSemantics = blocks.Select(block => block.SourceSemantics).Distinct().ToArray();
         var candidatePoolMembershipIds = blocks
@@ -543,6 +565,271 @@ public sealed partial class ParsedUniqueItemResolver
             .ToArray();
     }
 
+    private static bool MatchesCoverEveryRetainedVersion(
+        IReadOnlyList<VersionBlockMatches> matches) =>
+        matches.Count > 0 && matches.All(version => version.Matches.Count > 0);
+
+    private static bool HasExactCrossRoleHybridEvidence(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<ParsedModifier> modifiers,
+        bool isFoulborn)
+    {
+        var hasCurrentOnlyRow = false;
+        var hasHistoricalOnlyRow = false;
+        foreach (var modifier in modifiers.Where(modifier =>
+                     modifier.Kind == ParsedModifierKind.Unique &&
+                     !(isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn)))
+        {
+            var directMatches = FindDirectRowMatches(versions, modifier);
+            if (directMatches.Length == 0 || !HaveOneCompleteSemanticSet(directMatches))
+            {
+                continue;
+            }
+
+            var roles = directMatches
+                .Select(match => match.Version.Role)
+                .Distinct()
+                .ToArray();
+            hasCurrentOnlyRow |= roles.Length == 1 && roles[0] == UniqueItemVersionRole.Current;
+            hasHistoricalOnlyRow |= roles.Length == 1 && roles[0] == UniqueItemVersionRole.Historical;
+        }
+
+        return hasCurrentOnlyRow && hasHistoricalOnlyRow;
+    }
+
+    private static bool TrySelectExactHybridRowMatches(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        ParsedModifier modifier,
+        out VersionBlockMatches[] matches)
+    {
+        matches = FindDirectRowMatches(versions, modifier);
+        if (matches.Length == 0 || !HaveOneCompleteSemanticSet(matches))
+        {
+            matches = [];
+            return false;
+        }
+
+        return true;
+    }
+
+    private static VersionBlockMatches[] FindDirectRowMatches(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        ParsedModifier modifier)
+    {
+        return versions
+            .Select(version => new VersionBlockMatches(
+                version,
+                version.ModifierBlocks
+                    .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                    .Select(block => new MatchedBlock(block, MatchParsedModifier(block, modifier)))
+                    .Where(candidate =>
+                        candidate.Match.IsMatch &&
+                        candidate.Match.Kind == UniqueBlockTextMatchKind.Direct &&
+                        HasExactRowRollEvidence(modifier.ValueLines, candidate.Block.Lines))
+                    .ToArray()))
+            .Where(version => version.Matches.Count > 0)
+            .ToArray();
+    }
+
+    private static bool HasExactRowRollEvidence(
+        IReadOnlyList<string> parsedLines,
+        IReadOnlyList<string> catalogLines)
+    {
+        if (parsedLines.Count != catalogLines.Count)
+        {
+            return false;
+        }
+
+        for (var lineIndex = 0; lineIndex < parsedLines.Count; lineIndex++)
+        {
+            var parsedTokens = ExtractLogicalRollTokens(parsedLines[lineIndex]);
+            var catalogTokens = ExtractLogicalRollTokens(catalogLines[lineIndex]);
+            if (parsedTokens.Count != catalogTokens.Count)
+            {
+                return false;
+            }
+
+            for (var tokenIndex = 0; tokenIndex < parsedTokens.Count; tokenIndex++)
+            {
+                if (!string.Equals(
+                        parsedTokens[tokenIndex].CanonicalRoll,
+                        catalogTokens[tokenIndex].CanonicalRoll,
+                        StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TrySelectSafeRuntimeFallbackMatches(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        ParsedModifier modifier,
+        out VersionBlockMatches[] matches)
+    {
+        matches = versions
+            .Select(version => new VersionBlockMatches(
+                version,
+                version.ModifierBlocks
+                    .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                    .Select(block =>
+                    {
+                        var direct = MatchParsedModifier(block, modifier);
+                        return new MatchedBlock(
+                            block,
+                            direct.IsMatch && direct.Kind == UniqueBlockTextMatchKind.Direct
+                                ? direct
+                                : MatchSafeRuntimePresentation(block, modifier));
+                    })
+                    .Where(candidate => candidate.Match.IsMatch)
+                    .ToArray()))
+            .Where(version => version.Matches.Count > 0)
+            .ToArray();
+        if (matches.Length == 0 ||
+            !matches.SelectMany(version => version.Matches).Any(candidate =>
+                IsSafeRuntimeFallbackKind(candidate.Match.Kind)) ||
+            !HaveOneCompleteSemanticSet(matches))
+        {
+            matches = [];
+            return false;
+        }
+
+        var annotatedBoundCandidates = matches
+            .SelectMany(version => version.Matches)
+            .Where(candidate => candidate.Match.Kind == UniqueBlockTextMatchKind.AnnotatedBoundProjection)
+            .Select(candidate => candidate.Block)
+            .ToArray();
+        if (annotatedBoundCandidates.Any(block =>
+                block.SourceSemanticFingerprint.Locality == UniqueModifierSemanticLocality.Unknown))
+        {
+            matches = [];
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsSafeRuntimeFallbackKind(UniqueBlockTextMatchKind kind) => kind is
+        UniqueBlockTextMatchKind.AnnotatedBoundProjection or
+        UniqueBlockTextMatchKind.NumericPluralProjection or
+        UniqueBlockTextMatchKind.SignedMixedRangeProjection or
+        UniqueBlockTextMatchKind.FixedTextualOptionAnnotationProjection;
+
+    private static bool HaveOneCompleteSemanticSet(IReadOnlyList<VersionBlockMatches> matches)
+    {
+        var blocks = matches
+            .SelectMany(version => version.Matches)
+            .Select(candidate => candidate.Block)
+            .DistinctBy(block => block.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return blocks.Length > 0 &&
+            blocks.All(HasCompleteMechanicalEvidence) &&
+            blocks.Select(CreateSemanticEvidenceKey).Distinct(StringComparer.Ordinal).Count() == 1;
+    }
+
+    private static bool HasCompleteMechanicalEvidence(UniqueModifierBlock block)
+    {
+        var mapping = block.MechanicalMapping;
+        return block.SourceSemantics == UniqueModifierSourceSemantics.Fixed &&
+            block.Lines.Count > 0 &&
+            block.CanonicalSignatures.Count == block.Lines.Count &&
+            block.CanonicalSignatures.All(signature => !string.IsNullOrWhiteSpace(signature)) &&
+            block.SourceObservationIds.Count > 0 &&
+            block.SourceObservationIds.All(id => !string.IsNullOrWhiteSpace(id)) &&
+            (mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet) &&
+            mapping.ModifierIds.Count > 0 &&
+            mapping.StatIds.Count > 0;
+    }
+
+    private static string CreateSemanticEvidenceKey(UniqueModifierBlock block)
+    {
+        var mapping = block.MechanicalMapping;
+        return string.Join(
+            '\u001e',
+            block.SourceSemantics.ToString(),
+            string.Join('\u001f', mapping.StatIds),
+            CreateSemanticFingerprintKey(block.SourceSemanticFingerprint),
+            CreateSemanticFingerprintKey(mapping.Provenance?.SourceSemanticFingerprint),
+            CreateSemanticFingerprintKey(mapping.Provenance?.MatchedSemanticFingerprint));
+    }
+
+    private static string CreateSemanticFingerprintKey(UniqueModifierSemanticFingerprint? fingerprint)
+    {
+        if (fingerprint is null)
+        {
+            return "<none>";
+        }
+
+        return string.Join(
+            '\u001d',
+            fingerprint.Locality.ToString(),
+            string.Join('\u001f', fingerprint.OrderedStatIds),
+            fingerprint.ValueShape.ToString(),
+            string.Join('\u001f', fingerprint.Values
+                .OrderBy(value => value.Index)
+                .Select(value => string.Join(
+                    '\u001c',
+                    value.Index.ToString(CultureInfo.InvariantCulture),
+                    value.StatId ?? string.Empty,
+                    value.Format ?? string.Empty,
+                    value.Unit ?? string.Empty,
+                    value.IsAuxiliary.ToString(CultureInfo.InvariantCulture),
+                    string.Join('\u001b', value.Transformations)))),
+            string.Join('\u001f', fingerprint.AuxiliaryStatIds));
+    }
+
+    private static UniqueBlockTextMatch MatchSafeRuntimePresentation(
+        UniqueModifierBlock block,
+        ParsedModifier modifier)
+    {
+        if (block.SourceSemantics != UniqueModifierSourceSemantics.Fixed ||
+            modifier.ValueLines.Count == 0 ||
+            block.Lines.Count != modifier.ValueLines.Count ||
+            !HasCompleteMechanicalEvidence(block))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
+        if (!HasObservedRollValuesWithinCatalogDomains(rawLines, block.Lines))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var projectedLines = ProjectCanonicalRollAnnotations(rawLines);
+        if (LinesMatch(block, projectedLines, allowPolarityInversion: false))
+        {
+            return UniqueBlockTextMatch.AnnotatedBoundMatch;
+        }
+        if (SignaturesDifferOnlyByNumericPlural(block, projectedLines, rawLines))
+        {
+            return UniqueBlockTextMatch.NumericPluralMatch;
+        }
+        if (SignaturesDifferOnlyBySignedMixedRange(block, projectedLines, rawLines))
+        {
+            return UniqueBlockTextMatch.SignedMixedRangeMatch;
+        }
+
+        if (!TryProjectTextualOptionRange(modifier, out var semanticLines, out _) ||
+            !HasObservedRollValuesWithinCatalogDomains(semanticLines, block.Lines))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var projectedSemanticLines = ProjectCanonicalRollAnnotations(semanticLines);
+        return LinesMatch(block, semanticLines, allowPolarityInversion: false) ||
+            LinesMatch(block, projectedSemanticLines, allowPolarityInversion: false)
+            ? new UniqueBlockTextMatch(
+                true,
+                semanticLines,
+                [],
+                UniqueBlockTextMatchKind.FixedTextualOptionAnnotationProjection)
+            : UniqueBlockTextMatch.NoMatch;
+    }
+
     private static UniqueBlockTextMatch MatchParsedModifier(
         UniqueModifierBlock block,
         ParsedModifier modifier)
@@ -680,6 +967,164 @@ public sealed partial class ParsedUniqueItemResolver
                 SignaturesDifferOnlyByOneOppositePolarity(signatures, renderedBlockSignatures));
     }
 
+    private static bool SignaturesDifferOnlyByNumericPlural(
+        UniqueModifierBlock block,
+        IReadOnlyList<string> candidateLines,
+        IReadOnlyList<string> rawLines)
+    {
+        var candidateSignatures = ModifierTextSignatureNormalizer.CreateParsedSignature(candidateLines)
+            .Signature.Lines;
+        var renderedBlockSignatures = ModifierTextSignatureNormalizer.CreateSignature(block.Lines).Lines;
+        return SignaturesDifferOnlyByNumericPlural(
+                candidateSignatures,
+                block.CanonicalSignatures,
+                rawLines) ||
+            SignaturesDifferOnlyByNumericPlural(
+                candidateSignatures,
+                renderedBlockSignatures,
+                rawLines);
+    }
+
+    private static bool SignaturesDifferOnlyByNumericPlural(
+        IReadOnlyList<string> candidateSignatures,
+        IReadOnlyList<string> sourceSignatures,
+        IReadOnlyList<string> rawLines)
+    {
+        if (candidateSignatures.Count != sourceSignatures.Count ||
+            candidateSignatures.Count != rawLines.Count)
+        {
+            return false;
+        }
+
+        var changedLineCount = 0;
+        for (var index = 0; index < candidateSignatures.Count; index++)
+        {
+            if (string.Equals(
+                    candidateSignatures[index],
+                    sourceSignatures[index],
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            changedLineCount++;
+            if (changedLineCount > 1 ||
+                !LineDiffersOnlyByNumericPlural(
+                    candidateSignatures[index],
+                    sourceSignatures[index],
+                    rawLines[index]))
+            {
+                return false;
+            }
+        }
+
+        return changedLineCount == 1;
+    }
+
+    private static bool LineDiffersOnlyByNumericPlural(
+        string candidateSignature,
+        string sourceSignature,
+        string rawLine)
+    {
+        var rollTokens = ExtractLogicalRollTokens(rawLine);
+        if (rollTokens.Count != 1 ||
+            !rollTokens[0].IsEvaluatedAnnotation ||
+            rollTokens[0].ObservedValue is not { } observedValue ||
+            Math.Abs(observedValue) == 1)
+        {
+            return false;
+        }
+
+        var numericIndex = candidateSignature.IndexOf("<number>", StringComparison.OrdinalIgnoreCase);
+        if (numericIndex < 0)
+        {
+            return false;
+        }
+
+        var matchingProjections = 0;
+        foreach (Match word in Regex.Matches(
+                     candidateSignature,
+                     @"\b[\p{L}]+\b",
+                     RegexOptions.CultureInvariant))
+        {
+            if (word.Index <= numericIndex ||
+                word.Value.Length <= 2 ||
+                !word.Value.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var projection = candidateSignature.Remove(word.Index + word.Length - 1, 1);
+            if (string.Equals(projection, sourceSignature, StringComparison.OrdinalIgnoreCase))
+            {
+                matchingProjections++;
+            }
+        }
+
+        return matchingProjections == 1;
+    }
+
+    private static bool SignaturesDifferOnlyBySignedMixedRange(
+        UniqueModifierBlock block,
+        IReadOnlyList<string> candidateLines,
+        IReadOnlyList<string> rawLines)
+    {
+        var parsedTokens = rawLines.SelectMany(ExtractLogicalRollTokens).ToArray();
+        var catalogTokens = block.Lines.SelectMany(ExtractLogicalRollTokens).ToArray();
+        if (parsedTokens.Length != 1 ||
+            catalogTokens.Length != 1 ||
+            !parsedTokens[0].IsEvaluatedAnnotation ||
+            parsedTokens[0].ObservedValue is not { } observedValue ||
+            !TryReadRollBounds(
+                parsedTokens[0].CanonicalRoll,
+                out var parsedMinimum,
+                out var parsedMaximum) ||
+            !TryReadRollBounds(
+                catalogTokens[0].CanonicalRoll,
+                out var catalogMinimum,
+                out var catalogMaximum) ||
+            parsedMinimum != catalogMinimum ||
+            parsedMaximum != catalogMaximum ||
+            catalogMinimum >= 0 ||
+            catalogMaximum <= 0 ||
+            observedValue < catalogMinimum ||
+            observedValue > catalogMaximum)
+        {
+            return false;
+        }
+
+        var candidateSignatures = ModifierTextSignatureNormalizer.CreateParsedSignature(candidateLines)
+            .Signature.Lines;
+        var renderedBlockSignatures = ModifierTextSignatureNormalizer.CreateSignature(block.Lines).Lines;
+        return SignaturesEqualAfterNumericSignProjection(
+                candidateSignatures,
+                block.CanonicalSignatures) ||
+            SignaturesEqualAfterNumericSignProjection(
+                candidateSignatures,
+                renderedBlockSignatures);
+    }
+
+    private static bool SignaturesEqualAfterNumericSignProjection(
+        IReadOnlyList<string> first,
+        IReadOnlyList<string> second)
+    {
+        if (first.Count != second.Count || SignaturesEqual(first, second))
+        {
+            return false;
+        }
+
+        return first.Select(ProjectNumericPlaceholderSign).SequenceEqual(
+            second.Select(ProjectNumericPlaceholderSign),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string ProjectNumericPlaceholderSign(string signature) =>
+        signature
+            .Replace("+(-<number>", "(-<number>", StringComparison.OrdinalIgnoreCase)
+            .Replace("-(-<number>", "(-<number>", StringComparison.OrdinalIgnoreCase)
+            .Replace("+<number>", "<number>", StringComparison.OrdinalIgnoreCase)
+            .Replace("-<number>", "<number>", StringComparison.OrdinalIgnoreCase);
+
     private static bool SignaturesDifferOnlyByOneOppositePolarity(
         IReadOnlyList<string> first,
         IReadOnlyList<string> second)
@@ -755,6 +1200,45 @@ public sealed partial class ParsedUniqueItemResolver
         }
 
         return true;
+    }
+
+    private static bool HasObservedRollValuesWithinCatalogDomains(
+        IReadOnlyList<string> parsedLines,
+        IReadOnlyList<string> catalogLines)
+    {
+        var sawEvaluatedAnnotation = false;
+        for (var lineIndex = 0; lineIndex < parsedLines.Count; lineIndex++)
+        {
+            var parsedTokens = ExtractLogicalRollTokens(parsedLines[lineIndex]);
+            var catalogTokens = ExtractLogicalRollTokens(catalogLines[lineIndex]);
+            if (parsedTokens.Count != catalogTokens.Count)
+            {
+                return false;
+            }
+
+            for (var tokenIndex = 0; tokenIndex < parsedTokens.Count; tokenIndex++)
+            {
+                var parsed = parsedTokens[tokenIndex];
+                if (!parsed.IsEvaluatedAnnotation)
+                {
+                    continue;
+                }
+
+                sawEvaluatedAnnotation = true;
+                if (parsed.ObservedValue is not { } observedValue ||
+                    !TryReadRollBounds(
+                        catalogTokens[tokenIndex].CanonicalRoll,
+                        out var catalogMinimum,
+                        out var catalogMaximum) ||
+                    observedValue < Math.Min(catalogMinimum, catalogMaximum) ||
+                    observedValue > Math.Max(catalogMinimum, catalogMaximum))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return sawEvaluatedAnnotation;
     }
 
     private static bool HasCompatibleGeneratedCandidateRollEvidence(
@@ -867,14 +1351,18 @@ public sealed partial class ParsedUniqueItemResolver
                             match.Groups["annotationSecond"].Success
                                 ? match.Groups["annotationSecond"].Value
                                 : null),
-                        true);
+                        true,
+                        ParseRollNumber(match.Groups["actual"].Value));
                 }
 
                 return match.Groups["range"].Success
                     ? new LogicalRollToken(CreateRollSpec(
                         match.Groups["rangeFirst"].Value,
-                        match.Groups["rangeSecond"].Value), false)
-                    : new LogicalRollToken(CreateRollSpec(match.Groups["single"].Value, null), false);
+                        match.Groups["rangeSecond"].Value), false, null)
+                    : new LogicalRollToken(
+                        CreateRollSpec(match.Groups["single"].Value, null),
+                        false,
+                        null);
             })
             .ToArray();
     }
@@ -954,6 +1442,24 @@ public sealed partial class ParsedUniqueItemResolver
             [],
             [],
             UniqueBlockTextMatchKind.Direct);
+
+        public static UniqueBlockTextMatch AnnotatedBoundMatch { get; } = new(
+            true,
+            [],
+            [],
+            UniqueBlockTextMatchKind.AnnotatedBoundProjection);
+
+        public static UniqueBlockTextMatch NumericPluralMatch { get; } = new(
+            true,
+            [],
+            [],
+            UniqueBlockTextMatchKind.NumericPluralProjection);
+
+        public static UniqueBlockTextMatch SignedMixedRangeMatch { get; } = new(
+            true,
+            [],
+            [],
+            UniqueBlockTextMatchKind.SignedMixedRangeProjection);
     }
 
     private enum UniqueBlockTextMatchKind
@@ -961,9 +1467,16 @@ public sealed partial class ParsedUniqueItemResolver
         None = int.MaxValue,
         Direct = 0,
         TextualOptionRangeProjection = 1,
+        AnnotatedBoundProjection = 2,
+        NumericPluralProjection = 3,
+        SignedMixedRangeProjection = 4,
+        FixedTextualOptionAnnotationProjection = 5,
     }
 
-    private sealed record LogicalRollToken(string CanonicalRoll, bool IsEvaluatedAnnotation);
+    private sealed record LogicalRollToken(
+        string CanonicalRoll,
+        bool IsEvaluatedAnnotation,
+        decimal? ObservedValue);
 
     [GeneratedRegex(
         @"(?<![A-Za-z<])(?<actual>[+-]?\d+(?:[\.,]\d+)?)(?<annotation>\(\s*(?<first>[+-]?\d+(?:[\.,]\d+)?)(?:\s*-\s*(?<second>[+-]?\d+(?:[\.,]\d+)?)\s*)?\))",

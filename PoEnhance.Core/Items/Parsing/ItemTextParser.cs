@@ -179,6 +179,13 @@ public sealed partial class ItemTextParser
                     pendingAdvancedModifier = null;
 
                     enchantments.Add(enchantment);
+                    if (!IsEnchantmentReminderLine(line))
+                    {
+                        AddParsedModifier(
+                            CreateEnchantmentModifier(line),
+                            modifiers,
+                            uniqueModifiers);
+                    }
                 }
                 else if (pendingAdvancedModifier is null && IsPropertyLine(line, isModifierSection, isFlask))
                 {
@@ -259,7 +266,10 @@ public sealed partial class ItemTextParser
             suffixModifiers,
             uniqueModifiers,
             explicitModifiersWithUnknownKind,
-            modifiers.SelectMany(modifier => modifier.ValueLines).ToArray(),
+            modifiers
+                .Where(modifier => modifier.Kind != ParsedModifierKind.Enchantment)
+                .SelectMany(modifier => modifier.ValueLines)
+                .ToArray(),
             flavourTextLines,
             enchantments,
             descriptionLines,
@@ -1104,6 +1114,39 @@ public sealed partial class ItemTextParser
     private static bool IsEnchantmentLine(string line)
     {
         return line.EndsWith(EnchantSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ParsedModifier CreateEnchantmentModifier(string line)
+    {
+        var semanticText = line[..^EnchantSuffix.Length].TrimEnd();
+        var effect = new ParsedModifierEffect(
+            semanticText,
+            ReminderLines: [],
+            HasUnscalableValue: false)
+        {
+            RawText = line,
+            SemanticText = semanticText,
+        };
+        return new ParsedModifier(
+            ValueLines: [semanticText],
+            RawMetadataLine: null,
+            Kind: ParsedModifierKind.Enchantment,
+            Name: null,
+            Tier: null,
+            Rank: null,
+            CategoryText: null,
+            IsCrafted: false,
+            IsFractured: false,
+            IsVeiled: false)
+        {
+            Effects = [effect],
+        };
+    }
+
+    private static bool IsEnchantmentReminderLine(string line)
+    {
+        var semanticText = line[..^EnchantSuffix.Length].TrimEnd();
+        return IsReminderLine(semanticText);
     }
 
     private static bool IsClearlyNumericModifierLine(string line)

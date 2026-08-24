@@ -13,6 +13,12 @@ public sealed record UniqueModifierBlock
     public UniqueModifierSourceSemantics SourceSemantics { get; init; }
 
     /// <summary>
+    /// Source-derived semantics used only as additional mechanical-candidate evidence. Empty
+    /// dimensions retain the legacy text/value matching behavior.
+    /// </summary>
+    public UniqueModifierSemanticFingerprint SourceSemanticFingerprint { get; init; } = new();
+
+    /// <summary>
     /// Stable, source-derived variant memberships for a generated candidate. Empty for fixed
     /// blocks. These ids prove catalog-pool membership without turning display names into
     /// production branching keys.

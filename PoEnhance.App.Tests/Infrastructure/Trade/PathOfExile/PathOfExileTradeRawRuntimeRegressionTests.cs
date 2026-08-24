@@ -88,6 +88,39 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_EnergyFromWithinPresenceCorruptionStaysBoundlessImplicit()
+    {
+        var runtime = Resolve(EnergyFromWithinText, OfficialTradeCatalog.Value);
+        var text = "Corrupted Blood cannot be inflicted on you";
+        var parsed = Assert.Single(runtime.Parsed.Modifiers);
+        var source = Assert.Single(runtime.SourceResolutions);
+        var component = FindComponent(runtime.ProviderDraft, text);
+
+        Assert.Equal(ParsedModifierKind.Implicit, parsed.Kind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, parsed.ImplicitOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, source.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, source.Status);
+        Assert.False(component.IsBaseImplicit);
+        AssertExactSelectable(component, "implicit.stat_1658498488");
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Empty(component.ObservedNumericValues);
+        Assert.Null(component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+
+        var filter = MapSingle(runtime.ProviderDraft, component, OfficialTradeCatalog.Value);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleQueryFilter(
+            runtime,
+            component,
+            OfficialTradeCatalog.Value,
+            "implicit.stat_1658498488",
+            expectedMinimum: null,
+            expectedMaximum: null);
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_FracturedBoneRing_ProducesTwoExactSelectableChildren()
     {
         var runtime = Resolve(BoneRingText);
@@ -141,6 +174,54 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         var lifeLossFilter = MapSingle(runtime.ProviderDraft, lifeLoss);
         Assert.Equal(25m, lifeLossFilter.Minimum);
         Assert.Null(lifeLossFilter.Maximum);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_ProgenesisPresenceEnchantmentStaysEnchantAndBoundless()
+    {
+        var runtime = Resolve(ProgenesisText, OfficialTradeCatalog.Value);
+        var parsed = Assert.Single(
+            runtime.Parsed.Modifiers,
+            modifier => modifier.Kind == ParsedModifierKind.Enchantment);
+        var source = Assert.Single(
+            runtime.SourceResolutions,
+            resolution => resolution.ParsedModifierKind == ParsedModifierKind.Enchantment);
+        var component = FindComponent(runtime.ProviderDraft, "Used when Charges reach full");
+
+        Assert.Equal("Used when Charges reach full (enchant)", Assert.Single(parsed.Effects).RawText);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, parsed.UniqueOrigin);
+        Assert.Equal(ModifierGenerationType.Enchantment, source.GenerationType);
+        Assert.True(
+            source.Status == ModifierCandidateResolutionStatus.Exact,
+            string.Join(" | ", source.Diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code}: {diagnostic.Reason}")) +
+            $"; candidates={string.Join(",", source.Candidates.Select(candidate => candidate.Id))}");
+        Assert.Equal(ParsedModifierKind.Enchantment, component.ParsedKind);
+        Assert.Equal(ParsedModifierKind.Enchantment, component.ResolvedSourceKind);
+        Assert.Equal(ModifierGenerationType.Enchantment, component.GenerationType);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, component.UniqueOrigin);
+        Assert.Empty(component.UniqueCatalogBlockIds);
+        Assert.Empty(component.UniqueSourceObservationIds);
+        Assert.Contains(component.ProviderDomainEvidence, evidence =>
+            evidence.IsSourceExact &&
+            string.Equals(evidence.ProviderDomain, "Enchant", StringComparison.Ordinal));
+        AssertExactSelectable(component, "enchant.stat_3287581721");
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Null(component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.Equal("Enchant", StaticModifierLabel(component));
+
+        var filter = MapSingle(runtime.ProviderDraft, component, OfficialTradeCatalog.Value);
+        Assert.Null(filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleQueryFilter(
+            runtime,
+            component,
+            OfficialTradeCatalog.Value,
+            "enchant.stat_3287581721",
+            expectedMinimum: null,
+            expectedMaximum: null);
     }
 
     [Fact]
@@ -531,6 +612,189 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Null(intelligence.FixedQueryValue);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(LethalPrideText),
+        "Commanded leadership over <number> warriors under Rakiata",
+        "explicit.pseudo_timeless_jewel_rakiata",
+        "Rakiata(Akoya-Rakiata)",
+        14245)]
+    [InlineData(
+        nameof(BrutalRestraintText),
+        "Denoted service of <number> dekhara in the akhara of Asenath",
+        "explicit.pseudo_timeless_jewel_asenath",
+        "Asenath(Asenath-Nasima)",
+        2844)]
+    [InlineData(
+        nameof(GloriousVanityText),
+        "Bathed in the blood of <number> sacrificed in the name of Ahuana",
+        "explicit.pseudo_timeless_jewel_ahuana",
+        "Ahuana(Ahuana-Xibaqua)",
+        1073)]
+    [InlineData(
+        nameof(MilitantFaithText),
+        "Carved to glorify <number> new faithful converted by High Templar Avarius",
+        "explicit.pseudo_timeless_jewel_avarius",
+        "Avarius(Avarius-Maxarius)",
+        2549)]
+    public void ResolveRawCopiedItem_TimelessJewelUsesExactSourceLineAndFixedSeedQuery(
+        string fixtureName,
+        string providerSignature,
+        string providerStatId,
+        string optionAnnotatedText,
+        decimal seed)
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve(TimelessRawText(fixtureName), catalog);
+        var component = Assert.Single(runtime.ProviderDraft.ModifierFilters);
+
+        Assert.Equal(-1, component.SourceLineIndex);
+        Assert.Equal(3, component.OriginalText.Split('\n').Length);
+        Assert.Contains(optionAnnotatedText, component.OriginalText, StringComparison.Ordinal);
+        Assert.DoesNotContain(optionAnnotatedText, component.PresentationText, StringComparison.Ordinal);
+        Assert.Contains(providerSignature, component.ProviderSearchSignatures);
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Single(component.UniqueCatalogBlockIds);
+        Assert.NotEmpty(component.UniqueSourceObservationIds);
+        var providerMatch = new PathOfExileTradeStatMatcher().Match(component, catalog);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"status={component.ProviderResolutionStatus}; code={component.ProviderDiagnosticCode}; " +
+            $"message={component.ProviderDiagnosticMessage}; alternatives=" +
+            string.Join(',', component.ProviderStatAlternativeIds) + "; candidates=" +
+            string.Join(" | ", providerMatch.Candidates.Select(candidate =>
+                $"{candidate.StatId}:{candidate.Text}")));
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+        Assert.Equal(providerStatId, component.ProviderStatId);
+        Assert.Null(component.FixedQueryValue);
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(seed, component.RequestedMinimum);
+        Assert.Equal(seed, component.RequestedMaximum);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.True(IsInteractionReady(component));
+        Assert.Equal("Unique", StaticModifierLabel(component));
+        AssertSingleQueryFilter(runtime, component, catalog, providerStatId, seed, seed);
+    }
+
+    [Theory]
+    [InlineData(nameof(ReplicaBatedBreathText), "-20(-25--15) to Intelligence")]
+    [InlineData(nameof(AugyreText), "205(180-220)% increased Physical Damage")]
+    public void ResolveRawCopiedItem_UnrelatedVersionMismatchRemainsBlocked(
+        string fixtureName,
+        string mismatchedLine)
+    {
+        var runtime = Resolve(VersionMismatchRawText(fixtureName), OfficialTradeCatalog.Value);
+        var component = FindComponent(runtime.ProviderDraft, mismatchedLine);
+
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", component.UniqueResolutionDiagnosticCode);
+        Assert.False(component.HasExactUniqueSourceProvenance);
+        Assert.Empty(component.ProviderSearchSignatures);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            component.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            component.ProviderDiagnosticCode);
+        Assert.False(component.IsSearchable);
+        Assert.Empty(component.FilterVariants);
+        Assert.Null(component.FixedQueryValue);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_ReverberationRod_CorruptedPowerChargeStaysSearchableImplicit()
+    {
+        var runtime = Resolve(ReverberationRodText, OfficialTradeCatalog.Value);
+        var text = "7(5-7)% chance to gain a Power Charge on Critical Strike";
+        var parsed = Assert.Single(runtime.Parsed.Modifiers, modifier => modifier.ValueLines.Contains(text));
+        var source = Assert.Single(runtime.SourceResolutions, resolution =>
+            resolution.ParsedModifier.ValueLines.Contains(text));
+        var component = FindComponent(runtime.ProviderDraft, text);
+
+        Assert.Equal(ParsedModifierKind.Implicit, parsed.Kind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, parsed.ImplicitOrigin);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, parsed.UniqueOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, source.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, source.Status);
+        Assert.Equal(ParsedModifierKind.Implicit, component.ResolvedSourceKind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, component.ImplicitOrigin);
+        Assert.False(component.IsBaseImplicit);
+        Assert.Empty(component.UniqueCatalogBlockIds);
+        Assert.Contains(component.ProviderDomainEvidence, evidence =>
+            evidence.IsSourceExact &&
+            string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.Ordinal));
+        AssertExactSelectable(component, "implicit.stat_3814876985");
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal([7m], component.ObservedNumericValues);
+        Assert.Equal(7m, component.RequestedMinimum);
+        Assert.Equal("Implicit", StaticModifierLabel(component));
+        Assert.All(component.FilterVariants, variant =>
+            Assert.Equal("implicit", variant.ProviderKind));
+
+        var filter = MapSingle(runtime.ProviderDraft, component, OfficialTradeCatalog.Value);
+        Assert.Equal(7m, filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleQueryFilter(
+            runtime,
+            component,
+            OfficialTradeCatalog.Value,
+            "implicit.stat_3814876985",
+            expectedMinimum: 7m,
+            expectedMaximum: null);
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItem_SpiraledWandBaseImplicitHasSameSemanticsOnUniqueAndRareItems()
+    {
+        var uniqueRuntime = Resolve(ReverberationRodText, OfficialTradeCatalog.Value);
+        var rareRuntime = Resolve(RareSpiraledWandText, OfficialTradeCatalog.Value);
+        var text = "Adds 2(1-2) to 10(9-11) Lightning Damage to Spells and Attacks";
+        var unique = FindComponent(uniqueRuntime.ProviderDraft, text);
+        var rare = FindComponent(rareRuntime.ProviderDraft, text);
+
+        foreach (var component in new[] { unique, rare })
+        {
+            Assert.Equal(ParsedModifierKind.Implicit, component.ParsedKind);
+            Assert.Equal(ParsedModifierKind.Implicit, component.ResolvedSourceKind);
+            Assert.Equal(ParsedImplicitModifierOrigin.Unspecified, component.ImplicitOrigin);
+            Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, component.UniqueOrigin);
+            Assert.Equal(ModifierGenerationType.Implicit, component.GenerationType);
+            Assert.True(component.IsBaseImplicit);
+            Assert.Empty(component.UniqueCatalogBlockIds);
+            Assert.Empty(component.UniqueSourceObservationIds);
+            Assert.NotNull(component.BaseImplicitProvenance);
+            Assert.Contains(component.ProviderDomainEvidence, evidence =>
+                evidence.IsSourceExact &&
+                !string.IsNullOrWhiteSpace(evidence.ItemBaseId) &&
+                string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.Ordinal));
+            AssertExactSelectable(component, "implicit.stat_2885144362");
+            Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, component.ValueBoundShape);
+            Assert.Equal([2m, 10m], component.ObservedNumericValues);
+            Assert.Equal(6m, component.RequestedMinimum);
+            Assert.Equal("Implicit", StaticModifierLabel(component));
+            Assert.All(component.FilterVariants, variant =>
+                Assert.Equal("implicit", variant.ProviderKind));
+        }
+
+        Assert.Equal(unique.ResolvedModifierId, rare.ResolvedModifierId);
+        Assert.Equal(unique.ResolvedStatIds, rare.ResolvedStatIds);
+        Assert.Equal(unique.ProviderStatId, rare.ProviderStatId);
+        Assert.Equal(unique.RequestedMinimum, rare.RequestedMinimum);
+
+        var uniqueFilter = MapSingle(uniqueRuntime.ProviderDraft, unique, OfficialTradeCatalog.Value);
+        var rareFilter = MapSingle(rareRuntime.ProviderDraft, rare, OfficialTradeCatalog.Value);
+        Assert.Equal(6m, uniqueFilter.Minimum);
+        Assert.Equal(6m, rareFilter.Minimum);
+        AssertSingleQueryFilter(
+            uniqueRuntime,
+            unique,
+            OfficialTradeCatalog.Value,
+            "implicit.stat_2885144362",
+            expectedMinimum: 6m,
+            expectedMaximum: null);
+    }
+
     [Fact]
     public void UiSemanticLabel_DoesNotPromoteRawUnknownFromUnprovenRecoveredFields()
     {
@@ -557,6 +821,22 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         nameof(WindscreamText) => WindscreamText,
         nameof(DoedresDamningText) => DoedresDamningText,
         nameof(CospriWillText) => CospriWillText,
+        _ => throw new ArgumentOutOfRangeException(nameof(fixtureName), fixtureName, "Unknown fixture."),
+    };
+
+    private static string TimelessRawText(string fixtureName) => fixtureName switch
+    {
+        nameof(LethalPrideText) => LethalPrideText,
+        nameof(BrutalRestraintText) => BrutalRestraintText,
+        nameof(GloriousVanityText) => GloriousVanityText,
+        nameof(MilitantFaithText) => MilitantFaithText,
+        _ => throw new ArgumentOutOfRangeException(nameof(fixtureName), fixtureName, "Unknown fixture."),
+    };
+
+    private static string VersionMismatchRawText(string fixtureName) => fixtureName switch
+    {
+        nameof(ReplicaBatedBreathText) => ReplicaBatedBreathText,
+        nameof(AugyreText) => AugyreText,
         _ => throw new ArgumentOutOfRangeException(nameof(fixtureName), fixtureName, "Unknown fixture."),
     };
 
@@ -735,6 +1015,69 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.False(serializedFilter.TryGetProperty("value", out _));
     }
 
+    private static void AssertSingleQueryFilter(
+        RuntimeResult runtime,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
+        string expectedStatId,
+        decimal? expectedMinimum,
+        decimal? expectedMaximum)
+    {
+        var selectedDraft = runtime.ProviderDraft with
+        {
+            ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                .Select(candidate => candidate with
+                {
+                    IsSelected = string.Equals(
+                        candidate.ComponentId,
+                        component.ComponentId,
+                        StringComparison.Ordinal),
+                })
+                .ToArray(),
+        };
+        var mapping = SelectedMapper.Map(selectedDraft, catalog);
+        Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        var query = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            "Standard",
+            mapping.Filters,
+            runtime.UniqueIdentity,
+            FilterCatalog);
+        Assert.True(query.IsSuccess, string.Join(" | ", query.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        using var document = JsonDocument.Parse(query.SerializedJson!);
+        var serializedFilter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal(expectedStatId, serializedFilter.GetProperty("id").GetString());
+        if (!expectedMinimum.HasValue && !expectedMaximum.HasValue)
+        {
+            Assert.False(serializedFilter.TryGetProperty("value", out _));
+            return;
+        }
+
+        var value = serializedFilter.GetProperty("value");
+        if (expectedMinimum.HasValue)
+        {
+            Assert.Equal(expectedMinimum.Value, value.GetProperty("min").GetDecimal());
+        }
+        else
+        {
+            Assert.False(value.TryGetProperty("min", out _));
+        }
+
+        if (expectedMaximum.HasValue)
+        {
+            Assert.Equal(expectedMaximum.Value, value.GetProperty("max").GetDecimal());
+        }
+        else
+        {
+            Assert.False(value.TryGetProperty("max", out _));
+        }
+    }
+
     private static PathOfExileTradePriceCheckService CreatePriceCheckService()
     {
         return new PathOfExileTradePriceCheckService(
@@ -798,6 +1141,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(8, "Doedre's Damning", "Paua Ring", "accessory"),
             UniqueItem(9, "Cospri's Will", "Assassin's Garb", "armour"),
             UniqueItem(10, "Reverberation Rod", "Spiraled Wand", "weapon"),
+            UniqueItem(11, "Energy From Within", "Cobalt Jewel", "jewel"),
+            UniqueItem(12, "Lethal Pride", "Timeless Jewel", "jewel"),
+            UniqueItem(13, "Brutal Restraint", "Timeless Jewel", "jewel"),
+            UniqueItem(14, "Glorious Vanity", "Timeless Jewel", "jewel"),
+            UniqueItem(15, "Militant Faith", "Timeless Jewel", "jewel"),
+            UniqueItem(16, "Replica Bated Breath", "Chain Belt", "accessory"),
+            UniqueItem(17, "Augyre", "Void Sceptre", "weapon"),
         ]);
     }
 
@@ -951,6 +1301,126 @@ Item Level: 85
 10% increased Light Radius
 --------
 Fractured Item
+""";
+
+    private const string EnergyFromWithinText = """
+Item Class: Jewels
+Rarity: Unique
+Energy From Within
+Cobalt Jewel
+--------
+Item Level: 82
+--------
+{ Corruption Implicit Modifier }
+Corrupted Blood cannot be inflicted on you
+--------
+Corrupted
+""";
+
+    private const string LethalPrideText = """
+Item Class: Jewels
+Rarity: Unique
+Lethal Pride
+Timeless Jewel
+--------
+Item Level: 86
+--------
+{ Unique Modifier }
+Commanded leadership over 14245(10000-18000) warriors under Rakiata(Akoya-Rakiata)
+Passives in radius are Conquered by the Karui
+Historic
+""";
+
+    private const string BrutalRestraintText = """
+Item Class: Jewels
+Rarity: Unique
+Brutal Restraint
+Timeless Jewel
+--------
+Item Level: 86
+--------
+{ Unique Modifier }
+Denoted service of 2844(500-8000) dekhara in the akhara of Asenath(Asenath-Nasima)
+Passives in radius are Conquered by the Maraketh
+Historic
+""";
+
+    private const string GloriousVanityText = """
+Item Class: Jewels
+Rarity: Unique
+Glorious Vanity
+Timeless Jewel
+--------
+Item Level: 86
+--------
+{ Unique Modifier }
+Bathed in the blood of 1073(100-8000) sacrificed in the name of Ahuana(Ahuana-Xibaqua)
+Passives in radius are Conquered by the Vaal
+Historic
+""";
+
+    private const string MilitantFaithText = """
+Item Class: Jewels
+Rarity: Unique
+Militant Faith
+Timeless Jewel
+--------
+Item Level: 86
+--------
+{ Unique Modifier }
+Carved to glorify 2549(2000-10000) new faithful converted by High Templar Avarius(Avarius-Maxarius)
+Passives in radius are Conquered by the Templars
+Historic
+""";
+
+    private const string ReplicaBatedBreathText = """
+Item Class: Belts
+Rarity: Unique
+Replica Bated Breath
+Chain Belt
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Defences, Energy Shield }
++20(9-20) to maximum Energy Shield
+--------
+{ Unique Modifier — Attribute }
+-20(-25--15) to Intelligence
+{ Unique Modifier — Damage }
+10% increased Damage
+{ Unique Modifier }
+50% increased Fishing Pool Consumption
+{ Unique Modifier }
+20% increased Fishing Range
+{ Unique Modifier — Drop }
+26(20-30)% increased Rarity of Fish Caught
+""";
+
+    private const string AugyreText = """
+Item Class: Sceptres
+Rarity: Unique
+Augyre
+Void Sceptre
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Damage, Elemental }
+40% increased Elemental Damage
+--------
+{ Unique Modifier — Damage, Physical, Attack }
+205(180-220)% increased Physical Damage
+{ Unique Modifier — Attack, Speed }
+10(10-15)% increased Attack Speed
+{ Unique Modifier — Attack, Critical }
+85(80-100)% increased Critical Strike Chance
+{ Unique Modifier — Damage, Physical, Elemental, Lightning }
+50% of Physical Damage Converted to Lightning Damage
+{ Unique Modifier — Damage, Elemental, Critical }
+Every 16 seconds you gain Elemental Overload for 8 seconds
+{ Unique Modifier — Attack, Critical }
+You have Resolute Technique while you do not have Elemental Overload
+{ Unique Modifier — Damage, Physical }
+100% increased Physical Damage while you have Resolute Technique
 """;
 
     private const string ProgenesisText = """
@@ -1243,6 +1713,8 @@ Item Level: 85
 --------
 { Implicit Modifier }
 Adds 2(1-2) to 10(9-11) Lightning Damage to Spells and Attacks
+{ Corruption Implicit Modifier }
+7(5-7)% chance to gain a Power Charge on Critical Strike
 --------
 { Unique Modifier }
 +2 to Level of Socketed Gems
@@ -1254,5 +1726,21 @@ Socketed Gems are Supported by Level 10 Controlled Destruction — Unscalable Va
 Socketed Gems are Supported by Level 10 Arcane Surge — Unscalable Value
 { Unique Modifier }
 +21(10-30) to Intelligence
+--------
+Corrupted
+""";
+
+    private const string RareSpiraledWandText = """
+Item Class: Wands
+Rarity: Rare
+Witness Spiral
+Spiraled Wand
+--------
+Wand
+--------
+Item Level: 85
+--------
+{ Implicit Modifier }
+Adds 2(1-2) to 10(9-11) Lightning Damage to Spells and Attacks
 """;
 }

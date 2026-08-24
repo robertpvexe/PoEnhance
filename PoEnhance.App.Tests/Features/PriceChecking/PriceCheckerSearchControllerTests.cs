@@ -13,6 +13,81 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerSearchControllerTests
 {
     [Fact]
+    public async Task ExactInitializedEditableSeed_UpdateBoundsAndResetRestoreObservedExactBounds()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("seed-offer")], total: 1);
+        const decimal seed = 14245m;
+        var uniqueVariantIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_seed");
+        var modifier = Modifier(
+            "Commanded leadership over 14245 warriors under Rakiata",
+            kind: ParsedModifierKind.Unique,
+            supportsValueBounds: true,
+            minimum: seed,
+            maximum: seed) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            ObservedNumericValues = [seed],
+            CanonicalNumericValues = [seed],
+            FixedQueryValue = null,
+            ProviderStatId = "explicit.stat_seed",
+            ProviderStatText = "Commanded leadership over # warriors under Rakiata",
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = uniqueVariantIdentity,
+                    Label = "Unique",
+                    Description = "Commanded leadership over # warriors under Rakiata",
+                    ProviderKind = "explicit",
+                    SupportsValueBounds = true,
+                },
+            ],
+            SelectedFilterVariantIdentity = uniqueVariantIdentity,
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("State Shell", modifiers: [modifier]) with { Rarity = "Unique" },
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var initial = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.True(initial.SupportsValueBounds);
+        Assert.Null(initial.FixedQueryValue);
+        Assert.Equal(seed, initial.RequestedMinimum);
+        Assert.Equal(seed, initial.RequestedMaximum);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(row.CanEditBounds);
+        Assert.Equal("14245", row.MinimumText);
+        Assert.Equal("14245", row.MaximumText);
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "14000", "15000");
+        var editedRow = Assert.Single(fixture.Window.CurrentSearchState.Modifiers);
+        Assert.Equal("14000", editedRow.MinimumText);
+        Assert.Equal("15000", editedRow.MaximumText);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+
+        await fixture.Controller.SearchAsync();
+        var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        Assert.Equal(14000m, searched.ModifierFilters[0].RequestedMinimum);
+        Assert.Equal(15000m, searched.ModifierFilters[0].RequestedMaximum);
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "14000", string.Empty);
+        await fixture.Controller.SearchAsync();
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        var openEnded = fixture.PriceCheckService.Calls[^1].Draft!.ModifierFilters[0];
+        Assert.Equal(14000m, openEnded.RequestedMinimum);
+        Assert.Null(openEnded.RequestedMaximum);
+
+        fixture.Window.RaiseResetItemRequested();
+        var reset = Assert.Single(fixture.Window.CurrentState.Draft.ModifierFilters);
+        Assert.False(reset.IsSelected);
+        Assert.Equal(seed, reset.RequestedMinimum);
+        Assert.Equal(seed, reset.RequestedMaximum);
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+    }
+
+    [Fact]
     public void UpdateCurrentDraft_PreparesSearchStateWithoutCallingService()
     {
         var fixture = SearchFixture.Create();

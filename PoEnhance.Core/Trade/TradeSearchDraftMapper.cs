@@ -879,6 +879,10 @@ public sealed partial class TradeSearchDraftMapper
         GameDataCatalog? baseIdentityCatalog = null,
         UniqueModifierBlockResolution? uniqueBlockResolution = null)
     {
+        isBaseImplicit = isBaseImplicit ||
+            modifier.Kind == ParsedModifierKind.Implicit &&
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified;
+
         // True when this component's mechanics come from Unique source-block evidence rather than a
         // normal modifier candidate, whether the client labelled the row as a Unique modifier or the
         // row was recovered from the resolved Unique identity.
@@ -899,11 +903,12 @@ public sealed partial class TradeSearchDraftMapper
         var statLocalities = uniqueBlockResolution?.IsResolved == true
             ? uniqueBlockResolution.StatLocalities.ToArray()
             : ResolveStatLocalities(statIds, catalog);
-        var providerSearchSignatures = ResolveUniqueProviderSearchSignatures(
+        var providerSearchEvidence = ResolveUniqueProviderSearchSignatures(
             uniqueBlockResolution,
             uniqueModifierCandidates,
             componentLines,
             catalog);
+        var providerSearchSignatures = providerSearchEvidence.Signatures;
         var isSearchable = (exactCandidate is not null || uniqueBlockResolution?.IsResolved == true ||
                 uniqueBlockResolution?.CatalogBlocks.Count > 0) &&
             (statIds.Length > 0 || uniqueBlockResolution?.CatalogBlocks.Count > 0);
@@ -927,7 +932,7 @@ public sealed partial class TradeSearchDraftMapper
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.TextualOptionRange is not null;
         var treatAsUnscalablePresence = hasUnscalableValue &&
             !hasProvenGeneratedTextualOptionRange;
-        var fixedQueryValue = treatAsUnscalablePresence &&
+        var sourceFixedQueryValue = treatAsUnscalablePresence &&
             usesUniqueSourceMechanics &&
             uniqueBlockResolution is
             {
@@ -943,6 +948,14 @@ public sealed partial class TradeSearchDraftMapper
                 stat.MinValue == stat.MaxValue)
                 ? boundDefault.ObservedCanonicalValue
                 : (decimal?)null;
+        // Identity-fixed only (e.g. Level 10 Spell Echo). Multi-line Unique seed evidence is
+        // editable exact-initialized bounds, not FixedQueryValue.
+        var fixedQueryValue = sourceFixedQueryValue;
+        var exactInitializedEditableQueryValue = fixedQueryValue is null &&
+            !treatAsUnscalablePresence &&
+            !boundDefault.IsSupported
+                ? providerSearchEvidence.ExactInitializedEditableQueryValue
+                : null;
         var providerOnlyUniqueValues = usesUniqueSourceMechanics &&
             (boundCandidate is null || boundDefault.Shape == ModifierBoundShape.Unsupported) &&
             componentLines.Count == 1
@@ -951,12 +964,14 @@ public sealed partial class TradeSearchDraftMapper
         var hasProviderOnlyUniqueScalar = !treatAsUnscalablePresence &&
             providerOnlyUniqueValues.Count == 1;
         var supportsValueBounds = !treatAsUnscalablePresence &&
-            (boundDefault.IsSupported || hasProviderOnlyUniqueScalar);
+            (boundDefault.IsSupported ||
+                hasProviderOnlyUniqueScalar ||
+                exactInitializedEditableQueryValue.HasValue);
         var providerOnlyUniqueDirection = ModifierBoundDirection.Minimum;
-        var valueBoundShape = treatAsUnscalablePresence
-            ? fixedQueryValue.HasValue
-                ? ModifierBoundShape.Scalar
-                : ModifierBoundShape.PresenceOnly
+        var valueBoundShape = fixedQueryValue.HasValue || exactInitializedEditableQueryValue.HasValue
+            ? ModifierBoundShape.Scalar
+            : treatAsUnscalablePresence
+            ? ModifierBoundShape.PresenceOnly
             : hasProviderOnlyUniqueScalar
                 ? ModifierBoundShape.Scalar
                 : boundCandidate is null && usesUniqueSourceMechanics && providerOnlyUniqueValues.Count == 0
@@ -968,11 +983,19 @@ public sealed partial class TradeSearchDraftMapper
                     !componentLines[0].Any(char.IsDigit)
                     ? ModifierBoundShape.PresenceOnly
             : boundDefault.Shape;
-        var observedNumericValues = hasProviderOnlyUniqueScalar ||
+        var observedNumericValues = fixedQueryValue.HasValue
+            ? [fixedQueryValue.Value]
+            : exactInitializedEditableQueryValue.HasValue
+            ? [exactInitializedEditableQueryValue.Value]
+            : hasProviderOnlyUniqueScalar ||
             boundCandidate is null && usesUniqueSourceMechanics
             ? providerOnlyUniqueValues
             : boundDefault.ObservedValues;
-        var canonicalNumericValues = hasProviderOnlyUniqueScalar
+        var canonicalNumericValues = fixedQueryValue.HasValue
+            ? [fixedQueryValue.Value]
+            : exactInitializedEditableQueryValue.HasValue
+            ? [exactInitializedEditableQueryValue.Value]
+            : hasProviderOnlyUniqueScalar
             ? providerOnlyUniqueValues
             : valueBoundShape switch
             {
@@ -990,9 +1013,10 @@ public sealed partial class TradeSearchDraftMapper
         var defaultBoundDirection = hasProviderOnlyUniqueScalar
             ? providerOnlyUniqueDirection
             : boundDefault.Direction;
-        var observedCanonicalValue = hasProviderOnlyUniqueScalar
-            ? providerOnlyUniqueValues[0]
-            : boundDefault.ObservedCanonicalValue;
+        var observedCanonicalValue = exactInitializedEditableQueryValue ??
+            (hasProviderOnlyUniqueScalar
+                ? providerOnlyUniqueValues[0]
+                : boundDefault.ObservedCanonicalValue);
 
         var isEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true ||
             uniqueBlockResolution?.IsEquivalentSourceSet == true;
@@ -1016,7 +1040,9 @@ public sealed partial class TradeSearchDraftMapper
             ParsedKind = modifier.Kind,
             ImplicitOrigin = modifier.ImplicitOrigin,
             UniqueOrigin = modifier.UniqueOrigin,
-            GenerationType = exactCandidate?.GenerationType ??
+            GenerationType = modifier.Kind == ParsedModifierKind.Enchantment
+                ? ModifierGenerationType.Enchantment
+                : exactCandidate?.GenerationType ??
                 resolution?.GenerationType ??
                 CommonGenerationType(uniqueModifierCandidates),
             Locality = uniqueBlockResolution?.IsResolved == true
@@ -1049,9 +1075,10 @@ public sealed partial class TradeSearchDraftMapper
             ResolutionStatus = uniqueBlockResolution?.IsResolved == true
                 ? ModifierCandidateResolutionStatus.Exact
                 : exactCandidate is not null &&
-                baseImplicitProvenance?.RecognitionStatus is (
-                    BaseImplicitRecognitionStatus.CurrentExact or
-                    BaseImplicitRecognitionStatus.HistoricalExact)
+                (isBaseImplicit ||
+                    baseImplicitProvenance?.RecognitionStatus is (
+                        BaseImplicitRecognitionStatus.CurrentExact or
+                        BaseImplicitRecognitionStatus.HistoricalExact))
                 ? ModifierCandidateResolutionStatus.Exact
                 : resolution?.Status,
             ResolvedModifierId = uniqueBlockResolution?.ModifierIds.Count == 1
@@ -1089,10 +1116,12 @@ public sealed partial class TradeSearchDraftMapper
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
             SupportsValueBounds = supportsValueBounds,
-            ValueBoundsUnsupportedReason = treatAsUnscalablePresence
-                ? fixedQueryValue.HasValue
-                    ? "The source proves a fixed numeric query value, but it is not user-editable."
-                    : "The copied modifier is a presence-only value and has no numeric Trade bound."
+            ValueBoundsUnsupportedReason = fixedQueryValue.HasValue
+                ? "The source proves a fixed numeric query value, but it is not user-editable."
+                : exactInitializedEditableQueryValue.HasValue
+                    ? null
+                : treatAsUnscalablePresence
+                    ? "The copied modifier is a presence-only value and has no numeric Trade bound."
                 : hasProviderOnlyUniqueScalar
                     ? null
                 : boundCandidate is null && usesUniqueSourceMechanics &&
@@ -1102,14 +1131,18 @@ public sealed partial class TradeSearchDraftMapper
                         : "Official Trade must prove whether this Unique modifier is presence-only."
                 : boundDefault.UnsupportedReason,
             ValueBoundShape = valueBoundShape,
-            ObservedNumericValues = fixedQueryValue.HasValue
-                ? boundDefault.ObservedValues
-                : treatAsUnscalablePresence ? [] : observedNumericValues,
+            ObservedNumericValues = treatAsUnscalablePresence &&
+                !fixedQueryValue.HasValue &&
+                !exactInitializedEditableQueryValue.HasValue
+                ? []
+                : observedNumericValues,
             OriginalSourceRollRanges = treatAsUnscalablePresence
                 ? []
                 : ModifierBoundDefaults.ExtractOriginalSourceRollRanges(componentLines),
             CanonicalNumericValues = fixedQueryValue.HasValue
                 ? [fixedQueryValue.Value]
+                : exactInitializedEditableQueryValue.HasValue
+                ? [exactInitializedEditableQueryValue.Value]
                 : treatAsUnscalablePresence ? [] : canonicalNumericValues,
             FixedQueryValue = fixedQueryValue,
             ProviderFallbackNumericValues = treatAsUnscalablePresence ? [] : providerFallbackNumericValues,
@@ -1118,12 +1151,16 @@ public sealed partial class TradeSearchDraftMapper
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,
             TranslationRecognition = translationRecognition,
             DefaultBoundDirection = defaultBoundDirection,
-            RequestedMinimum = supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Minimum
-                ? observedCanonicalValue
-                : null,
-            RequestedMaximum = supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Maximum
-                ? observedCanonicalValue
-                : null,
+            RequestedMinimum = exactInitializedEditableQueryValue.HasValue
+                ? exactInitializedEditableQueryValue
+                : supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Minimum
+                    ? observedCanonicalValue
+                    : null,
+            RequestedMaximum = exactInitializedEditableQueryValue.HasValue
+                ? exactInitializedEditableQueryValue
+                : supportsValueBounds && defaultBoundDirection == ModifierBoundDirection.Maximum
+                    ? observedCanonicalValue
+                    : null,
             IsSelected = false,
         };
 
@@ -1791,7 +1828,7 @@ public sealed partial class TradeSearchDraftMapper
             .ToArray();
     }
 
-    private static IReadOnlyList<string> ResolveUniqueProviderSearchSignatures(
+    private static UniqueProviderSearchEvidence ResolveUniqueProviderSearchSignatures(
         UniqueModifierBlockResolution? resolution,
         IReadOnlyList<ModifierDefinition> candidates,
         IReadOnlyList<string> componentLines,
@@ -1799,13 +1836,57 @@ public sealed partial class TradeSearchDraftMapper
     {
         if (resolution?.IsResolved != true)
         {
-            return [];
+            return UniqueProviderSearchEvidence.Empty;
         }
 
         var signatures = new List<string>(resolution.CanonicalSignatures);
+        var fixedQueryCandidates = new List<UniqueProviderLineFixedQueryCandidate>();
         var componentLineSignatures = componentLines.Count == 1
             ? ModifierTextSignatureNormalizer.CreateParsedSignature(componentLines).Signature.Lines
             : [];
+        if (HasExactUniqueProviderSearchProvenance(resolution) && componentLines.Count > 1)
+        {
+            var semanticLines = resolution.PresentationLines.Count == componentLines.Count
+                ? resolution.PresentationLines
+                : componentLines;
+            foreach (var block in resolution.CatalogBlocks)
+            {
+                if (block.CanonicalSignatures.Count != block.Lines.Count ||
+                    block.CanonicalSignatures.Count != semanticLines.Count ||
+                    block.CanonicalSignatures.Any(string.IsNullOrWhiteSpace))
+                {
+                    continue;
+                }
+
+                for (var index = 0; index < block.CanonicalSignatures.Count; index++)
+                {
+                    var sourceSignature = block.CanonicalSignatures[index].Trim();
+                    signatures.Add(sourceSignature);
+
+                    var semanticSignature = ModifierTextSignatureNormalizer
+                        .CreateParsedSignature([semanticLines[index]])
+                        .Signature.Lines;
+                    if (semanticSignature.Count != 1 ||
+                        !string.Equals(
+                            semanticSignature[0],
+                            sourceSignature,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        CountNumberPlaceholders(sourceSignature) != 1)
+                    {
+                        continue;
+                    }
+
+                    var observedValues = ModifierBoundDefaults.ExtractObservedValues(
+                        semanticLines[index]);
+                    if (observedValues.Count == 1)
+                    {
+                        fixedQueryCandidates.Add(new UniqueProviderLineFixedQueryCandidate(
+                            sourceSignature,
+                            observedValues[0]));
+                    }
+                }
+            }
+        }
         foreach (var block in resolution.CatalogBlocks)
         {
             foreach (var line in block.Lines)
@@ -1878,13 +1959,48 @@ public sealed partial class TradeSearchDraftMapper
             }
         }
 
-        return signatures
+        var retainedSignatures = signatures
             .Select(TrimToNull)
             .Where(signature => signature is not null)
             .Select(signature => signature!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(signature => signature, StringComparer.Ordinal)
             .ToArray();
+        var fixedQueries = fixedQueryCandidates
+            .Distinct()
+            .ToArray();
+        return new UniqueProviderSearchEvidence(
+            retainedSignatures,
+            fixedQueries.Length == 1 ? fixedQueries[0].Value : null);
+    }
+
+    private static bool HasExactUniqueProviderSearchProvenance(
+        UniqueModifierBlockResolution resolution) =>
+        resolution.IsResolved &&
+        resolution.CatalogBlocks.Count > 0 &&
+        resolution.CatalogBlocks.All(block =>
+            !string.IsNullOrWhiteSpace(block.Id) &&
+            block.SourceObservationIds.Count > 0 &&
+            block.MechanicalMapping.Status is
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet) &&
+        resolution.SourceObservationIds.Count > 0 &&
+        resolution.StatIds.Count > 0 &&
+        string.IsNullOrWhiteSpace(resolution.DiagnosticCode);
+
+    private static int CountNumberPlaceholders(string signature)
+    {
+        const string placeholder = "<number>";
+        var count = 0;
+        for (var index = 0; (index = signature.IndexOf(
+                 placeholder,
+                 index,
+                 StringComparison.Ordinal)) >= 0; index += placeholder.Length)
+        {
+            count++;
+        }
+
+        return count;
     }
 
     private static bool IsFixedLiteralUniqueCatalogLine(string? line)
@@ -1901,6 +2017,17 @@ public sealed partial class TradeSearchDraftMapper
         @"(?<![A-Za-z<])\(?\s*[+-]?\d+(?:[\.,]\d+)?\s*-\s*[+-]?\d+(?:[\.,]\d+)?\s*\)?",
         RegexOptions.CultureInvariant)]
     private static partial Regex UniqueCatalogRangeTokenPattern();
+
+    private sealed record UniqueProviderSearchEvidence(
+        IReadOnlyList<string> Signatures,
+        decimal? ExactInitializedEditableQueryValue)
+    {
+        public static UniqueProviderSearchEvidence Empty { get; } = new([], null);
+    }
+
+    private sealed record UniqueProviderLineFixedQueryCandidate(
+        string Signature,
+        decimal Value);
 
     private static ModifierDefinition? ResolveUniqueBoundCandidate(
         IReadOnlyList<ModifierDefinition> candidates)

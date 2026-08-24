@@ -325,7 +325,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         diagnostic = null;
         var isCorruptedImplicit = modifier.ParsedKind == ParsedModifierKind.Implicit &&
             modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted;
-        if (!modifier.IsFractured && !modifier.IsVeiled && !isCorruptedImplicit)
+        var isEnchantment = modifier.ResolvedSourceKind == ParsedModifierKind.Enchantment;
+        var isBaseImplicit = modifier.IsBaseImplicit;
+        if (!modifier.IsFractured && !modifier.IsVeiled && !isCorruptedImplicit &&
+            !isEnchantment && !isBaseImplicit)
         {
             return true;
         }
@@ -365,14 +368,18 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                     StringComparison.OrdinalIgnoreCase);
             var expectedProviderKind = modifier.IsVeiled
                 ? "veiled"
-                : isCorruptedImplicit
-                    ? "implicit"
-                : modifier.ProviderResolutionStatus ==
-                    SearchComponentProviderResolutionStatus.Approximate
-                    ? "explicit"
-                    : string.IsNullOrWhiteSpace(modifier.RequestedFilterVariantKind)
-                        ? "fractured"
-                        : modifier.RequestedFilterVariantKind.Trim();
+                : isEnchantment
+                    ? "enchant"
+                    : isCorruptedImplicit
+                        ? "implicit"
+                        : isBaseImplicit
+                            ? "implicit"
+                            : modifier.ProviderResolutionStatus ==
+                                SearchComponentProviderResolutionStatus.Approximate
+                                ? "explicit"
+                                : string.IsNullOrWhiteSpace(modifier.RequestedFilterVariantKind)
+                                    ? "fractured"
+                                    : modifier.RequestedFilterVariantKind.Trim();
             var specialKindMatches = string.Equals(
                 providerKinds.SingleOrDefault(),
                 expectedProviderKind,
@@ -390,7 +397,11 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 ? "Fractured-source"
                 : modifier.IsVeiled
                     ? "Veiled"
-                    : "Corrupted implicit")} modifier requires one catalog-backed provider identity compatible with its structured resolution quality.",
+                    : isEnchantment
+                        ? "Enchantment"
+                        : isBaseImplicit
+                            ? "Base implicit"
+                            : "Corrupted implicit")} modifier requires one catalog-backed provider identity compatible with its structured resolution quality.",
             sourceIndex);
         return false;
     }
@@ -533,7 +544,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             hasExactProviderOwnedVeiledPresence ||
             hasExactProviderOwnedAdvancedExplicit ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&
-            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified;
+            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified &&
+            !modifier.IsBaseImplicit;
     }
 
     private static bool CanSerializeProviderResolvedComponent(ResolvedSearchComponent modifier)

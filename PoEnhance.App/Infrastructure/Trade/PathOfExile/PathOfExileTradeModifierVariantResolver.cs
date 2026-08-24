@@ -370,17 +370,27 @@ internal static class PathOfExileTradeModifierVariantResolver
             catalog,
             sourceExactCandidate);
         var requiresExactSourceIdentity = component.HasResolvedUniqueSourceSemantics ||
-            component.IsVeiled;
+            component.IsVeiled ||
+            component.ResolvedSourceKind is
+                ParsedModifierKind.Enchantment or
+                ParsedModifierKind.Implicit;
         var sourceCandidateIds = sourceExactCandidates
             .Select(candidate => candidate.StatId)
             .ToHashSet(StringComparer.Ordinal);
-        var discoveredCandidates = discovery.Candidates
+        var discoveredSourceCandidates = discovery.Candidates
+            .Where(candidate => sourceCandidateIds.Contains(candidate.StatId))
+            .ToArray();
+        var sourceIdentityCandidates = sourceExactCandidates.Count == 1 ||
+            discoveredSourceCandidates.Length == 0
+                ? sourceExactCandidates
+                : discoveredSourceCandidates;
+        var discoveredCandidates = (requiresExactSourceIdentity
+                ? sourceIdentityCandidates
+                : discovery.Candidates)
             .Where(candidate => includePseudo || !string.Equals(
                 PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 "pseudo",
                 StringComparison.Ordinal))
-            .Where(candidate => !requiresExactSourceIdentity ||
-                sourceCandidateIds.Contains(candidate.StatId))
             .ToArray();
 
         var contributors = ResolveContributors(component, component.Sources);

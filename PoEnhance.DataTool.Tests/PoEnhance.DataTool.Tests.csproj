@@ -21,4 +21,8 @@
     <ProjectReference Include="..\PoEnhance.DataTool\PoEnhance.DataTool.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestData\UniqueCorpusGate\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

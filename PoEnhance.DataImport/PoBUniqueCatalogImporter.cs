@@ -19,7 +19,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord>? baseItems = null,
-        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null)
+        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null,
+        IReadOnlyList<StatDefinition>? stats = null)
     {
         if (!File.Exists(filePath))
         {
@@ -47,7 +48,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 modifiers,
                 translations,
                 baseItems ?? [],
-                itemPropertySemantics ?? []);
+                itemPropertySemantics ?? [],
+                stats ?? []);
         }
         catch (JsonException exception)
         {
@@ -64,7 +66,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord> baseItems,
-        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics)
+        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
+        IReadOnlyList<StatDefinition> stats)
     {
         var diagnostics = new List<ImportDiagnostic>();
         var observations = new List<UniqueCatalogSourceObservation>();
@@ -100,6 +103,14 @@ public sealed partial class PoBUniqueCatalogImporter
                     "Evaluated Unique entry has no reliable name/base header and was skipped."));
                 continue;
             }
+            sourceItem = sourceItem with
+            {
+                EffectLines = ApplySourceSemanticFingerprints(
+                    entry,
+                    sourceItem,
+                    sourcePath,
+                    diagnostics),
+            };
 
             var kind = ClassifyKind(sourceItem.Name);
             sourceItem = sourceItem with
@@ -163,7 +174,8 @@ public sealed partial class PoBUniqueCatalogImporter
             modifiers,
             translations,
             baseItems,
-            itemPropertySemantics);
+            itemPropertySemantics,
+            stats);
         var identities = parsed
             .GroupBy(item => new IdentityKey(item.Name, item.Kind))
             .Select(group => BuildIdentity(group, mechanicalIndex))
@@ -285,7 +297,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     line,
                     item.ObservationId!,
                     optionIndices,
-                    baseVariantIndices))
+                    baseVariantIndices,
+                    spec.SourceBaseType))
                 .ToArray();
             var uniqueLines = item.EffectLines.Skip(item.ImplicitCount)
                 .Where(line => IsApplicable(line, spec, optionIndices, baseVariantIndices))
@@ -293,7 +306,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     line,
                     item.ObservationId!,
                     optionIndices,
-                    baseVariantIndices))
+                    baseVariantIndices,
+                    spec.SourceBaseType))
                 .ToArray();
             var blocks = GroupBlocks(
                     implicitLines,
@@ -347,7 +361,8 @@ public sealed partial class PoBUniqueCatalogImporter
         SourceEffectLine line,
         string observationId,
         ISet<int> optionIndices,
-        ISet<int> baseVariantIndices)
+        ISet<int> baseVariantIndices,
+        string sourceBaseType)
     {
         var candidateIndices = line.Variants
             .Where(index => optionIndices.Contains(index) && !baseVariantIndices.Contains(index))
@@ -361,7 +376,35 @@ public sealed partial class PoBUniqueCatalogImporter
                     "pob-generated-candidate",
                     observationId,
                     index.ToString(CultureInfo.InvariantCulture)))
-                .ToArray());
+                .ToArray(),
+            SelectSourceSemanticFingerprint(line.SemanticFingerprints, sourceBaseType));
+    }
+
+    private static UniqueModifierSemanticFingerprint SelectSourceSemanticFingerprint(
+        IReadOnlyList<SourceSemanticFingerprintObservation> observations,
+        string sourceBaseType)
+    {
+        var matching = observations
+            .Where(observation => string.Equals(
+                NormalizeExactEvidence(observation.BaseType),
+                NormalizeExactEvidence(sourceBaseType),
+                StringComparison.Ordinal))
+            .ToArray();
+        var localities = matching
+            .Select(observation => observation.Fingerprint.Locality)
+            .Distinct()
+            .ToArray();
+        return new UniqueModifierSemanticFingerprint
+        {
+            Locality = localities.Length == 1
+                ? localities[0]
+                : UniqueModifierSemanticLocality.Unknown,
+            EvidenceMethods = matching
+                .SelectMany(observation => observation.Fingerprint.EvidenceMethods)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray(),
+        };
     }
 
     private static IReadOnlyList<VersionSpec> BuildVersionSpecs(
@@ -483,27 +526,33 @@ public sealed partial class PoBUniqueCatalogImporter
             var selectedLength = 1;
             for (var length = maximumLength; length > 1; length--)
             {
+                var candidateLines = lines.Skip(index).Take(length).ToArray();
                 if (mechanicalIndex.HasMatch(
-                        lines.Skip(index).Take(length).Select(line => line.Text).ToArray(),
+                        candidateLines.Select(line => line.Text).ToArray(),
                         baseType,
-                        lines.Skip(index).Take(length).Any(line => line.HasGeneratedOptionEvidence)))
+                        candidateLines.Any(line => line.HasGeneratedOptionEvidence),
+                        CombineSourceSemanticFingerprints(candidateLines.Select(line =>
+                            line.SemanticFingerprint))))
                 {
                     selectedLength = length;
                     break;
                 }
             }
 
+            var selectedLines = lines.Skip(index).Take(selectedLength).ToArray();
             yield return BuildBlock(
                 identityId,
                 versionLabel,
-                lines.Skip(index).Take(selectedLength).Select(line => line.Text).ToArray(),
+                selectedLines.Select(line => line.Text).ToArray(),
                 kind,
                 observationId,
                 isGeneratedSource,
                 firstLine.HasGeneratedOptionEvidence,
                 baseType,
-                lines.Skip(index).Take(selectedLength).Any(line => line.HasGeneratedOptionEvidence),
+                selectedLines.Any(line => line.HasGeneratedOptionEvidence),
                 firstLine.CandidatePoolMembershipIds,
+                CombineSourceSemanticFingerprints(selectedLines.Select(line =>
+                    line.SemanticFingerprint)),
                 mechanicalIndex);
             index += selectedLength;
         }
@@ -514,6 +563,28 @@ public sealed partial class PoBUniqueCatalogImporter
         (!first.HasGeneratedOptionEvidence || first.CandidatePoolMembershipIds.SequenceEqual(
             second.CandidatePoolMembershipIds,
             StringComparer.Ordinal));
+
+    private static UniqueModifierSemanticFingerprint CombineSourceSemanticFingerprints(
+        IEnumerable<UniqueModifierSemanticFingerprint> fingerprints)
+    {
+        var materialized = fingerprints.ToArray();
+        var localities = materialized.Select(fingerprint => fingerprint.Locality).ToArray();
+        var locality = localities.Length == 0 ||
+            localities.Any(value => value == UniqueModifierSemanticLocality.Unknown)
+                ? UniqueModifierSemanticLocality.Unknown
+                : localities.Distinct().Count() == 1
+                    ? localities[0]
+                    : UniqueModifierSemanticLocality.Mixed;
+        return new UniqueModifierSemanticFingerprint
+        {
+            Locality = locality,
+            EvidenceMethods = materialized
+                .SelectMany(fingerprint => fingerprint.EvidenceMethods)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray(),
+        };
+    }
 
     private static UniqueModifierBlock BuildBlock(
         string identityId,
@@ -526,6 +597,7 @@ public sealed partial class PoBUniqueCatalogImporter
         string baseType,
         bool hasGeneratedOptionEvidence,
         IReadOnlyList<string> candidatePoolMembershipIds,
+        UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
         MechanicalIndex mechanicalIndex)
     {
         var signatures = lines.Select(NormalizeSignature).ToArray();
@@ -533,17 +605,18 @@ public sealed partial class PoBUniqueCatalogImporter
         var resolution = mechanicalIndex.Resolve(
             lines,
             baseType,
-            hasGeneratedOptionEvidence);
+            hasGeneratedOptionEvidence,
+            sourceSemanticFingerprint);
         var candidates = resolution.Candidates;
-        var statVectors = candidates
-            .Select(candidate => string.Join('\u001f', candidate.StatIds))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var semanticFingerprints = candidates
+            .Select(SemanticFingerprintEquivalenceKey)
+            .Distinct(StringComparer.Ordinal)
             .ToArray();
         var status = candidates.Count switch
         {
             0 => UniqueModifierMechanicalMappingStatus.Unsupported,
             1 => UniqueModifierMechanicalMappingStatus.Exact,
-            _ when statVectors.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            _ when semanticFingerprints.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
             _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
         };
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
@@ -583,6 +656,7 @@ public sealed partial class PoBUniqueCatalogImporter
             SourceSemantics = isGeneratedCandidate
                 ? UniqueModifierSourceSemantics.GeneratedCandidate
                 : UniqueModifierSourceSemantics.Fixed,
+            SourceSemanticFingerprint = sourceSemanticFingerprint,
             CandidatePoolMembershipIds = candidatePoolMembershipIds,
             MechanicalMapping = new UniqueModifierMechanicalMapping
             {
@@ -591,12 +665,14 @@ public sealed partial class PoBUniqueCatalogImporter
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(id => id, StringComparer.Ordinal)
                     .ToArray(),
-                StatIds = statVectors.Length == 1 ? candidates[0].StatIds : [],
+                StatIds = semanticFingerprints.Length == 1 ? candidates[0].StatIds : [],
                 Provenance = resolved && resolutionReasons.Length > 0
                     ? new UniqueModifierMechanicalProvenance
                     {
                         ResolutionReasons = resolutionReasons,
                         Translations = translationEvidence,
+                        SourceSemanticFingerprint = sourceSemanticFingerprint,
+                        MatchedSemanticFingerprint = candidates[0].CandidateSemanticFingerprint,
                         UsedComposition = translationEvidence.Length > 1 ||
                             translationEvidence.Any(evidence => evidence.DefaultedStatIds.Count > 0),
                         CatalogValuesUsedForSelection = resolution.UsedStrictEvidence,
@@ -606,6 +682,9 @@ public sealed partial class PoBUniqueCatalogImporter
                     : null,
                 DiagnosticCode = status switch
                 {
+                    UniqueModifierMechanicalMappingStatus.Unsupported when
+                        resolution.RejectedBySemanticFingerprint =>
+                        "UNIQUE_MECHANICS_SEMANTIC_MISMATCH",
                     UniqueModifierMechanicalMappingStatus.Unsupported when isGeneratedSource =>
                         "UNIQUE_GENERATED_MECHANICS_NOT_FOUND",
                     UniqueModifierMechanicalMappingStatus.Unsupported => "UNIQUE_MECHANICS_NOT_FOUND",
@@ -616,6 +695,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 },
                 Diagnostic = status switch
                 {
+                    UniqueModifierMechanicalMappingStatus.Unsupported when
+                        resolution.RejectedBySemanticFingerprint =>
+                        "Exact PoB text/value evidence matched RePoE candidates, but every candidate contradicted the available source semantic fingerprint.",
                     UniqueModifierMechanicalMappingStatus.Unsupported when isGeneratedSource =>
                         "No exact or safely equivalent Unique-generation RePoE translation matched this evaluated generated PoB source block.",
                     UniqueModifierMechanicalMappingStatus.Unsupported =>
@@ -635,8 +717,13 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord> baseItems,
-        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics)
+        IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
+        IReadOnlyList<StatDefinition> stats)
     {
+        var statsById = stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.Id))
+            .GroupBy(stat => stat.Id!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var translationByVector = translations
             .GroupBy(translation => VectorKey(translation.StatIds), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
@@ -704,7 +791,15 @@ public sealed partial class PoBUniqueCatalogImporter
                     candidates.Add(new MechanicalCandidate(
                         modifier.Id!,
                         statIds,
-                        modifier.Domain));
+                        modifier.Domain,
+                        TranslationEvidence: [CreateTranslationEvidence(
+                            translation,
+                            variant,
+                            statIds)],
+                        SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                            statIds,
+                            statsById,
+                            [CreateTranslationEvidence(translation, variant, statIds)])));
                 }
             }
 
@@ -719,7 +814,11 @@ public sealed partial class PoBUniqueCatalogImporter
             var strictCandidate = new MechanicalCandidate(
                 modifier.Id!,
                 statIds,
-                modifier.Domain);
+                modifier.Domain,
+                SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                    statIds,
+                    statsById,
+                    []));
             foreach (var rendering in BuildStrictRenderings(
                          modifier,
                          translationsByFirstStat,
@@ -731,6 +830,10 @@ public sealed partial class PoBUniqueCatalogImporter
                     StrictPatternSpecificity = rendering.DynamicPatternText?.Length ?? 0,
                     TranslationEvidence = rendering.TranslationEvidence,
                     OrderedRenderingText = rendering.ExactText,
+                    SemanticFingerprint = BuildCandidateSemanticFingerprint(
+                        statIds,
+                        statsById,
+                        rendering.TranslationEvidence),
                 };
                 if (rendering.DynamicPatternText is not null)
                 {
@@ -764,6 +867,10 @@ public sealed partial class PoBUniqueCatalogImporter
                     StrictPatternSpecificity = rendering.DynamicPatternText?.Length ?? 0,
                     TranslationEvidence = rendering.TranslationEvidence,
                     OrderedRenderingText = rendering.ExactText,
+                    SemanticFingerprint = BuildCandidateSemanticFingerprint(
+                        statIds,
+                        statsById,
+                        rendering.TranslationEvidence),
                 };
                 if (rendering.DynamicPatternText is not null)
                 {
@@ -831,6 +938,194 @@ public sealed partial class PoBUniqueCatalogImporter
                     group => group.Key,
                     group => group.First(),
                     StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static UniqueModifierTranslationEvidence CreateTranslationEvidence(
+        StatTranslationDefinition translation,
+        StatTranslationVariant variant,
+        IReadOnlyList<string> statIds) => new()
+    {
+        TranslationId = translation.Id,
+        StatIds = translation.StatIds.ToArray(),
+        ModifierStatIndices = Enumerable.Range(0, statIds.Count).ToArray(),
+        Conditions = variant.Conditions.ToArray(),
+        ValueFormats = variant.ValueFormats.ToArray(),
+        FormatLines = variant.FormatLines.ToArray(),
+        IndexHandlers = variant.IndexHandlers.ToArray(),
+    };
+
+    private static UniqueModifierSemanticFingerprint BuildCandidateSemanticFingerprint(
+        IReadOnlyList<string> statIds,
+        IReadOnlyDictionary<string, StatDefinition> statsById,
+        IReadOnlyList<UniqueModifierTranslationEvidence> translations)
+    {
+        var knownStats = statIds
+            .Select(statId => statsById.GetValueOrDefault(statId))
+            .ToArray();
+        var locality = knownStats.Any(stat => stat is null)
+            ? UniqueModifierSemanticLocality.Unknown
+            : knownStats.All(stat => stat!.IsLocal)
+                ? UniqueModifierSemanticLocality.Local
+                : knownStats.All(stat => !stat!.IsLocal)
+                    ? UniqueModifierSemanticLocality.Global
+                    : UniqueModifierSemanticLocality.Mixed;
+        var orderedTranslations = translations
+            .OrderBy(evidence => evidence.ModifierStatIndices.Count == 0
+                ? int.MaxValue
+                : evidence.ModifierStatIndices.Min())
+            .ThenBy(evidence => evidence.TranslationId, StringComparer.Ordinal)
+            .ToArray();
+        var values = new List<UniqueModifierSemanticValue>();
+        foreach (var evidence in orderedTranslations)
+        {
+            for (var index = 0; index < evidence.StatIds.Count; index++)
+            {
+                var format = ResolveValueFormat(index, evidence);
+                var statId = evidence.StatIds[index]?.Trim();
+                values.Add(new UniqueModifierSemanticValue
+                {
+                    Index = values.Count,
+                    StatId = statId,
+                    Format = string.IsNullOrWhiteSpace(format) ? null : format,
+                    Unit = DetectValueUnit(index, format, evidence.FormatLines),
+                    Transformations = evidence.IndexHandlers
+                        .Where(handler => handler.Index == index)
+                        .SelectMany(handler => handler.Handlers)
+                        .SelectMany(NormalizeValueTransformation)
+                        .ToArray(),
+                    IsAuxiliary = evidence.DefaultedStatIds.Contains(
+                        statId,
+                        StringComparer.OrdinalIgnoreCase),
+                });
+            }
+        }
+        var hasCompleteValueProjection = values.Count > 0 && values.All(value =>
+            !string.IsNullOrWhiteSpace(value.StatId) &&
+            !string.IsNullOrWhiteSpace(value.Format) &&
+            !string.IsNullOrWhiteSpace(value.Unit));
+        if (!hasCompleteValueProjection)
+        {
+            values.Clear();
+        }
+        var displayedValues = values.Count(value => !string.Equals(
+            value.Format,
+            "ignore",
+            StringComparison.OrdinalIgnoreCase));
+        var valueShape = values.Count == 0
+            ? UniqueModifierSemanticValueShape.Unknown
+            : displayedValues == 0
+                ? UniqueModifierSemanticValueShape.Presence
+                : displayedValues == 1
+                    ? UniqueModifierSemanticValueShape.Scalar
+                    : UniqueModifierSemanticValueShape.Vector;
+        return new UniqueModifierSemanticFingerprint
+        {
+            Locality = locality,
+            OrderedStatIds = statIds.ToArray(),
+            ValueShape = valueShape,
+            Values = values,
+            AuxiliaryStatIds = orderedTranslations
+                .SelectMany(evidence => evidence.DefaultedStatIds)
+                .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            EvidenceMethods = ["repoe-stat-vector-v1"],
+        };
+    }
+
+    private static string? ResolveValueFormat(
+        int index,
+        UniqueModifierTranslationEvidence evidence)
+    {
+        var declared = index < evidence.ValueFormats.Count
+            ? evidence.ValueFormats[index]?.Trim()
+            : null;
+        if (!string.IsNullOrWhiteSpace(declared))
+        {
+            return declared;
+        }
+
+        var placeholder = $"{{{index}}}";
+        return evidence.FormatLines.Any(line => line.Contains(
+            placeholder,
+            StringComparison.Ordinal))
+                ? null
+                : "ignore";
+    }
+
+    private static string DetectValueUnit(
+        int index,
+        string? format,
+        IReadOnlyList<string> formatLines)
+    {
+        if (string.Equals(format?.Trim(), "ignore", StringComparison.OrdinalIgnoreCase))
+        {
+            return "none";
+        }
+        if (format?.Contains('%', StringComparison.Ordinal) == true)
+        {
+            return "percent";
+        }
+        var placeholder = Regex.Escape($"{{{index}}}");
+        return formatLines.Any(line => Regex.IsMatch(
+                line,
+                $"(?:{placeholder}\\s*%|%\\s*{placeholder})",
+                RegexOptions.CultureInvariant))
+            ? "percent"
+            : "number";
+    }
+
+    private static IReadOnlyList<string> NormalizeValueTransformation(string rawHandler)
+    {
+        var handler = rawHandler.Trim().ToLowerInvariant();
+        return handler switch
+        {
+            "" => [],
+            "negate" => ["scale:-1"],
+            "double" => ["scale:2"],
+            "negate_and_double" => ["scale:-2"],
+            "divide_by_one_hundred" => ["scale:0.01"],
+            "divide_by_one_hundred_2dp" => ["scale:0.01", "round:2"],
+            "divide_by_one_hundred_2dp_if_required" =>
+                ["scale:0.01", "round:2-if-required"],
+            "old_leech_percent" => ["scale:0.2"],
+            "old_leech_permyriad" => ["scale:0.002"],
+            "passive_hash" => ["lookup:passive"],
+            _ when handler.StartsWith("display_indexable_", StringComparison.Ordinal) =>
+                [$"lookup:{handler["display_indexable_".Length..]}"],
+            _ => [$"source:{handler}"],
+        };
+    }
+
+    private static string SemanticFingerprintKey(UniqueModifierSemanticFingerprint fingerprint) =>
+        string.Join(
+            '\u001d',
+            fingerprint.Locality.ToString(),
+            string.Join('\u001f', fingerprint.OrderedStatIds.Select(value =>
+                value.Trim().ToLowerInvariant())),
+            fingerprint.ValueShape.ToString(),
+            string.Join('\u001e', fingerprint.Values.Select(value => string.Join(
+                '\u001f',
+                value.Index.ToString(CultureInfo.InvariantCulture),
+                value.StatId?.Trim().ToLowerInvariant(),
+                value.Format?.Trim().ToLowerInvariant(),
+                value.Unit?.Trim().ToLowerInvariant(),
+                string.Join(',', value.Transformations.Select(transform =>
+                    transform.Trim().ToLowerInvariant())),
+                value.IsAuxiliary.ToString(CultureInfo.InvariantCulture)))),
+            string.Join('\u001f', fingerprint.AuxiliaryStatIds.Select(value =>
+                value.Trim().ToLowerInvariant())));
+
+    private static string SemanticFingerprintEquivalenceKey(MechanicalCandidate candidate)
+    {
+        var fingerprint = candidate.CandidateSemanticFingerprint;
+        var key = SemanticFingerprintKey(fingerprint);
+        var hasComparableValueProjection =
+            fingerprint.ValueShape != UniqueModifierSemanticValueShape.Unknown &&
+            fingerprint.Values.Count > 0;
+        return hasComparableValueProjection
+            ? key
+            : string.Join('\u001d', key, candidate.ModifierId.Trim().ToLowerInvariant());
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> FreezeIndex(
@@ -997,10 +1292,9 @@ public sealed partial class PoBUniqueCatalogImporter
                                 ModifierStatIndices = indices.ToArray(),
                                 DefaultedStatIds = defaultedStatIds.ToArray(),
                                 Conditions = variant.Conditions.ToArray(),
-                                IndexHandlers = variant.IndexHandlers.Any(handler =>
-                                        handler.Handlers.Any(IsStructuredOptionHandler))
-                                    ? variant.IndexHandlers.ToArray()
-                                    : [],
+                                ValueFormats = variant.ValueFormats.ToArray(),
+                                FormatLines = variant.FormatLines.ToArray(),
+                                IndexHandlers = variant.IndexHandlers.ToArray(),
                             },
                         ],
                     }
@@ -1393,7 +1687,7 @@ public sealed partial class PoBUniqueCatalogImporter
             var text = StripDirectives(line, out var selectedVariants);
             if (text.Length > 0 && !IsMetadataLine(text))
             {
-                effects.Add(new SourceEffectLine(text, selectedVariants));
+                effects.Add(new SourceEffectLine(text, selectedVariants, []));
             }
         }
 
@@ -1408,6 +1702,108 @@ public sealed partial class PoBUniqueCatalogImporter
             null,
             UniqueItemKind.Unknown);
         return true;
+    }
+
+    private static IReadOnlyList<SourceEffectLine> ApplySourceSemanticFingerprints(
+        JsonElement entry,
+        ParsedSourceItem item,
+        string sourcePath,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!entry.TryGetProperty("semanticFingerprints", out var sourceFingerprints) ||
+            sourceFingerprints.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return item.EffectLines;
+        }
+        if (sourceFingerprints.ValueKind != JsonValueKind.Array)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                ImportDiagnosticSeverity.Warning,
+                sourcePath,
+                "PoB source semantic fingerprints were not an array and were ignored."));
+            return item.EffectLines;
+        }
+
+        var observations = new List<SourceSemanticFingerprintObservation>();
+        foreach (var sourceFingerprint in sourceFingerprints.EnumerateArray())
+        {
+            if (sourceFingerprint.ValueKind != JsonValueKind.Object ||
+                !TryReadString(sourceFingerprint, "kind", out var rawKind) ||
+                !sourceFingerprint.TryGetProperty("lineIndex", out var lineIndexElement) ||
+                lineIndexElement.ValueKind != JsonValueKind.Number ||
+                !lineIndexElement.TryGetInt32(out var lineIndex) ||
+                lineIndex < 0 ||
+                !TryReadString(sourceFingerprint, "line", out var line) ||
+                !TryReadString(sourceFingerprint, "baseType", out var baseType) ||
+                !TryReadString(sourceFingerprint, "locality", out var rawLocality) ||
+                !TryReadString(sourceFingerprint, "evidenceMethod", out var evidenceMethod) ||
+                !TryParseBlockKind(rawKind, out var kind) ||
+                !TryParseLocality(rawLocality, out var locality))
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                    ImportDiagnosticSeverity.Warning,
+                    sourcePath,
+                    "One PoB source semantic fingerprint was malformed and was ignored."));
+                continue;
+            }
+
+            observations.Add(new SourceSemanticFingerprintObservation(
+                kind,
+                lineIndex,
+                NormalizeExactEvidence(line),
+                baseType.Trim(),
+                new UniqueModifierSemanticFingerprint
+                {
+                    Locality = locality,
+                    EvidenceMethods = [evidenceMethod.Trim()],
+                }));
+        }
+
+        return item.EffectLines.Select((line, effectIndex) =>
+        {
+            var kind = effectIndex < item.ImplicitCount
+                ? UniqueModifierBlockKind.Implicit
+                : UniqueModifierBlockKind.Unique;
+            var matching = observations
+                .Where(observation => observation.Kind == kind &&
+                    string.Equals(
+                        observation.Line,
+                        NormalizeExactEvidence(line.Text),
+                        StringComparison.Ordinal))
+                .ToArray();
+            return line with { SemanticFingerprints = matching };
+        }).ToArray();
+    }
+
+    private static bool TryParseBlockKind(string value, out UniqueModifierBlockKind kind)
+    {
+        if (string.Equals(value.Trim(), "implicit", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = UniqueModifierBlockKind.Implicit;
+            return true;
+        }
+        if (string.Equals(value.Trim(), "unique", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = UniqueModifierBlockKind.Unique;
+            return true;
+        }
+        kind = UniqueModifierBlockKind.Unknown;
+        return false;
+    }
+
+    private static bool TryParseLocality(string value, out UniqueModifierSemanticLocality locality)
+    {
+        locality = value.Trim().ToLowerInvariant() switch
+        {
+            "global" => UniqueModifierSemanticLocality.Global,
+            "local" => UniqueModifierSemanticLocality.Local,
+            "mixed" => UniqueModifierSemanticLocality.Mixed,
+            "unknown" => UniqueModifierSemanticLocality.Unknown,
+            _ => (UniqueModifierSemanticLocality)(-1),
+        };
+        return Enum.IsDefined(locality);
     }
 
     private static bool IsMetadataLine(string line)
@@ -1583,11 +1979,21 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<string> RePoeBaseItemIds,
         IReadOnlyList<int> Variants);
     private sealed record SourceVariant(int Index, string Label);
-    private sealed record SourceEffectLine(string Text, IReadOnlyList<int> Variants);
+    private sealed record SourceEffectLine(
+        string Text,
+        IReadOnlyList<int> Variants,
+        IReadOnlyList<SourceSemanticFingerprintObservation> SemanticFingerprints);
     private sealed record SelectedEffectLine(
         string Text,
         bool HasGeneratedOptionEvidence,
-        IReadOnlyList<string> CandidatePoolMembershipIds);
+        IReadOnlyList<string> CandidatePoolMembershipIds,
+        UniqueModifierSemanticFingerprint SemanticFingerprint);
+    private sealed record SourceSemanticFingerprintObservation(
+        UniqueModifierBlockKind Kind,
+        int LineIndex,
+        string Line,
+        string BaseType,
+        UniqueModifierSemanticFingerprint Fingerprint);
     private sealed record VersionSpec(
         string Label,
         UniqueItemVersionRole Role,
@@ -1609,15 +2015,20 @@ public sealed partial class PoBUniqueCatalogImporter
         int StrictValueEvidenceCount = 0,
         int StrictPatternSpecificity = 0,
         IReadOnlyList<UniqueModifierTranslationEvidence>? TranslationEvidence = null,
-        string? OrderedRenderingText = null)
+        string? OrderedRenderingText = null,
+        UniqueModifierSemanticFingerprint? SemanticFingerprint = null)
     {
         public IReadOnlyList<UniqueModifierTranslationEvidence> ProvenanceTranslations =>
             TranslationEvidence ?? [];
+
+        public UniqueModifierSemanticFingerprint CandidateSemanticFingerprint =>
+            SemanticFingerprint ?? new();
     }
     private sealed record MechanicalResolution(
         IReadOnlyList<MechanicalCandidate> Candidates,
         bool UsedStrictEvidence,
-        IReadOnlyList<string> ResolutionReasons);
+        IReadOnlyList<string> ResolutionReasons,
+        bool RejectedBySemanticFingerprint = false);
     private sealed record DynamicMechanicalCandidate(
         MechanicalCandidate Candidate,
         Regex Pattern);
@@ -1688,14 +2099,16 @@ public sealed partial class PoBUniqueCatalogImporter
         public bool HasMatch(
             IReadOnlyList<string> lines,
             string baseType,
-            bool hasGeneratedOptionEvidence) =>
-            Resolve(lines, baseType, hasGeneratedOptionEvidence)
+            bool hasGeneratedOptionEvidence,
+            UniqueModifierSemanticFingerprint sourceSemanticFingerprint) =>
+            Resolve(lines, baseType, hasGeneratedOptionEvidence, sourceSemanticFingerprint)
                 .Candidates.Count > 0;
 
         public MechanicalResolution Resolve(
             IReadOnlyList<string> lines,
             string baseType,
-            bool hasGeneratedOptionEvidence)
+            bool hasGeneratedOptionEvidence,
+            UniqueModifierSemanticFingerprint sourceSemanticFingerprint)
         {
             var orderedExactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
             var exactText = UnorderedMultilineKey(orderedExactText);
@@ -1710,6 +2123,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 {
                     Candidates = RetainStrongestValueEvidence(staticStrict.Candidates),
                 };
+                staticStrict = ApplySemanticFingerprint(
+                    staticStrict,
+                    sourceSemanticFingerprint);
             }
             var dynamicStrict = FilterCandidates(dynamic
                 .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
@@ -1724,15 +2140,16 @@ public sealed partial class PoBUniqueCatalogImporter
                         ? RetainMostSpecificDynamicEvidence(dynamicStrict.Candidates)
                         : dynamicStrict.Candidates),
             };
-            if (hasGeneratedOptionEvidence && dynamicStrict.Candidates.Count > 0)
+            dynamicStrict = ApplySemanticFingerprint(dynamicStrict, sourceSemanticFingerprint);
+            if (hasGeneratedOptionEvidence && dynamicStrict.HadCandidatesBeforeSemanticFingerprint)
             {
                 return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
-            if (staticStrict.Candidates.Count > 0)
+            if (staticStrict.HadCandidatesBeforeSemanticFingerprint)
             {
                 return Resolution(staticStrict, usedStrictEvidence: true, orderedExactText);
             }
-            if (dynamicStrict.Candidates.Count > 0)
+            if (dynamicStrict.HadCandidatesBeforeSemanticFingerprint)
             {
                 return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
@@ -1742,9 +2159,11 @@ public sealed partial class PoBUniqueCatalogImporter
             if (broadCandidates.Count > 0)
             {
                 return Resolution(
-                    new CandidateFilterResult(
-                        broadCandidates,
-                        ExcludedByPropertyCapability: false),
+                    ApplySemanticFingerprint(
+                        new CandidateFilterResult(
+                            broadCandidates,
+                            ExcludedByPropertyCapability: false),
+                        sourceSemanticFingerprint),
                     usedStrictEvidence: false);
             }
 
@@ -1759,6 +2178,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 {
                     Candidates = RetainStrongestValueEvidence(partialStatic.Candidates),
                 };
+                partialStatic = ApplySemanticFingerprint(
+                    partialStatic,
+                    sourceSemanticFingerprint);
             }
             var partialDynamicMatches = FilterCandidates(partialDynamic
                 .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
@@ -1773,11 +2195,15 @@ public sealed partial class PoBUniqueCatalogImporter
                         ? RetainMostSpecificDynamicEvidence(partialDynamicMatches.Candidates)
                         : partialDynamicMatches.Candidates),
             };
-            if (hasGeneratedOptionEvidence && partialDynamicMatches.Candidates.Count > 0)
+            partialDynamicMatches = ApplySemanticFingerprint(
+                partialDynamicMatches,
+                sourceSemanticFingerprint);
+            if (hasGeneratedOptionEvidence &&
+                partialDynamicMatches.HadCandidatesBeforeSemanticFingerprint)
             {
                 return Resolution(partialDynamicMatches, usedStrictEvidence: true, orderedExactText);
             }
-            if (partialStatic.Candidates.Count > 0)
+            if (partialStatic.HadCandidatesBeforeSemanticFingerprint)
             {
                 return Resolution(partialStatic, usedStrictEvidence: true, orderedExactText);
             }
@@ -1794,6 +2220,10 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 reasons.Add("base-item-property-capability");
             }
+            if (filtered.UsedSemanticFingerprint)
+            {
+                reasons.Add("source-semantic-fingerprint");
+            }
             if (filtered.Candidates.Any(candidate => candidate.ProvenanceTranslations.Any(
                     evidence => evidence.DefaultedStatIds.Count > 0)))
             {
@@ -1809,7 +2239,55 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 reasons.Add("order-independent-complete-multiline");
             }
-            return new MechanicalResolution(filtered.Candidates, usedStrictEvidence, reasons);
+            return new MechanicalResolution(
+                filtered.Candidates,
+                usedStrictEvidence,
+                reasons,
+                filtered.RejectedBySemanticFingerprint);
+        }
+
+        private static CandidateFilterResult ApplySemanticFingerprint(
+            CandidateFilterResult filtered,
+            UniqueModifierSemanticFingerprint sourceFingerprint)
+        {
+            var hadCandidates = filtered.Candidates.Count > 0;
+            if (!hadCandidates ||
+                sourceFingerprint.Locality == UniqueModifierSemanticLocality.Unknown)
+            {
+                return filtered with
+                {
+                    HadCandidatesBeforeSemanticFingerprint = hadCandidates,
+                };
+            }
+
+            var candidateLocalities = filtered.Candidates
+                .Select(candidate => candidate.CandidateSemanticFingerprint.Locality)
+                .ToArray();
+            if (candidateLocalities.Any(locality =>
+                    locality == UniqueModifierSemanticLocality.Unknown) ||
+                candidateLocalities.Distinct().Count() < 2)
+            {
+                // PoB slot-context locality and RePoE stat locality are only directly
+                // comparable when the candidate set itself proves a local/global axis.
+                // A uniform candidate set supplies no such discriminator and retains
+                // the existing exact/ambiguous fail-closed outcome.
+                return filtered with
+                {
+                    HadCandidatesBeforeSemanticFingerprint = true,
+                };
+            }
+
+            var compatible = filtered.Candidates
+                .Where(candidate => candidate.CandidateSemanticFingerprint.Locality ==
+                    sourceFingerprint.Locality)
+                .ToArray();
+            return filtered with
+            {
+                Candidates = compatible,
+                HadCandidatesBeforeSemanticFingerprint = true,
+                UsedSemanticFingerprint = true,
+                RejectedBySemanticFingerprint = compatible.Length == 0,
+            };
         }
 
         private CandidateFilterResult FilterCandidates(
@@ -1929,7 +2407,10 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private sealed record CandidateFilterResult(
         IReadOnlyList<MechanicalCandidate> Candidates,
-        bool ExcludedByPropertyCapability)
+        bool ExcludedByPropertyCapability,
+        bool HadCandidatesBeforeSemanticFingerprint = false,
+        bool UsedSemanticFingerprint = false,
+        bool RejectedBySemanticFingerprint = false)
     {
         public static CandidateFilterResult Empty { get; } = new([], false);
     }

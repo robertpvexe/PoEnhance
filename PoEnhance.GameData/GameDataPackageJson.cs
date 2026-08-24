@@ -91,6 +91,12 @@ public static class GameDataPackageJson
         options.Converters.Add(new JsonStringEnumConverter<UniqueModifierMechanicalMappingStatus>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<UniqueModifierSemanticLocality>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
+        options.Converters.Add(new JsonStringEnumConverter<UniqueModifierSemanticValueShape>(
+            JsonNamingPolicy.CamelCase,
+            allowIntegerValues: false));
         options.Converters.Add(new JsonStringEnumConverter<UniqueFoulbornModifierRelationshipStatus>(
             JsonNamingPolicy.CamelCase,
             allowIntegerValues: false));

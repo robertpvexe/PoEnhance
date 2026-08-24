@@ -15,11 +15,13 @@ public sealed class GameDataDistributionWorkflowTests
         var package = root.GetProperty("package");
 
         Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("3.29.1.2.2-unique-stage-e5", package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-08-14T18:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(171556723, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "326db7d0603aee938bab9a347473aab6410021aa38bbb23a2c07310f686067f6",
+            "3.29.1.2.2-unique-semantic-fingerprint",
+            package.GetProperty("dataVersion").GetString());
+        Assert.Equal("2026-08-24T12:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(184934455, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal(
+            "e0436dd56a2003570db7f7ebf3807f8ef782e8e03179ea6ad00aeb82c1ec28c8",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
@@ -42,7 +44,7 @@ public sealed class GameDataDistributionWorkflowTests
             root.GetProperty("pathOfBuilding").GetProperty("commitSha").GetString());
         Assert.Equal("v2.67.2", root.GetProperty("pathOfBuilding").GetProperty("tag").GetString());
         Assert.Equal(
-            "9561dabd97efe99f1f4d441e5649687299265737d76ebd96d1989d1fbfa23036",
+            "cc63eb0ffcc3c15267d77a4eb40e6e4f62eca793ec60fdf9ee5e24657b0b5806",
             root.GetProperty("pathOfBuilding").GetProperty("evaluatedUniquesSha256").GetString());
     }
 

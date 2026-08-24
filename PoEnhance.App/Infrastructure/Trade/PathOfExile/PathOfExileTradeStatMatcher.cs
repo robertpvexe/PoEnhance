@@ -287,9 +287,13 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             PathOfExileTradeStatMatchContext? context)
     {
         var templates = new List<string> { normalization.NormalizedTemplate };
+        var hasExactAtomicMultiLineUnique = HasExactUniqueEvidence(source.Component) &&
+            source.Component!.SourceLineIndex < 0 &&
+            source.Component.OriginalText.Contains('\n', StringComparison.Ordinal);
         if (HasExactUniqueEvidence(source.Component))
         {
-            templates.AddRange(source.Component!.ProviderSearchSignatures);
+            templates.AddRange(source.Component!.ProviderSearchSignatures.Where(signature =>
+                !hasExactAtomicMultiLineUnique || ContainsNewLine(signature)));
             templates.Add(source.Component.CanonicalSignature);
             if (!string.IsNullOrWhiteSpace(source.Component.OriginalText))
             {
@@ -318,6 +322,52 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             if (qualified.Length > 0)
             {
                 return (lookup, qualified);
+            }
+        }
+
+        if (hasExactAtomicMultiLineUnique)
+        {
+            var perLineLookups = source.Component!.ProviderSearchSignatures
+                .Where(signature => !ContainsNewLine(signature))
+                .Where(signature => !string.IsNullOrWhiteSpace(signature))
+                .Select(signature => PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                    ToProviderTemplate(signature)))
+                .Where(template => !string.IsNullOrWhiteSpace(template))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var perLineMatches = perLineLookups
+                .SelectMany(lookup =>
+                {
+                    var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                    var groups = direct.Length > 0
+                        ? direct
+                        : FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                    return groups.Select(group => (Lookup: lookup, Group: group));
+                })
+                .ToArray();
+            if (HasProvenSingleScalarProviderQuery(source.Component))
+            {
+                perLineMatches = perLineMatches
+                    .Select(match => (match.Lookup, Group: match.Group with
+                    {
+                        Candidates = match.Group.Candidates
+                            .Where(candidate =>
+                                AcceptsProvenSingleScalarProviderQuery(
+                                    source.Component,
+                                    candidate))
+                            .ToArray(),
+                    }))
+                    .Where(match => match.Group.Candidates.Count > 0)
+                    .ToArray();
+            }
+
+            var perLineGroups = perLineMatches
+                .Select(match => match.Group)
+                .DistinctBy(group => group.Key)
+                .ToArray();
+            if (perLineGroups.Length > 0)
+            {
+                return (perLineMatches[0].Lookup, perLineGroups);
             }
         }
 
@@ -351,6 +401,10 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         var fallbackLookup = lookups.FirstOrDefault() ?? string.Empty;
         return (fallbackLookup, []);
     }
+
+    private static bool ContainsNewLine(string value) =>
+        value.Contains('\n', StringComparison.Ordinal) ||
+        value.Contains('\r', StringComparison.Ordinal);
 
     private static string? NegativeEvaluatedValueProviderLookup(
         StatMatchSource source,
@@ -397,6 +451,25 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
     private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component) =>
         component?.HasExactUniqueSourceProvenance == true;
 
+    private static bool HasProvenSingleScalarProviderQuery(ResolvedSearchComponent component) =>
+        component.FixedQueryValue.HasValue ||
+        HasExactInitializedEditableScalarQuery(component);
+
+    private static bool AcceptsProvenSingleScalarProviderQuery(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate candidate) =>
+        PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(component, candidate) ||
+        HasExactInitializedEditableScalarQuery(component) &&
+        PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 1;
+
+    private static bool HasExactInitializedEditableScalarQuery(ResolvedSearchComponent component) =>
+        component.FixedQueryValue is null &&
+        component.SupportsValueBounds &&
+        component.ValueBoundShape == ModifierBoundShape.Scalar &&
+        component.CanonicalNumericValues.Count == 1 &&
+        component.RequestedMinimum == component.CanonicalNumericValues[0] &&
+        component.RequestedMaximum == component.CanonicalNumericValues[0];
+
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
         PathOfExileTradeStatModifierNormalization normalization,
         ModifierLocality expectedLocality,
@@ -410,12 +483,12 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
     {
         if (candidates.Count > 1 &&
             HasExactUniqueEvidence(component) &&
-            component!.FixedQueryValue.HasValue)
+            HasProvenSingleScalarProviderQuery(component!))
         {
             var parametricCandidates = candidates
                 .Where(candidate =>
-                    PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(
-                        component,
+                    AcceptsProvenSingleScalarProviderQuery(
+                        component!,
                         candidate))
                 .ToArray();
             if (parametricCandidates.Length > 0 &&
@@ -692,6 +765,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         return source.Kind switch
         {
             ParsedModifierKind.Implicit => "implicit",
+            ParsedModifierKind.Enchantment => "enchant",
             ParsedModifierKind.Prefix or ParsedModifierKind.Suffix => "explicit",
             ParsedModifierKind.Unique when source.UniqueOrigin == ParsedUniqueModifierOrigin.Ordinary => "explicit",
             _ => null,

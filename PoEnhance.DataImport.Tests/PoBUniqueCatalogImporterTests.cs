@@ -96,8 +96,432 @@ public sealed class PoBUniqueCatalogImporterTests
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal(UniqueModifierSemanticLocality.Unknown,
+            block.SourceSemanticFingerprint.Locality);
         Assert.Empty(block.MechanicalMapping.StatIds);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Import_LocalAttackSpeedFingerprint_SelectsEquivalentLocalSourcesAndRetainsProof()
+    {
+        const string line = "10% increased Attack Speed";
+        var result = ImportSingle(
+            $"""
+                Test Blade
+                Stiletto
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.attack-speed.global", "attack_speed_+%", 10, 10, "unique"),
+                Modifier("unique.attack-speed.local.one", "local_attack_speed_+%", 10, 10, "unique"),
+                Modifier("unique.attack-speed.local.two", "local_attack_speed_+%", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                Translation("attack-speed-global", "attack_speed_+%", "{0}% increased Attack Speed", "#"),
+                Translation("attack-speed-local", "local_attack_speed_+%", "{0}% increased Attack Speed", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "attack_speed_+%", IsLocal = false },
+                new StatDefinition { Id = "local_attack_speed_+%", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: "Stiletto");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["unique.attack-speed.local.one", "unique.attack-speed.local.two"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["local_attack_speed_+%"], block.MechanicalMapping.StatIds);
+        Assert.Equal(UniqueModifierSemanticLocality.Local,
+            block.SourceSemanticFingerprint.Locality);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Contains("source-semantic-fingerprint", provenance.ResolutionReasons);
+        Assert.Equal(UniqueModifierSemanticLocality.Local,
+            provenance.MatchedSemanticFingerprint!.Locality);
+        Assert.Equal(UniqueModifierSemanticValueShape.Scalar,
+            provenance.MatchedSemanticFingerprint.ValueShape);
+        Assert.Equal("percent", Assert.Single(provenance.MatchedSemanticFingerprint.Values).Unit);
+        Assert.Equal("attack-speed-local", Assert.Single(provenance.Translations).TranslationId);
+        Assert.Single(block.SourceObservationIds);
+        Assert.All(block.SourceObservationIds, observationId =>
+            Assert.StartsWith("pob-observation:", observationId));
+    }
+
+    [Fact]
+    public void Import_PresenceTranslationWithoutValueFormat_RetainsComparablePresenceFingerprint()
+    {
+        const string line = "Cannot be Stunned";
+        var result = ImportSingle(
+            $"""
+                Test Belt
+                Leather Belt
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.cannot-be-stunned.one", "cannot_be_stunned", 1, 1, "unique"),
+                Modifier("unique.cannot-be-stunned.two", "cannot_be_stunned", 1, 1, "unique"),
+                Modifier("unique.cannot-be-stunned.local", "local_cannot_be_stunned", 1, 1, "unique"),
+            ],
+            translations:
+            [
+                Translation("cannot-be-stunned", "cannot_be_stunned", line),
+                Translation("cannot-be-stunned-local", "local_cannot_be_stunned", line),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "cannot_be_stunned", IsLocal = false },
+                new StatDefinition { Id = "local_cannot_be_stunned", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Global,
+            sourceLine: line,
+            sourceBaseType: "Leather Belt");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        var fingerprint = Assert.IsType<UniqueModifierSemanticFingerprint>(
+            block.MechanicalMapping.Provenance!.MatchedSemanticFingerprint);
+        Assert.Equal(UniqueModifierSemanticValueShape.Presence, fingerprint.ValueShape);
+        var value = Assert.Single(fingerprint.Values);
+        Assert.Equal("ignore", value.Format);
+        Assert.Equal("none", value.Unit);
+    }
+
+    [Fact]
+    public void Import_GlobalAttackSpeedFingerprint_SelectsGlobalCandidate()
+    {
+        const string line = "10% increased Attack Speed";
+        var result = ImportSingle(
+            $"""
+                Test Belt
+                Leather Belt
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.attack-speed.global", "attack_speed_+%", 10, 10, "unique"),
+                Modifier("unique.attack-speed.local", "local_attack_speed_+%", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                Translation("attack-speed-global", "attack_speed_+%", "{0}% increased Attack Speed", "#"),
+                Translation("attack-speed-local", "local_attack_speed_+%", "{0}% increased Attack Speed", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "attack_speed_+%", IsLocal = false },
+                new StatDefinition { Id = "local_attack_speed_+%", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Global,
+            sourceLine: line,
+            sourceBaseType: "Leather Belt");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.attack-speed.global"], block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_LocalEnergyShieldFingerprint_SelectsLocalCandidate()
+    {
+        const string line = "+(50-70) to maximum Energy Shield";
+        var result = ImportSingle(
+            $"""
+                Test Gloves
+                Carnal Mitts
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.energy-shield.global", "base_maximum_energy_shield", 50, 70, "unique"),
+                Modifier("unique.energy-shield.local", "local_energy_shield", 50, 70, "unique"),
+            ],
+            translations:
+            [
+                Translation("energy-shield-global", "base_maximum_energy_shield", "{0} to maximum Energy Shield", "+#"),
+                Translation("energy-shield-local", "local_energy_shield", "{0} to maximum Energy Shield", "+#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "base_maximum_energy_shield", IsLocal = false },
+                new StatDefinition { Id = "local_energy_shield", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: "Carnal Mitts");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(["unique.energy-shield.local"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["local_energy_shield"], block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_LocalAccuracyFingerprint_SelectsLocalCandidate()
+    {
+        const string line = "+30 to Accuracy Rating";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.accuracy.global", "accuracy_rating", 30, 30, "unique"),
+                Modifier("unique.accuracy.local", "local_accuracy_rating", 30, 30, "unique"),
+            ],
+            translations:
+            [
+                Translation("accuracy-global", "accuracy_rating", "{0} to Accuracy Rating", "+#"),
+                Translation("accuracy-local", "local_accuracy_rating", "{0} to Accuracy Rating", "+#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "accuracy_rating", IsLocal = false },
+                new StatDefinition { Id = "local_accuracy_rating", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: "Crude Bow");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(["unique.accuracy.local"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["local_accuracy_rating"], block.MechanicalMapping.StatIds);
+    }
+
+    [Theory]
+    [InlineData(
+        "(80-100)% increased Armour",
+        "local_physical_damage_reduction_rating_+%",
+        "physical_damage_reduction_rating_+%",
+        "Gladiator Plate")]
+    [InlineData(
+        "(80-100)% increased Evasion Rating",
+        "local_evasion_rating_+%",
+        "evasion_rating_+%",
+        "Sharkskin Tunic")]
+    public void Import_LocalDefenceFingerprint_SelectsLocalCandidate(
+        string line,
+        string localStatId,
+        string globalStatId,
+        string baseType)
+    {
+        var result = ImportSingle(
+            $"""
+                Test Defence
+                {baseType}
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.defence.global", globalStatId, 80, 100, "unique"),
+                Modifier("unique.defence.local", localStatId, 80, 100, "unique"),
+            ],
+            translations:
+            [
+                Translation("defence-global", globalStatId, line.Replace("(80-100)", "{0}"), "#"),
+                Translation("defence-local", localStatId, line.Replace("(80-100)", "{0}"), "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = globalStatId, IsLocal = false },
+                new StatDefinition { Id = localStatId, IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: baseType);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.defence.local"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal([localStatId], block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_GlobalLeechFingerprint_RejectsCurrentAndLegacyLocalCandidates()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Belt
+                Leather Belt
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.global", "life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.local", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.local.legacy", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-global", "life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-local", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-local-legacy", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "life_leech_from_physical_attack_damage_permyriad", IsLocal = false },
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Global,
+            sourceLine: line,
+            sourceBaseType: "Leather Belt");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.leech.global"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["scale:0.01"],
+            Assert.Single(block.MechanicalMapping.Provenance!.MatchedSemanticFingerprint!.Values)
+                .Transformations);
+    }
+
+    [Fact]
+    public void Import_EvaluatedVariantFingerprint_UsesExactLineWhenRawVariantIndicesShift()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $$"""
+                Test Belt
+                Leather Belt
+                Variant: Pre 3.19.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}+(10-20)% to Cold Resistance
+                {variant:2}+(20-30)% to Cold Resistance
+                {variant:1}0.4% of Physical Attack Damage Leeched as Life
+                {variant:2}{{line}}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.global", "life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.local", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.cold-resistance", "cold_resistance", 20, 30, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-global", "life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-local", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                Translation("cold-resistance", "cold_resistance", "{0}% to Cold Resistance", "+#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "life_leech_from_physical_attack_damage_permyriad", IsLocal = false },
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "cold_resistance", IsLocal = false },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Global,
+            sourceLine: line,
+            sourceBaseType: "Leather Belt",
+            sourceLineIndex: 1);
+
+        var current = Assert.Single(Assert.Single(result.Catalog!.Items).Versions, version =>
+            version.Role == UniqueItemVersionRole.Current);
+        var block = Assert.Single(current.ModifierBlocks, candidate =>
+            candidate.Lines.Contains(line));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.leech.global"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(UniqueModifierSemanticLocality.Global,
+            block.SourceSemanticFingerprint.Locality);
+    }
+
+    [Fact]
+    public void Import_LocalLeechFingerprint_CannotChooseCurrentVersusLegacyEncoding()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.local", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.local.legacy", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-local", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-local-legacy", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: "Crude Bow");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_KnownSourceLocalityWithUniformCandidateAxis_PreservesExactEvidence()
+    {
+        const string line = "+30 to Accuracy Rating";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers: [Modifier("unique.accuracy.global", "accuracy_rating", 30, 30, "unique")],
+            translations:
+            [
+                Translation("accuracy-global", "accuracy_rating", "{0} to Accuracy Rating", "+#"),
+            ],
+            stats: [new StatDefinition { Id = "accuracy_rating", IsLocal = false }],
+            sourceLocality: UniqueModifierSemanticLocality.Local,
+            sourceLine: line,
+            sourceBaseType: "Crude Bow");
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.accuracy.global"], block.MechanicalMapping.ModifierIds);
     }
 
     [Fact]
@@ -204,6 +628,13 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Equal("returning-projectiles", evidence.TranslationId);
         Assert.Equal(["projectile_return_chance"], evidence.DefaultedStatIds);
         Assert.Equal(2, evidence.Conditions.Count);
+        var fingerprint = Assert.IsType<UniqueModifierSemanticFingerprint>(
+            provenance.MatchedSemanticFingerprint);
+        Assert.Equal(["projectiles_return"], fingerprint.OrderedStatIds);
+        Assert.Equal(UniqueModifierSemanticValueShape.Presence, fingerprint.ValueShape);
+        Assert.Equal(["projectile_return_chance"], fingerprint.AuxiliaryStatIds);
+        Assert.Equal(2, fingerprint.Values.Count);
+        Assert.True(fingerprint.Values[1].IsAuxiliary);
     }
 
     [Fact]
@@ -1494,7 +1925,13 @@ public sealed class PoBUniqueCatalogImporterTests
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord>? baseItems = null,
-        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null)
+        IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null,
+        IReadOnlyList<StatDefinition>? stats = null,
+        UniqueModifierSemanticLocality? sourceLocality = null,
+        string? sourceLine = null,
+        string? sourceBaseType = null,
+        int sourceLineIndex = 0,
+        string sourceBlockKind = "unique")
     {
         var path = Path.Combine(Path.GetTempPath(), $"poenhance-pob-uniques-{Guid.NewGuid():N}.json");
         try
@@ -1511,6 +1948,20 @@ public sealed class PoBUniqueCatalogImporterTests
                             : "Data/Uniques/ring.lua",
                         generated,
                         raw,
+                        semanticFingerprints = sourceLocality.HasValue
+                            ? new[]
+                            {
+                                new
+                                {
+                                    kind = sourceBlockKind,
+                                    lineIndex = sourceLineIndex,
+                                    line = sourceLine,
+                                    baseType = sourceBaseType,
+                                    locality = sourceLocality.Value.ToString().ToLowerInvariant(),
+                                    evidenceMethod = "pob-item-context-v1",
+                                },
+                            }
+                            : null,
                     },
                 },
             }));
@@ -1522,7 +1973,8 @@ public sealed class PoBUniqueCatalogImporterTests
                 modifiers,
                 translations,
                 baseItems,
-                itemPropertySemantics);
+                itemPropertySemantics,
+                stats);
         }
         finally
         {
@@ -1610,6 +2062,33 @@ public sealed class PoBUniqueCatalogImporterTests
                 [
                     new StatTranslationIndexHandler { Index = 0 },
                     new StatTranslationIndexHandler { Index = 1 },
+                ],
+            },
+        ],
+    };
+
+    private static StatTranslationDefinition TranslationWithHandler(
+        string id,
+        string statId,
+        string format,
+        string handler) => new()
+    {
+        Id = id,
+        StatIds = [statId],
+        Variants =
+        [
+            new StatTranslationVariant
+            {
+                Conditions = [new StatTranslationCondition { Index = 0 }],
+                FormatLines = [format],
+                ValueFormats = ["#"],
+                IndexHandlers =
+                [
+                    new StatTranslationIndexHandler
+                    {
+                        Index = 0,
+                        Handlers = [handler],
+                    },
                 ],
             },
         ],

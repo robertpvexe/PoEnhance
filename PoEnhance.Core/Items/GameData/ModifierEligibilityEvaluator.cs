@@ -32,9 +32,13 @@ public sealed class ModifierEligibilityEvaluator
         }
 
         var usesProviderOwnedAffixDomain = string.Equals(
-            modifierDomain,
-            "unveiled",
-            StringComparison.OrdinalIgnoreCase);
+                modifierDomain,
+                "unveiled",
+                StringComparison.OrdinalIgnoreCase) ||
+            modifier.GenerationType == ModifierGenerationType.Enchantment ||
+            modifier.SourceGenerationType?.Contains(
+                "enchant",
+                StringComparison.OrdinalIgnoreCase) == true;
         if (!string.Equals(modifierDomain, itemBaseDomain, StringComparison.OrdinalIgnoreCase) &&
             !usesProviderOwnedAffixDomain)
         {

@@ -229,6 +229,28 @@ public static class GameDataPackageValidator
                 var blockIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (block, blockIndex) in version.ModifierBlocks.Select((value, index) => (value, index)))
                 {
+                    var sourceSemanticFingerprintValid = block?.SourceSemanticFingerprint is not null &&
+                        IsValidUniqueSemanticFingerprint(
+                            block.SourceSemanticFingerprint,
+                            knownStatIds);
+                    var mechanicalProvenanceValid = block?.MechanicalMapping?.Provenance is null ||
+                        IsValidUniqueMechanicalProvenance(
+                            block.MechanicalMapping.Provenance,
+                            knownStatIds);
+                    var provenance = block?.MechanicalMapping?.Provenance;
+                    var provenanceSourceFingerprintValid = provenance?.SourceSemanticFingerprint is null ||
+                        IsValidUniqueSemanticFingerprint(
+                            provenance.SourceSemanticFingerprint,
+                            knownStatIds);
+                    var provenanceMatchedFingerprintValid = provenance?.MatchedSemanticFingerprint is null ||
+                        IsValidUniqueSemanticFingerprint(
+                            provenance.MatchedSemanticFingerprint,
+                            knownStatIds);
+                    var mechanicalMappingValid = block?.MechanicalMapping is not null &&
+                        IsValidUniqueMechanicalMapping(
+                            block.MechanicalMapping,
+                            knownModifierIds,
+                            knownStatIds);
                     if (block is null ||
                         string.IsNullOrWhiteSpace(block.Id) ||
                         !blockIds.Add(block.Id.Trim()) ||
@@ -247,16 +269,20 @@ public static class GameDataPackageValidator
                             block.CandidatePoolMembershipIds.Count ||
                         block.SourceObservationIds.Count == 0 ||
                         block.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
-                        block.MechanicalMapping is null ||
-                        !IsValidUniqueMechanicalMapping(
-                            block.MechanicalMapping,
-                            knownModifierIds,
-                            knownStatIds))
+                        !sourceSemanticFingerprintValid ||
+                        !mechanicalMappingValid)
                     {
                         errors.Add(Error(
                             GameDataValidationErrorCodes.UniqueCatalogBlockInvalid,
                             $"{versionPath}.modifierBlocks[{blockIndex}]",
-                            "Unique blocks require retained lines, signatures, mapping state, and source provenance."));
+                            "Unique blocks require retained lines, signatures, mapping state, and source provenance. " +
+                            $"SourceSemanticFingerprintValid={sourceSemanticFingerprintValid}; " +
+                            $"MechanicalMappingValid={mechanicalMappingValid}; " +
+                            $"MechanicalProvenanceValid={mechanicalProvenanceValid}; " +
+                            $"ProvenanceSourceFingerprintValid={provenanceSourceFingerprintValid}; " +
+                            $"ProvenanceMatchedFingerprintValid={provenanceMatchedFingerprintValid}; " +
+                            $"ProvenanceTranslationCount={provenance?.Translations.Count ?? 0}; " +
+                            $"MatchedFingerprint={DescribeUniqueSemanticFingerprint(provenance?.MatchedSemanticFingerprint)}."));
                     }
                     else
                     {
@@ -458,6 +484,17 @@ public static class GameDataPackageValidator
         {
             return false;
         }
+        if (provenance.SourceSemanticFingerprint is not null &&
+                !IsValidUniqueSemanticFingerprint(
+                    provenance.SourceSemanticFingerprint,
+                    knownStatIds) ||
+            provenance.MatchedSemanticFingerprint is not null &&
+                !IsValidUniqueSemanticFingerprint(
+                    provenance.MatchedSemanticFingerprint,
+                    knownStatIds))
+        {
+            return false;
+        }
 
         return provenance.Translations.All(evidence =>
             evidence is not null &&
@@ -476,8 +513,55 @@ public static class GameDataPackageValidator
                 evidence.IndexHandlers.All(handler => handler is not null &&
                     handler.Index >= 0 &&
                     handler.Index < evidence.StatIds.Count) &&
-                evidence.IndexHandlers.Select(handler => handler.Index).Distinct().Count() ==
+                    evidence.IndexHandlers.Select(handler => handler.Index).Distinct().Count() ==
                     evidence.IndexHandlers.Count));
+    }
+
+    private static bool IsValidUniqueSemanticFingerprint(
+        UniqueModifierSemanticFingerprint fingerprint,
+        ISet<string>? knownStatIds)
+    {
+        if (!Enum.IsDefined(fingerprint.Locality) ||
+            !Enum.IsDefined(fingerprint.ValueShape) ||
+            fingerprint.OrderedStatIds.Any(string.IsNullOrWhiteSpace) ||
+            knownStatIds is not null && fingerprint.OrderedStatIds.Any(statId =>
+                !knownStatIds.Contains(statId)) ||
+            fingerprint.AuxiliaryStatIds.Any(string.IsNullOrWhiteSpace) ||
+            fingerprint.AuxiliaryStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
+                fingerprint.AuxiliaryStatIds.Count ||
+            knownStatIds is not null && fingerprint.AuxiliaryStatIds.Any(statId =>
+                !knownStatIds.Contains(statId)) ||
+            fingerprint.EvidenceMethods.Any(string.IsNullOrWhiteSpace) ||
+            fingerprint.Values.Any(value => value is null ||
+                value.Index < 0 ||
+                string.IsNullOrWhiteSpace(value.StatId) ||
+                string.IsNullOrWhiteSpace(value.Format) ||
+                string.IsNullOrWhiteSpace(value.Unit) ||
+                value.Transformations.Any(string.IsNullOrWhiteSpace)) ||
+            fingerprint.Values.Select(value => value.Index).Distinct().Count() !=
+                fingerprint.Values.Count)
+        {
+            return false;
+        }
+
+        return fingerprint.Values.Count == 0 ||
+            fingerprint.ValueShape != UniqueModifierSemanticValueShape.Unknown;
+    }
+
+    private static string DescribeUniqueSemanticFingerprint(
+        UniqueModifierSemanticFingerprint? fingerprint)
+    {
+        if (fingerprint is null)
+        {
+            return "null";
+        }
+
+        return $"locality:{fingerprint.Locality},shape:{fingerprint.ValueShape}," +
+            $"stats:[{string.Join(',', fingerprint.OrderedStatIds)}]," +
+            $"aux:[{string.Join(',', fingerprint.AuxiliaryStatIds)}]," +
+            $"values:[{string.Join(';', fingerprint.Values.Select(value =>
+                $"{value.Index}:{value.StatId ?? "<null>"}:{value.Format ?? "<null>"}:" +
+                $"{value.Unit ?? "<null>"}"))}]";
     }
 
     private static void ValidateStatTranslationHistory(

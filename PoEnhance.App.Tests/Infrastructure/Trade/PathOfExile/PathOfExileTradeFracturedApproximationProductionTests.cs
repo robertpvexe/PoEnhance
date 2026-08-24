@@ -14,6 +14,77 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
     private const string League = "Mirage";
 
     [Fact]
+    public async Task SkullTrack_NumericEnchantmentUsesEnchantCollisionCandidateAndObservedBound()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_4291115328",
+                "#% of Damage Leeched as Life if you've Killed Recently",
+                "explicit",
+                0),
+            Stat(
+                "enchant.stat_4291115328",
+                "#% of Damage Leeched as Life if you've Killed Recently",
+                "enchant",
+                1),
+        ]);
+        var searchClient = new RecordingSearchClient();
+        var service = CreateService(catalog, FracturedStateFilterCatalog(), searchClient);
+        var sourceDraft = ParseProductionDraft(SkullTrackText);
+        var prepared = await service.PrepareEffectiveDraftAsync(sourceDraft);
+        var enchantment = Assert.Single(prepared.ModifierFilters, component =>
+            component.ParsedKind == ParsedModifierKind.Enchantment);
+
+        Assert.Equal(
+            "0.6% of Damage Leeched as Life if you've Killed Recently",
+            enchantment.OriginalText);
+        Assert.Equal(ParsedModifierKind.Enchantment, enchantment.ResolvedSourceKind);
+        Assert.Equal(ModifierGenerationType.Enchantment, enchantment.GenerationType);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, enchantment.UniqueOrigin);
+        Assert.True(
+            enchantment.ResolutionStatus == ModifierCandidateResolutionStatus.Exact,
+            $"{enchantment.NotSearchableReason}; {enchantment.ProviderDiagnosticCode}: " +
+            enchantment.ProviderDiagnosticMessage);
+        Assert.Contains(enchantment.ProviderDomainEvidence, evidence =>
+            evidence.IsSourceExact &&
+            string.Equals(evidence.ProviderDomain, "Enchant", StringComparison.Ordinal));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, enchantment.ProviderResolutionStatus);
+        Assert.Equal("enchant.stat_4291115328", enchantment.ProviderStatId);
+        Assert.Equal(ModifierBoundShape.Scalar, enchantment.ValueBoundShape);
+        Assert.True(enchantment.SupportsValueBounds);
+        Assert.Equal([0.6m], enchantment.ObservedNumericValues);
+        Assert.Equal(0.6m, enchantment.RequestedMinimum);
+        Assert.Null(enchantment.RequestedMaximum);
+        Assert.All(enchantment.FilterVariants, variant =>
+            Assert.Equal("enchant", variant.ProviderKind));
+        Assert.DoesNotContain(prepared.ModifierFilters, component =>
+            component.OriginalText.StartsWith("(Leeched Life", StringComparison.Ordinal) ||
+            component.OriginalText.StartsWith("(Recently", StringComparison.Ordinal));
+
+        var selected = SelectOnly(prepared, enchantment.ComponentId);
+        var result = await service.CheckAsync(
+            selected,
+            new TradeSearchDraftValidator().Validate(selected),
+            League);
+
+        Assert.True(
+            result.IsSuccess,
+            string.Join(" | ", result.Diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code}: {diagnostic.Message}")));
+        using var document = JsonDocument.Parse(PathOfExileTradeJson.SerializeSearchRequest(
+            Assert.Single(searchClient.Requests)));
+        var filter = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray());
+        Assert.Equal("enchant.stat_4291115328", filter.GetProperty("id").GetString());
+        Assert.Equal(0.6m, filter.GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.False(filter.GetProperty("value").TryGetProperty("max", out _));
+    }
+
+    [Fact]
     public async Task SkullTrack_FullCopiedItemUsesEquivalentFracturedOrExplicitSetInFinalJson()
     {
         var catalog = new PathOfExileTradeStatCatalog(

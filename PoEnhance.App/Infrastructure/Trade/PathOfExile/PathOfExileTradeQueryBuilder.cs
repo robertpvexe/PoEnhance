@@ -464,7 +464,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             return true;
         }
 
-        return ContainsOrdinalIgnoreCase(draft.ParsedBaseType, "Timeless Jewel");
+        return false;
     }
 
     private static string? SelectBaseType(

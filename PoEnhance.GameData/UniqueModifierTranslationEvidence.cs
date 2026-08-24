@@ -17,9 +17,15 @@ public sealed record UniqueModifierTranslationEvidence
 
     public IReadOnlyList<StatTranslationCondition> Conditions { get; init; } = [];
 
+    /// <summary>Translation value formats aligned to the translation stat vector.</summary>
+    public IReadOnlyList<string> ValueFormats { get; init; } = [];
+
+    public IReadOnlyList<string> FormatLines { get; init; } = [];
+
     /// <summary>
-    /// RePoE translation handlers aligned to the retained stat indices. Dynamic handlers are
-    /// structured option-axis evidence; their rendered option remains copied-instance data.
+    /// RePoE translation handlers aligned to the translation stat vector. Their deterministic
+    /// pipeline is retained as value-transform evidence; rendered values remain copied-instance
+    /// data.
     /// </summary>
     public IReadOnlyList<StatTranslationIndexHandler> IndexHandlers { get; init; } = [];
 }

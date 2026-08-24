@@ -8,6 +8,32 @@ public sealed class ItemTextParserTests
     private readonly ItemTextParser _parser = new();
 
     [Fact]
+    public void Parse_EnchantmentPreservesRawMarkerAndCreatesDistinctSemanticModifier()
+    {
+        var result = _parser.Parse("""
+Item Class: Boots
+Rarity: Rare
+Skull Track
+Ambush Boots
+--------
+Item Level: 85
+--------
+12% increased Movement Speed (enchant)
+(A reminder that is not a second modifier) (enchant)
+""");
+
+        Assert.Equal(2, result.Enchantments.Count);
+        Assert.Equal("12% increased Movement Speed (enchant)", result.Enchantments[0].Text);
+        var modifier = Assert.Single(result.Modifiers);
+        Assert.Equal(ParsedModifierKind.Enchantment, modifier.Kind);
+        Assert.Equal("12% increased Movement Speed", modifier.Text);
+        Assert.Equal("12% increased Movement Speed (enchant)", Assert.Single(modifier.Effects).RawText);
+        Assert.Equal(ParsedImplicitModifierOrigin.Unspecified, modifier.ImplicitOrigin);
+        Assert.Equal(ParsedUniqueModifierOrigin.Unspecified, modifier.UniqueOrigin);
+        Assert.Empty(result.ModifierLines);
+    }
+
+    [Fact]
     public void Parse_AdvancedTextualOptionRange_SeparatesSemanticCandidateAndPreservesRawLine()
     {
         const string firstRaw = "Socketed Gems are Supported by Level 10(1-10) Endurance Charge on Melee Stun(Greater Multiple Projectiles-Hallow) — Unscalable Value";

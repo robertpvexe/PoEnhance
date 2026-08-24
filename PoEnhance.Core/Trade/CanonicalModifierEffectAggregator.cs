@@ -242,6 +242,7 @@ internal static partial class CanonicalModifierEffectAggregator
             TranslationTransformIdentity(component),
             component.DefaultBoundDirection,
             component.SupportsValueBounds ? "DirectScalar" : "DeferredRangeProjection",
+            IsEnchantment(component),
             IsImplicit(component),
             component.ImplicitOrigin,
             ReviewedSemanticIdentity(component.ReviewedItemPropertySemantic));
@@ -441,6 +442,11 @@ internal static partial class CanonicalModifierEffectAggregator
         ResolvedSearchComponent left,
         ResolvedSearchComponent right)
     {
+        if (IsEnchantment(left) != IsEnchantment(right))
+        {
+            return "different enchantment source provenance";
+        }
+
         if (IsImplicit(left) != IsImplicit(right))
         {
             return "different canonical source origin";
@@ -553,6 +559,10 @@ internal static partial class CanonicalModifierEffectAggregator
         component.ResolvedSourceKind == ParsedModifierKind.Unknown &&
         component.GenerationType == ModifierGenerationType.Implicit;
 
+    private static bool IsEnchantment(ResolvedSearchComponent component) =>
+        component.ResolvedSourceKind == ParsedModifierKind.Enchantment ||
+        component.GenerationType == ModifierGenerationType.Enchantment;
+
     private sealed record AggregationKey(
         string CanonicalStatVector,
         string LogicalEffectIdentity,
@@ -563,6 +573,7 @@ internal static partial class CanonicalModifierEffectAggregator
         string TranslationTransforms,
         ModifierBoundDirection BoundDirection,
         string ProjectionSemantics,
+        bool IsEnchantment,
         bool IsImplicit,
         ParsedImplicitModifierOrigin ImplicitOrigin,
         string ReviewedSemanticIdentity);

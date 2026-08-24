@@ -104,6 +104,137 @@ Adds 10 to 20 Fire Damage
     }
 
     [Fact]
+    public void Resolve_NumericEnchantment_UsesEnchantGenerationTextValuesAndBaseEligibility()
+    {
+        const string statId = "enchantment_movement_speed_+%";
+        var itemBase = Base("base.ambush-boots", "Ambush Boots", "Boots", "item", ["boots", "default"]);
+        var enchantment = ModifierWithStat(
+            "EnchantmentMovementSpeed",
+            string.Empty,
+            ModifierGenerationType.Enchantment,
+            "item",
+            statId,
+            SpawnWeight("boots", 100),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = "enchantment",
+            Stats = [StatRef(statId, 10m, 15m)],
+        };
+        var explicitCollision = enchantment with
+        {
+            Id = "ExplicitMovementSpeedCollision",
+            GenerationType = ModifierGenerationType.Suffix,
+            SourceGenerationType = "suffix",
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [itemBase],
+            [Translation([statId], Variant(["{0}% increased Movement Speed"], ["#"]))],
+            explicitCollision,
+            enchantment);
+        var item = parser.Parse("""
+Item Class: Boots
+Rarity: Rare
+Skull Track
+Ambush Boots
+--------
+Item Level: 85
+--------
+12% increased Movement Speed (enchant)
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.ambush-boots")));
+
+        Assert.Equal(ParsedModifierKind.Enchantment, result.ParsedModifierKind);
+        Assert.Equal(ModifierGenerationType.Enchantment, result.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("EnchantmentMovementSpeed", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
+    public void Resolve_PresenceOnlyEnchantment_UsesExactEnchantSource()
+    {
+        const string statId = "local_flask_use_on_full_charges";
+        var itemBase = Base("base.amethyst-flask", "Amethyst Flask", "Utility Flasks", "item", ["flask", "default"]);
+        var enchantment = ModifierWithStat(
+            "FlaskEnchantmentInjectorOnFullCharges",
+            string.Empty,
+            ModifierGenerationType.Enchantment,
+            "item",
+            statId,
+            SpawnWeight("flask", 100),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = "flask_enchantment_instilling",
+            Stats = [StatRef(statId, 1m, 1m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [itemBase],
+            [Translation([statId], Variant(["Used when Charges reach full"], ["ignore"]))],
+            enchantment);
+        var item = parser.Parse("""
+Item Class: Utility Flasks
+Rarity: Unique
+Progenesis
+Amethyst Flask
+--------
+Item Level: 84
+--------
+Used when Charges reach full (enchant)
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.amethyst-flask")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(ModifierGenerationType.Enchantment, result.GenerationType);
+        Assert.Equal("FlaskEnchantmentInjectorOnFullCharges", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
+    public void Resolve_EnchantmentWithTwoIndistinguishableGameDataSources_FailsClosed()
+    {
+        const string statId = "enchantment_movement_speed_+%";
+        var first = ModifierWithStat(
+            "EnchantmentMovementSpeedA",
+            string.Empty,
+            ModifierGenerationType.Enchantment,
+            "item",
+            statId) with
+        {
+            SourceGenerationType = "enchantment",
+            Stats = [StatRef(statId, 10m, 15m)],
+        };
+        var second = first with
+        {
+            Id = "EnchantmentMovementSpeedB",
+            GroupId = "group.EnchantmentMovementSpeedB",
+            RequiredLevel = 2,
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation([statId], Variant(["{0}% increased Movement Speed"], ["#"]))],
+            first,
+            second);
+        var item = parser.Parse("""
+Item Class: Boots
+Rarity: Rare
+Skull Track
+Unknown Boots
+--------
+Item Level: 85
+--------
+12% increased Movement Speed (enchant)
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Resolve_CorruptedImplicit_ExcludesDisabledSourceRecord()
     {
         var eligible = ModifierWithStat(

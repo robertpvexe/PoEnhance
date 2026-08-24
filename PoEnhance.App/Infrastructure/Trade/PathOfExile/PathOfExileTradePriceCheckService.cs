@@ -1073,9 +1073,16 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             component,
             uniqueIdentity);
         var hasStructuredAdvancedExplicitProof = HasStructuredAdvancedExplicitProof(component);
-        if (!CanResolveProviderComponent(component) &&
-            !hasProviderOwnedUniqueProof &&
-            !hasStructuredAdvancedExplicitProof)
+        // Foulborn Unique rows may only resolve through provider-owned Unique proof (which
+        // already gates on Foulborn identity). Never borrow ordinary/generic Exact mapping.
+        var foulbornRequiresProviderOwnedUniqueProof =
+            component.HasResolvedUniqueSourceSemantics &&
+            component.ResolvedSourceUniqueOrigin == ParsedUniqueModifierOrigin.Foulborn &&
+            !hasProviderOwnedUniqueProof;
+        if (foulbornRequiresProviderOwnedUniqueProof ||
+            (!CanResolveProviderComponent(component) &&
+                !hasProviderOwnedUniqueProof &&
+                !hasStructuredAdvancedExplicitProof))
         {
             var unsupported = component with
             {
@@ -1902,12 +1909,14 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ? "fractured"
             : component.IsVeiled
                 ? "veiled"
-                : component.IsBaseImplicit
-                    ? "implicit"
-                    : component.ParsedKind == ParsedModifierKind.Implicit &&
-                        component.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted
+                : component.ResolvedSourceKind == ParsedModifierKind.Enchantment
+                    ? "enchant"
+                    : component.IsBaseImplicit
                         ? "implicit"
-                    : null;
+                        : component.ParsedKind == ParsedModifierKind.Implicit &&
+                            component.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted
+                            ? "implicit"
+                            : null;
     }
 
     private static bool IsUnrevealedVeiledPlaceholder(ResolvedSearchComponent component)
@@ -2014,7 +2023,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static bool CanResolveProviderComponent(ResolvedSearchComponent component)
     {
-        if (component.BaseImplicitProvenance is not null)
+        if (component.IsBaseImplicit)
         {
             return HasExactBaseImplicitProviderProvenance(component);
         }
@@ -2125,7 +2134,31 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
 
     private static bool HasExactBaseImplicitProviderProvenance(ResolvedSearchComponent component)
     {
-        var provenance = component.BaseImplicitProvenance!;
+        if (!component.IsBaseImplicit ||
+            component.ParsedKind != ParsedModifierKind.Implicit ||
+            component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
+            !component.IsSearchable ||
+            string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
+            component.ResolvedStatIds.Count == 0)
+        {
+            return false;
+        }
+
+        var hasExactBaseSourceEvidence = component.ProviderDomainEvidence.Any(evidence =>
+            evidence.IsSourceExact &&
+            evidence.GenerationType == ModifierGenerationType.Implicit &&
+            !string.IsNullOrWhiteSpace(evidence.ItemBaseId) &&
+            string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                evidence.ModifierId,
+                component.ResolvedModifierId,
+                StringComparison.OrdinalIgnoreCase));
+        var provenance = component.BaseImplicitProvenance;
+        if (provenance is null)
+        {
+            return hasExactBaseSourceEvidence;
+        }
+
         var expectedSnapshotRole = provenance.RecognitionStatus switch
         {
             BaseImplicitRecognitionStatus.CurrentExact => BaseImplicitSnapshotRole.CurrentCandidate,
@@ -2133,23 +2166,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             _ => (BaseImplicitSnapshotRole?)null,
         };
         return expectedSnapshotRole.HasValue &&
-            component.IsBaseImplicit &&
-            component.ParsedKind == ParsedModifierKind.Implicit &&
-            component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
-            component.IsSearchable &&
-            !string.IsNullOrWhiteSpace(component.ResolvedModifierId) &&
-            component.ResolvedStatIds.Count > 0 &&
+            hasExactBaseSourceEvidence &&
             provenance.MechanicalSignatures.Count == 1 &&
             !string.IsNullOrWhiteSpace(provenance.MechanicalSignatures[0]) &&
-            provenance.SourceSnapshots.Any(snapshot => snapshot.Role == expectedSnapshotRole.Value) &&
-            component.ProviderDomainEvidence.Any(evidence =>
-                evidence.IsSourceExact &&
-                evidence.GenerationType == ModifierGenerationType.Implicit &&
-                string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(
-                    evidence.ModifierId,
-                    component.ResolvedModifierId,
-                    StringComparison.OrdinalIgnoreCase));
+            provenance.SourceSnapshots.Any(snapshot => snapshot.Role == expectedSnapshotRole.Value);
     }
 
     private static bool IsUnique(TradeSearchDraft draft)
