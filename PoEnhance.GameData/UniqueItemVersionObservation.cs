@@ -28,6 +28,12 @@ public sealed record UniqueItemVersionObservation
     /// </summary>
     public int GeneratedCandidateSelectionLimit { get; init; }
 
+    /// <summary>
+    /// Independently selectable source dimensions that coexist within this atomic version.
+    /// Empty for packages or source definitions without explicit option-axis evidence.
+    /// </summary>
+    public IReadOnlyList<UniqueItemOptionAxis> OptionAxes { get; init; } = [];
+
     public IReadOnlyList<UniqueModifierBlock> ModifierBlocks { get; init; } = [];
 
     public IReadOnlyList<string> SourceObservationIds { get; init; } = [];

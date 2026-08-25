@@ -110,6 +110,11 @@ public sealed partial class PoBUniqueCatalogImporter
                     sourceItem,
                     sourcePath,
                     diagnostics),
+                SourceOptionAxes = ReadSourceOptionAxes(
+                    entry,
+                    sourceItem,
+                    sourcePath,
+                    diagnostics),
             };
 
             var kind = ClassifyKind(sourceItem.Name);
@@ -210,6 +215,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 version.Label,
                 version.Role,
                 version.BaseType,
+                OptionAxes = string.Join('\u001e', version.OptionAxes.Select(axis =>
+                    $"{axis.Id}\u001d{axis.SelectionLimit}\u001d{string.Join('\u001c', axis.Choices.Select(choice => choice.Id))}")),
                 Signature = string.Join('\u001f', version.ModifierBlocks.Select(block => block.Id)),
             })
             .Select(versionGroup => versionGroup.First() with
@@ -220,6 +227,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     .OrderBy(id => id, StringComparer.Ordinal)
                     .ToArray(),
                 ModifierBlocks = MergeBlockProvenance(versionGroup.SelectMany(version => version.ModifierBlocks)),
+                OptionAxes = MergeOptionAxisProvenance(versionGroup.SelectMany(version => version.OptionAxes)),
             })
             .OrderBy(version => version.Role)
             .ThenBy(version => version.Label, StringComparer.Ordinal)
@@ -245,6 +253,34 @@ public sealed partial class PoBUniqueCatalogImporter
         };
     }
 
+    private static IReadOnlyList<UniqueItemOptionAxis> MergeOptionAxisProvenance(
+        IEnumerable<UniqueItemOptionAxis> axes)
+    {
+        return axes
+            .GroupBy(axis => axis.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First() with
+            {
+                SourceObservationIds = group.SelectMany(axis => axis.SourceObservationIds)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray(),
+                Choices = group.SelectMany(axis => axis.Choices)
+                    .GroupBy(choice => choice.Id, StringComparer.OrdinalIgnoreCase)
+                    .Select(choiceGroup => choiceGroup.First() with
+                    {
+                        SourceObservationIds = choiceGroup
+                            .SelectMany(choice => choice.SourceObservationIds)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(id => id, StringComparer.Ordinal)
+                            .ToArray(),
+                    })
+                    .OrderBy(choice => choice.Id, StringComparer.Ordinal)
+                    .ToArray(),
+            })
+            .OrderBy(axis => axis.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     private static IReadOnlyList<UniqueModifierBlock> MergeBlockProvenance(
         IEnumerable<UniqueModifierBlock> blocks)
     {
@@ -267,37 +303,27 @@ public sealed partial class PoBUniqueCatalogImporter
         ParsedSourceItem item,
         MechanicalIndex mechanicalIndex)
     {
-        var hasExplicitCurrentLabel = item.Variants.Any(variant =>
-            ClassifyVersionRole(variant.Label, hasExplicitCurrentSibling: false) == UniqueItemVersionRole.Current);
-        var classifiedVariants = item.Variants
-            .Where(variant => ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) != UniqueItemVersionRole.Unknown)
-            .ToArray();
-        var hasCurrentVariant = classifiedVariants.Any(variant =>
-            ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) == UniqueItemVersionRole.Current);
-        var primaryVariants = hasCurrentVariant
-            ? classifiedVariants
-            : item.IsGenerated
-                ? []
-                : item.Variants.ToArray();
-        var primaryIndices = primaryVariants.Select(variant => variant.Index).ToHashSet();
-        var optionIndices = item.Variants
-            .Where(variant => !primaryIndices.Contains(variant.Index) &&
-                (!item.IsGenerated ||
-                    ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) != UniqueItemVersionRole.Historical))
-            .Select(variant => variant.Index)
-            .ToHashSet();
         var baseVariantIndices = item.BaseTypes.SelectMany(baseType => baseType.Variants).ToHashSet();
-        var specs = BuildVersionSpecs(item, primaryVariants, hasExplicitCurrentLabel);
+        var plans = BuildVersionPlans(item);
 
-        foreach (var spec in specs)
+        foreach (var plan in plans)
         {
+            var spec = plan.Spec;
+            var optionIndices = plan.OptionIndices;
+            var optionAxisProjections = BuildOptionAxisProjections(
+                item,
+                optionIndices,
+                baseVariantIndices,
+                spec.VariantIndex.HasValue);
             var implicitLines = item.EffectLines.Take(item.ImplicitCount)
                 .Where(line => IsApplicable(line, spec, optionIndices, baseVariantIndices))
                 .Select(line => SelectEffectLine(
                     line,
                     item.ObservationId!,
+                    item.IsGenerated,
                     optionIndices,
                     baseVariantIndices,
+                    optionAxisProjections,
                     spec.SourceBaseType))
                 .ToArray();
             var uniqueLines = item.EffectLines.Skip(item.ImplicitCount)
@@ -305,8 +331,10 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Select(line => SelectEffectLine(
                     line,
                     item.ObservationId!,
+                    item.IsGenerated,
                     optionIndices,
                     baseVariantIndices,
+                    optionAxisProjections,
                     spec.SourceBaseType))
                 .ToArray();
             var blocks = GroupBlocks(
@@ -329,11 +357,13 @@ public sealed partial class PoBUniqueCatalogImporter
                     mechanicalIndex))
                 .ToArray();
             var selectedCandidateCount = item.SelectedVariantIndices.Count(index =>
-                optionIndices.Contains(index) && !baseVariantIndices.Contains(index));
+                item.IsGenerated &&
+                optionIndices.Contains(index) &&
+                !baseVariantIndices.Contains(index));
             var hasCandidateBlocks = blocks.Any(block =>
                 block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate);
             var inferredCandidateCount = hasCandidateBlocks
-                ? item.AlternateVariantSlotCount + (primaryVariants.Length == 0 ? 1 : 0)
+                ? item.AlternateVariantSlotCount + (spec.VariantIndex.HasValue ? 0 : 1)
                 : 0;
             yield return new UniqueItemVersionObservation
             {
@@ -351,6 +381,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 GeneratedCandidateSelectionLimit = Math.Max(
                     selectedCandidateCount,
                     inferredCandidateCount),
+                OptionAxes = optionAxisProjections.Select(projection => projection.Axis).ToArray(),
                 ModifierBlocks = blocks,
                 SourceObservationIds = [item.ObservationId!],
             };
@@ -360,8 +391,10 @@ public sealed partial class PoBUniqueCatalogImporter
     private static SelectedEffectLine SelectEffectLine(
         SourceEffectLine line,
         string observationId,
+        bool isGeneratedSource,
         ISet<int> optionIndices,
         ISet<int> baseVariantIndices,
+        IReadOnlyList<OptionAxisProjection> optionAxisProjections,
         string sourceBaseType)
     {
         var candidateIndices = line.Variants
@@ -371,11 +404,28 @@ public sealed partial class PoBUniqueCatalogImporter
             .ToArray();
         return new SelectedEffectLine(
             line.Text,
-            candidateIndices.Length > 0,
-            candidateIndices.Select(index => StableId(
-                    "pob-generated-candidate",
-                    observationId,
-                    index.ToString(CultureInfo.InvariantCulture)))
+            isGeneratedSource && candidateIndices.Length > 0,
+            isGeneratedSource
+                ? candidateIndices.Select(index => StableId(
+                        "pob-generated-candidate",
+                        observationId,
+                        index.ToString(CultureInfo.InvariantCulture)))
+                    .ToArray()
+                : [],
+            optionAxisProjections
+                .SelectMany(projection => line.Variants
+                    .Where(projection.ChoiceIdsBySourceIndex.ContainsKey)
+                    .Select(index => new UniqueModifierOptionChoiceMembership
+                    {
+                        OptionAxisId = projection.Axis.Id,
+                        OptionChoiceId = projection.ChoiceIdsBySourceIndex[index],
+                        SourceObservationIds = [observationId],
+                    }))
+                .DistinctBy(membership =>
+                    $"{membership.OptionAxisId}\u001f{membership.OptionChoiceId}",
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(membership => membership.OptionAxisId, StringComparer.Ordinal)
+                .ThenBy(membership => membership.OptionChoiceId, StringComparer.Ordinal)
                 .ToArray(),
             SelectSourceSemanticFingerprint(line.SemanticFingerprints, sourceBaseType));
     }
@@ -405,6 +455,160 @@ public sealed partial class PoBUniqueCatalogImporter
                 .OrderBy(value => value, StringComparer.Ordinal)
                 .ToArray(),
         };
+    }
+
+    private static IReadOnlyList<VersionBuildPlan> BuildVersionPlans(ParsedSourceItem item)
+    {
+        if (TryBuildContextualOptionVersionPlans(item, out var contextualPlans))
+        {
+            return contextualPlans;
+        }
+
+        var hasExplicitCurrentLabel = item.Variants.Any(variant =>
+            ClassifyVersionRole(variant.Label, hasExplicitCurrentSibling: false) ==
+                UniqueItemVersionRole.Current);
+        var classifiedVariants = item.Variants
+            .Where(variant =>
+                ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) !=
+                    UniqueItemVersionRole.Unknown)
+            .ToArray();
+        var hasCurrentVariant = classifiedVariants.Any(variant =>
+            ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) ==
+                UniqueItemVersionRole.Current);
+        var hasCoSelectableSourceAxis = item.OptionAxes.Any(axis => axis.SelectionLimit > 1);
+        var primaryVariants = hasCurrentVariant
+            ? classifiedVariants
+            : item.IsGenerated || hasCoSelectableSourceAxis && classifiedVariants.Length == 0
+                ? []
+                : item.Variants.ToArray();
+        var primaryIndices = primaryVariants.Select(variant => variant.Index).ToHashSet();
+        var optionIndices = item.Variants
+            .Where(variant => !primaryIndices.Contains(variant.Index) &&
+                (!item.IsGenerated ||
+                    ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) !=
+                        UniqueItemVersionRole.Historical))
+            .Select(variant => variant.Index)
+            .ToHashSet();
+        return BuildVersionSpecs(item, primaryVariants, hasExplicitCurrentLabel)
+            .Select(spec => new VersionBuildPlan(spec, optionIndices))
+            .ToArray();
+    }
+
+    private static bool TryBuildContextualOptionVersionPlans(
+        ParsedSourceItem item,
+        out IReadOnlyList<VersionBuildPlan> plans)
+    {
+        plans = [];
+        if (!item.OptionAxes.Any(axis => axis.SelectionLimit > 1))
+        {
+            return false;
+        }
+
+        var qualified = item.Variants
+            .Select(variant => new
+            {
+                Variant = variant,
+                Match = OptionContextSuffixPattern().Match(variant.Label),
+            })
+            .Where(candidate => candidate.Match.Success)
+            .Select(candidate => new
+            {
+                candidate.Variant,
+                Context = candidate.Match.Groups["context"].Value.Trim(),
+            })
+            .ToArray();
+        var hasCurrentContext = qualified.Any(candidate =>
+            ClassifyVersionRole(candidate.Context, hasExplicitCurrentSibling: false) ==
+                UniqueItemVersionRole.Current);
+        var recognized = qualified
+            .Select(candidate => new
+            {
+                candidate.Variant,
+                candidate.Context,
+                Evidence = ClassifyVersionRoleEvidence(candidate.Context, hasCurrentContext),
+            })
+            .Where(candidate => candidate.Evidence.Role != UniqueItemVersionRole.Unknown)
+            .ToArray();
+        if (!hasCurrentContext || recognized.Length == 0 ||
+            recognized.Select(candidate => candidate.Evidence.Role).Distinct().Count() < 2)
+        {
+            return false;
+        }
+
+        var recognizedIndices = recognized.Select(candidate => candidate.Variant.Index).ToHashSet();
+        var sharedOptionIndices = item.Variants
+            .Where(variant => !recognizedIndices.Contains(variant.Index))
+            .Select(variant => variant.Index)
+            .ToArray();
+        plans = recognized
+            .GroupBy(candidate => candidate.Context, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var first = group.First();
+                var optionIndices = group.Select(candidate => candidate.Variant.Index)
+                    .Concat(sharedOptionIndices)
+                    .ToHashSet();
+                var baseType = SelectBaseType(item.BaseTypes, first.Variant.Index);
+                var spec = VersionSpecFor(
+                    first.Context,
+                    first.Evidence.Role,
+                    variantIndex: null,
+                    baseType,
+                    first.Evidence.Reason,
+                    "A source-declared shared variant-selection axis keeps this history context atomic while its qualified and unqualified choices remain independently selectable.");
+                return new VersionBuildPlan(spec, optionIndices);
+            })
+            .ToArray();
+        return true;
+    }
+
+    private static IReadOnlyList<OptionAxisProjection> BuildOptionAxisProjections(
+        ParsedSourceItem item,
+        ISet<int> optionIndices,
+        ISet<int> baseVariantIndices,
+        bool primarySelectionSlotIsAtomicVersion)
+    {
+        return item.OptionAxes
+            .Select(sourceAxis =>
+            {
+                var sourceChoiceIndices = sourceAxis.SourceChoiceIndices
+                    .Where(index => optionIndices.Contains(index) &&
+                        !baseVariantIndices.Contains(index))
+                    .Distinct()
+                    .OrderBy(index => index)
+                    .ToArray();
+                var axisId = StableId(
+                    "pob-option-axis",
+                    item.ObservationId!,
+                    sourceAxis.SourceKind,
+                    sourceAxis.SourceOrdinal.ToString(CultureInfo.InvariantCulture));
+                var choices = sourceChoiceIndices.Select(index => new UniqueItemOptionChoice
+                    {
+                        Id = StableId(
+                            "pob-option-choice",
+                            axisId,
+                            index.ToString(CultureInfo.InvariantCulture)),
+                        SourceObservationIds = [item.ObservationId!],
+                    })
+                    .ToArray();
+                var choiceIdsBySourceIndex = sourceChoiceIndices
+                    .Zip(choices, (index, choice) => new { index, choice.Id })
+                    .ToDictionary(pair => pair.index, pair => pair.Id!);
+                return new OptionAxisProjection(
+                    new UniqueItemOptionAxis
+                    {
+                        Id = axisId,
+                        SelectionLimit = Math.Min(
+                            sourceAxis.SelectionLimit - (primarySelectionSlotIsAtomicVersion ? 1 : 0),
+                            choices.Length),
+                        Choices = choices,
+                        SourceObservationIds = [item.ObservationId!],
+                    },
+                    choiceIdsBySourceIndex);
+            })
+            .Where(projection => projection.Axis.SelectionLimit > 0 &&
+                projection.Axis.Choices.Count > 0)
+            .ToArray();
     }
 
     private static IReadOnlyList<VersionSpec> BuildVersionSpecs(
@@ -551,6 +755,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 baseType,
                 selectedLines.Any(line => line.HasGeneratedOptionEvidence),
                 firstLine.CandidatePoolMembershipIds,
+                firstLine.OptionChoiceMemberships,
                 CombineSourceSemanticFingerprints(selectedLines.Select(line =>
                     line.SemanticFingerprint)),
                 mechanicalIndex);
@@ -562,7 +767,13 @@ public sealed partial class PoBUniqueCatalogImporter
         first.HasGeneratedOptionEvidence == second.HasGeneratedOptionEvidence &&
         (!first.HasGeneratedOptionEvidence || first.CandidatePoolMembershipIds.SequenceEqual(
             second.CandidatePoolMembershipIds,
-            StringComparer.Ordinal));
+            StringComparer.Ordinal)) &&
+        first.OptionChoiceMemberships.Select(OptionMembershipKey).SequenceEqual(
+            second.OptionChoiceMemberships.Select(OptionMembershipKey),
+            StringComparer.Ordinal);
+
+    private static string OptionMembershipKey(UniqueModifierOptionChoiceMembership membership) =>
+        $"{membership.OptionAxisId}\u001f{membership.OptionChoiceId}";
 
     private static UniqueModifierSemanticFingerprint CombineSourceSemanticFingerprints(
         IEnumerable<UniqueModifierSemanticFingerprint> fingerprints)
@@ -597,6 +808,7 @@ public sealed partial class PoBUniqueCatalogImporter
         string baseType,
         bool hasGeneratedOptionEvidence,
         IReadOnlyList<string> candidatePoolMembershipIds,
+        IReadOnlyList<UniqueModifierOptionChoiceMembership> optionChoiceMemberships,
         UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
         MechanicalIndex mechanicalIndex)
     {
@@ -640,7 +852,7 @@ public sealed partial class PoBUniqueCatalogImporter
             .ToArray();
         return new UniqueModifierBlock
         {
-            Id = isGeneratedCandidate
+            Id = optionChoiceMemberships.Count > 0
                 ? StableId(
                     "unique-block",
                     identityId,
@@ -648,7 +860,17 @@ public sealed partial class PoBUniqueCatalogImporter
                     kind.ToString(),
                     signature,
                     string.Join('\u001f', candidatePoolMembershipIds),
+                    string.Join('\u001f', optionChoiceMemberships.Select(OptionMembershipKey)),
                     string.Join('\n', lines))
+                : isGeneratedCandidate
+                    ? StableId(
+                        "unique-block",
+                        identityId,
+                        versionLabel,
+                        kind.ToString(),
+                        signature,
+                        string.Join('\u001f', candidatePoolMembershipIds),
+                        string.Join('\n', lines))
                 : StableId("unique-block", identityId, versionLabel, kind.ToString(), signature),
             Kind = kind,
             Lines = lines,
@@ -658,6 +880,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 : UniqueModifierSourceSemantics.Fixed,
             SourceSemanticFingerprint = sourceSemanticFingerprint,
             CandidatePoolMembershipIds = candidatePoolMembershipIds,
+            OptionChoiceMemberships = optionChoiceMemberships,
             MechanicalMapping = new UniqueModifierMechanicalMapping
             {
                 Status = status,
@@ -1777,6 +2000,105 @@ public sealed partial class PoBUniqueCatalogImporter
         }).ToArray();
     }
 
+    private static IReadOnlyList<SourceOptionAxis> ReadSourceOptionAxes(
+        JsonElement entry,
+        ParsedSourceItem item,
+        string sourcePath,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (!entry.TryGetProperty("optionAxes", out var sourceAxes) ||
+            sourceAxes.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return LegacySourceOptionAxes(item);
+        }
+        if (sourceAxes.ValueKind != JsonValueKind.Array)
+        {
+            diagnostics.Add(Diagnostic(
+                RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                ImportDiagnosticSeverity.Warning,
+                sourcePath,
+                "PoB source option axes were not an array; raw legacy slot evidence was retained."));
+            return LegacySourceOptionAxes(item);
+        }
+
+        var result = new List<SourceOptionAxis>();
+        foreach (var sourceAxis in sourceAxes.EnumerateArray())
+        {
+            if (sourceAxis.ValueKind != JsonValueKind.Object ||
+                !TryReadString(sourceAxis, "sourceKind", out var sourceKind) ||
+                !sourceAxis.TryGetProperty("sourceOrdinal", out var sourceOrdinalElement) ||
+                !sourceOrdinalElement.TryGetInt32(out var sourceOrdinal) ||
+                sourceOrdinal <= 0 ||
+                !sourceAxis.TryGetProperty("selectionLimit", out var selectionLimitElement) ||
+                !selectionLimitElement.TryGetInt32(out var selectionLimit) ||
+                selectionLimit <= 0 ||
+                !TryReadIntArray(sourceAxis, "sourceChoiceIndices", out var sourceChoiceIndices) ||
+                sourceChoiceIndices.Count == 0 ||
+                sourceChoiceIndices.Any(index => index <= 0 || index > item.Variants.Count) ||
+                !TryReadIntArray(sourceAxis, "selectedChoiceIndices", out var selectedChoiceIndices) ||
+                selectedChoiceIndices.Any(index => index <= 0 || index > item.Variants.Count))
+            {
+                diagnostics.Add(Diagnostic(
+                    RePoeImportDiagnosticCodes.PoBUniqueRecordUnsupported,
+                    ImportDiagnosticSeverity.Warning,
+                    sourcePath,
+                    "One PoB source option axis was malformed and was ignored."));
+                continue;
+            }
+
+            result.Add(new SourceOptionAxis(
+                sourceKind.Trim(),
+                sourceOrdinal,
+                selectionLimit,
+                sourceChoiceIndices.Distinct().OrderBy(index => index).ToArray(),
+                selectedChoiceIndices.Distinct().OrderBy(index => index).ToArray()));
+        }
+
+        return result.Count > 0 || item.AlternateVariantSlotCount == 0
+            ? result
+            : LegacySourceOptionAxes(item);
+    }
+
+    private static IReadOnlyList<SourceOptionAxis> LegacySourceOptionAxes(ParsedSourceItem item)
+    {
+        return item.AlternateVariantSlotCount <= 0 || item.Variants.Count == 0
+            ? []
+            :
+            [
+                new SourceOptionAxis(
+                    "legacySharedVariantSelection",
+                    1,
+                    item.AlternateVariantSlotCount + 1,
+                    item.Variants.Select(variant => variant.Index).ToArray(),
+                    item.SelectedVariantIndices),
+            ];
+    }
+
+    private static bool TryReadIntArray(
+        JsonElement element,
+        string property,
+        out IReadOnlyList<int> values)
+    {
+        values = [];
+        if (!element.TryGetProperty(property, out var array) ||
+            array.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var result = new List<int>();
+        foreach (var value in array.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var parsed))
+            {
+                return false;
+            }
+            result.Add(parsed);
+        }
+        values = result;
+        return true;
+    }
+
     private static bool TryParseBlockKind(string value, out UniqueModifierBlockKind kind)
     {
         if (string.Equals(value.Trim(), "implicit", StringComparison.OrdinalIgnoreCase))
@@ -1964,6 +2286,9 @@ public sealed partial class PoBUniqueCatalogImporter
     [GeneratedRegex(@"(?:^|[\s(])Pre(?:[\s.]|$)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex HistoricalVersionMarkerPattern();
 
+    [GeneratedRegex(@"^.+\s+\((?<context>Current|Pre(?:[\s.]|$)[^()]*)\)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex OptionContextSuffixPattern();
+
     [GeneratedRegex(@"^\d+\.\d+(?:\.\d+)?$", RegexOptions.CultureInvariant)]
     private static partial Regex BareVersionLabelPattern();
 
@@ -1987,7 +2312,14 @@ public sealed partial class PoBUniqueCatalogImporter
         string Text,
         bool HasGeneratedOptionEvidence,
         IReadOnlyList<string> CandidatePoolMembershipIds,
+        IReadOnlyList<UniqueModifierOptionChoiceMembership> OptionChoiceMemberships,
         UniqueModifierSemanticFingerprint SemanticFingerprint);
+    private sealed record SourceOptionAxis(
+        string SourceKind,
+        int SourceOrdinal,
+        int SelectionLimit,
+        IReadOnlyList<int> SourceChoiceIndices,
+        IReadOnlyList<int> SelectedChoiceIndices);
     private sealed record SourceSemanticFingerprintObservation(
         UniqueModifierBlockKind Kind,
         int LineIndex,
@@ -2008,6 +2340,12 @@ public sealed partial class PoBUniqueCatalogImporter
     private sealed record VersionRoleEvidence(
         UniqueItemVersionRole Role,
         string Reason);
+    private sealed record VersionBuildPlan(
+        VersionSpec Spec,
+        ISet<int> OptionIndices);
+    private sealed record OptionAxisProjection(
+        UniqueItemOptionAxis Axis,
+        IReadOnlyDictionary<int, string> ChoiceIdsBySourceIndex);
     private sealed record MechanicalCandidate(
         string ModifierId,
         IReadOnlyList<string> StatIds,
@@ -2501,5 +2839,9 @@ public sealed partial class PoBUniqueCatalogImporter
         int ImplicitCount,
         string? ObservationId,
         UniqueItemKind Kind,
-        bool IsGenerated = false);
+        bool IsGenerated = false,
+        IReadOnlyList<SourceOptionAxis>? SourceOptionAxes = null)
+    {
+        public IReadOnlyList<SourceOptionAxis> OptionAxes => SourceOptionAxes ?? [];
+    }
 }

@@ -226,6 +226,41 @@ public static class GameDataPackageValidator
                     continue;
                 }
 
+                var optionAxisChoices = new Dictionary<string, HashSet<string>>(
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var (axis, axisIndex) in version.OptionAxes.Select((value, index) =>
+                             (value, index)))
+                {
+                    var axisPath = $"{versionPath}.optionAxes[{axisIndex}]";
+                    var choiceIds = axis?.Choices
+                        .Where(choice => choice is not null && !string.IsNullOrWhiteSpace(choice.Id))
+                        .Select(choice => choice.Id!.Trim())
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+                    var axisIsValid = axis is not null &&
+                        !string.IsNullOrWhiteSpace(axis.Id) &&
+                        !optionAxisChoices.ContainsKey(axis.Id.Trim()) &&
+                        axis.SelectionLimit > 0 &&
+                        axis.Choices.Count > 0 &&
+                        axis.SelectionLimit <= axis.Choices.Count &&
+                        choiceIds.Count == axis.Choices.Count &&
+                        axis.Choices.All(choice =>
+                            choice is not null &&
+                            choice.SourceObservationIds.Count > 0 &&
+                            choice.SourceObservationIds.All(sourceIds.Contains)) &&
+                        axis.SourceObservationIds.Count > 0 &&
+                        axis.SourceObservationIds.All(sourceIds.Contains);
+                    if (!axisIsValid)
+                    {
+                        errors.Add(Error(
+                            GameDataValidationErrorCodes.UniqueCatalogOptionAxisInvalid,
+                            axisPath,
+                            "Unique option axes require a distinct id, a bounded positive selection limit, distinct choices, and source provenance."));
+                        continue;
+                    }
+
+                    optionAxisChoices[axis!.Id!.Trim()] = choiceIds;
+                }
+
                 var blockIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (block, blockIndex) in version.ModifierBlocks.Select((value, index) => (value, index)))
                 {
@@ -251,6 +286,21 @@ public static class GameDataPackageValidator
                             block.MechanicalMapping,
                             knownModifierIds,
                             knownStatIds);
+                    var optionMembershipsValid = block is not null &&
+                        block.OptionChoiceMemberships.All(membership =>
+                            membership is not null &&
+                            !string.IsNullOrWhiteSpace(membership.OptionAxisId) &&
+                            !string.IsNullOrWhiteSpace(membership.OptionChoiceId) &&
+                            optionAxisChoices.TryGetValue(
+                                membership.OptionAxisId.Trim(),
+                                out var choices) &&
+                            choices.Contains(membership.OptionChoiceId.Trim()) &&
+                            membership.SourceObservationIds.Count > 0 &&
+                            membership.SourceObservationIds.All(sourceIds.Contains)) &&
+                        block.OptionChoiceMemberships
+                            .Select(membership => $"{membership.OptionAxisId!.Trim()}\u001f{membership.OptionChoiceId!.Trim()}")
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .Count() == block.OptionChoiceMemberships.Count;
                     if (block is null ||
                         string.IsNullOrWhiteSpace(block.Id) ||
                         !blockIds.Add(block.Id.Trim()) ||
@@ -269,6 +319,7 @@ public static class GameDataPackageValidator
                             block.CandidatePoolMembershipIds.Count ||
                         block.SourceObservationIds.Count == 0 ||
                         block.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
+                        !optionMembershipsValid ||
                         !sourceSemanticFingerprintValid ||
                         !mechanicalMappingValid)
                     {
@@ -277,6 +328,7 @@ public static class GameDataPackageValidator
                             $"{versionPath}.modifierBlocks[{blockIndex}]",
                             "Unique blocks require retained lines, signatures, mapping state, and source provenance. " +
                             $"SourceSemanticFingerprintValid={sourceSemanticFingerprintValid}; " +
+                            $"OptionMembershipsValid={optionMembershipsValid}; " +
                             $"MechanicalMappingValid={mechanicalMappingValid}; " +
                             $"MechanicalProvenanceValid={mechanicalProvenanceValid}; " +
                             $"ProvenanceSourceFingerprintValid={provenanceSourceFingerprintValid}; " +

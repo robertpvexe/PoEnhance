@@ -1550,7 +1550,7 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
-    public void Import_NonGeneratedMixedAxis_MarksOnlyOptionVariantAsGeneratedCandidate()
+    public void Import_NonGeneratedMixedAxis_KeepsOptionSeparateFromGeneratedCandidateSemantics()
     {
         var result = ImportSingle(
             """
@@ -1578,15 +1578,235 @@ public sealed class PoBUniqueCatalogImporterTests
             ]);
 
         var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
-        Assert.Equal(1, version.GeneratedCandidateSelectionLimit);
+        Assert.Equal(0, version.GeneratedCandidateSelectionLimit);
         Assert.Equal(
             UniqueModifierSourceSemantics.Fixed,
             Assert.Single(version.ModifierBlocks, block => block.Lines[0].Contains("Attack Speed"))
                 .SourceSemantics);
-        Assert.Equal(
-            UniqueModifierSourceSemantics.GeneratedCandidate,
-            Assert.Single(version.ModifierBlocks, block => block.Lines[0].Contains("Abyssal Sockets"))
-                .SourceSemantics);
+        var optionBlock = Assert.Single(version.ModifierBlocks,
+            block => block.Lines[0].Contains("Abyssal Sockets"));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, optionBlock.SourceSemantics);
+        var axis = Assert.Single(version.OptionAxes);
+        Assert.Equal(1, axis.SelectionLimit);
+        var membership = Assert.Single(optionBlock.OptionChoiceMemberships);
+        Assert.Equal(axis.Id, membership.OptionAxisId);
+        Assert.Contains(axis.Choices, choice => choice.Id == membership.OptionChoiceId);
+    }
+
+    [Fact]
+    public void Import_CoSelectableContextQualifiedOptions_ShareAtomicCurrentVersionAndRetainProvenance()
+    {
+        var result = ImportSingle(
+            """
+                Test Circle
+                Ruby Ring
+                Has Alt Variant: true
+                Selected Variant: 2
+                Selected Alt Variant: 5
+                Variant: Skill Reservation (Pre 3.11.0)
+                Variant: Skill Reservation (Current)
+                Variant: Fire Damage
+                Variant: Buff Effect (Pre 3.11.0)
+                Variant: Buff Effect (Current)
+                Implicits: 0
+                {variant:1}Herald has (40-50)% reduced Reservation
+                {variant:2}Herald has (30-40)% increased Mana Reservation Efficiency
+                {variant:4}Herald has (40-50)% increased Buff Effect
+                {variant:5}Herald has (50-60)% increased Buff Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.reservation-old", "reservation_old", 40, 50, "unique"),
+                Modifier("unique.reservation-current", "reservation_current", 30, 40, "unique"),
+                Modifier("unique.reservation-local", "reservation_local", 30, 40, "unique"),
+                Modifier("unique.buff-old", "buff_old", 40, 50, "unique"),
+                Modifier("unique.buff-current", "buff_current", 50, 60, "unique"),
+            ],
+            translations:
+            [
+                Translation("reservation-old", "reservation_old", "Herald has {0}% reduced Reservation", "#"),
+                Translation("reservation-current", "reservation_current", "Herald has {0}% increased Mana Reservation Efficiency", "#"),
+                Translation("reservation-local", "reservation_local", "Herald has {0}% increased Mana Reservation Efficiency", "#"),
+                Translation("buff-old", "buff_old", "Herald has {0}% increased Buff Effect", "#"),
+                Translation("buff-current", "buff_current", "Herald has {0}% increased Buff Effect", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "reservation_old", IsLocal = false },
+                new StatDefinition { Id = "reservation_current", IsLocal = false },
+                new StatDefinition { Id = "reservation_local", IsLocal = true },
+                new StatDefinition { Id = "buff_old", IsLocal = false },
+                new StatDefinition { Id = "buff_current", IsLocal = false },
+            ],
+            sourceLocality: UniqueModifierSemanticLocality.Global,
+            sourceLine: "Herald has (30-40)% increased Mana Reservation Efficiency",
+            sourceBaseType: "Ruby Ring");
+
+        var identity = Assert.Single(result.Catalog!.Items);
+        Assert.Equal(2, identity.Versions.Count);
+        var current = Assert.Single(identity.Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        Assert.Equal("Current", current.Label);
+        Assert.Equal(2, current.ModifierBlocks.Count);
+        var axis = Assert.Single(current.OptionAxes);
+        Assert.Equal(2, axis.SelectionLimit);
+        Assert.Equal(3, axis.Choices.Count);
+        Assert.All(current.ModifierBlocks, block =>
+        {
+            Assert.Equal(UniqueModifierSourceSemantics.Fixed, block.SourceSemantics);
+            Assert.Single(block.SourceObservationIds);
+            var membership = Assert.Single(block.OptionChoiceMemberships);
+            Assert.Equal(axis.Id, membership.OptionAxisId);
+            Assert.Single(membership.SourceObservationIds);
+            Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+            Assert.Single(block.MechanicalMapping.ModifierIds);
+        });
+        var mechanicallyProven = Assert.Single(current.ModifierBlocks,
+            block => block.MechanicalMapping.Provenance is not null);
+        Assert.NotEmpty(mechanicallyProven.MechanicalMapping.Provenance!.Translations);
+        Assert.Equal(2, current.ModifierBlocks
+            .SelectMany(block => block.OptionChoiceMemberships)
+            .Select(membership => membership.OptionChoiceId)
+            .Distinct(StringComparer.Ordinal)
+            .Count());
+    }
+
+    [Fact]
+    public void Import_SplitStyleChoices_AreOneCurrentVersionWithTwoCoSelectableAffixes()
+    {
+        var result = ImportSingle(
+            """
+                Test Split
+                Crimson Jewel
+                Has Alt Variant: true
+                Selected Variant: 2
+                Selected Alt Variant: 3
+                Variant: Strength
+                Variant: Intelligence
+                Variant: Energy Shield
+                Limited to: 2
+                Implicits: 0
+                This Jewel's Socket has 25% increased effect per Allocated Passive Skill between it and your Class' starting location
+                {variant:1}+5 to Strength
+                {variant:2}+5 to Intelligence
+                {variant:3}+5 to maximum Energy Shield
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.path-effect", "path_effect", 25, 25, "unique"),
+                Modifier("unique.strength", "strength", 5, 5, "unique"),
+                Modifier("unique.intelligence", "intelligence", 5, 5, "unique"),
+                Modifier("unique.energy-shield", "energy_shield", 5, 5, "unique"),
+            ],
+            translations:
+            [
+                Translation("path-effect", "path_effect", "This Jewel's Socket has {0}% increased effect per Allocated Passive Skill between it and your Class' starting location", "#"),
+                Translation("strength", "strength", "{0} to Strength", "+#"),
+                Translation("intelligence", "intelligence", "{0} to Intelligence", "+#"),
+                Translation("energy-shield", "energy_shield", "{0} to maximum Energy Shield", "+#"),
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        var axis = Assert.Single(version.OptionAxes);
+        Assert.Equal(2, axis.SelectionLimit);
+        Assert.Equal(3, axis.Choices.Count);
+        var intelligence = Assert.Single(version.ModifierBlocks,
+            block => block.Lines.Contains("+5 to Intelligence"));
+        var energyShield = Assert.Single(version.ModifierBlocks,
+            block => block.Lines.Contains("+5 to maximum Energy Shield"));
+        Assert.Single(intelligence.OptionChoiceMemberships);
+        Assert.Single(energyShield.OptionChoiceMemberships);
+        Assert.NotEqual(
+            intelligence.OptionChoiceMemberships[0].OptionChoiceId,
+            energyShield.OptionChoiceMemberships[0].OptionChoiceId);
+        Assert.Equal(axis.Id, intelligence.OptionChoiceMemberships[0].OptionAxisId);
+        Assert.Equal(axis.Id, energyShield.OptionChoiceMemberships[0].OptionAxisId);
+    }
+
+    [Fact]
+    public void Import_ContextQualifiedReservationChoice_RemainsMechanicallyAmbiguousOnConflictingStats()
+    {
+        var result = ImportSingle(
+            """
+                Test Circle Ambiguity
+                Sapphire Ring
+                Has Alt Variant: true
+                Selected Variant: 2
+                Selected Alt Variant: 4
+                Variant: Skill Reservation (Pre 3.11.0)
+                Variant: Skill Reservation (Current)
+                Variant: Buff Effect (Pre 3.11.0)
+                Variant: Buff Effect (Current)
+                Implicits: 0
+                {variant:1}Herald has (40-50)% reduced Reservation
+                {variant:2}Herald has (30-40)% increased Mana Reservation Efficiency
+                {variant:3}Herald has (40-50)% increased Buff Effect
+                {variant:4}Herald has (50-60)% increased Buff Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.reservation-first", "reservation_first", 30, 40, "unique"),
+                Modifier("unique.reservation-second", "reservation_second", 30, 40, "unique"),
+                Modifier("unique.buff-current", "buff_current", 50, 60, "unique"),
+            ],
+            translations:
+            [
+                Translation("reservation-first", "reservation_first", "Herald has {0}% increased Mana Reservation Efficiency", "#"),
+                Translation("reservation-second", "reservation_second", "Herald has {0}% increased Mana Reservation Efficiency", "#"),
+                Translation("buff-current", "buff_current", "Herald has {0}% increased Buff Effect", "#"),
+            ]);
+
+        var current = Assert.Single(Assert.Single(result.Catalog!.Items).Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        var reservation = Assert.Single(current.ModifierBlocks,
+            block => block.Lines[0].Contains("Reservation Efficiency", StringComparison.Ordinal));
+        Assert.Single(reservation.OptionChoiceMemberships);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous,
+            reservation.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT",
+            reservation.MechanicalMapping.DiagnosticCode);
+        var buff = Assert.Single(current.ModifierBlocks,
+            block => block.Lines[0].Contains("Buff Effect", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, buff.MechanicalMapping.Status);
+    }
+
+    [Fact]
+    public void Import_TrueAtomicVersions_StayMutuallyExclusiveAndHaveNoOptionAxis()
+    {
+        var result = ImportSingle(
+            """
+                Test Flask
+                Diamond Flask
+                Variant: Pre 3.15.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}30% increased Chaos Damage
+                {variant:2}250% increased Chaos Damage
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.chaos-old", "chaos_old", 30, 30, "unique"),
+                Modifier("unique.chaos-current", "chaos_current", 250, 250, "unique"),
+            ],
+            translations:
+            [
+                Translation("chaos-old", "chaos_old", "{0}% increased Chaos Damage", "#"),
+                Translation("chaos-current", "chaos_current", "{0}% increased Chaos Damage", "#"),
+            ]);
+
+        var versions = Assert.Single(result.Catalog!.Items).Versions;
+        Assert.Equal(2, versions.Count);
+        Assert.All(versions, version =>
+        {
+            Assert.Empty(version.OptionAxes);
+            Assert.Single(version.ModifierBlocks);
+            Assert.Empty(version.ModifierBlocks[0].OptionChoiceMemberships);
+        });
     }
 
     [Fact]

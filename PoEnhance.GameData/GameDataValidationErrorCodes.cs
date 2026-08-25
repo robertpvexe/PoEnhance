@@ -148,6 +148,7 @@ public static class GameDataValidationErrorCodes
     public const string UniqueCatalogIdentityInvalid = "uniqueItems.identity.invalid";
     public const string UniqueCatalogIdentityCollision = "uniqueItems.identity.canonicalKey.collision";
     public const string UniqueCatalogVersionInvalid = "uniqueItems.version.invalid";
+    public const string UniqueCatalogOptionAxisInvalid = "uniqueItems.optionAxis.invalid";
     public const string UniqueCatalogBlockInvalid = "uniqueItems.block.invalid";
     public const string UniqueCatalogReferenceUnknown = "uniqueItems.reference.unknown";
     public const string UniqueFoulbornSourceInvalid = "uniqueItems.foulborn.source.invalid";

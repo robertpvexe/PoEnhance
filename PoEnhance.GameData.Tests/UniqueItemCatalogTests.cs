@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using PoEnhance.GameData;
 
 namespace PoEnhance.GameData.Tests;
@@ -296,6 +297,163 @@ public sealed class UniqueItemCatalogTests
         var retainedBlock = Assert.Single(retainedVersion.ModifierBlocks);
         Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, retainedBlock.SourceSemantics);
         Assert.Equal(["pob-generated-candidate:test"], retainedBlock.CandidatePoolMembershipIds);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_OptionAxis_PreservesChoiceAndBlockProvenance()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                OptionAxes =
+                                [
+                                    new UniqueItemOptionAxis
+                                    {
+                                        Id = "pob-option-axis:test",
+                                        SelectionLimit = 1,
+                                        Choices =
+                                        [
+                                            new UniqueItemOptionChoice
+                                            {
+                                                Id = "pob-option-choice:test",
+                                                SourceObservationIds = ["pob:test"],
+                                            },
+                                        ],
+                                        SourceObservationIds = ["pob:test"],
+                                    },
+                                ],
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        OptionChoiceMemberships =
+                                        [
+                                            new UniqueModifierOptionChoiceMembership
+                                            {
+                                                OptionAxisId = "pob-option-axis:test",
+                                                OptionChoiceId = "pob-option-choice:test",
+                                                SourceObservationIds = ["pob:test"],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var roundTripped = Assert.IsType<GameDataPackage>(
+            GameDataPackageJson.Deserialize(GameDataPackageJson.Serialize(package)));
+
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+        var retainedVersion = Assert.Single(Assert.Single(roundTripped.UniqueItems!.Items).Versions);
+        var retainedAxis = Assert.Single(retainedVersion.OptionAxes);
+        Assert.Equal("pob-option-axis:test", retainedAxis.Id);
+        Assert.Equal("pob-option-choice:test", Assert.Single(retainedAxis.Choices).Id);
+        var membership = Assert.Single(Assert.Single(retainedVersion.ModifierBlocks)
+            .OptionChoiceMemberships);
+        Assert.Equal(retainedAxis.Id, membership.OptionAxisId);
+        Assert.Equal(retainedAxis.Choices[0].Id, membership.OptionChoiceId);
+        Assert.Equal(["pob:test"], membership.SourceObservationIds);
+    }
+
+    [Fact]
+    public void JsonDeserialize_SchemaThreeWithoutOptionAxisProperties_DefaultsToEmptyCollections()
+    {
+        var legacyJson = JsonNode.Parse(GameDataPackageJson.Serialize(CreatePackage()))!.AsObject();
+        var version = legacyJson["uniqueItems"]!["items"]![0]!["versions"]![0]!.AsObject();
+        var block = version["modifierBlocks"]![0]!.AsObject();
+        Assert.True(version.Remove("optionAxes"));
+        Assert.True(block.Remove("optionChoiceMemberships"));
+
+        var deserialized = Assert.IsType<GameDataPackage>(
+            GameDataPackageJson.Deserialize(legacyJson.ToJsonString()));
+
+        Assert.True(GameDataPackageValidator.Validate(deserialized).IsValid);
+        var retainedVersion = Assert.Single(Assert.Single(deserialized.UniqueItems!.Items).Versions);
+        Assert.Empty(retainedVersion.OptionAxes);
+        Assert.Empty(Assert.Single(retainedVersion.ModifierBlocks).OptionChoiceMemberships);
+    }
+
+    [Fact]
+    public void Validate_OptionMembershipWithUnknownChoice_FailsClosed()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                OptionAxes =
+                                [
+                                    new UniqueItemOptionAxis
+                                    {
+                                        Id = "pob-option-axis:test",
+                                        SelectionLimit = 1,
+                                        Choices =
+                                        [
+                                            new UniqueItemOptionChoice
+                                            {
+                                                Id = "pob-option-choice:test",
+                                                SourceObservationIds = ["pob:test"],
+                                            },
+                                        ],
+                                        SourceObservationIds = ["pob:test"],
+                                    },
+                                ],
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        OptionChoiceMemberships =
+                                        [
+                                            new UniqueModifierOptionChoiceMembership
+                                            {
+                                                OptionAxisId = "pob-option-axis:test",
+                                                OptionChoiceId = "pob-option-choice:missing",
+                                                SourceObservationIds = ["pob:test"],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid);
     }
 
     [Fact]

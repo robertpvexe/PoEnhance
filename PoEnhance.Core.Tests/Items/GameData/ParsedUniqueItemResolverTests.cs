@@ -1242,7 +1242,7 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
-    public void Resolve_IndependentCurrentOptionAxesRemainVersionMismatch()
+    public void Resolve_IndependentCurrentOptionChoices_CoexistInOneAtomicVersion()
     {
         var parsed = parser.Parse("""
             Item Class: Jewels
@@ -1264,24 +1264,200 @@ public sealed class ParsedUniqueItemResolverTests
             "Limited to: 2",
             "Limited to: <number>",
             "limit_stat");
-        var catalog = CreateCatalog("Test Option Jewel", "Crimson Jewel", UniqueItemKind.Ordinary,
-            Version("Energy Shield", UniqueItemVersionRole.Current,
-                shared,
-                RuntimeEvidenceBlock("energy-shield", "+5 to maximum Energy Shield", "+<number> to maximum Energy Shield", "energy_shield")),
-            Version("Intelligence", UniqueItemVersionRole.Current,
-                shared with { Id = "block:shared-limit-intelligence" },
-                RuntimeEvidenceBlock("intelligence", "+5 to Intelligence", "+<number> to Intelligence", "intelligence")),
-            Version("Strength", UniqueItemVersionRole.Current,
-                shared with { Id = "block:shared-limit-strength" },
-                RuntimeEvidenceBlock("strength", "+5 to Strength", "+<number> to Strength", "strength")));
+        var energyShield = RuntimeEvidenceBlock(
+            "energy-shield",
+            "+5 to maximum Energy Shield",
+            "+<number> to maximum Energy Shield",
+            "energy_shield") with
+        {
+            OptionChoiceMemberships = [OptionMembership("choice:energy-shield")],
+        };
+        var intelligence = RuntimeEvidenceBlock(
+            "intelligence",
+            "+5 to Intelligence",
+            "+<number> to Intelligence",
+            "intelligence") with
+        {
+            OptionChoiceMemberships = [OptionMembership("choice:intelligence")],
+        };
+        var version = Version(
+            "Current",
+            UniqueItemVersionRole.Current,
+            shared,
+            energyShield,
+            intelligence) with
+        {
+            OptionAxes =
+            [
+                OptionAxis(2, "choice:energy-shield", "choice:intelligence"),
+            ],
+        };
+        var catalog = CreateCatalog(
+            "Test Option Jewel",
+            "Crimson Jewel",
+            UniqueItemKind.Ordinary,
+            version);
 
         var result = resolver.Resolve(parsed, catalog);
 
-        Assert.Equal(2, result.CompatibleVersions.Count);
-        Assert.Equal(2, result.ModifierBlocks.Count(block =>
-            block.DiagnosticCode == "UNIQUE_BLOCK_VERSION_MISMATCH"));
-        Assert.DoesNotContain(result.ModifierBlocks.Where(block => block.ParsedModifierIndex > 0),
-            block => block.IsResolved);
+        Assert.Single(result.CompatibleVersions);
+        Assert.All(result.ModifierBlocks, block => Assert.True(
+            block.IsResolved,
+            $"{block.DiagnosticCode}: {block.Diagnostic}"));
+        var selectedChoices = result.ModifierBlocks
+            .SelectMany(block => block.OptionChoiceMemberships)
+            .ToArray();
+        Assert.Equal(2, selectedChoices.Length);
+        Assert.Equal(
+            ["choice:energy-shield", "choice:intelligence"],
+            selectedChoices.Select(membership => membership.OptionChoiceId!)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray());
+        Assert.All(selectedChoices, membership =>
+        {
+            Assert.Equal("axis:test", membership.OptionAxisId);
+            Assert.Equal(["pob-observation:test"], membership.SourceObservationIds);
+        });
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var optionComponents = draft.ModifierFilters
+            .Where(component => component.OriginalText.Contains("Energy Shield", StringComparison.Ordinal) ||
+                component.OriginalText.Contains("Intelligence", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, optionComponents.Length);
+        Assert.All(optionComponents, component =>
+        {
+            Assert.Single(component.UniqueCatalogBlockIds);
+            Assert.Single(component.UniqueOptionChoiceMemberships);
+            Assert.Single(component.UniqueSourceObservationIds);
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+        });
+    }
+
+    [Fact]
+    public void Resolve_TwoIndependentOptionAxes_CoexistInOneAtomicVersion()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Rings
+            Rarity: Unique
+            Test Two Axis Ring
+            Ruby Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +1% to maximum Fire Resistance
+            { Unique Modifier }
+            55% increased Damage
+            """);
+        var resistance = RuntimeEvidenceBlock(
+            "resistance",
+            "+1% to maximum Fire Resistance",
+            "+<number>% to maximum Fire Resistance",
+            "maximum_fire_resistance") with
+        {
+            OptionChoiceMemberships = [OptionMembership("axis:defence", "choice:resistance")],
+        };
+        var damage = RuntimeEvidenceBlock(
+            "damage",
+            "55% increased Damage",
+            "<number>% increased Damage",
+            "increased_damage") with
+        {
+            OptionChoiceMemberships = [OptionMembership("axis:offence", "choice:damage")],
+        };
+        var version = Version(
+            "Current",
+            UniqueItemVersionRole.Current,
+            resistance,
+            damage) with
+        {
+            OptionAxes =
+            [
+                OptionAxis("axis:defence", 1, "choice:resistance"),
+                OptionAxis("axis:offence", 1, "choice:damage"),
+            ],
+        };
+        var catalog = CreateCatalog(
+            "Test Two Axis Ring",
+            "Ruby Ring",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Single(result.CompatibleVersions);
+        Assert.All(result.ModifierBlocks, block => Assert.True(
+            block.IsResolved,
+            $"{block.DiagnosticCode}: {block.Diagnostic}"));
+        Assert.Equal(
+            ["axis:defence", "axis:offence"],
+            result.ModifierBlocks
+                .SelectMany(block => block.OptionChoiceMemberships)
+                .Select(membership => membership.OptionAxisId!)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    [Fact]
+    public void Resolve_OptionAxisSelectionLimitExceeded_FailsClosed()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Test Limited Options
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +5 to maximum Energy Shield
+            { Unique Modifier }
+            +5 to Intelligence
+            """);
+        var energyShield = RuntimeEvidenceBlock(
+            "energy-shield",
+            "+5 to maximum Energy Shield",
+            "+<number> to maximum Energy Shield",
+            "energy_shield") with
+        {
+            OptionChoiceMemberships = [OptionMembership("choice:energy-shield")],
+        };
+        var intelligence = RuntimeEvidenceBlock(
+            "intelligence",
+            "+5 to Intelligence",
+            "+<number> to Intelligence",
+            "intelligence") with
+        {
+            OptionChoiceMemberships = [OptionMembership("choice:intelligence")],
+        };
+        var version = Version(
+            "Current",
+            UniqueItemVersionRole.Current,
+            energyShield,
+            intelligence) with
+        {
+            OptionAxes =
+            [
+                OptionAxis(1, "choice:energy-shield", "choice:intelligence"),
+            ],
+        };
+        var catalog = CreateCatalog(
+            "Test Limited Options",
+            "Crimson Jewel",
+            UniqueItemKind.Ordinary,
+            version);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Empty(result.CompatibleVersions);
+        Assert.All(result.ModifierBlocks, block =>
+        {
+            Assert.False(block.IsResolved);
+            Assert.Equal("UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED", block.DiagnosticCode);
+        });
     }
 
     [Fact]
@@ -2310,6 +2486,37 @@ public sealed class ParsedUniqueItemResolverTests
         Role = role,
         BaseType = "Calling Wand",
         ModifierBlocks = blocks,
+        SourceObservationIds = ["pob-observation:test"],
+    };
+
+    private static UniqueItemOptionAxis OptionAxis(
+        int selectionLimit,
+        params string[] choiceIds) => OptionAxis("axis:test", selectionLimit, choiceIds);
+
+    private static UniqueItemOptionAxis OptionAxis(
+        string axisId,
+        int selectionLimit,
+        params string[] choiceIds) => new()
+    {
+        Id = axisId,
+        SelectionLimit = selectionLimit,
+        Choices = choiceIds.Select(choiceId => new UniqueItemOptionChoice
+        {
+            Id = choiceId,
+            SourceObservationIds = ["pob-observation:test"],
+        }).ToArray(),
+        SourceObservationIds = ["pob-observation:test"],
+    };
+
+    private static UniqueModifierOptionChoiceMembership OptionMembership(string choiceId) =>
+        OptionMembership("axis:test", choiceId);
+
+    private static UniqueModifierOptionChoiceMembership OptionMembership(
+        string axisId,
+        string choiceId) => new()
+    {
+        OptionAxisId = axisId,
+        OptionChoiceId = choiceId,
         SourceObservationIds = ["pob-observation:test"],
     };
 

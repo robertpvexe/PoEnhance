@@ -25,6 +25,12 @@ public sealed record UniqueModifierBlock
     /// </summary>
     public IReadOnlyList<string> CandidatePoolMembershipIds { get; init; } = [];
 
+    /// <summary>
+    /// Source-derived memberships in independently selectable option choices. These remain
+    /// separate from generated-candidate semantics and from atomic item versions.
+    /// </summary>
+    public IReadOnlyList<UniqueModifierOptionChoiceMembership> OptionChoiceMemberships { get; init; } = [];
+
     public UniqueModifierMechanicalMapping MechanicalMapping { get; init; } = new();
 
     public IReadOnlyList<string> SourceObservationIds { get; init; } = [];

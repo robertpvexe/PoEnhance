@@ -56,6 +56,8 @@ public sealed record UniqueModifierBlockResolution
 
     public IReadOnlyList<string> CandidatePoolMembershipIds { get; init; } = [];
 
+    public IReadOnlyList<UniqueModifierOptionChoiceMembership> OptionChoiceMemberships { get; init; } = [];
+
     public IReadOnlyList<string> TextualOptionRangeAnnotations { get; init; } = [];
 
     public IReadOnlyList<string> SourceObservationIds { get; init; } = [];

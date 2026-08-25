@@ -88,6 +88,8 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<string> UniqueCandidatePoolMembershipIds { get; init; } = [];
 
+    public IReadOnlyList<UniqueModifierOptionChoiceMembership> UniqueOptionChoiceMemberships { get; init; } = [];
+
     /// <summary>
     /// Parser-separated textual option-range annotations accepted only after exact generated
     /// candidate resolution. These are proof metadata and never provider filter identities.

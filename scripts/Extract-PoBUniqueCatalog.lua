@@ -176,6 +176,40 @@ local function semanticFingerprintsFor(raw)
 	return ok and fingerprints or { }
 end
 
+local function optionAxesFor(raw)
+	local ok, axes = pcall(function()
+		local item = new("Item", raw, "UNIQUE", true)
+		if item.usesVariantGroups or not item.variantList or not item.hasAltVariant then
+			return { }
+		end
+
+		local selectionLimit = 1
+		local selectedChoiceIndices = { item.variant }
+		for index = 1, 5 do
+			local suffix = index == 1 and "" or tostring(index)
+			if item["hasAltVariant" .. suffix] then
+				selectionLimit = selectionLimit + 1
+				table.insert(selectedChoiceIndices, item["variantAlt" .. suffix])
+			end
+		end
+
+		local sourceChoiceIndices = { }
+		for index = 1, #item.variantList do
+			table.insert(sourceChoiceIndices, index)
+		end
+		return {
+			{
+				sourceKind = "legacySharedVariantSelection",
+				sourceOrdinal = 1,
+				selectionLimit = selectionLimit,
+				sourceChoiceIndices = sourceChoiceIndices,
+				selectedChoiceIndices = selectedChoiceIndices,
+			}
+		}
+	end)
+	return ok and axes or { }
+end
+
 local function extract()
 	LoadModule("GameVersions")
 	LoadModule("Modules/Common")
@@ -210,6 +244,7 @@ local function extract()
 				generated = uniqueType == "generated",
 				raw = rawItem,
 				semanticFingerprints = semanticFingerprintsFor(rawItem),
+				optionAxes = optionAxesFor(rawItem),
 			})
 		end
 	end

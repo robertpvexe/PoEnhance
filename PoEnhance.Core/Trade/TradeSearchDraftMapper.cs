@@ -1097,6 +1097,8 @@ public sealed partial class TradeSearchDraftMapper
                 UniqueModifierSourceSemantics.Fixed,
             UniqueCandidatePoolMembershipIds =
                 uniqueBlockResolution?.CandidatePoolMembershipIds ?? [],
+            UniqueOptionChoiceMemberships =
+                uniqueBlockResolution?.OptionChoiceMemberships ?? [],
             UniqueTextualOptionRangeAnnotations =
                 uniqueBlockResolution?.TextualOptionRangeAnnotations ?? [],
             UniqueFoulbornRelationshipIds = uniqueBlockResolution?.FoulbornRelationshipIds ?? [],

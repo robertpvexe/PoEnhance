@@ -276,6 +276,113 @@ public sealed partial class UniqueCandidateRuntimeTests
         Assert.False(string.IsNullOrWhiteSpace(unsupportedResolution.ModifierBlocks[0].DiagnosticCode));
     }
 
+    [Fact]
+    public async Task Candidate_OrthogonalOptionRowsCoexistWhileTrueAtomicVersionsRemainExclusive()
+    {
+        var candidatePath = Environment.GetEnvironmentVariable("POENHANCE_UNIQUE_CANDIDATE");
+        if (string.IsNullOrWhiteSpace(candidatePath) || !File.Exists(candidatePath))
+        {
+            return;
+        }
+
+        var load = await GameDataPackageLoader.LoadFromFileAsync(candidatePath);
+        var package = Assert.IsType<GameDataPackage>(load.Package);
+        var catalog = GameDataCatalog.FromPackage(package);
+
+        var anguish = Resolve(catalog, """
+            Item Class: Rings
+            Rarity: Unique
+            Circle of Anguish
+            Ruby Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +1% to maximum Fire Resistance while affected by Herald of Ash
+            { Unique Modifier }
+            +55(50-60)% to Fire Resistance while affected by Herald of Ash
+            """);
+        Assert.NotEmpty(anguish.CompatibleVersions);
+        Assert.Equal(2, anguish.ModifierBlocks.Count);
+        Assert.All(anguish.ModifierBlocks, block =>
+        {
+            Assert.True(block.IsResolved, $"{block.DiagnosticCode}: {block.Diagnostic}");
+            Assert.NotEmpty(block.CatalogBlocks);
+            Assert.All(block.CatalogBlocks, catalogBlock => Assert.True(
+                catalogBlock.MechanicalMapping.Status is
+                    UniqueModifierMechanicalMappingStatus.Exact or
+                    UniqueModifierMechanicalMappingStatus.EquivalentSourceSet));
+            Assert.Single(block.OptionChoiceMemberships);
+            Assert.NotEmpty(block.ModifierIds);
+            Assert.NotEmpty(block.StatIds);
+            Assert.NotEmpty(block.SourceObservationIds);
+        });
+
+        var fear = Resolve(catalog, """
+            Item Class: Rings
+            Rarity: Unique
+            Circle of Fear
+            Sapphire Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Herald of Ice has 36(30-40)% increased Mana Reservation Efficiency
+            { Unique Modifier }
+            +1% to maximum Cold Resistance while affected by Herald of Ice
+            """);
+        Assert.Single(fear.CompatibleVersions);
+        var reservation = fear.ModifierBlocks.Single(block => block.ParsedModifierIndex == 0);
+        Assert.False(reservation.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", reservation.DiagnosticCode);
+        Assert.Single(reservation.OptionChoiceMemberships);
+        var maximumCold = fear.ModifierBlocks.Single(block => block.ParsedModifierIndex == 1);
+        Assert.True(maximumCold.IsResolved, maximumCold.Diagnostic);
+        Assert.Single(maximumCold.OptionChoiceMemberships);
+
+        var split = Resolve(catalog, """
+            Item Class: Jewels
+            Rarity: Unique
+            Split Personality
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +5 to maximum Energy Shield
+            { Unique Modifier }
+            +5 to Intelligence
+            """);
+        Assert.Single(split.CompatibleVersions);
+        Assert.Equal(2, split.ModifierBlocks.Count);
+        Assert.All(split.ModifierBlocks, block => Assert.True(
+            block.IsResolved,
+            $"{block.DiagnosticCode}: {block.Diagnostic}"));
+        var splitMemberships = split.ModifierBlocks
+            .SelectMany(block => block.OptionChoiceMemberships)
+            .ToArray();
+        Assert.Equal(2, splitMemberships.Length);
+        Assert.Single(splitMemberships.Select(membership => membership.OptionAxisId).Distinct());
+        Assert.Equal(2, splitMemberships.Select(membership => membership.OptionChoiceId).Distinct().Count());
+
+        var coralito = Resolve(catalog, """
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Coralito's Signature
+            Diamond Flask
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            60(50-75)% increased Duration of Poisons you inflict during Effect
+            { Unique Modifier }
+            +25(20-30)% to Damage over Time Multiplier for Poison from Critical Strikes during Effect
+            """);
+        Assert.Empty(coralito.CompatibleVersions);
+        Assert.Equal("UNIQUE_VERSION_NOT_FOUND", coralito.DiagnosticCode);
+        Assert.All(coralito.Identity!.Versions, version => Assert.Empty(version.OptionAxes));
+    }
+
     private static void AssertResolvedBlock(GameDataCatalog catalog, CandidateCase candidate, bool expectLegacy)
     {
         var resolution = Resolve(catalog, Raw(candidate));

@@ -27,6 +27,9 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static readonly MethodInfo StaticModifierLabelMethod = typeof(PriceCheckerSearchController)
         .GetMethod("StaticModifierLabel", BindingFlags.Static | BindingFlags.NonPublic) ??
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "StaticModifierLabel");
+    private static readonly MethodInfo ModifierAvailabilityStatusMethod = typeof(PriceCheckerSearchController)
+        .GetMethod("ModifierAvailabilityStatus", BindingFlags.Static | BindingFlags.NonPublic) ??
+        throw new MissingMethodException(nameof(PriceCheckerSearchController), "ModifierAvailabilityStatus");
 
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithEquivalentSourceProvenance()
@@ -612,6 +615,158 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Null(intelligence.FixedQueryValue);
     }
 
+    [Fact]
+    public void ResolveRawCopiedItem_WurmsMoltPhysicalLeechRowsRemainSupported()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve("""
+            Item Class: Belts
+            Rarity: Unique
+            Wurm's Molt
+            Leather Belt
+            --------
+            Item Level: 86
+            --------
+            { Unique Modifier — Mana, Physical, Attack }
+            2% of Physical Attack Damage Leeched as Mana
+            { Unique Modifier — Life, Physical, Attack }
+            2% of Physical Attack Damage Leeched as Life
+            { Unique Modifier — Attribute }
+            +22(20-30) to Strength
+            { Unique Modifier — Attribute }
+            +20(20-30) to Intelligence
+            { Unique Modifier — Elemental, Cold, Resistance }
+            +28(20-30)% to Cold Resistance
+            { Unique Modifier — Life }
+            611(500-1000)% increased total Recovery per second from Life Leech
+            { Unique Modifier — Mana }
+            965(500-1000)% increased total Recovery per second from Mana Leech
+            """, catalog);
+        var expected = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["2% of Physical Attack Damage Leeched as Mana"] = "explicit.stat_3237948413",
+            ["2% of Physical Attack Damage Leeched as Life"] = "explicit.stat_3593843976",
+        };
+
+        foreach (var (text, providerStatId) in expected)
+        {
+            var component = FindComponent(runtime.ProviderDraft, text);
+            Assert.True(
+                component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+                $"{text}: source={component.ResolutionStatus}; sourceCode={component.UniqueResolutionDiagnosticCode}; " +
+                $"provider={component.ProviderResolutionStatus}; providerCode={component.ProviderDiagnosticCode}; " +
+                $"providerMessage={component.ProviderDiagnosticMessage}; searchable={component.IsSearchable}; " +
+                $"reason={component.NotSearchableReason}");
+            Assert.Equal(providerStatId, component.ProviderStatId);
+            Assert.True(component.IsSearchable, component.NotSearchableReason);
+            Assert.True(IsInteractionReady(component));
+            Assert.True(component.HasExactUniqueSourceProvenance);
+            Assert.Single(component.UniqueCatalogBlockIds);
+            Assert.NotEmpty(component.UniqueSourceObservationIds);
+            Assert.Equal(2m, component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            AssertSingleQueryFilter(
+                runtime,
+                component,
+                catalog,
+                providerStatId,
+                expectedMinimum: 2m,
+                expectedMaximum: null);
+        }
+    }
+
+    [Fact]
+    public void ResolveRawCopiedItems_OptionAxisManualMatrixHasExpectedStaticOutcomes()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var anguish = Resolve("""
+            Item Class: Rings
+            Rarity: Unique
+            Circle of Anguish
+            Ruby Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +1% to maximum Fire Resistance while affected by Herald of Ash
+            { Unique Modifier }
+            +55(50-60)% to Fire Resistance while affected by Herald of Ash
+            """, catalog);
+        AssertExpectedSupported(
+            anguish,
+            "+1% to maximum Fire Resistance while affected by Herald of Ash",
+            1m,
+            catalog);
+        AssertExpectedSupported(
+            anguish,
+            "+55(50-60)% to Fire Resistance while affected by Herald of Ash",
+            55m,
+            catalog);
+
+        var fear = Resolve("""
+            Item Class: Rings
+            Rarity: Unique
+            Circle of Fear
+            Sapphire Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Herald of Ice has 36(30-40)% increased Mana Reservation Efficiency
+            { Unique Modifier }
+            +1% to maximum Cold Resistance while affected by Herald of Ice
+            """, catalog);
+        var reservation = FindComponent(
+            fear.ProviderDraft,
+            "Herald of Ice has 36(30-40)% increased Mana Reservation Efficiency");
+        Assert.Equal("Unique", StaticModifierLabel(reservation));
+        Assert.Equal("Ambiguous", ModifierAvailabilityStatus(reservation));
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", reservation.UniqueResolutionDiagnosticCode);
+        Assert.False(reservation.IsSearchable);
+        Assert.False(IsInteractionReady(reservation));
+        Assert.True(reservation.SupportsValueBounds);
+        Assert.Equal(36m, reservation.RequestedMinimum);
+        Assert.Null(reservation.RequestedMaximum);
+        AssertExpectedSupported(
+            fear,
+            "+1% to maximum Cold Resistance while affected by Herald of Ice",
+            1m,
+            catalog);
+
+        var split = Resolve("""
+            Item Class: Jewels
+            Rarity: Unique
+            Split Personality
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +5 to maximum Energy Shield
+            { Unique Modifier }
+            +5 to Intelligence
+            """, catalog);
+        AssertExpectedSupported(split, "+5 to maximum Energy Shield", 5m, catalog);
+        AssertExpectedSupported(split, "+5 to Intelligence", 5m, catalog);
+
+        var coralito = Resolve("""
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Coralito's Signature
+            Diamond Flask
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +25(20-30)% to Damage over Time Multiplier for Poison from Critical Strikes during Effect
+            """, catalog);
+        AssertExpectedSupported(
+            coralito,
+            "+25(20-30)% to Damage over Time Multiplier for Poison from Critical Strikes during Effect",
+            25m,
+            catalog);
+    }
+
     [Theory]
     [InlineData(
         nameof(LethalPrideText),
@@ -960,6 +1115,32 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         return (string)(StaticModifierLabelMethod.Invoke(null, [component]) ?? string.Empty);
     }
 
+    private static string ModifierAvailabilityStatus(ResolvedSearchComponent component)
+    {
+        return (string)(ModifierAvailabilityStatusMethod.Invoke(null, [component]) ?? string.Empty);
+    }
+
+    private static void AssertExpectedSupported(
+        RuntimeResult runtime,
+        string text,
+        decimal expectedMinimum,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        var component = FindComponent(runtime.ProviderDraft, text);
+        Assert.Equal("Unique", StaticModifierLabel(component));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.True(IsInteractionReady(component));
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(expectedMinimum, component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.NotEmpty(component.UniqueCatalogBlockIds);
+        Assert.NotEmpty(component.UniqueSourceObservationIds);
+        var filter = MapSingle(runtime.ProviderDraft, component, catalog);
+        Assert.Equal(expectedMinimum, filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
     private static void AssertOfficialAdditionalCurseDomains()
     {
         var catalog = OfficialTradeCatalog.Value;
@@ -1148,6 +1329,11 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(15, "Militant Faith", "Timeless Jewel", "jewel"),
             UniqueItem(16, "Replica Bated Breath", "Chain Belt", "accessory"),
             UniqueItem(17, "Augyre", "Void Sceptre", "weapon"),
+            UniqueItem(18, "Wurm's Molt", "Leather Belt", "accessory"),
+            UniqueItem(19, "Circle of Anguish", "Ruby Ring", "accessory"),
+            UniqueItem(20, "Circle of Fear", "Sapphire Ring", "accessory"),
+            UniqueItem(21, "Split Personality", "Crimson Jewel", "jewel"),
+            UniqueItem(22, "Coralito's Signature", "Diamond Flask", "flask"),
         ]);
     }
 

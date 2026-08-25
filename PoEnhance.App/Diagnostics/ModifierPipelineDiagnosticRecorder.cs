@@ -562,6 +562,8 @@ internal sealed class ModifierPipelineSourceResolutionCapture
 
     public IReadOnlyList<string> UniqueCatalogBlockIds { get; init; } = [];
 
+    public IReadOnlyList<ModifierPipelineOptionChoiceMembershipCapture> UniqueOptionChoiceMemberships { get; init; } = [];
+
     public IReadOnlyList<string> UniqueSourceObservationIds { get; init; } = [];
 
     public string? UniqueResolutionDiagnosticCode { get; init; }
@@ -591,12 +593,29 @@ internal sealed class ModifierPipelineSourceResolutionCapture
                 .Select(statId => statId!)
                 .ToArray() ?? component.ResolvedStatIds.ToArray(),
             UniqueCatalogBlockIds = component.UniqueCatalogBlockIds.ToArray(),
+            UniqueOptionChoiceMemberships = component.UniqueOptionChoiceMemberships
+                .Select(membership => new ModifierPipelineOptionChoiceMembershipCapture
+                {
+                    OptionAxisId = membership.OptionAxisId,
+                    OptionChoiceId = membership.OptionChoiceId,
+                    SourceObservationIds = membership.SourceObservationIds.ToArray(),
+                })
+                .ToArray(),
             UniqueSourceObservationIds = component.UniqueSourceObservationIds.ToArray(),
             UniqueResolutionDiagnosticCode = component.UniqueResolutionDiagnosticCode,
             IsEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true || component.IsEquivalentSourceSet,
             SourceCandidateCount = resolution?.CandidateCount ?? 0,
         };
     }
+}
+
+internal sealed class ModifierPipelineOptionChoiceMembershipCapture
+{
+    public string? OptionAxisId { get; init; }
+
+    public string? OptionChoiceId { get; init; }
+
+    public IReadOnlyList<string> SourceObservationIds { get; init; } = [];
 }
 
 internal sealed class ModifierPipelineResolvedSemanticsCapture

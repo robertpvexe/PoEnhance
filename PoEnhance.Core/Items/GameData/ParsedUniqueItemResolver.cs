@@ -246,6 +246,14 @@ public sealed partial class ParsedUniqueItemResolver
             .Distinct(StringComparer.Ordinal)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
+        var optionChoiceMemberships = blocks
+            .SelectMany(block => block.OptionChoiceMemberships)
+            .DistinctBy(membership =>
+                $"{membership.OptionAxisId}\u001f{membership.OptionChoiceId}",
+                StringComparer.OrdinalIgnoreCase)
+            .OrderBy(membership => membership.OptionAxisId, StringComparer.Ordinal)
+            .ThenBy(membership => membership.OptionChoiceId, StringComparer.Ordinal)
+            .ToArray();
         var sourceSemanticsAreUnambiguous = sourceSemantics.Length == 1;
         var isGeneratedCandidate = sourceSemanticsAreUnambiguous &&
             sourceSemantics[0] == UniqueModifierSourceSemantics.GeneratedCandidate;
@@ -270,6 +278,16 @@ public sealed partial class ParsedUniqueItemResolver
                 version,
                 parsedItem.UniqueModifiers,
                 isFoulborn));
+        var matchingOptionVersions = matchedByVersion
+            .Where(version => version.Matches.Any(candidate =>
+                candidate.Block.OptionChoiceMemberships.Count > 0))
+            .Select(version => version.Version)
+            .ToArray();
+        var optionSelectionLimitRejectsBlock = matchingOptionVersions.Length > 0 &&
+            matchingOptionVersions.All(version => OptionSelectionLimitExceeded(
+                version,
+                parsedItem.UniqueModifiers,
+                isFoulborn));
         var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
             mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
                 UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
@@ -282,7 +300,8 @@ public sealed partial class ParsedUniqueItemResolver
             sourceSemanticsAreUnambiguous &&
             candidatePoolProofIsComplete &&
             !textualOptionRangeCollision &&
-            !selectionLimitRejectsBlock;
+            !selectionLimitRejectsBlock &&
+            !optionSelectionLimitRejectsBlock;
         var mappingDiagnosticCodes = mappings
             .Select(mapping => mapping.DiagnosticCode?.Trim())
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -332,6 +351,7 @@ public sealed partial class ParsedUniqueItemResolver
             CandidatePoolMembershipIds = isGeneratedCandidate
                 ? candidatePoolMembershipIds
                 : [],
+            OptionChoiceMemberships = optionChoiceMemberships,
             TextualOptionRangeAnnotations = resolved && usesTextualOptionRangeProjection
                 ? textualOptionRangeAnnotations
                 : [],
@@ -339,7 +359,9 @@ public sealed partial class ParsedUniqueItemResolver
             PresentationLines = presentationLines.Length == 1
                 ? presentationLines[0].Split('\u001f')
                 : [],
-            DiagnosticCode = resolved ? null : selectionLimitRejectsBlock
+            DiagnosticCode = resolved ? null : optionSelectionLimitRejectsBlock
+                ? "UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED"
+                : selectionLimitRejectsBlock
                 ? "UNIQUE_GENERATED_SELECTION_LIMIT_EXCEEDED"
                 : textualOptionRangeCollision
                     ? "UNIQUE_GENERATED_TEXTUAL_OPTION_RANGE_AMBIGUOUS"
@@ -357,7 +379,9 @@ public sealed partial class ParsedUniqueItemResolver
                     block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
                     ? "UNIQUE_GENERATED_CANDIDATE_NOT_FOUND"
                     : "UNIQUE_BLOCK_VERSION_MISMATCH",
-            Diagnostic = resolved ? null : selectionLimitRejectsBlock
+            Diagnostic = resolved ? null : optionSelectionLimitRejectsBlock
+                ? "The copied item contains more independently selected source choices than the option axis permits."
+                : selectionLimitRejectsBlock
                 ? "The copied item contains more generated candidate blocks than the selected source definition permits."
                 : textualOptionRangeCollision
                     ? "Separating the textual option-range annotation leaves multiple generated source candidates."
@@ -495,10 +519,38 @@ public sealed partial class ParsedUniqueItemResolver
             return false;
         }
 
-        return !GeneratedSelectionLimitExceeded(
-            version,
-            modifiers,
-            isFoulborn);
+        return !GeneratedSelectionLimitExceeded(version, modifiers, isFoulborn) &&
+            !OptionSelectionLimitExceeded(version, modifiers, isFoulborn);
+    }
+
+    private static bool OptionSelectionLimitExceeded(
+        UniqueItemVersionObservation version,
+        IReadOnlyList<ParsedModifier> modifiers,
+        bool isFoulborn)
+    {
+        foreach (var axis in version.OptionAxes)
+        {
+            var selectedChoiceCount = modifiers
+                .Where(modifier =>
+                    modifier.Kind == ParsedModifierKind.Unique &&
+                    !(isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn))
+                .SelectMany(modifier => MatchVersionBlocks(version, modifier))
+                .SelectMany(match => match.Block.OptionChoiceMemberships)
+                .Where(membership => string.Equals(
+                    membership.OptionAxisId,
+                    axis.Id,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(membership => membership.OptionChoiceId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            if (selectedChoiceCount > axis.SelectionLimit)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool GeneratedSelectionLimitExceeded(
