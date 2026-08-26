@@ -684,6 +684,179 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Equal("copiedInstance", provenance.ValueAuthority);
         Assert.Contains("implicit-zero-stat-composition", provenance.ResolutionReasons);
         Assert.Contains("order-independent-complete-multiline", provenance.ResolutionReasons);
+        Assert.Null(block.Composition);
+    }
+
+    [Theory]
+    [InlineData("+(30-50) to maximum Energy Shield", "local_energy_shield", 30, 50)]
+    [InlineData("(100-120)% increased Armour", "local_armour", 100, 120)]
+    public void Import_SourceProvenCompoundDefenceAndStun_RecordsOrderedLineComposition(
+        string defenceLine,
+        string defenceStatId,
+        decimal minimum,
+        decimal maximum)
+    {
+        const string stunLine = "10% increased Stun and Block Recovery";
+        var modifier = Modifier(
+            "unique.compound-defence",
+            (defenceStatId, minimum, maximum),
+            ("base_stun_recovery_+%", 10m, 10m)) with
+        {
+            SourceText = $"{defenceLine}\n{stunLine}",
+        };
+        var result = ImportSingle(
+            $"""
+                Test Helmet
+                Iron Hat
+                Implicits: 0
+                {defenceLine}
+                {stunLine}
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations:
+            [
+                Translation("defence", defenceStatId,
+                    defenceStatId == "local_energy_shield"
+                        ? "{0} to maximum Energy Shield"
+                        : "{0}% increased Armour",
+                    defenceStatId == "local_energy_shield" ? "+#" : "#"),
+                Translation("stun-recovery", "base_stun_recovery_+%",
+                    "{0}% increased Stun and Block Recovery", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = defenceStatId, IsLocal = true },
+                new StatDefinition { Id = "base_stun_recovery_+%", IsLocal = false },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([defenceStatId, "base_stun_recovery_+%"], block.MechanicalMapping.StatIds);
+        var composition = Assert.IsType<UniqueModifierComposition>(block.Composition);
+        Assert.Equal(2, composition.Components.Count);
+        Assert.Equal([defenceLine], composition.Components[0].Lines);
+        Assert.Equal([defenceStatId], composition.Components[0].StatIds);
+        Assert.Equal([stunLine], composition.Components[1].Lines);
+        Assert.Equal(["base_stun_recovery_+%"], composition.Components[1].StatIds);
+        Assert.Empty(composition.AuxiliaryStatIds);
+        Assert.Contains(
+            "source-block-composition",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_SourceTextFallback_GroupsBonesOfUllrAndRetainsZeroAuxiliaryStat()
+    {
+        const string zombie = "+1 to Level of all Raise Zombie Gems";
+        const string spectre = "+1 to Level of all Raise Spectre Gems";
+        var modifier = Modifier(
+            "unique.bones-of-ullr",
+            ("zombie_gem_level", 1m, 1m),
+            ("skeleton_gem_level", 0m, 0m),
+            ("spectre_gem_level", 1m, 1m)) with
+        {
+            SourceText = $"{zombie}\n{spectre}",
+        };
+        var duplicate = modifier with { Id = "unique.bones-of-ullr.divergent" };
+        var result = ImportSingle(
+            $"""
+                Bones of Ullr
+                Silk Slippers
+                Implicits: 0
+                {zombie}
+                {spectre}
+                """,
+            generated: false,
+            modifiers: [modifier, duplicate],
+            translations: []);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["unique.bones-of-ullr", "unique.bones-of-ullr.divergent"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["zombie_gem_level", "skeleton_gem_level", "spectre_gem_level"],
+            block.MechanicalMapping.StatIds);
+        var composition = Assert.IsType<UniqueModifierComposition>(block.Composition);
+        Assert.Equal(["zombie_gem_level"], composition.Components[0].StatIds);
+        Assert.Equal(["spectre_gem_level"], composition.Components[1].StatIds);
+        Assert.Equal(["skeleton_gem_level"], composition.AuxiliaryStatIds);
+        Assert.Contains(
+            "repoe-modifier-source-text",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_SourceTextFallback_GroupsBattleWithinPresenceLines()
+    {
+        const string first = "Does not inflict Mana Burn over time";
+        const string second = "Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon";
+        var modifier = Modifier(
+            "unique.battle-within",
+            ("local_cannot_generate_toxicity_stacks_over_time", 1m, 1m),
+            ("toxicity_stacks_gained_on_hit_with_tinctured_weapons", 1m, 1m)) with
+        {
+            SourceText = $"{first}\n{second}",
+            Domain = "tincture",
+        };
+        var result = ImportSingle(
+            $"""
+                The Battle Within
+                Prismatic Tincture
+                Implicits: 0
+                {first}
+                {second}
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations: []);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(2, Assert.IsType<UniqueModifierComposition>(block.Composition).Components.Count);
+        Assert.Contains(
+            "repoe-modifier-source-text",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_AdjacentIndependentLifeAndManaLines_RemainSeparateBlocks()
+    {
+        var life = Modifier("unique.life", "maximum_life", 20, 20, "unique") with
+        {
+            SourceText = "+20 to maximum Life",
+        };
+        var mana = Modifier("unique.mana", "maximum_mana", 20, 20, "unique") with
+        {
+            SourceText = "+20 to maximum Mana",
+        };
+        var result = ImportSingle(
+            """
+                Test Boots
+                Wool Shoes
+                Implicits: 0
+                +20 to maximum Life
+                +20 to maximum Mana
+                """,
+            generated: false,
+            modifiers: [life, mana],
+            translations:
+            [
+                Translation("life", "maximum_life", "{0} to maximum Life", "+#"),
+                Translation("mana", "maximum_mana", "{0} to maximum Mana", "+#"),
+            ]);
+
+        var blocks = Assert.Single(Assert.Single(result.Catalog!.Items).Versions).ModifierBlocks;
+        Assert.Equal(2, blocks.Count);
+        Assert.All(blocks, block => Assert.Null(block.Composition));
+        Assert.All(blocks, block => Assert.Single(block.MechanicalMapping.StatIds));
     }
 
     [Fact]
@@ -801,6 +974,81 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Contains("conflicting RePoE mechanical stat vectors",
             block.MechanicalMapping.Diagnostic);
         Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_TranslatedExactVector_WinsBeforeConflictingSourceTextFallback()
+    {
+        const string first = "+1 to maximum number of Raised Zombies";
+        const string second = "+1 to maximum number of Spectres";
+        var translated = Modifier(
+            "unique.translated",
+            ("zombies", 1m, 1m),
+            ("spectres", 1m, 1m));
+        var sourceOnly = Modifier(
+            "unique.source-only",
+            ("wrong_zombies", 1m, 1m),
+            ("wrong_spectres", 1m, 1m)) with
+        {
+            SourceText = $"{first}\n{second}",
+        };
+        var result = ImportSingle(
+            $"""
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                {first}
+                {second}
+                """,
+            generated: false,
+            modifiers: [translated, sourceOnly],
+            translations:
+            [
+                Translation("zombies", "zombies", "{0} to maximum number of Raised Zombies", "+#"),
+                Translation("spectres", "spectres", "{0} to maximum number of Spectres", "+#"),
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["unique.translated"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["zombies", "spectres"], block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_ConflictingSourceTextVectors_DoNotReplaceIndependentlyMappedLines()
+    {
+        const string first = "+1 to maximum number of Raised Zombies";
+        const string second = "+1 to maximum number of Spectres";
+        var sourceText = $"{first}\n{second}";
+        var firstCandidate = Modifier(
+            "unique.source-one",
+            ("first_zombies", 1m, 1m),
+            ("first_spectres", 1m, 1m)) with { SourceText = sourceText };
+        var secondCandidate = Modifier(
+            "unique.source-two",
+            ("second_zombies", 1m, 1m),
+            ("second_spectres", 1m, 1m)) with { SourceText = sourceText };
+        var result = ImportSingle(
+            $"""
+                Test Wand
+                Calling Wand
+                Implicits: 0
+                {first}
+                {second}
+                """,
+            generated: false,
+            modifiers: [firstCandidate, secondCandidate],
+            translations: []);
+
+        var blocks = Assert.Single(Assert.Single(result.Catalog!.Items).Versions).ModifierBlocks;
+        Assert.Equal(2, blocks.Count);
+        Assert.All(blocks, block =>
+        {
+            Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported,
+                block.MechanicalMapping.Status);
+            Assert.Null(block.Composition);
+        });
     }
 
     [Fact]

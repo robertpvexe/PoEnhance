@@ -195,7 +195,7 @@ public sealed partial class ParsedUniqueItemResolver
         var matchedByVersion = blockScopeVersions
             .Select(version => new VersionBlockMatches(
                 version,
-                MatchVersionBlocks(version, parsedModifier)))
+                MatchVersionBlocks(version, parsedModifier, parsedItem.UniqueModifiers)))
             .ToArray();
         var hasSafeRowFallback = false;
         if (!MatchesCoverEveryRetainedVersion(matchedByVersion) &&
@@ -291,7 +291,10 @@ public sealed partial class ParsedUniqueItemResolver
         var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
             mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
                 UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
-        var statVectors = mappings.Select(mapping => string.Join('\u001f', mapping.StatIds))
+        var effectiveStatIds = matchedBlocks
+            .Select(EffectiveStatIds)
+            .ToArray();
+        var statVectors = effectiveStatIds.Select(statIds => string.Join('\u001f', statIds))
             .Where(value => value.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -329,6 +332,7 @@ public sealed partial class ParsedUniqueItemResolver
                 : null,
             IsEquivalentSourceSet = blocks.Length > 1 ||
                 sourceObservationIds.Length > 1 ||
+                matchedBlocks.Any(candidate => candidate.Match.CompositionComponent is not null) ||
                 mappings.Any(mapping =>
                     mapping.Status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
             CatalogBlocks = blocks,
@@ -336,11 +340,14 @@ public sealed partial class ParsedUniqueItemResolver
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray(),
-            StatIds = resolved ? mappings[0].StatIds : [],
+            StatIds = resolved ? effectiveStatIds[0] : [],
             StatLocalities = resolved
-                ? mappings[0].StatIds.Select(statId => ResolveStatLocality(statId, catalog)).ToArray()
+                ? effectiveStatIds[0].Select(statId => ResolveStatLocality(statId, catalog)).ToArray()
                 : [],
-            CanonicalSignatures = blocks.Select(block => string.Join("\n", block.CanonicalSignatures))
+            CanonicalSignatures = matchedBlocks.Select(candidate => string.Join(
+                    "\n",
+                    candidate.Match.CompositionComponent?.CanonicalSignatures ??
+                        candidate.Block.CanonicalSignatures))
                 .Where(signature => !string.IsNullOrWhiteSpace(signature))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(signature => signature, StringComparer.Ordinal)
@@ -507,6 +514,9 @@ public sealed partial class ParsedUniqueItemResolver
             : ModifierLocality.Unknown;
     }
 
+    private static IReadOnlyList<string> EffectiveStatIds(MatchedBlock match) =>
+        match.Match.CompositionComponent?.StatIds ?? match.Block.MechanicalMapping.StatIds;
+
     private static bool VersionContainsEveryCopiedBlock(
         UniqueItemVersionObservation version,
         IReadOnlyList<ParsedModifier> modifiers,
@@ -514,7 +524,7 @@ public sealed partial class ParsedUniqueItemResolver
     {
         if (!modifiers.All(modifier => modifier.Kind != ParsedModifierKind.Unique ||
             isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn ||
-            MatchVersionBlocks(version, modifier).Count > 0))
+            MatchVersionBlocks(version, modifier, modifiers).Count > 0))
         {
             return false;
         }
@@ -534,7 +544,7 @@ public sealed partial class ParsedUniqueItemResolver
                 .Where(modifier =>
                     modifier.Kind == ParsedModifierKind.Unique &&
                     !(isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn))
-                .SelectMany(modifier => MatchVersionBlocks(version, modifier))
+                .SelectMany(modifier => MatchVersionBlocks(version, modifier, modifiers))
                 .SelectMany(match => match.Block.OptionChoiceMemberships)
                 .Where(membership => string.Equals(
                     membership.OptionAxisId,
@@ -578,7 +588,8 @@ public sealed partial class ParsedUniqueItemResolver
                 !(isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn))
             .SelectMany(modifier => MatchVersionBlocks(
                     version,
-                    modifier)
+                    modifier,
+                    modifiers)
                 .Where(match => match.Block.SourceSemantics ==
                     UniqueModifierSourceSemantics.GeneratedCandidate)
                 .SelectMany(match => match.Block.CandidatePoolMembershipIds))
@@ -603,7 +614,7 @@ public sealed partial class ParsedUniqueItemResolver
             MatchCount = modifiers.Count(modifier =>
                 modifier.Kind == ParsedModifierKind.Unique &&
                 (isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn ||
-                    MatchVersionBlocks(version, modifier).Count > 0)),
+                    MatchVersionBlocks(version, modifier, modifiers).Count > 0)),
         }).ToArray();
         var maximum = scored.Max(candidate => candidate.MatchCount);
         if (maximum == 0 || scored.All(candidate => candidate.MatchCount == maximum))
@@ -958,7 +969,8 @@ public sealed partial class ParsedUniqueItemResolver
 
     private static IReadOnlyList<MatchedBlock> MatchVersionBlocks(
         UniqueItemVersionObservation version,
-        ParsedModifier modifier)
+        ParsedModifier modifier,
+        IReadOnlyList<ParsedModifier>? compositionModifiers = null)
     {
         var matches = version.ModifierBlocks
             .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
@@ -966,8 +978,34 @@ public sealed partial class ParsedUniqueItemResolver
                 block,
                 MatchParsedModifier(block, modifier)))
             .Where(candidate => candidate.Match.IsMatch)
-            .ToArray();
-        if (matches.Length == 0)
+            .ToList();
+        if (compositionModifiers is not null)
+        {
+            foreach (var block in version.ModifierBlocks.Where(block =>
+                         block.Kind == UniqueModifierBlockKind.Unique &&
+                         block.Composition is not null &&
+                         HasCompleteCompositionProjection(block, compositionModifiers)))
+            {
+                foreach (var component in block.Composition!.Components)
+                {
+                    var componentMatch = MatchParsedModifier(
+                        ProjectCompositionComponent(block, component),
+                        modifier);
+                    if (!componentMatch.IsMatch)
+                    {
+                        continue;
+                    }
+                    matches.Add(new MatchedBlock(
+                        block,
+                        componentMatch with
+                        {
+                            Kind = UniqueBlockTextMatchKind.CompositionComponentProjection,
+                            CompositionComponent = component,
+                        }));
+                }
+            }
+        }
+        if (matches.Count == 0)
         {
             return [];
         }
@@ -975,6 +1013,50 @@ public sealed partial class ParsedUniqueItemResolver
         var strongestKind = matches.Min(candidate => candidate.Match.Kind);
         return matches.Where(candidate => candidate.Match.Kind == strongestKind).ToArray();
     }
+
+    private static bool HasCompleteCompositionProjection(
+        UniqueModifierBlock block,
+        IReadOnlyList<ParsedModifier> modifiers)
+    {
+        var components = block.Composition?.Components;
+        if (components is null || components.Count < 2)
+        {
+            return false;
+        }
+
+        var eligible = modifiers
+            .Select((modifier, index) => (Modifier: modifier, Index: index))
+            .Where(candidate =>
+                candidate.Modifier.Kind == ParsedModifierKind.Unique &&
+                candidate.Modifier.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn)
+            .ToArray();
+        var selectedModifierIndices = new HashSet<int>();
+        foreach (var component in components.OrderBy(component => component.Order))
+        {
+            var projectedBlock = ProjectCompositionComponent(block, component);
+            var matchingModifiers = eligible
+                .Where(candidate => MatchParsedModifier(
+                    projectedBlock,
+                    candidate.Modifier).IsMatch)
+                .Select(candidate => candidate.Index)
+                .ToArray();
+            if (matchingModifiers.Length != 1 || !selectedModifierIndices.Add(matchingModifiers[0]))
+            {
+                return false;
+            }
+        }
+
+        return selectedModifierIndices.Count == components.Count;
+    }
+
+    private static UniqueModifierBlock ProjectCompositionComponent(
+        UniqueModifierBlock block,
+        UniqueModifierCompositionComponent component) => block with
+    {
+        Lines = component.Lines,
+        CanonicalSignatures = component.CanonicalSignatures,
+        Composition = null,
+    };
 
     private static bool TryProjectTextualOptionRange(
         ParsedModifier modifier,
@@ -1481,7 +1563,8 @@ public sealed partial class ParsedUniqueItemResolver
         bool IsMatch,
         IReadOnlyList<string> PresentationLines,
         IReadOnlyList<string> TextualOptionRangeAnnotations,
-        UniqueBlockTextMatchKind Kind)
+        UniqueBlockTextMatchKind Kind,
+        UniqueModifierCompositionComponent? CompositionComponent = null)
     {
         public static UniqueBlockTextMatch NoMatch { get; } = new(
             false,
@@ -1518,11 +1601,12 @@ public sealed partial class ParsedUniqueItemResolver
     {
         None = int.MaxValue,
         Direct = 0,
-        TextualOptionRangeProjection = 1,
-        AnnotatedBoundProjection = 2,
-        NumericPluralProjection = 3,
-        SignedMixedRangeProjection = 4,
-        FixedTextualOptionAnnotationProjection = 5,
+        CompositionComponentProjection = 1,
+        TextualOptionRangeProjection = 2,
+        AnnotatedBoundProjection = 3,
+        NumericPluralProjection = 4,
+        SignedMixedRangeProjection = 5,
+        FixedTextualOptionAnnotationProjection = 6,
     }
 
     private sealed record LogicalRollToken(

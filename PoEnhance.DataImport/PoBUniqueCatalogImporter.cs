@@ -833,6 +833,29 @@ public sealed partial class PoBUniqueCatalogImporter
         };
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
             UniqueModifierMechanicalMappingStatus.EquivalentSourceSet;
+        var blockId = optionChoiceMemberships.Count > 0
+            ? StableId(
+                "unique-block",
+                identityId,
+                versionLabel,
+                kind.ToString(),
+                signature,
+                string.Join('\u001f', candidatePoolMembershipIds),
+                string.Join('\u001f', optionChoiceMemberships.Select(OptionMembershipKey)),
+                string.Join('\n', lines))
+            : isGeneratedCandidate
+                ? StableId(
+                    "unique-block",
+                    identityId,
+                    versionLabel,
+                    kind.ToString(),
+                    signature,
+                    string.Join('\u001f', candidatePoolMembershipIds),
+                    string.Join('\n', lines))
+                : StableId("unique-block", identityId, versionLabel, kind.ToString(), signature);
+        var composition = resolved
+            ? BuildComposition(blockId, lines, signatures, observationId, candidates)
+            : null;
         var translationEvidence = candidates
             .SelectMany(candidate => candidate.ProvenanceTranslations)
             .DistinctBy(evidence => string.Join(
@@ -847,31 +870,13 @@ public sealed partial class PoBUniqueCatalogImporter
                     handler.Handlers.Any(IsStructuredOptionHandler)))
                 ? ["structured-translation-option"]
                 : [])
+            .Concat(composition is null ? [] : ["source-block-composition"])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(reason => reason, StringComparer.Ordinal)
             .ToArray();
         return new UniqueModifierBlock
         {
-            Id = optionChoiceMemberships.Count > 0
-                ? StableId(
-                    "unique-block",
-                    identityId,
-                    versionLabel,
-                    kind.ToString(),
-                    signature,
-                    string.Join('\u001f', candidatePoolMembershipIds),
-                    string.Join('\u001f', optionChoiceMemberships.Select(OptionMembershipKey)),
-                    string.Join('\n', lines))
-                : isGeneratedCandidate
-                    ? StableId(
-                        "unique-block",
-                        identityId,
-                        versionLabel,
-                        kind.ToString(),
-                        signature,
-                        string.Join('\u001f', candidatePoolMembershipIds),
-                        string.Join('\n', lines))
-                : StableId("unique-block", identityId, versionLabel, kind.ToString(), signature),
+            Id = blockId,
             Kind = kind,
             Lines = lines,
             CanonicalSignatures = signatures,
@@ -881,6 +886,7 @@ public sealed partial class PoBUniqueCatalogImporter
             SourceSemanticFingerprint = sourceSemanticFingerprint,
             CandidatePoolMembershipIds = candidatePoolMembershipIds,
             OptionChoiceMemberships = optionChoiceMemberships,
+            Composition = composition,
             MechanicalMapping = new UniqueModifierMechanicalMapping
             {
                 Status = status,
@@ -896,7 +902,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         Translations = translationEvidence,
                         SourceSemanticFingerprint = sourceSemanticFingerprint,
                         MatchedSemanticFingerprint = candidates[0].CandidateSemanticFingerprint,
-                        UsedComposition = translationEvidence.Length > 1 ||
+                        UsedComposition = composition is not null ||
+                            translationEvidence.Length > 1 ||
                             translationEvidence.Any(evidence => evidence.DefaultedStatIds.Count > 0),
                         CatalogValuesUsedForSelection = resolution.UsedStrictEvidence,
                         ValueAuthority = "copiedInstance",
@@ -936,6 +943,119 @@ public sealed partial class PoBUniqueCatalogImporter
         };
     }
 
+    private static UniqueModifierComposition? BuildComposition(
+        string blockId,
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> signatures,
+        string observationId,
+        IReadOnlyList<MechanicalCandidate> candidates)
+    {
+        if (lines.Count < 2 || candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var projections = candidates
+            .Select(candidate => TryProjectComposition(lines, candidate))
+            .ToArray();
+        if (projections.Any(projection => projection is null))
+        {
+            return null;
+        }
+
+        var proven = projections.Cast<CompositionProjection>().ToArray();
+        if (proven.Select(projection => projection.Key).Distinct(StringComparer.Ordinal).Count() != 1)
+        {
+            return null;
+        }
+
+        var selected = proven[0];
+        var compositionId = StableId(
+            "unique-composition",
+            blockId,
+            string.Join('\u001f', selected.ComponentStatIds),
+            string.Join('\u001f', selected.AuxiliaryStatIds));
+        return new UniqueModifierComposition
+        {
+            Id = compositionId,
+            Components = lines.Select((line, index) => new UniqueModifierCompositionComponent
+            {
+                Id = StableId(
+                    "unique-composition-component",
+                    compositionId,
+                    index.ToString(CultureInfo.InvariantCulture),
+                    signatures[index],
+                    selected.ComponentStatIds[index]),
+                Order = index,
+                Lines = [line],
+                CanonicalSignatures = [signatures[index]],
+                StatIds = [selected.ComponentStatIds[index]],
+                SourceObservationIds = [observationId],
+            }).ToArray(),
+            AuxiliaryStatIds = selected.AuxiliaryStatIds,
+        };
+    }
+
+    private static CompositionProjection? TryProjectComposition(
+        IReadOnlyList<string> lines,
+        MechanicalCandidate candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.SourceText) || candidate.OrderedModifierStats.Count == 0)
+        {
+            return null;
+        }
+
+        var sourceLines = SplitSourceTextLines(candidate.SourceText);
+        var orderedStats = candidate.OrderedModifierStats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        var componentStats = orderedStats.Where(stat => !IsZeroStat(stat)).ToArray();
+        var auxiliaryStatIds = orderedStats.Where(IsZeroStat)
+            .Select(stat => stat.StatId!.Trim())
+            .ToArray();
+        if (sourceLines.Length != lines.Count ||
+            componentStats.Length != lines.Count ||
+            !candidate.StatIds.SequenceEqual(
+                orderedStats.Select(stat => stat.StatId!.Trim()),
+                StringComparer.OrdinalIgnoreCase) ||
+            componentStats.Select(stat => stat.StatId!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != componentStats.Length)
+        {
+            return null;
+        }
+
+        var sourceKeys = sourceLines.Select(NormalizeExactEvidence).ToArray();
+        if (sourceKeys.Distinct(StringComparer.Ordinal).Count() != sourceKeys.Length)
+        {
+            return null;
+        }
+
+        var componentStatIds = new string[lines.Count];
+        var usedSourceIndices = new HashSet<int>();
+        for (var lineIndex = 0; lineIndex < lines.Count; lineIndex++)
+        {
+            var key = NormalizeExactEvidence(lines[lineIndex]);
+            var sourceIndex = Array.FindIndex(sourceKeys, sourceKey =>
+                string.Equals(sourceKey, key, StringComparison.Ordinal));
+            if (sourceIndex < 0 || !usedSourceIndices.Add(sourceIndex))
+            {
+                return null;
+            }
+            componentStatIds[lineIndex] = componentStats[sourceIndex].StatId!.Trim();
+        }
+
+        return new CompositionProjection(componentStatIds, auxiliaryStatIds);
+    }
+
+    private static string[] SplitSourceTextLines(string sourceText) => sourceText
+        .Replace("\r\n", "\n", StringComparison.Ordinal)
+        .Replace('\r', '\n')
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static bool IsZeroStat(ModifierStat stat) =>
+        stat.MinValue == 0m && stat.MaxValue == 0m;
+
     private static MechanicalIndex BuildMechanicalIndex(
         IReadOnlyList<ModifierDefinition> modifiers,
         IReadOnlyList<StatTranslationDefinition> translations,
@@ -971,6 +1091,7 @@ public sealed partial class PoBUniqueCatalogImporter
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
         var broadIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.OrdinalIgnoreCase);
         var exactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
+        var sourceTextExactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
         var dynamicPatterns = new List<DynamicMechanicalCandidate>();
         var partialExactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
         var partialDynamicPatterns = new List<DynamicMechanicalCandidate>();
@@ -1015,6 +1136,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         modifier.Id!,
                         statIds,
                         modifier.Domain,
+                        ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                        SourceText: modifier.SourceText,
                         TranslationEvidence: [CreateTranslationEvidence(
                             translation,
                             variant,
@@ -1038,6 +1161,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 modifier.Id!,
                 statIds,
                 modifier.Domain,
+                ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                SourceText: modifier.SourceText,
                 SemanticFingerprint: BuildCandidateSemanticFingerprint(
                     statIds,
                     statsById,
@@ -1113,6 +1238,23 @@ public sealed partial class PoBUniqueCatalogImporter
                 }
                 partialCandidates.Add(evidencedCandidate);
             }
+
+            if (TryCreateSourceTextCompositionKey(modifier, out var sourceTextKey))
+            {
+                if (!sourceTextExactIndex.TryGetValue(sourceTextKey, out var sourceTextCandidates))
+                {
+                    sourceTextCandidates = [];
+                    sourceTextExactIndex.Add(sourceTextKey, sourceTextCandidates);
+                }
+                sourceTextCandidates.Add(strictCandidate with
+                {
+                    StrictValueEvidenceCount = modifier.Stats.Count(stat => !IsZeroStat(stat)),
+                    OrderedRenderingText = string.Join(
+                        "\n",
+                        SplitSourceTextLines(modifier.SourceText!).Select(NormalizeExactEvidence)),
+                    UsesSourceTextEvidence = true,
+                });
+            }
         }
 
         return new MechanicalIndex(
@@ -1133,6 +1275,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     candidate.Pattern.ToString()), StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.Candidate.ModifierId, StringComparer.Ordinal)
                 .ToArray(),
+            FreezeIndex(sourceTextExactIndex, StringComparer.Ordinal),
             baseItems
                 .Where(item => !string.IsNullOrWhiteSpace(item.Name) &&
                     !string.IsNullOrWhiteSpace(item.Domain))
@@ -1161,6 +1304,36 @@ public sealed partial class PoBUniqueCatalogImporter
                     group => group.Key,
                     group => group.First(),
                     StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static bool TryCreateSourceTextCompositionKey(
+        ModifierDefinition modifier,
+        out string key)
+    {
+        key = string.Empty;
+        if (string.IsNullOrWhiteSpace(modifier.SourceText))
+        {
+            return false;
+        }
+
+        var sourceLines = SplitSourceTextLines(modifier.SourceText);
+        var orderedStats = modifier.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        var componentStats = orderedStats.Where(stat => !IsZeroStat(stat)).ToArray();
+        if (sourceLines.Length < 2 ||
+            componentStats.Length != sourceLines.Length ||
+            componentStats.Select(stat => stat.StatId!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != componentStats.Length ||
+            sourceLines.Select(NormalizeExactEvidence)
+                .Distinct(StringComparer.Ordinal).Count() != sourceLines.Length)
+        {
+            return false;
+        }
+
+        key = UnorderedMultilineKey(sourceLines);
+        return true;
     }
 
     private static UniqueModifierTranslationEvidence CreateTranslationEvidence(
@@ -1346,7 +1519,7 @@ public sealed partial class PoBUniqueCatalogImporter
         var hasComparableValueProjection =
             fingerprint.ValueShape != UniqueModifierSemanticValueShape.Unknown &&
             fingerprint.Values.Count > 0;
-        return hasComparableValueProjection
+        return hasComparableValueProjection || candidate.UsesSourceTextEvidence
             ? key
             : string.Join('\u001d', key, candidate.ModifierId.Trim().ToLowerInvariant());
     }
@@ -2346,16 +2519,30 @@ public sealed partial class PoBUniqueCatalogImporter
     private sealed record OptionAxisProjection(
         UniqueItemOptionAxis Axis,
         IReadOnlyDictionary<int, string> ChoiceIdsBySourceIndex);
+    private sealed record CompositionProjection(
+        IReadOnlyList<string> ComponentStatIds,
+        IReadOnlyList<string> AuxiliaryStatIds)
+    {
+        public string Key => string.Join(
+            '\u001d',
+            string.Join('\u001f', ComponentStatIds.Select(value => value.ToLowerInvariant())),
+            string.Join('\u001f', AuxiliaryStatIds.Select(value => value.ToLowerInvariant())));
+    }
     private sealed record MechanicalCandidate(
         string ModifierId,
         IReadOnlyList<string> StatIds,
         string? Domain,
+        IReadOnlyList<ModifierStat>? ModifierStats = null,
+        string? SourceText = null,
         int StrictValueEvidenceCount = 0,
         int StrictPatternSpecificity = 0,
         IReadOnlyList<UniqueModifierTranslationEvidence>? TranslationEvidence = null,
         string? OrderedRenderingText = null,
-        UniqueModifierSemanticFingerprint? SemanticFingerprint = null)
+        UniqueModifierSemanticFingerprint? SemanticFingerprint = null,
+        bool UsesSourceTextEvidence = false)
     {
+        public IReadOnlyList<ModifierStat> OrderedModifierStats => ModifierStats ?? [];
+
         public IReadOnlyList<UniqueModifierTranslationEvidence> ProvenanceTranslations =>
             TranslationEvidence ?? [];
 
@@ -2430,6 +2617,7 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<DynamicMechanicalCandidate> dynamic,
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> partialExact,
         IReadOnlyList<DynamicMechanicalCandidate> partialDynamic,
+        IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> sourceTextExact,
         IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains,
         IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
         IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics)
@@ -2438,9 +2626,18 @@ public sealed partial class PoBUniqueCatalogImporter
             IReadOnlyList<string> lines,
             string baseType,
             bool hasGeneratedOptionEvidence,
-            UniqueModifierSemanticFingerprint sourceSemanticFingerprint) =>
-            Resolve(lines, baseType, hasGeneratedOptionEvidence, sourceSemanticFingerprint)
-                .Candidates.Count > 0;
+            UniqueModifierSemanticFingerprint sourceSemanticFingerprint)
+        {
+            var resolution = Resolve(
+                lines,
+                baseType,
+                hasGeneratedOptionEvidence,
+                sourceSemanticFingerprint);
+            return resolution.Candidates.Count > 0 &&
+                (!resolution.Candidates.Any(candidate => candidate.UsesSourceTextEvidence) ||
+                    resolution.Candidates.Select(SemanticFingerprintEquivalenceKey)
+                        .Distinct(StringComparer.Ordinal).Count() == 1);
+        }
 
         public MechanicalResolution Resolve(
             IReadOnlyList<string> lines,
@@ -2453,7 +2650,11 @@ public sealed partial class PoBUniqueCatalogImporter
             var staticStrict = CandidateFilterResult.Empty;
             if (exact.TryGetValue(exactText, out var staticMatches))
             {
-                staticStrict = FilterCandidates(staticMatches
+                var preferredStaticMatches = staticMatches.Any(candidate =>
+                        !candidate.UsesSourceTextEvidence)
+                    ? staticMatches.Where(candidate => !candidate.UsesSourceTextEvidence)
+                    : staticMatches;
+                staticStrict = FilterCandidates(preferredStaticMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
                     .ToArray(), baseType, hasGeneratedOptionEvidence);
@@ -2545,7 +2746,27 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 return Resolution(partialStatic, usedStrictEvidence: true, orderedExactText);
             }
-            return Resolution(partialDynamicMatches, usedStrictEvidence: true, orderedExactText);
+            if (partialDynamicMatches.HadCandidatesBeforeSemanticFingerprint)
+            {
+                return Resolution(partialDynamicMatches, usedStrictEvidence: true, orderedExactText);
+            }
+
+            var sourceTextMatches = CandidateFilterResult.Empty;
+            if (sourceTextExact.TryGetValue(exactText, out var sourceMatches))
+            {
+                sourceTextMatches = FilterCandidates(sourceMatches
+                    .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                    .ToArray(), baseType, hasGeneratedOptionEvidence);
+                sourceTextMatches = sourceTextMatches with
+                {
+                    Candidates = RetainStrongestValueEvidence(sourceTextMatches.Candidates),
+                };
+                sourceTextMatches = ApplySemanticFingerprint(
+                    sourceTextMatches,
+                    sourceSemanticFingerprint);
+            }
+            return Resolution(sourceTextMatches, usedStrictEvidence: true, orderedExactText);
         }
 
         private static MechanicalResolution Resolution(
@@ -2566,6 +2787,10 @@ public sealed partial class PoBUniqueCatalogImporter
                     evidence => evidence.DefaultedStatIds.Count > 0)))
             {
                 reasons.Add("implicit-zero-stat-composition");
+            }
+            if (filtered.Candidates.Any(candidate => candidate.UsesSourceTextEvidence))
+            {
+                reasons.Add("repoe-modifier-source-text");
             }
             if (filtered.Candidates.Any(candidate =>
                     candidate.OrderedRenderingText?.Contains('\n') == true &&

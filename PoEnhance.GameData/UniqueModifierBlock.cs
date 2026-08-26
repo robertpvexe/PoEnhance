@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PoEnhance.GameData;
 
 public sealed record UniqueModifierBlock
@@ -30,6 +32,13 @@ public sealed record UniqueModifierBlock
     /// separate from generated-candidate semantics and from atomic item versions.
     /// </summary>
     public IReadOnlyList<UniqueModifierOptionChoiceMembership> OptionChoiceMemberships { get; init; } = [];
+
+    /// <summary>
+    /// Present only when pinned source mechanics prove that this block can be displayed as
+    /// independently bounded line components without changing its complete stat vector.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public UniqueModifierComposition? Composition { get; init; }
 
     public UniqueModifierMechanicalMapping MechanicalMapping { get; init; } = new();
 

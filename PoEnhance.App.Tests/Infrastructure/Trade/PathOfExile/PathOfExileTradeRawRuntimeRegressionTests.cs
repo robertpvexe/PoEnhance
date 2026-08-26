@@ -676,6 +676,90 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItems_CompositionManualMatrixHasExpectedStaticOutcomes()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var separatedCases = new[]
+        {
+            (Resolve(AsenathsMarkCompositionText, catalog), "+39(30-50) to maximum Energy Shield"),
+            (Resolve(HrimnorsResolveCompositionText, catalog), "108(100-120)% increased Armour"),
+            (Resolve(MarkOfTheRedCovenantCompositionText, catalog), "+45(30-50) to maximum Energy Shield"),
+        };
+        foreach (var (runtime, text) in separatedCases)
+        {
+            var component = FindComponent(runtime.ProviderDraft, text);
+            Assert.Equal("Unique", StaticModifierLabel(component));
+            Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", component.UniqueResolutionDiagnosticCode);
+            Assert.Equal("Ambiguous", ModifierAvailabilityStatus(component));
+            Assert.False(component.HasExactUniqueSourceProvenance);
+            Assert.False(component.IsSearchable);
+            Assert.False(IsInteractionReady(component));
+        }
+
+        var redCovenant = Resolve(MarkOfTheRedCovenantCompositionText, catalog);
+        var healthyControl = FindComponent(
+            redCovenant.ProviderDraft,
+            "Summoned Raging Spirits' Melee Strikes deal Fire-only Splash" +
+            Environment.NewLine + "Damage to Surrounding Targets");
+        Assert.Equal("Unique", StaticModifierLabel(healthyControl));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact,
+            healthyControl.ProviderResolutionStatus);
+        Assert.False(healthyControl.SupportsValueBounds);
+        Assert.True(IsInteractionReady(healthyControl));
+        var healthyFilter = MapSingle(redCovenant.ProviderDraft, healthyControl, catalog);
+        Assert.Equal("explicit.stat_221328679", healthyFilter.StatId);
+        Assert.Null(healthyFilter.Minimum);
+        Assert.Null(healthyFilter.Maximum);
+
+        var bones = Resolve(BonesOfUllrCompositionText, catalog);
+        foreach (var (text, minimum) in new[]
+        {
+            ("+1 to Level of all Raise Zombie Gems", 1m),
+            ("+1 to Level of all Raise Spectre Gems", 1m),
+        })
+        {
+            var component = FindComponent(bones.ProviderDraft, text);
+            Assert.Equal("Unique", StaticModifierLabel(component));
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+            Assert.Equal(SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+                component.ProviderResolutionStatus);
+            Assert.True(component.HasExactUniqueSourceProvenance);
+            Assert.Equal(minimum, component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            Assert.True(IsInteractionReady(component));
+            var filter = MapSingle(bones.ProviderDraft, component, catalog);
+            Assert.Contains(filter.StatId, component.ProviderStatAlternativeIds);
+            Assert.Equal(minimum, filter.Minimum);
+            Assert.Null(filter.Maximum);
+        }
+
+        var life = FindComponent(bones.ProviderDraft, "+20 to maximum Life");
+        var mana = FindComponent(bones.ProviderDraft, "+20 to maximum Mana");
+        Assert.NotEqual(life.SourceModifierIndex, mana.SourceModifierIndex);
+        Assert.All(new[] { life, mana }, component =>
+        {
+            Assert.Equal("Unique", StaticModifierLabel(component));
+            Assert.Equal(20m, component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            Assert.True(IsInteractionReady(component));
+            var filter = MapSingle(bones.ProviderDraft, component, catalog);
+            Assert.Equal(20m, filter.Minimum);
+            Assert.Null(filter.Maximum);
+        });
+
+        var battle = Resolve(BattleWithinCompositionText, catalog);
+        var battleComponent = Assert.Single(battle.ProviderDraft.ModifierFilters);
+        Assert.Equal("Unique", StaticModifierLabel(battleComponent));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, battleComponent.ResolutionStatus);
+        Assert.True(battleComponent.HasExactUniqueSourceProvenance);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous,
+            battleComponent.ProviderResolutionStatus);
+        Assert.Equal("Ambiguous", ModifierAvailabilityStatus(battleComponent));
+        Assert.False(battleComponent.IsSearchable);
+        Assert.False(IsInteractionReady(battleComponent));
+    }
+
+    [Fact]
     public void ResolveRawCopiedItems_OptionAxisManualMatrixHasExpectedStaticOutcomes()
     {
         var catalog = OfficialTradeCatalog.Value;
@@ -1334,6 +1418,11 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(20, "Circle of Fear", "Sapphire Ring", "accessory"),
             UniqueItem(21, "Split Personality", "Crimson Jewel", "jewel"),
             UniqueItem(22, "Coralito's Signature", "Diamond Flask", "flask"),
+            UniqueItem(23, "Asenath's Mark", "Iron Circlet", "armour"),
+            UniqueItem(24, "Hrimnor's Resolve", "Samnite Helmet", "armour"),
+            UniqueItem(25, "Mark of the Red Covenant", "Tribal Circlet", "armour"),
+            UniqueItem(26, "Bones of Ullr", "Silk Slippers", "armour"),
+            UniqueItem(27, "The Battle Within", "Oakbranch Tincture", "tincture"),
         ]);
     }
 
@@ -1432,6 +1521,75 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new PathOfExileTradeFetchExecutionResult());
     }
+
+    private const string AsenathsMarkCompositionText = """
+Item Class: Helmets
+Rarity: Unique
+Asenath's Mark
+Iron Circlet
+--------
+Item Level: 80
+--------
+{ Unique Modifier — Defences, Energy Shield }
++39(30-50) to maximum Energy Shield
+""";
+
+    private const string HrimnorsResolveCompositionText = """
+Item Class: Helmets
+Rarity: Unique
+Hrimnor's Resolve
+Samnite Helmet
+--------
+Item Level: 80
+--------
+{ Unique Modifier — Defences, Armour }
+108(100-120)% increased Armour
+""";
+
+    private const string MarkOfTheRedCovenantCompositionText = """
+Item Class: Helmets
+Rarity: Unique
+Mark of the Red Covenant
+Tribal Circlet
+--------
+Item Level: 80
+--------
+{ Unique Modifier — Defences, Energy Shield }
++45(30-50) to maximum Energy Shield
+{ Unique Modifier — Elemental, Fire, Minion }
+Summoned Raging Spirits' Melee Strikes deal Fire-only Splash
+Damage to Surrounding Targets
+""";
+
+    private const string BonesOfUllrCompositionText = """
+Item Class: Boots
+Rarity: Unique
+Bones of Ullr
+Silk Slippers
+--------
+Item Level: 80
+--------
+{ Unique Modifier — Life }
++20 to maximum Life
+{ Unique Modifier — Mana }
++20 to maximum Mana
+{ Unique Modifier — Minion, Gem }
++1 to Level of all Raise Zombie Gems
++1 to Level of all Raise Spectre Gems
+""";
+
+    private const string BattleWithinCompositionText = """
+Item Class: Tinctures
+Rarity: Unique
+The Battle Within
+Oakbranch Tincture
+--------
+Item Level: 80
+--------
+{ Unique Modifier — Attack }
+Does not inflict Mana Burn over time
+Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon
+""";
 
     private const string DragonfangText = """
 Item Class: Amulets

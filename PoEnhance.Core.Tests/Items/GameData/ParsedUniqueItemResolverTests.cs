@@ -441,6 +441,247 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Contains(suppressLine, suppress.ProviderSearchSignatures);
     }
 
+    [Theory]
+    [InlineData("Asenath's Mark", "+(30-50) to maximum Energy Shield", "+39(30-50) to maximum Energy Shield", "local_energy_shield", "(10-15)% increased Stun and Block Recovery", "12(10-15)% increased Stun and Block Recovery")]
+    [InlineData("Mark of the Red Covenant", "+(30-50) to maximum Energy Shield", "+45(30-50) to maximum Energy Shield", "local_energy_shield", "(10-15)% increased Stun and Block Recovery", "11(10-15)% increased Stun and Block Recovery")]
+    [InlineData("Hrimnor's Resolve", "(100-120)% increased Armour", "108(100-120)% increased Armour", "local_physical_damage_reduction_rating_+%", "10% increased Stun and Block Recovery", "10% increased Stun and Block Recovery")]
+    public void Resolve_SeparatedSourceComposition_ProjectsCorrectStatsOnlyWithCompleteCoverage(
+        string itemName,
+        string defenceSourceLine,
+        string defenceCopiedLine,
+        string defenceStatId,
+        string stunSourceLine,
+        string stunCopiedLine)
+    {
+        var block = CompositionBlock(
+            "defence-stun",
+            [defenceSourceLine, stunSourceLine],
+            [defenceStatId, "base_stun_recovery_+%"]);
+        var catalog = CreateCatalog(
+            itemName,
+            "Iron Hat",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            {{itemName}}
+            Iron Hat
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{defenceCopiedLine}}
+            { Unique Modifier }
+            {{stunCopiedLine}}
+            """);
+
+        Assert.Equal(2, parsed.UniqueModifiers.Count);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, result.Status);
+        Assert.Single(result.CompatibleVersions);
+        Assert.Collection(
+            result.ModifierBlocks,
+            defence =>
+            {
+                Assert.True(defence.IsResolved, $"{defence.DiagnosticCode}: {defence.Diagnostic}");
+                Assert.Equal([defenceStatId], defence.StatIds);
+                Assert.Equal([ModifierLocality.Local], defence.StatLocalities);
+                Assert.True(defence.IsEquivalentSourceSet);
+            },
+            stun =>
+            {
+                Assert.True(stun.IsResolved, $"{stun.DiagnosticCode}: {stun.Diagnostic}");
+                Assert.Equal(["base_stun_recovery_+%"], stun.StatIds);
+                Assert.Equal([ModifierLocality.Global], stun.StatLocalities);
+                Assert.True(stun.IsEquivalentSourceSet);
+            });
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        Assert.Collection(
+            draft.ModifierFilters,
+            defence =>
+            {
+                Assert.True(defence.IsSearchable);
+                Assert.Equal([defenceStatId], defence.ResolvedStatIds);
+                Assert.Equal(ModifierLocality.Local, defence.Locality);
+            },
+            stun =>
+            {
+                Assert.True(stun.IsSearchable);
+                Assert.Equal(["base_stun_recovery_+%"], stun.ResolvedStatIds);
+                Assert.Equal(ModifierLocality.Global, stun.Locality);
+            });
+
+        var missingSibling = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            {{itemName}}
+            Iron Hat
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{defenceCopiedLine}}
+            """);
+        var missingResult = resolver.Resolve(missingSibling, catalog);
+        var unresolved = Assert.Single(missingResult.ModifierBlocks);
+        Assert.False(unresolved.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unresolved.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_SeparatedCompositionWithDifferentSiblingText_FailsClosed()
+    {
+        var block = CompositionBlock(
+            "defence-stun",
+            ["+(30-50) to maximum Energy Shield", "(10-15)% increased Stun and Block Recovery"],
+            ["local_energy_shield", "base_stun_recovery_+%"]);
+        var catalog = CreateCatalog("Asenath's Mark", "Iron Hat", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Asenath's Mark
+            Iron Hat
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +39(30-50) to maximum Energy Shield
+            { Unique Modifier }
+            12(10-15)% increased Block and Stun Recovery
+            """);
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        Assert.All(result.ModifierBlocks, resolution => Assert.False(resolution.IsResolved));
+        Assert.Contains(result.ModifierBlocks, resolution =>
+            resolution.DiagnosticCode == "UNIQUE_BLOCK_VERSION_MISMATCH");
+    }
+
+    [Fact]
+    public void Resolve_BonesOfUllrAtomicDisplay_RetainsCompleteVectorButPartialDisplayFails()
+    {
+        const string zombie = "+1 to Level of all Raise Zombie Gems";
+        const string spectre = "+1 to Level of all Raise Spectre Gems";
+        var block = CompositionBlock(
+            "bones",
+            [zombie, spectre],
+            ["zombie_gem_level", "spectre_gem_level"],
+            ["skeleton_gem_level"]);
+        var catalog = CreateCatalog("Bones of Ullr", "Silk Slippers", UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var exact = parser.Parse($$"""
+            Item Class: Boots
+            Rarity: Unique
+            Bones of Ullr
+            Silk Slippers
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{zombie}}
+            {{spectre}}
+            """);
+
+        var exactResolution = resolver.Resolve(exact, catalog);
+
+        Assert.Equal(
+            ["zombie_gem_level", "spectre_gem_level", "skeleton_gem_level"],
+            Assert.Single(exactResolution.ModifierBlocks).StatIds);
+
+        var partial = parser.Parse($$"""
+            Item Class: Boots
+            Rarity: Unique
+            Bones of Ullr
+            Silk Slippers
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{zombie}}
+            """);
+        var partialResolution = Assert.Single(resolver.Resolve(partial, catalog).ModifierBlocks);
+        Assert.False(partialResolution.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", partialResolution.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_BattleWithinAtomicPresenceBlock_RejectsMissingOrExtraLines()
+    {
+        const string first = "Does not inflict Mana Burn over time";
+        const string second = "Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon";
+        var block = CompositionBlock(
+            "battle-within",
+            [first, second],
+            [
+                "local_cannot_generate_toxicity_stacks_over_time",
+                "toxicity_stacks_gained_on_hit_with_tinctured_weapons",
+            ]);
+        var catalog = CreateCatalog("The Battle Within", "Prismatic Tincture",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+
+        ParsedItem Parse(params string[] lines) => parser.Parse($$"""
+            Item Class: Tinctures
+            Rarity: Unique
+            The Battle Within
+            Prismatic Tincture
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{string.Join("\n", lines)}}
+            """);
+
+        var exact = Assert.Single(resolver.Resolve(Parse(first, second), catalog).ModifierBlocks);
+        Assert.True(exact.IsResolved);
+        Assert.Equal(2, exact.StatIds.Count);
+
+        Assert.False(Assert.Single(
+            resolver.Resolve(Parse(first), catalog).ModifierBlocks).IsResolved);
+        Assert.False(Assert.Single(
+            resolver.Resolve(Parse(first, second, "Unrelated extra effect"), catalog)
+                .ModifierBlocks).IsResolved);
+    }
+
+    [Fact]
+    public void Resolve_AtomicMultilineOneStatControl_RemainsDirectlyResolved()
+    {
+        var lines = new[]
+        {
+            "Summoned Raging Spirits' Melee Strikes deal Fire-only Splash",
+            "Damage to Surrounding Targets",
+        };
+        var block = RuntimeMultiLineEvidenceBlock("fire-splash", lines, "minion_fire_splash");
+        var catalog = CreateCatalog("Mark of the Red Covenant", "Iron Hat",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Mark of the Red Covenant
+            Iron Hat
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{string.Join("\n", lines)}}
+            """);
+
+        var resolution = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+
+        Assert.True(resolution.IsResolved);
+        Assert.Equal(["minion_fire_splash"], resolution.StatIds);
+        Assert.False(resolution.IsEquivalentSourceSet);
+    }
+
     [Fact]
     public void CreateDraft_MultiLineUniqueSourceBlock_RemainsOneProvenanceBackedRow()
     {
@@ -2661,6 +2902,44 @@ public sealed class ParsedUniqueItemResolverTests
         },
         SourceObservationIds = ["pob-observation:test", "pob-observation:test-two"],
     };
+
+    private static UniqueModifierBlock CompositionBlock(
+        string id,
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> componentStatIds,
+        IReadOnlyList<string>? auxiliaryStatIds = null)
+    {
+        var signatures = ModifierTextSignatureNormalizer.CreateSignature(lines).Lines;
+        return new UniqueModifierBlock
+        {
+            Id = $"block:{id}",
+            Kind = UniqueModifierBlockKind.Unique,
+            Lines = lines,
+            CanonicalSignatures = signatures,
+            MechanicalMapping = new UniqueModifierMechanicalMapping
+            {
+                Status = UniqueModifierMechanicalMappingStatus.Exact,
+                ModifierIds = [$"modifier:{id}"],
+                StatIds = componentStatIds.Concat(auxiliaryStatIds ?? []).ToArray(),
+            },
+            Composition = new UniqueModifierComposition
+            {
+                Id = $"composition:{id}",
+                Components = lines.Select((line, index) =>
+                    new UniqueModifierCompositionComponent
+                    {
+                        Id = $"composition:{id}:{index}",
+                        Order = index,
+                        Lines = [line],
+                        CanonicalSignatures = [signatures[index]],
+                        StatIds = [componentStatIds[index]],
+                        SourceObservationIds = ["pob-observation:test"],
+                    }).ToArray(),
+                AuxiliaryStatIds = auxiliaryStatIds ?? [],
+            },
+            SourceObservationIds = ["pob-observation:test"],
+        };
+    }
 
     private static ModifierDefinition ReplacementModifier() => new()
     {

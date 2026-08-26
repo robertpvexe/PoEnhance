@@ -285,7 +285,10 @@ public static class GameDataPackageValidator
                         IsValidUniqueMechanicalMapping(
                             block.MechanicalMapping,
                             knownModifierIds,
-                            knownStatIds);
+                            knownStatIds,
+                            block.Composition is not null);
+                    var compositionValid = block is not null &&
+                        IsValidUniqueComposition(block, knownStatIds);
                     var optionMembershipsValid = block is not null &&
                         block.OptionChoiceMemberships.All(membership =>
                             membership is not null &&
@@ -321,7 +324,8 @@ public static class GameDataPackageValidator
                         block.SourceObservationIds.Any(id => !sourceIds.Contains(id)) ||
                         !optionMembershipsValid ||
                         !sourceSemanticFingerprintValid ||
-                        !mechanicalMappingValid)
+                        !mechanicalMappingValid ||
+                        !compositionValid)
                     {
                         errors.Add(Error(
                             GameDataValidationErrorCodes.UniqueCatalogBlockInvalid,
@@ -330,6 +334,7 @@ public static class GameDataPackageValidator
                             $"SourceSemanticFingerprintValid={sourceSemanticFingerprintValid}; " +
                             $"OptionMembershipsValid={optionMembershipsValid}; " +
                             $"MechanicalMappingValid={mechanicalMappingValid}; " +
+                            $"CompositionValid={compositionValid}; " +
                             $"MechanicalProvenanceValid={mechanicalProvenanceValid}; " +
                             $"ProvenanceSourceFingerprintValid={provenanceSourceFingerprintValid}; " +
                             $"ProvenanceMatchedFingerprintValid={provenanceMatchedFingerprintValid}; " +
@@ -352,6 +357,85 @@ public static class GameDataPackageValidator
             identitiesById,
             identityBlockIds,
             errors);
+    }
+
+    private static bool IsValidUniqueComposition(
+        UniqueModifierBlock block,
+        ISet<string>? knownStatIds)
+    {
+        var composition = block.Composition;
+        if (composition is null)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(composition.Id) ||
+            block.MechanicalMapping.Status is not (
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet) ||
+            block.Lines.Count < 2 ||
+            composition.Components.Count != block.Lines.Count ||
+            composition.Components.Any(component => component is null) ||
+            composition.Components.Select(component => component.Id?.Trim())
+                .Any(string.IsNullOrWhiteSpace) ||
+            composition.Components.Select(component => component.Id!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != composition.Components.Count ||
+            composition.Components.Select(component => component.Order)
+                .OrderBy(order => order).Where((order, index) => order != index).Any())
+        {
+            return false;
+        }
+
+        var parentSourceIds = block.SourceObservationIds
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var componentStatIds = new List<string>();
+        foreach (var component in composition.Components)
+        {
+            if (component.Lines.Count != 1 ||
+                component.CanonicalSignatures.Count != 1 ||
+                component.StatIds.Count != 1 ||
+                component.SourceObservationIds.Count == 0 ||
+                component.SourceObservationIds.Any(id =>
+                    string.IsNullOrWhiteSpace(id) || !parentSourceIds.Contains(id)) ||
+                string.IsNullOrWhiteSpace(component.StatIds[0]) ||
+                knownStatIds is not null && !knownStatIds.Contains(component.StatIds[0]) ||
+                !string.Equals(
+                    component.Lines[0],
+                    block.Lines[component.Order],
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    component.CanonicalSignatures[0],
+                    block.CanonicalSignatures[component.Order],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            componentStatIds.Add(component.StatIds[0].Trim());
+        }
+
+        var auxiliaryStatIds = composition.AuxiliaryStatIds
+            .Select(statId => statId?.Trim())
+            .ToArray();
+        if (componentStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
+                componentStatIds.Count ||
+            auxiliaryStatIds.Any(string.IsNullOrWhiteSpace) ||
+            auxiliaryStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
+                auxiliaryStatIds.Length ||
+            knownStatIds is not null && auxiliaryStatIds.Any(statId =>
+                !knownStatIds.Contains(statId!)) ||
+            auxiliaryStatIds.Any(statId => componentStatIds.Contains(
+                statId!,
+                StringComparer.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var projectedStatIds = componentStatIds
+            .Concat(auxiliaryStatIds.Select(statId => statId!))
+            .ToArray();
+        return projectedStatIds.Length == block.MechanicalMapping.StatIds.Count &&
+            projectedStatIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(
+                block.MechanicalMapping.StatIds);
     }
 
     private static void ValidateFoulbornRelationships(
@@ -491,14 +575,18 @@ public static class GameDataPackageValidator
     private static bool IsValidUniqueMechanicalMapping(
         UniqueModifierMechanicalMapping mapping,
         ISet<string>? knownModifierIds,
-        ISet<string>? knownStatIds)
+        ISet<string>? knownStatIds,
+        bool allowSourceTextProvenance)
     {
         if (mapping.Status == UniqueModifierMechanicalMappingStatus.Unknown ||
             mapping.ModifierIds.Any(string.IsNullOrWhiteSpace) ||
             mapping.StatIds.Any(string.IsNullOrWhiteSpace) ||
             knownModifierIds is not null && mapping.ModifierIds.Any(id => !knownModifierIds.Contains(id)) ||
             knownStatIds is not null && mapping.StatIds.Any(id => !knownStatIds.Contains(id)) ||
-            !IsValidUniqueMechanicalProvenance(mapping.Provenance, knownStatIds))
+            !IsValidUniqueMechanicalProvenance(
+                mapping.Provenance,
+                knownStatIds,
+                allowSourceTextProvenance))
         {
             return false;
         }
@@ -520,17 +608,21 @@ public static class GameDataPackageValidator
 
     private static bool IsValidUniqueMechanicalProvenance(
         UniqueModifierMechanicalProvenance? provenance,
-        ISet<string>? knownStatIds)
+        ISet<string>? knownStatIds,
+        bool allowSourceTextEvidence = false)
     {
         if (provenance is null)
         {
             return true;
         }
+        var hasSourceTextEvidence = allowSourceTextEvidence && provenance.ResolutionReasons.Contains(
+            "repoe-modifier-source-text",
+            StringComparer.Ordinal);
         if (provenance.ResolutionReasons.Count == 0 ||
             provenance.ResolutionReasons.Any(string.IsNullOrWhiteSpace) ||
             provenance.ResolutionReasons.Distinct(StringComparer.Ordinal).Count() !=
                 provenance.ResolutionReasons.Count ||
-            provenance.Translations.Count == 0 ||
+            provenance.Translations.Count == 0 && !hasSourceTextEvidence ||
             !string.Equals(provenance.ValueAuthority, "copiedInstance", StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(provenance.SafetyRationale))
         {

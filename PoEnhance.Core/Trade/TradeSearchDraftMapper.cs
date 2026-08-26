@@ -894,7 +894,11 @@ public sealed partial class TradeSearchDraftMapper
         var boundStats = stats.Count > 0
             ? stats
             : uniqueBoundCandidate?.Stats
-                .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+                .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId) &&
+                    (uniqueBlockResolution?.IsResolved != true ||
+                        uniqueBlockResolution.StatIds.Contains(
+                            stat.StatId!,
+                            StringComparer.OrdinalIgnoreCase)))
                 .OrderBy(stat => stat.Index)
                 .ToArray() ?? [];
         var statIds = exactCandidate is null && uniqueBlockResolution?.IsResolved == true
@@ -1946,7 +1950,10 @@ public sealed partial class TradeSearchDraftMapper
             foreach (var candidate in candidates)
             {
                 var stats = candidate.Stats
-                    .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+                    .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId) &&
+                        resolution.StatIds.Contains(
+                            stat.StatId!,
+                            StringComparer.OrdinalIgnoreCase))
                     .OrderBy(stat => stat.Index)
                     .ToArray();
                 signatures.AddRange(ModifierBoundDefaults.FindProviderSearchSignatures(

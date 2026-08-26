@@ -57,6 +57,119 @@ public sealed class UniqueItemCatalogTests
     }
 
     [Fact]
+    public void JsonRoundTrip_ValidSourceComposition_PreservesOrderedComponents()
+    {
+        var package = CreateCompositionPackage();
+        var json = GameDataPackageJson.Serialize(package);
+        var roundTripped = Assert.IsType<GameDataPackage>(GameDataPackageJson.Deserialize(json));
+
+        Assert.True(GameDataPackageValidator.Validate(roundTripped).IsValid);
+        var block = Assert.Single(Assert.Single(Assert.Single(
+            Assert.IsType<UniqueItemCatalog>(roundTripped.UniqueItems).Items).Versions)
+            .ModifierBlocks);
+        var composition = Assert.IsType<UniqueModifierComposition>(block.Composition);
+        Assert.Equal("unique-composition:test", composition.Id);
+        Assert.Equal(2, composition.Components.Count);
+        Assert.Equal(["base_maximum_life"], composition.Components[0].StatIds);
+        Assert.Equal(["base_fire_damage_resistance_%"], composition.Components[1].StatIds);
+        Assert.Empty(composition.AuxiliaryStatIds);
+    }
+
+    [Fact]
+    public void Validate_CompositionMissingParentStatCoverage_FailsClosed()
+    {
+        var package = CreateCompositionPackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        Composition = block.Composition! with
+                                        {
+                                            AuxiliaryStatIds = ["base_maximum_life"],
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        var result = GameDataPackageValidator.Validate(package);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == GameDataValidationErrorCodes.UniqueCatalogBlockInvalid &&
+            error.Message.Contains("CompositionValid=False", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_CompositionWithExplicitSourceTextProvenance_DoesNotRequireTranslations()
+    {
+        var package = CreateCompositionPackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        package = package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions =
+                        [
+                            version with
+                            {
+                                ModifierBlocks =
+                                [
+                                    block with
+                                    {
+                                        MechanicalMapping = block.MechanicalMapping with
+                                        {
+                                            Provenance = provenance with
+                                            {
+                                                ResolutionReasons =
+                                                [
+                                                    "repoe-modifier-source-text",
+                                                    "source-block-composition",
+                                                ],
+                                                Translations = [],
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        Assert.True(GameDataPackageValidator.Validate(package).IsValid);
+    }
+
+    [Fact]
     public void Validate_MechanicalProvenanceWithUnknownDefaultedStat_FailsClosed()
     {
         var package = CreatePackage();
@@ -710,6 +823,73 @@ public sealed class UniqueItemCatalogTests
                                 ],
                             },
                         ],
+                    },
+                ],
+            },
+        };
+    }
+
+    private static GameDataPackage CreateCompositionPackage()
+    {
+        var package = CreatePackage();
+        var catalog = Assert.IsType<UniqueItemCatalog>(package.UniqueItems);
+        var identity = Assert.Single(catalog.Items);
+        var version = Assert.Single(identity.Versions);
+        var block = Assert.Single(version.ModifierBlocks);
+        const string sourceObservationId = "pob:test";
+        var lines = new[]
+        {
+            "+(50-59) to maximum Life",
+            "+(20-29)% to Fire Resistance",
+        };
+        var signatures = new[]
+        {
+            "+<number> to maximum Life",
+            "+<number>% to Fire Resistance",
+        };
+        var composedBlock = block with
+        {
+            Lines = lines,
+            CanonicalSignatures = signatures,
+            MechanicalMapping = block.MechanicalMapping with
+            {
+                StatIds = ["base_maximum_life", "base_fire_damage_resistance_%"],
+            },
+            Composition = new UniqueModifierComposition
+            {
+                Id = "unique-composition:test",
+                Components =
+                [
+                    new UniqueModifierCompositionComponent
+                    {
+                        Id = "unique-composition-component:life",
+                        Order = 0,
+                        Lines = [lines[0]],
+                        CanonicalSignatures = [signatures[0]],
+                        StatIds = ["base_maximum_life"],
+                        SourceObservationIds = [sourceObservationId],
+                    },
+                    new UniqueModifierCompositionComponent
+                    {
+                        Id = "unique-composition-component:fire",
+                        Order = 1,
+                        Lines = [lines[1]],
+                        CanonicalSignatures = [signatures[1]],
+                        StatIds = ["base_fire_damage_resistance_%"],
+                        SourceObservationIds = [sourceObservationId],
+                    },
+                ],
+            },
+        };
+        return package with
+        {
+            UniqueItems = catalog with
+            {
+                Items =
+                [
+                    identity with
+                    {
+                        Versions = [version with { ModifierBlocks = [composedBlock] }],
                     },
                 ],
             },

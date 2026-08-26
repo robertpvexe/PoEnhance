@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-unique-option-axes",
-    "createdAtUtc": "2026-08-24T18:00:00+00:00",
-    "sizeBytes": 187225583,
-    "sha256": "2fc32a555dde025c8c19a1c0149038f713ca16833b7bddb92a05878af8cccba4",
+    "dataVersion": "3.29.1.2.2-unique-composition",
+    "createdAtUtc": "2026-08-25T18:00:00+00:00",
+    "sizeBytes": 187939376,
+    "sha256": "fa852eb752158529a4f6a07f064bfd8f3281d092adb6428f93ac207fddedd320",
     "foulbornRelationshipCount": 353,
     "exactFoulbornRelationshipCount": 353,
     "unsupportedFoulbornRelationshipCount": 0

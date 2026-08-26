@@ -71,6 +71,29 @@ public sealed class RePoeModifierImporterTests
         Assert.Equal("base_item_found_rarity_+%", Assert.Single(implicitModifier.Stats).StatId);
     }
 
+    [Fact]
+    public void Import_UniqueSourceText_PreservesExactTransientCompositionEvidence()
+    {
+        var result = ImportJson("""
+            {
+              "CompoundUnique": {
+                "domain": "item",
+                "generation_type": "unique",
+                "groups": ["CompoundUnique"],
+                "text": "+(30-50) to maximum Energy Shield\n(10-15)% increased Stun and Block Recovery",
+                "stats": [
+                  { "id": "local_energy_shield", "min": 30, "max": 50 },
+                  { "id": "base_stun_recovery_+%", "min": 10, "max": 15 }
+                ]
+              }
+            }
+            """);
+
+        Assert.Equal(
+            "+(30-50) to maximum Energy Shield\n(10-15)% increased Stun and Block Recovery",
+            Assert.Single(result.ImportedRecords).SourceText);
+    }
+
     [Theory]
     [InlineData("exarch_implicit")]
     [InlineData("searing_exarch_implicit")]

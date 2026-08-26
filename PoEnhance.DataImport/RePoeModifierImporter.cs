@@ -179,6 +179,7 @@ public sealed class RePoeModifierImporter
             Stats = stats,
             SpawnWeights = spawnWeights,
             Sources = [CreateSourceReference(sourceRecordId)],
+            SourceText = ReadOptionalString(record, "text"),
         };
     }
 

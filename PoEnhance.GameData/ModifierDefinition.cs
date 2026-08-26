@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PoEnhance.GameData;
 
 public sealed record ModifierDefinition
@@ -37,4 +39,12 @@ public sealed record ModifierDefinition
     public IReadOnlyList<ModifierSpawnWeight> SpawnWeights { get; init; } = [];
 
     public IReadOnlyList<GameDataSourceReference> Sources { get; init; } = [];
+
+    /// <summary>
+    /// Exact provider-neutral text emitted by the pinned source export. This is transient build
+    /// evidence used to recover proven compound modifier composition and is deliberately omitted
+    /// from the packaged modifier catalog.
+    /// </summary>
+    [JsonIgnore]
+    public string? SourceText { get; init; }
 }
