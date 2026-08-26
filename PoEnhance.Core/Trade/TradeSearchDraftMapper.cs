@@ -936,7 +936,18 @@ public sealed partial class TradeSearchDraftMapper
             modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.TextualOptionRange is not null;
         var treatAsUnscalablePresence = hasUnscalableValue &&
             !hasProvenGeneratedTextualOptionRange;
-        var sourceFixedQueryValue = treatAsUnscalablePresence &&
+        var componentSignatureForSemantics = translationRecognition?.CanonicalSignature.Lines.Count > 0
+            ? string.Join("\n", translationRecognition.CanonicalSignature.Lines)
+            : NormalizeComponentSignature(componentLines);
+        var gemSkillLevelSignatures = new List<string?>
+        {
+            boundDefault.ProviderCanonicalSignature,
+            componentSignatureForSemantics,
+        };
+        gemSkillLevelSignatures.AddRange(providerSearchSignatures);
+        var isGemOrSkillLevelQuery = GemSkillLevelQuerySemantics.IsGemOrSkillLevelQuery(
+            gemSkillLevelSignatures);
+        var qualifiesForFixedNumericIdentity = treatAsUnscalablePresence &&
             usesUniqueSourceMechanics &&
             uniqueBlockResolution is
             {
@@ -949,14 +960,21 @@ public sealed partial class TradeSearchDraftMapper
             boundStats.Count > 0 &&
             boundStats.All(stat => stat.MinValue.HasValue &&
                 stat.MaxValue.HasValue &&
-                stat.MinValue == stat.MaxValue)
-                ? boundDefault.ObservedCanonicalValue
-                : (decimal?)null;
-        // Identity-fixed only (e.g. Level 10 Spell Echo). Multi-line Unique seed evidence is
-        // editable exact-initialized bounds, not FixedQueryValue.
-        var fixedQueryValue = sourceFixedQueryValue;
+                stat.MinValue == stat.MaxValue);
+        // Gem/skill-level numerics stay editable Min bounds even when the Unique source is fixed.
+        // Other identity-fixed numerics keep FixedQueryValue. Timeless seeds use exact-initialized
+        // editable bounds, not FixedQueryValue.
+        var fixedQueryValue = qualifiesForFixedNumericIdentity && !isGemOrSkillLevelQuery
+            ? boundDefault.ObservedCanonicalValue
+            : (decimal?)null;
+        var editableGemSkillLevelBounds = isGemOrSkillLevelQuery &&
+            boundDefault.IsSupported &&
+            boundDefault.Shape == ModifierBoundShape.Scalar &&
+            boundDefault.ObservedValues.Count == 1 &&
+            (qualifiesForFixedNumericIdentity || treatAsUnscalablePresence);
+        var effectiveUnscalablePresence = treatAsUnscalablePresence && !editableGemSkillLevelBounds;
         var exactInitializedEditableQueryValue = fixedQueryValue is null &&
-            !treatAsUnscalablePresence &&
+            !effectiveUnscalablePresence &&
             !boundDefault.IsSupported
                 ? providerSearchEvidence.ExactInitializedEditableQueryValue
                 : null;
@@ -965,18 +983,18 @@ public sealed partial class TradeSearchDraftMapper
             componentLines.Count == 1
                 ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
                 : [];
-        var hasProviderOnlyUniqueScalar = !treatAsUnscalablePresence &&
+        var hasProviderOnlyUniqueScalar = !effectiveUnscalablePresence &&
             providerOnlyUniqueValues.Count == 1;
-        var supportsValueBounds = !treatAsUnscalablePresence &&
+        var supportsValueBounds = !effectiveUnscalablePresence &&
             (boundDefault.IsSupported ||
                 hasProviderOnlyUniqueScalar ||
                 exactInitializedEditableQueryValue.HasValue);
         var providerOnlyUniqueDirection = ModifierBoundDirection.Minimum;
         var valueBoundShape = fixedQueryValue.HasValue || exactInitializedEditableQueryValue.HasValue
             ? ModifierBoundShape.Scalar
-            : treatAsUnscalablePresence
+            : effectiveUnscalablePresence
             ? ModifierBoundShape.PresenceOnly
-            : hasProviderOnlyUniqueScalar
+            : hasProviderOnlyUniqueScalar || editableGemSkillLevelBounds
                 ? ModifierBoundShape.Scalar
                 : boundCandidate is null && usesUniqueSourceMechanics && providerOnlyUniqueValues.Count == 0
                     ? ModifierBoundShape.PresenceOnly
@@ -1014,7 +1032,7 @@ public sealed partial class TradeSearchDraftMapper
                 stat.MinValue == stat.MaxValue)
                 ? boundStats.Select(stat => stat.MinValue!.Value).ToArray()
                 : [];
-        var defaultBoundDirection = hasProviderOnlyUniqueScalar
+        var defaultBoundDirection = editableGemSkillLevelBounds || hasProviderOnlyUniqueScalar
             ? providerOnlyUniqueDirection
             : boundDefault.Direction;
         var observedCanonicalValue = exactInitializedEditableQueryValue ??
@@ -1126,7 +1144,7 @@ public sealed partial class TradeSearchDraftMapper
                 ? "The source proves a fixed numeric query value, but it is not user-editable."
                 : exactInitializedEditableQueryValue.HasValue
                     ? null
-                : treatAsUnscalablePresence
+                : effectiveUnscalablePresence
                     ? "The copied modifier is a presence-only value and has no numeric Trade bound."
                 : hasProviderOnlyUniqueScalar
                     ? null
@@ -1137,21 +1155,21 @@ public sealed partial class TradeSearchDraftMapper
                         : "Official Trade must prove whether this Unique modifier is presence-only."
                 : boundDefault.UnsupportedReason,
             ValueBoundShape = valueBoundShape,
-            ObservedNumericValues = treatAsUnscalablePresence &&
+            ObservedNumericValues = effectiveUnscalablePresence &&
                 !fixedQueryValue.HasValue &&
                 !exactInitializedEditableQueryValue.HasValue
                 ? []
                 : observedNumericValues,
-            OriginalSourceRollRanges = treatAsUnscalablePresence
+            OriginalSourceRollRanges = effectiveUnscalablePresence
                 ? []
                 : ModifierBoundDefaults.ExtractOriginalSourceRollRanges(componentLines),
             CanonicalNumericValues = fixedQueryValue.HasValue
                 ? [fixedQueryValue.Value]
                 : exactInitializedEditableQueryValue.HasValue
                 ? [exactInitializedEditableQueryValue.Value]
-                : treatAsUnscalablePresence ? [] : canonicalNumericValues,
+                : effectiveUnscalablePresence ? [] : canonicalNumericValues,
             FixedQueryValue = fixedQueryValue,
-            ProviderFallbackNumericValues = treatAsUnscalablePresence ? [] : providerFallbackNumericValues,
+            ProviderFallbackNumericValues = effectiveUnscalablePresence ? [] : providerFallbackNumericValues,
             ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
             ValueBoundTranslationIdentity = boundDefault.TranslationIdentity,

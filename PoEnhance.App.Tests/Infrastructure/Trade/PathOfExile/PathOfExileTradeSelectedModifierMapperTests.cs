@@ -112,6 +112,38 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_ReversingProviderStatSerializesPositiveMagnitudeMinimum()
+    {
+        var component = Modifier(
+            "75% reduced Maximum number of Summoned Raging Spirits",
+            providerStatId: "explicit.raging-spirits",
+            canonicalSignature: "<number>% reduced Maximum number of Summoned Raging Spirits") with
+        {
+            ProviderCanonicalSignature =
+                "<number>% increased Maximum number of Summoned Raging Spirits",
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [75m],
+            CanonicalNumericValues = [-75m],
+            RequestedMaximum = -75m,
+            DefaultBoundDirection = ModifierBoundDirection.Maximum,
+            ValueBoundTranslationHandlers = [["negate"]],
+        };
+
+        var result = mapper.Map(
+            Draft([component]),
+            Catalog(
+                "explicit.raging-spirits",
+                "#% reduced Maximum number of Summoned Raging Spirits",
+                "Explicit"));
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(75m, filter.Minimum);
+        Assert.Null(filter.Maximum);
+    }
+
+    [Fact]
     public void Map_FixedLiteralProviderTextEmitsPresenceOnlyFilter()
     {
         var component = Modifier(

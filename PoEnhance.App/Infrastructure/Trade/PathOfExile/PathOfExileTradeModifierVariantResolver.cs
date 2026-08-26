@@ -822,7 +822,37 @@ internal static class PathOfExileTradeModifierVariantResolver
                     "Equivalent provider alternatives do not share one faithful displayed-value projection.",
             };
         }
-        return displayProjection;
+
+        var representative = projections[0];
+        if (projections.Any(projection =>
+                projection.Minimum != representative.Minimum ||
+                projection.Maximum != representative.Maximum ||
+                projection.ValueBoundShape != representative.ValueBoundShape))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "Equivalent provider alternatives do not share one faithful displayed-value projection.",
+            };
+        }
+
+        var defaultBoundDirection = representative.Minimum.HasValue && !representative.Maximum.HasValue
+            ? ModifierBoundDirection.Minimum
+            : representative.Maximum.HasValue && !representative.Minimum.HasValue
+                ? ModifierBoundDirection.Maximum
+                : displayProjection.DefaultBoundDirection;
+        return displayProjection with
+        {
+            SupportsValueBounds = true,
+            ValueBoundShape = representative.ValueBoundShape,
+            RequestedMinimum = representative.Minimum,
+            RequestedMaximum = representative.Maximum,
+            DefaultBoundDirection = defaultBoundDirection,
+            ValueBoundsUnsupportedReason = null,
+        };
     }
 
     private static bool HasCompatibleNumericSemantics(

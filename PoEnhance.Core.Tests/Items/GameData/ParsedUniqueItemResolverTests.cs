@@ -257,7 +257,7 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
-    public void CreateDraft_FixedNumericUniqueSource_RetainsNonEditableQueryConstraintAndProviderSignatures()
+    public void CreateDraft_GemSkillLevelUniqueSource_ExposesEditableMinimumBound()
     {
         var parsed = parser.Parse("""
             Item Class: Wands
@@ -318,13 +318,172 @@ public sealed class ParsedUniqueItemResolverTests
             "Socketed Gems are Supported by Level 10 Spell Echo",
             row.ProviderSearchSignatures);
         Assert.True(row.IsSearchable);
-        Assert.False(row.SupportsValueBounds);
+        Assert.True(row.SupportsValueBounds);
         Assert.Equal(ModifierBoundShape.Scalar, row.ValueBoundShape);
-        Assert.Null(row.RequestedMinimum);
+        Assert.Equal(10m, row.RequestedMinimum);
         Assert.Null(row.RequestedMaximum);
         Assert.Equal([10m], row.ObservedNumericValues);
         Assert.Equal([10m], row.CanonicalNumericValues);
-        Assert.Equal(10m, row.FixedQueryValue);
+        Assert.Null(row.FixedQueryValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, row.DefaultBoundDirection);
+    }
+
+    [Fact]
+    public void CreateDraft_GrantsLevelSkill_ExposesEditableMinimumBound()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Grants Amulet
+            Jade Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Grants Level 20 Clarity — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Grants Amulet",
+            "Jade Amulet",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "grants-clarity",
+                        "Grants Level 20 Clarity",
+                        "Grants Level <number> Clarity",
+                        "local_display_grants_skill_clarity")),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:grants-clarity",
+                    StatIds = ["local_display_grants_skill_clarity"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Grants Level {0} Clarity"],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.True(row.SupportsValueBounds);
+        Assert.Equal(20m, row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Null(row.FixedQueryValue);
+        Assert.Equal([20m], row.ObservedNumericValues);
+    }
+
+    [Fact]
+    public void CreateDraft_PlusLevelOfGems_ExposesEditableMinimumBound()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Gem Level Helmet
+            Leather Cap
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +2 to Level of all Skill Gems
+            """);
+        var catalog = CreateCatalog(
+            "Test Gem Level Helmet",
+            "Leather Cap",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "skill-gem-level",
+                        "+2 to Level of all Skill Gems",
+                        "+<number> to Level of all Skill Gems",
+                        "skill_gem_level_+")),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:skill-gem-level",
+                    StatIds = ["skill_gem_level_+"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["{0} to Level of all Skill Gems"],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.True(row.SupportsValueBounds);
+        Assert.Equal(2m, row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Null(row.FixedQueryValue);
+    }
+
+    [Fact]
+    public void CreateDraft_UnsupportedGemLevelShape_DoesNotInventEditableBounds()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Test Echo Wand
+            Carved Wand
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Socketed Gems are Supported by Level 10 Spell Echo — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Echo Wand",
+            "Carved Wand",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "spell-echo",
+                        "Socketed Gems are Supported by Level 10 Spell Echo",
+                        "Socketed Gems are Supported by Level <number> Spell Echo",
+                        "support_spell_echo")),
+            ],
+            additionalModifiers: [],
+            translations: [],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Null(row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Null(row.FixedQueryValue);
     }
 
     [Fact]

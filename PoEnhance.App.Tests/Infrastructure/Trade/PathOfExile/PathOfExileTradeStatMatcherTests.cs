@@ -504,6 +504,66 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_GemSkillLevelEditableMinimum_PrefersParametricPeersOverLiteralProviderText()
+    {
+        var catalog = Catalog(
+            Entry(
+                "explicit.spell_echo_a",
+                "Socketed Gems are Supported by Level # Spell Echo",
+                "explicit"),
+            Entry(
+                "explicit.spell_echo_literal",
+                "Socketed Gems are Supported by Level 10 Spell Echo",
+                "explicit"),
+            Entry(
+                "explicit.spell_echo_b",
+                "Socketed Gems are Supported by Level # Spell Echo",
+                "explicit"));
+        var component = ExactUniqueComponent(
+            "Socketed Gems are Supported by Level 10 Spell Echo",
+            "Socketed Gems are Supported by Level <number> Spell Echo",
+            "support_spell_echo",
+            ModifierLocality.Global) with
+        {
+            ProviderSearchSignatures =
+            [
+                "Socketed Gems are Supported by Level <number> Spell Echo",
+                "Socketed Gems are Supported by Level 10 Spell Echo",
+            ],
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            RequestedMinimum = 10m,
+            RequestedMaximum = null,
+            FixedQueryValue = null,
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+        };
+
+        var result = matcher.Match(
+            component,
+            catalog,
+            Context(
+                locality: ModifierLocality.Global,
+                internalStatIds: ["support_spell_echo"]));
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactEquivalentSet, result.Status);
+        Assert.Equal(
+            ["explicit.spell_echo_a", "explicit.spell_echo_b"],
+            result.ExactEquivalentCandidates.Select(candidate => candidate.StatId).Order());
+        Assert.DoesNotContain(
+            result.Candidates,
+            candidate => candidate.StatId == "explicit.spell_echo_literal");
+        Assert.All(result.ExactEquivalentCandidates, candidate =>
+        {
+            var projection = PathOfExileTradeModifierBoundProjector.ProjectBounds(component, candidate);
+            Assert.Equal("DisplayIdentity", projection.ProjectionKind);
+            Assert.Equal(10m, projection.Minimum);
+            Assert.Null(projection.Maximum);
+        });
+    }
+
+    [Fact]
     public void Match_ExactUniqueFixedNumericGenericControl_RemainsExactEquivalentSet()
     {
         var catalog = Catalog(

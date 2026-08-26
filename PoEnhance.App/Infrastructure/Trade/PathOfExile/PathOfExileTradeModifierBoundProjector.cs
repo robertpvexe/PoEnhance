@@ -13,13 +13,7 @@ internal static partial class PathOfExileTradeModifierBoundProjector
     {
         ArgumentNullException.ThrowIfNull(component);
 
-        var source = string.IsNullOrWhiteSpace(component.ProviderCanonicalSignature)
-            ? component.CanonicalSignature
-            : component.ProviderCanonicalSignature;
-        source = source
-            .Replace("+<number>", "+#", StringComparison.Ordinal)
-            .Replace("-<number>", "-#", StringComparison.Ordinal)
-            .Replace("<number>", "#", StringComparison.Ordinal);
+        var source = GetProjectionSourceTemplate(component);
         var templates = new List<string>();
         if (HasSingleNegateProjection(component))
         {
@@ -97,6 +91,14 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 Maximum = null,
                 ProjectionKind = "ExactFixedLiteralPresence",
             };
+        }
+
+        // Provider template itself encodes the reversing polarity (e.g. "#% reduced ...").
+        // Canonical/query values for negate handlers live in non-reversing (increased) space;
+        // projecting onto the reversing Trade form requires the positive display magnitude.
+        if (TryProjectReversingProviderMagnitude(component, providerStat, out var reversingProjection))
+        {
+            return reversingProjection;
         }
 
         if (CanProjectSemanticBridge(component, providerStat) &&
@@ -255,6 +257,103 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             component.ValueBoundTranslationHandlers[0][0],
             NegateHandler,
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryProjectReversingProviderMagnitude(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!TryGetNegateProviderPolarity(component, providerStat, out var providerIsReversingForm) ||
+            !providerIsReversingForm ||
+            !TryGetObservedMagnitude(component, out var magnitude))
+        {
+            return false;
+        }
+
+        // Single observed scalar uses Min-only provider convention.
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            Minimum = magnitude,
+            Maximum = null,
+            ProjectionKind = "ReversingProviderMagnitudeScalar",
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// Proves whether the selected Trade provider is the reversing (typically reduced) or
+    /// non-reversing (typically increased) side of a negate-handler polarity pair.
+    /// Fail-closed when polarity cannot be proven from the component signature and provider template.
+    /// </summary>
+    private static bool TryGetNegateProviderPolarity(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out bool providerIsReversingForm)
+    {
+        providerIsReversingForm = false;
+        if (!HasSingleNegateProjection(component))
+        {
+            return false;
+        }
+
+        var source = GetProjectionSourceTemplate(component);
+        var sourceIsIncreased = IncreasedRegex().IsMatch(source);
+        var sourceIsReduced = ReducedRegex().IsMatch(source);
+        if (sourceIsIncreased == sourceIsReduced)
+        {
+            return false;
+        }
+
+        var normalizedSource = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(source);
+        if (string.Equals(providerStat.LookupTemplate, normalizedSource, StringComparison.Ordinal))
+        {
+            providerIsReversingForm = sourceIsReduced;
+            return true;
+        }
+
+        if (!CanProjectSemanticBridge(component, providerStat))
+        {
+            return false;
+        }
+
+        // Bridge always targets the opposite polarity of the component signature source.
+        providerIsReversingForm = sourceIsIncreased;
+        return true;
+    }
+
+    private static bool TryGetObservedMagnitude(
+        ResolvedSearchComponent component,
+        out decimal magnitude)
+    {
+        if (component.ObservedNumericValues.Count == 1)
+        {
+            magnitude = decimal.Abs(component.ObservedNumericValues[0]);
+            return true;
+        }
+
+        if (component.CanonicalNumericValues.Count == 1)
+        {
+            magnitude = decimal.Abs(component.CanonicalNumericValues[0]);
+            return true;
+        }
+
+        magnitude = default;
+        return false;
+    }
+
+    private static string GetProjectionSourceTemplate(ResolvedSearchComponent component)
+    {
+        var source = string.IsNullOrWhiteSpace(component.ProviderCanonicalSignature)
+            ? component.CanonicalSignature
+            : component.ProviderCanonicalSignature;
+        return source
+            .Replace("+<number>", "+#", StringComparison.Ordinal)
+            .Replace("-<number>", "-#", StringComparison.Ordinal)
+            .Replace("<number>", "#", StringComparison.Ordinal);
+    }
 
     internal static bool CanApplyFixedQueryValue(
         ResolvedSearchComponent component,

@@ -88,6 +88,68 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task GemSkillLevelEditableMinimum_UpdateBoundsAndResetRestoreObservedMinimum()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("gem-level-offer")], total: 1);
+        var uniqueVariantIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_spell_echo");
+        var modifier = Modifier(
+            "Socketed Gems are Supported by Level 10 Spell Echo",
+            kind: ParsedModifierKind.Unique,
+            supportsValueBounds: true,
+            minimum: 10m,
+            maximum: null) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            FixedQueryValue = null,
+            ProviderStatId = "explicit.stat_spell_echo",
+            ProviderStatText = "Socketed Gems are Supported by Level # Spell Echo",
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = uniqueVariantIdentity,
+                    Label = "Unique",
+                    Description = "Socketed Gems are Supported by Level # Spell Echo",
+                    ProviderKind = "explicit",
+                    SupportsValueBounds = true,
+                },
+            ],
+            SelectedFilterVariantIdentity = uniqueVariantIdentity,
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Echo Shell", modifiers: [modifier]) with { Rarity = "Unique" },
+            ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+
+        var initial = Assert.Single(fixture.Window.CurrentState!.Draft.ModifierFilters);
+        Assert.True(initial.SupportsValueBounds);
+        Assert.Null(initial.FixedQueryValue);
+        Assert.Equal(10m, initial.RequestedMinimum);
+        Assert.Null(initial.RequestedMaximum);
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.True(row.CanEditBounds);
+        Assert.Equal("10", row.MinimumText);
+        Assert.Equal(string.Empty, row.MaximumText);
+
+        fixture.Window.RaiseModifierBoundsChanged(0, "11", string.Empty);
+        await fixture.Controller.SearchAsync();
+        var searched = Assert.Single(fixture.PriceCheckService.Calls).Draft!;
+        Assert.Equal(11m, searched.ModifierFilters[0].RequestedMinimum);
+        Assert.Null(searched.ModifierFilters[0].RequestedMaximum);
+
+        fixture.Window.RaiseResetItemRequested();
+        var reset = Assert.Single(fixture.Window.CurrentState.Draft.ModifierFilters);
+        Assert.False(reset.IsSelected);
+        Assert.Equal(10m, reset.RequestedMinimum);
+        Assert.Null(reset.RequestedMaximum);
+        Assert.Null(reset.FixedQueryValue);
+    }
+
+    [Fact]
     public void UpdateCurrentDraft_PreparesSearchStateWithoutCallingService()
     {
         var fixture = SearchFixture.Create();

@@ -99,6 +99,134 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
     }
 
     [Fact]
+    public void ProjectBounds_ReversingProviderStatUsesPositiveMagnitudeMinimum()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "<number>% reduced Maximum number of Summoned Raging Spirits",
+                ProviderCanonicalSignature =
+                    "<number>% increased Maximum number of Summoned Raging Spirits",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [75m],
+                CanonicalNumericValues = [-75m],
+                ValueBoundTranslationHandlers = [["negate"]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -75m,
+            },
+            Candidate("#% reduced Maximum number of Summoned Raging Spirits"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(75m, result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("ReversingProviderMagnitudeScalar", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_ReversingProviderMatchedDirectlyUsesPositiveMagnitude()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "<number>% reduced Maximum number of Summoned Raging Spirits",
+                ProviderCanonicalSignature =
+                    "<number>% reduced Maximum number of Summoned Raging Spirits",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [75m],
+                CanonicalNumericValues = [-75m],
+                ValueBoundTranslationHandlers = [["negate"]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -75m,
+            },
+            Candidate("#% reduced Maximum number of Summoned Raging Spirits"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(75m, result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("ReversingProviderMagnitudeScalar", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_GenuineNegativeWithoutNegateHandlerRemainsNegative()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "+<number> to maximum Life",
+                ProviderCanonicalSignature = "+<number> to maximum Life",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [215m],
+                CanonicalNumericValues = [-215m],
+                ValueBoundTranslationHandlers = [[]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -215m,
+            },
+            Candidate("+# to maximum Life"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Null(result.Minimum);
+        Assert.Equal(-215m, result.Maximum);
+        Assert.Equal("DisplayIdentity", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_PositiveScalarRemainsUnchanged()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "<number>% increased Armour",
+                ProviderCanonicalSignature = "<number>% increased Armour",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [100m],
+                CanonicalNumericValues = [100m],
+                ValueBoundTranslationHandlers = [[]],
+                DefaultBoundDirection = ModifierBoundDirection.Minimum,
+                RequestedMinimum = 100m,
+            },
+            Candidate("#% increased Armour"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(100m, result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("DisplayIdentity", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_WithoutNegateProofDoesNotGuessReducedPolarity()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                CanonicalSignature = "<number>% reduced Maximum number of Summoned Raging Spirits",
+                ProviderCanonicalSignature =
+                    "<number>% reduced Maximum number of Summoned Raging Spirits",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [75m],
+                CanonicalNumericValues = [-75m],
+                ValueBoundTranslationHandlers = [[]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -75m,
+            },
+            Candidate("#% reduced Maximum number of Summoned Raging Spirits"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Null(result.Minimum);
+        Assert.Equal(-75m, result.Maximum);
+        Assert.Equal("DisplayIdentity", result.ProjectionKind);
+    }
+
+    [Fact]
     public void ProjectBounds_NonEditableFixedQueryValueUsesExactParametricConstraint()
     {
         var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(

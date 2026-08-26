@@ -2075,6 +2075,49 @@ and they welcomed him.
     }
 
     [Fact]
+    public void ResolveProviderComponents_ReversingProviderStatUsesPositiveMagnitudeMinimum()
+    {
+        var fixture = ServiceFixture.Create();
+        var component = SpecialComponent(
+            "75% reduced Maximum number of Summoned Raging Spirits",
+            "<number>% reduced Maximum number of Summoned Raging Spirits") with
+        {
+            ParsedKind = ParsedModifierKind.Unique,
+            ProviderCanonicalSignature =
+                "<number>% increased Maximum number of Summoned Raging Spirits",
+            StatMappingProof = ModifierStatMappingProofStatus.ProvenExact,
+            Locality = ModifierLocality.Global,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [75m],
+            CanonicalNumericValues = [-75m],
+            ValueBoundTranslationHandlers = [["negate"]],
+            DefaultBoundDirection = ModifierBoundDirection.Maximum,
+            RequestedMaximum = -75m,
+            ResolvedStatIds = ["%_number_of_raging_spirits_allowed"],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat(
+                "explicit.stat_1186934478",
+                "#% reduced Maximum number of Summoned Raging Spirits",
+                "explicit"),
+        ]);
+
+        var resolved = Assert.Single(fixture.Service.ResolveProviderComponents(
+            Draft() with { ModifierFilters = [component] },
+            catalog).ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_1186934478", resolved.ProviderStatId);
+        Assert.Equal(75m, resolved.RequestedMinimum);
+        Assert.Null(resolved.RequestedMaximum);
+        Assert.Equal(ModifierBoundDirection.Minimum, resolved.DefaultBoundDirection);
+        Assert.Equal([-75m], resolved.CanonicalNumericValues);
+        Assert.Equal([75m], resolved.ObservedNumericValues);
+    }
+
+    [Fact]
     public async Task CheckAsync_ValidDraftBuildsSearchFetchesFirstBatchAndReturnsOrderedOffers()
     {
         var fixture = ServiceFixture.Create();

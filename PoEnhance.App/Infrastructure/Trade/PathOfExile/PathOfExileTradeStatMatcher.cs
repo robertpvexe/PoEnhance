@@ -453,13 +453,15 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
     private static bool HasProvenSingleScalarProviderQuery(ResolvedSearchComponent component) =>
         component.FixedQueryValue.HasValue ||
-        HasExactInitializedEditableScalarQuery(component);
+        HasExactInitializedEditableScalarQuery(component) ||
+        HasEditableGemSkillLevelMinimumQuery(component);
 
     private static bool AcceptsProvenSingleScalarProviderQuery(
         ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate candidate) =>
         PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(component, candidate) ||
-        HasExactInitializedEditableScalarQuery(component) &&
+        (HasExactInitializedEditableScalarQuery(component) ||
+            HasEditableGemSkillLevelMinimumQuery(component)) &&
         PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 1;
 
     private static bool HasExactInitializedEditableScalarQuery(ResolvedSearchComponent component) =>
@@ -469,6 +471,27 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         component.CanonicalNumericValues.Count == 1 &&
         component.RequestedMinimum == component.CanonicalNumericValues[0] &&
         component.RequestedMaximum == component.CanonicalNumericValues[0];
+
+    private static bool HasEditableGemSkillLevelMinimumQuery(ResolvedSearchComponent component)
+    {
+        if (component.FixedQueryValue is not null ||
+            !component.SupportsValueBounds ||
+            component.ValueBoundShape != ModifierBoundShape.Scalar ||
+            component.CanonicalNumericValues.Count != 1 ||
+            component.RequestedMinimum != component.CanonicalNumericValues[0] ||
+            component.RequestedMaximum is not null)
+        {
+            return false;
+        }
+
+        var signatures = new List<string?>
+        {
+            component.ProviderCanonicalSignature,
+            component.CanonicalSignature,
+        };
+        signatures.AddRange(component.ProviderSearchSignatures);
+        return GemSkillLevelQuerySemantics.IsGemOrSkillLevelQuery(signatures);
+    }
 
     private static PathOfExileTradeStatMatchResult ResolveRemainingCandidates(
         PathOfExileTradeStatModifierNormalization normalization,

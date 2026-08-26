@@ -152,6 +152,37 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_MarkOfTheRedCovenantReducedSpiritsUsesPositiveMagnitude()
+    {
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve(MarkOfTheRedCovenantReducedSpiritsText, catalog);
+        var component = FindComponent(
+            runtime.ProviderDraft,
+            "75% reduced Maximum number of Summoned Raging Spirits");
+
+        Assert.Equal([75m], component.ObservedNumericValues);
+        Assert.Equal([-75m], component.CanonicalNumericValues);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_1186934478", component.ProviderStatId);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(75m, component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.Null(component.FixedQueryValue);
+        Assert.True(IsInteractionReady(component));
+
+        var filter = MapSingle(runtime.ProviderDraft, component, catalog);
+        Assert.Equal(75m, filter.Minimum);
+        Assert.Null(filter.Maximum);
+        AssertSingleQueryFilter(
+            runtime,
+            component,
+            catalog,
+            "explicit.stat_1186934478",
+            expectedMinimum: 75m,
+            expectedMaximum: null);
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_ProgenesisProjectsNegateAndFixedLiteralValues()
     {
         var runtime = Resolve(ProgenesisText);
@@ -524,18 +555,18 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
-    public void ResolveRawCopiedItem_ReverberationRod_FixedSupportsUseGenericExactQueryConstraints()
+    public void ResolveRawCopiedItem_ReverberationRod_GemLevelSupportsUseEditableMinimumBounds()
     {
         var catalog = OfficialTradeCatalog.Value;
         var runtime = Resolve(ReverberationRodText, catalog);
-        var fixedSupports = new[]
+        var gemLevelSupports = new[]
         {
             FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Spell Echo"),
             FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Controlled Destruction"),
             FindComponent(runtime.ProviderDraft, "Socketed Gems are Supported by Level 10 Arcane Surge"),
         };
 
-        foreach (var component in fixedSupports)
+        foreach (var component in gemLevelSupports)
         {
             Assert.Equal(
                 SearchComponentProviderResolutionStatus.ExactEquivalentSet,
@@ -549,13 +580,14 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             });
             Assert.True(component.IsSearchable, component.NotSearchableReason);
             Assert.True(IsInteractionReady(component));
-            Assert.False(component.SupportsValueBounds);
+            Assert.True(component.SupportsValueBounds);
             Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
-            Assert.Null(component.RequestedMinimum);
+            Assert.Equal(10m, component.RequestedMinimum);
             Assert.Null(component.RequestedMaximum);
             Assert.Equal([10m], component.ObservedNumericValues);
             Assert.Equal([10m], component.CanonicalNumericValues);
-            Assert.Equal(10m, component.FixedQueryValue);
+            Assert.Null(component.FixedQueryValue);
+            Assert.Equal(ModifierBoundDirection.Minimum, component.DefaultBoundDirection);
 
             var selectedDraft = runtime.ProviderDraft with
             {
@@ -575,7 +607,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Assert.All(mapped.Alternatives, alternative =>
             {
                 Assert.Equal(10m, alternative.Minimum);
-                Assert.Equal(10m, alternative.Maximum);
+                Assert.Null(alternative.Maximum);
             });
 
             var query = new PathOfExileTradeQueryBuilder().Build(
@@ -601,8 +633,27 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             {
                 var value = filter.GetProperty("value");
                 Assert.Equal(10m, value.GetProperty("min").GetDecimal());
-                Assert.Equal(10m, value.GetProperty("max").GetDecimal());
+                Assert.False(value.TryGetProperty("max", out _));
             });
+
+            var editedMapping = SelectedMapper.Map(
+                selectedDraft with
+                {
+                    ModifierFilters =
+                    [
+                        component with
+                        {
+                            IsSelected = true,
+                            RequestedMinimum = 11m,
+                            RequestedMaximum = null,
+                        },
+                    ],
+                },
+                catalog);
+            Assert.True(editedMapping.IsSuccess);
+            var editedFilter = Assert.Single(editedMapping.Filters);
+            Assert.Equal(11m, editedFilter.Minimum);
+            Assert.Null(editedFilter.Maximum);
         }
 
         var gemLevels = FindComponent(runtime.ProviderDraft, "+2 to Level of Socketed Gems");
@@ -1559,6 +1610,23 @@ Item Level: 80
 { Unique Modifier — Elemental, Fire, Minion }
 Summoned Raging Spirits' Melee Strikes deal Fire-only Splash
 Damage to Surrounding Targets
+""";
+
+    private const string MarkOfTheRedCovenantReducedSpiritsText = """
+Item Class: Helmets
+Rarity: Unique
+Mark of the Red Covenant
+Tribal Circlet
+--------
+Item Level: 80
+--------
++45(30-50) to maximum Energy Shield
+11(10-15)% increased Stun and Block Recovery
+Summoned Raging Spirits deal 200(175-250)% increased Damage
+75% reduced Maximum number of Summoned Raging Spirits
+Summoned Raging Spirits' Melee Strikes deal Fire-only Splash
+Damage to Surrounding Targets
+Summoned Raging Spirits' Hits always Ignite
 """;
 
     private const string BonesOfUllrCompositionText = """
