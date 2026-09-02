@@ -314,7 +314,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 item,
                 optionIndices,
                 baseVariantIndices,
-                spec.VariantIndex.HasValue);
+                spec.VariantIndex.HasValue &&
+                    optionIndices.Contains(spec.VariantIndex.Value) &&
+                    !baseVariantIndices.Contains(spec.VariantIndex.Value));
             var implicitLines = item.EffectLines.Take(item.ImplicitCount)
                 .Where(line => IsApplicable(line, spec, optionIndices, baseVariantIndices))
                 .Select(line => SelectEffectLine(
@@ -475,10 +477,31 @@ public sealed partial class PoBUniqueCatalogImporter
         var hasCurrentVariant = classifiedVariants.Any(variant =>
             ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) ==
                 UniqueItemVersionRole.Current);
-        var hasCoSelectableSourceAxis = item.OptionAxes.Any(axis => axis.SelectionLimit > 1);
+        var optionChoiceIndices = item.OptionAxes
+            .SelectMany(axis => axis.SourceChoiceIndices)
+            .ToHashSet();
+        var hasHistoricalVariant = classifiedVariants.Any(variant =>
+            ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) ==
+                UniqueItemVersionRole.Historical);
+        var hasCoSelectableSourceAxis = item.OptionAxes.Any(axis => axis.SelectionLimit > 1) &&
+            (item.OptionAxes.Any(axis => !string.Equals(
+                    axis.SourceKind,
+                    "legacySharedVariantSelection",
+                    StringComparison.OrdinalIgnoreCase)) ||
+                hasHistoricalVariant ||
+                item.LimitedToSelectionCount > 1);
+        if (hasCoSelectableSourceAxis)
+        {
+            return BuildCoSelectableVersionPlans(
+                item,
+                classifiedVariants,
+                hasExplicitCurrentLabel,
+                optionChoiceIndices);
+        }
+
         var primaryVariants = hasCurrentVariant
             ? classifiedVariants
-            : item.IsGenerated || hasCoSelectableSourceAxis && classifiedVariants.Length == 0
+            : item.IsGenerated
                 ? []
                 : item.Variants.ToArray();
         var primaryIndices = primaryVariants.Select(variant => variant.Index).ToHashSet();
@@ -492,6 +515,74 @@ public sealed partial class PoBUniqueCatalogImporter
         return BuildVersionSpecs(item, primaryVariants, hasExplicitCurrentLabel)
             .Select(spec => new VersionBuildPlan(spec, optionIndices))
             .ToArray();
+    }
+
+    private static ISet<int> IdentifySharedTemplatePrimaryVariantIndices(ParsedSourceItem item) =>
+        item.EffectLines
+            .Where(line => line.Variants.Count > 0)
+            .GroupBy(line => StructuralVariantLineTemplate(line.Text), StringComparer.Ordinal)
+            .Where(group => group.SelectMany(line => line.Variants).Distinct().Count() > 1)
+            .SelectMany(group => group.SelectMany(line => line.Variants))
+            .ToHashSet();
+
+    private static string StructuralVariantLineTemplate(string line)
+    {
+        var normalized = NormalizeSignature(line.Trim());
+        var words = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 5)
+        {
+            return normalized;
+        }
+
+        return string.Join(' ', words[..^1]) + " <variant>";
+    }
+
+    private static IReadOnlyList<VersionBuildPlan> BuildCoSelectableVersionPlans(
+        ParsedSourceItem item,
+        IReadOnlyList<SourceVariant> classifiedVariants,
+        bool hasExplicitCurrentLabel,
+        ISet<int> optionChoiceIndices)
+    {
+        var sharedTemplatePrimaryIndices = IdentifySharedTemplatePrimaryVariantIndices(item);
+        var historicalVariants = classifiedVariants
+            .Where(variant =>
+                ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) ==
+                    UniqueItemVersionRole.Historical)
+            .ToArray();
+        var atomicCurrentVariants = item.Variants
+            .Where(variant =>
+                (sharedTemplatePrimaryIndices.Contains(variant.Index) ||
+                    !optionChoiceIndices.Contains(variant.Index)) &&
+                ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) !=
+                    UniqueItemVersionRole.Historical)
+            .Select(variant => new SourceVariant(variant.Index, variant.Label))
+            .ToArray();
+        var sharedOptionIndices = item.Variants
+            .Where(variant =>
+                optionChoiceIndices.Contains(variant.Index) &&
+                !sharedTemplatePrimaryIndices.Contains(variant.Index) &&
+                ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) !=
+                    UniqueItemVersionRole.Historical)
+            .Select(variant => variant.Index)
+            .ToHashSet();
+        var plans = new List<VersionBuildPlan>();
+        if (historicalVariants.Length > 0)
+        {
+            plans.AddRange(BuildVersionSpecs(item, historicalVariants, hasExplicitCurrentLabel)
+                .Select(spec => new VersionBuildPlan(spec, new HashSet<int>())));
+        }
+        if (atomicCurrentVariants.Length > 0)
+        {
+            plans.AddRange(BuildVersionSpecs(item, atomicCurrentVariants, hasExplicitCurrentLabel)
+                .Select(spec => new VersionBuildPlan(spec, sharedOptionIndices)));
+        }
+        if (sharedOptionIndices.Count > 0 && plans.Count == 0)
+        {
+            plans.AddRange(BuildVersionSpecs(item, [], hasExplicitCurrentLabel)
+                .Select(spec => new VersionBuildPlan(spec, sharedOptionIndices)));
+        }
+
+        return plans;
     }
 
     private static bool TryBuildContextualOptionVersionPlans(
@@ -594,12 +685,23 @@ public sealed partial class PoBUniqueCatalogImporter
                 var choiceIdsBySourceIndex = sourceChoiceIndices
                     .Zip(choices, (index, choice) => new { index, choice.Id })
                     .ToDictionary(pair => pair.index, pair => pair.Id!);
+                var reservedLegacySlots =
+                    string.Equals(
+                        sourceAxis.SourceKind,
+                        "legacySharedVariantSelection",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    item.CoSelectableSelectionLimit > 0
+                        ? item.CoSelectableSelectionLimit
+                        : 0;
                 return new OptionAxisProjection(
                     new UniqueItemOptionAxis
                     {
                         Id = axisId,
                         SelectionLimit = Math.Min(
-                            sourceAxis.SelectionLimit - (primarySelectionSlotIsAtomicVersion ? 1 : 0),
+                            Math.Max(
+                                0,
+                                sourceAxis.SelectionLimit - reservedLegacySlots -
+                                    (primarySelectionSlotIsAtomicVersion ? 1 : 0)),
                             choices.Length),
                         Choices = choices,
                         SourceObservationIds = [item.ObservationId!],
@@ -708,6 +810,53 @@ public sealed partial class PoBUniqueCatalogImporter
             line.Variants.Any(index => optionIndices.Contains(index) && !baseVariantIndices.Contains(index));
     }
 
+    private static bool TrySelectSkippableCompositionSpan(
+        IReadOnlyList<SelectedEffectLine> lines,
+        int startIndex,
+        string baseType,
+        MechanicalIndex mechanicalIndex,
+        out int endIndex,
+        out SelectedEffectLine[] selectedLines)
+    {
+        endIndex = startIndex;
+        selectedLines = [];
+        var compositionLines = new List<SelectedEffectLine> { lines[startIndex] };
+        SelectedEffectLine[]? bestMatch = null;
+        var bestEndIndex = startIndex;
+        for (var lineIndex = startIndex + 1; lineIndex < lines.Count; lineIndex++)
+        {
+            var line = lines[lineIndex];
+            if (line.OptionChoiceMemberships.Count > 0)
+            {
+                continue;
+            }
+
+            compositionLines.Add(line);
+            if (compositionLines.Count < 2 ||
+                !mechanicalIndex.HasMatch(
+                    compositionLines.Select(candidate => candidate.Text).ToArray(),
+                    baseType,
+                    compositionLines.Any(candidate => candidate.HasGeneratedOptionEvidence),
+                    CombineSourceSemanticFingerprints(compositionLines.Select(candidate =>
+                        candidate.SemanticFingerprint))))
+            {
+                continue;
+            }
+
+            bestEndIndex = lineIndex;
+            bestMatch = compositionLines.ToArray();
+        }
+
+        if (bestMatch is null)
+        {
+            return false;
+        }
+
+        endIndex = bestEndIndex;
+        selectedLines = bestMatch;
+        return true;
+    }
+
     private static IEnumerable<UniqueModifierBlock> GroupBlocks(
         IReadOnlyList<SelectedEffectLine> lines,
         UniqueModifierBlockKind kind,
@@ -720,6 +869,67 @@ public sealed partial class PoBUniqueCatalogImporter
     {
         for (var index = 0; index < lines.Count;)
         {
+            if (TrySelectSkippableCompositionSpan(
+                    lines,
+                    index,
+                    baseType,
+                    mechanicalIndex,
+                    out var compositionEndIndex,
+                    out var compositionLines))
+            {
+                var firstCompositionLine = compositionLines[0];
+                yield return BuildBlock(
+                    identityId,
+                    versionLabel,
+                    compositionLines.Select(line => line.Text).ToArray(),
+                    kind,
+                    observationId,
+                    isGeneratedSource,
+                    firstCompositionLine.HasGeneratedOptionEvidence,
+                    baseType,
+                    compositionLines.Any(line => line.HasGeneratedOptionEvidence),
+                    compositionLines
+                        .SelectMany(line => line.CandidatePoolMembershipIds)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(id => id, StringComparer.Ordinal)
+                        .ToArray(),
+                    compositionLines
+                        .SelectMany(line => line.OptionChoiceMemberships)
+                        .DistinctBy(OptionMembershipKey, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(membership => membership.OptionAxisId, StringComparer.Ordinal)
+                        .ThenBy(membership => membership.OptionChoiceId, StringComparer.Ordinal)
+                        .ToArray(),
+                    CombineSourceSemanticFingerprints(compositionLines.Select(line =>
+                        line.SemanticFingerprint)),
+                    mechanicalIndex);
+                for (var skippedIndex = index + 1; skippedIndex < compositionEndIndex; skippedIndex++)
+                {
+                    var skippedLine = lines[skippedIndex];
+                    if (skippedLine.OptionChoiceMemberships.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    yield return BuildBlock(
+                        identityId,
+                        versionLabel,
+                        [skippedLine.Text],
+                        kind,
+                        observationId,
+                        isGeneratedSource,
+                        skippedLine.HasGeneratedOptionEvidence,
+                        baseType,
+                        skippedLine.HasGeneratedOptionEvidence,
+                        skippedLine.CandidatePoolMembershipIds,
+                        skippedLine.OptionChoiceMemberships,
+                        skippedLine.SemanticFingerprint,
+                        mechanicalIndex);
+                }
+
+                index = compositionEndIndex + 1;
+                continue;
+            }
+
             var firstLine = lines[index];
             var maximumLength = 1;
             while (index + maximumLength < lines.Count &&
@@ -727,6 +937,9 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 maximumLength++;
             }
+            maximumLength = Math.Max(
+                maximumLength,
+                mechanicalIndex.GetMaximumProvenCompositionLength(lines, index));
             var selectedLength = 1;
             for (var length = maximumLength; length > 1; length--)
             {
@@ -754,8 +967,17 @@ public sealed partial class PoBUniqueCatalogImporter
                 firstLine.HasGeneratedOptionEvidence,
                 baseType,
                 selectedLines.Any(line => line.HasGeneratedOptionEvidence),
-                firstLine.CandidatePoolMembershipIds,
-                firstLine.OptionChoiceMemberships,
+                selectedLines
+                    .SelectMany(line => line.CandidatePoolMembershipIds)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray(),
+                selectedLines
+                    .SelectMany(line => line.OptionChoiceMemberships)
+                    .DistinctBy(OptionMembershipKey, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(membership => membership.OptionAxisId, StringComparer.Ordinal)
+                    .ThenBy(membership => membership.OptionChoiceId, StringComparer.Ordinal)
+                    .ToArray(),
                 CombineSourceSemanticFingerprints(selectedLines.Select(line =>
                     line.SemanticFingerprint)),
                 mechanicalIndex);
@@ -1102,6 +1324,7 @@ public sealed partial class PoBUniqueCatalogImporter
         var dynamicPatterns = new List<DynamicMechanicalCandidate>();
         var partialExactIndex = new Dictionary<string, List<MechanicalCandidate>>(StringComparer.Ordinal);
         var partialDynamicPatterns = new List<DynamicMechanicalCandidate>();
+        var compositionModifierIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var modifier in modifiers)
         {
             var statIds = modifier.Stats.OrderBy(stat => stat.Index)
@@ -1200,6 +1423,11 @@ public sealed partial class PoBUniqueCatalogImporter
                     continue;
                 }
 
+                if (IsSourceTextCompositionComponentOnly(modifier, rendering.ExactText!))
+                {
+                    continue;
+                }
+
                 var exactKey = UnorderedMultilineKey(rendering.ExactText!);
                 if (!exactIndex.TryGetValue(exactKey, out var exactCandidates))
                 {
@@ -1237,6 +1465,11 @@ public sealed partial class PoBUniqueCatalogImporter
                     continue;
                 }
 
+                if (IsSourceTextCompositionComponentOnly(modifier, rendering.ExactText!))
+                {
+                    continue;
+                }
+
                 var partialKey = UnorderedMultilineKey(rendering.ExactText!);
                 if (!partialExactIndex.TryGetValue(partialKey, out var partialCandidates))
                 {
@@ -1244,6 +1477,12 @@ public sealed partial class PoBUniqueCatalogImporter
                     partialExactIndex.Add(partialKey, partialCandidates);
                 }
                 partialCandidates.Add(evidencedCandidate);
+            }
+
+            if (!string.IsNullOrWhiteSpace(modifier.SourceText) &&
+                SplitSourceTextLines(modifier.SourceText).Length >= 2)
+            {
+                compositionModifierIds.Add(modifier.Id!);
             }
 
             if (TryCreateSourceTextCompositionKey(modifier, out var sourceTextKey))
@@ -1283,6 +1522,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 .OrderBy(candidate => candidate.Candidate.ModifierId, StringComparer.Ordinal)
                 .ToArray(),
             FreezeIndex(sourceTextExactIndex, StringComparer.Ordinal),
+            compositionModifierIds,
             baseItems
                 .Where(item => !string.IsNullOrWhiteSpace(item.Name) &&
                     !string.IsNullOrWhiteSpace(item.Domain))
@@ -1341,6 +1581,27 @@ public sealed partial class PoBUniqueCatalogImporter
 
         key = UnorderedMultilineKey(sourceLines);
         return true;
+    }
+
+    private static bool IsSourceTextCompositionComponentOnly(
+        ModifierDefinition modifier,
+        string exactText)
+    {
+        if (string.IsNullOrWhiteSpace(modifier.SourceText) ||
+            exactText.Contains('\n', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var sourceLines = SplitSourceTextLines(modifier.SourceText);
+        if (sourceLines.Length < 2)
+        {
+            return false;
+        }
+
+        var normalizedLine = NormalizeExactEvidence(exactText);
+        return sourceLines.Any(line =>
+            string.Equals(NormalizeExactEvidence(line), normalizedLine, StringComparison.Ordinal));
     }
 
     private static UniqueModifierTranslationEvidence CreateTranslationEvidence(
@@ -1954,6 +2215,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 "negate" => -projected,
                 "double" => projected * 2m,
                 "negate_and_double" => -projected * 2m,
+                "times_twenty" => projected * 20m,
                 "divide_by_one_hundred" or
                     "divide_by_one_hundred_2dp" or
                     "divide_by_one_hundred_2dp_if_required" => projected / 100m,
@@ -1988,6 +2250,95 @@ public sealed partial class PoBUniqueCatalogImporter
     private static string UnorderedMultilineKey(IEnumerable<string> lines) => string.Join(
         "\n",
         lines.Select(NormalizeExactEvidence).OrderBy(line => line, StringComparer.Ordinal));
+
+    private static bool MatchesDynamicPattern(Regex pattern, IReadOnlyList<string> lines)
+    {
+        var orderedText = string.Join("\n", lines.Select(NormalizeExactEvidence));
+        if (pattern.IsMatch(orderedText))
+        {
+            return true;
+        }
+
+        return TryMatchesUnorderedMultilineDynamicPattern(pattern, lines);
+    }
+
+    private static bool TryMatchesUnorderedMultilineDynamicPattern(
+        Regex pattern,
+        IReadOnlyList<string> lines)
+    {
+        if (!TrySplitAnchoredMultilinePattern(pattern.ToString(), out var linePatterns) ||
+            linePatterns.Count != lines.Count)
+        {
+            return false;
+        }
+
+        var normalizedLines = lines.Select(NormalizeExactEvidence).ToArray();
+        return TryMatchLinePatternsBijectively(normalizedLines, linePatterns);
+    }
+
+    private static bool TrySplitAnchoredMultilinePattern(
+        string patternSource,
+        out IReadOnlyList<string> linePatterns)
+    {
+        linePatterns = [];
+        if (!patternSource.StartsWith("\\A", StringComparison.Ordinal) ||
+            !patternSource.EndsWith("\\z", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var inner = patternSource[2..^2];
+        if (!inner.Contains('\n'))
+        {
+            return false;
+        }
+
+        linePatterns = inner.Split('\n');
+        return linePatterns.Count >= 2;
+    }
+
+    private static bool TryMatchLinePatternsBijectively(
+        string[] lines,
+        IReadOnlyList<string> linePatterns)
+    {
+        var used = new bool[linePatterns.Count];
+        return TryAssign(0);
+
+        bool TryAssign(int lineIndex)
+        {
+            if (lineIndex >= lines.Length)
+            {
+                return true;
+            }
+
+            for (var patternIndex = 0; patternIndex < linePatterns.Count; patternIndex++)
+            {
+                if (used[patternIndex])
+                {
+                    continue;
+                }
+
+                if (!Regex.IsMatch(
+                        lines[lineIndex],
+                        $"\\A{linePatterns[patternIndex]}\\z",
+                        RegexOptions.CultureInvariant,
+                        TimeSpan.FromSeconds(1)))
+                {
+                    continue;
+                }
+
+                used[patternIndex] = true;
+                if (TryAssign(lineIndex + 1))
+                {
+                    return true;
+                }
+
+                used[patternIndex] = false;
+            }
+
+            return false;
+        }
+    }
 
     private static string NormalizePatternWhitespace(string value) =>
         Regex.Replace(value.Trim(), @"(?:\\ )+", @"\s+", RegexOptions.CultureInvariant);
@@ -2048,6 +2399,8 @@ public sealed partial class PoBUniqueCatalogImporter
         var effects = new List<SourceEffectLine>();
         var selectedVariantIndices = new List<int>();
         var alternateVariantSlotCount = 0;
+        var coSelectableSelectionLimit = 0;
+        var limitedToSelectionCount = 0;
         var implicitCount = 0;
         for (var index = contentStart; index < lines.Count; index++)
         {
@@ -2067,6 +2420,29 @@ public sealed partial class PoBUniqueCatalogImporter
                     out var selectedVariantIndex))
             {
                 selectedVariantIndices.Add(selectedVariantIndex);
+                continue;
+            }
+            if (line.StartsWith("Limited to:", StringComparison.Ordinal))
+            {
+                var remainder = line["Limited to:".Length..].Trim();
+                if (remainder.EndsWith("Historic", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(
+                        remainder[..^"Historic".Length].Trim(),
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out var historicSelectionLimit))
+                {
+                    coSelectableSelectionLimit = Math.Max(0, historicSelectionLimit);
+                }
+                else if (int.TryParse(
+                             remainder,
+                             NumberStyles.None,
+                             CultureInfo.InvariantCulture,
+                             out var parsedSelectionLimit))
+                {
+                    limitedToSelectionCount = Math.Max(0, parsedSelectionLimit);
+                }
+
                 continue;
             }
             if (line.StartsWith("Has Alt Variant", StringComparison.Ordinal) &&
@@ -2103,7 +2479,9 @@ public sealed partial class PoBUniqueCatalogImporter
             alternateVariantSlotCount,
             implicitCount,
             null,
-            UniqueItemKind.Unknown);
+            UniqueItemKind.Unknown,
+            CoSelectableSelectionLimit: coSelectableSelectionLimit,
+            LimitedToSelectionCount: limitedToSelectionCount);
         return true;
     }
 
@@ -2719,10 +3097,47 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> partialExact,
         IReadOnlyList<DynamicMechanicalCandidate> partialDynamic,
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> sourceTextExact,
+        IReadOnlySet<string> compositionModifierIds,
         IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains,
         IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
         IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics)
     {
+        public int GetMaximumProvenCompositionLength(
+            IReadOnlyList<SelectedEffectLine> lines,
+            int startIndex)
+        {
+            var remaining = lines.Count - startIndex;
+            var maxLength = 1;
+            for (var length = 2; length <= remaining; length++)
+            {
+                var texts = lines.Skip(startIndex).Take(length).Select(line => line.Text).ToArray();
+                if (HasProvenSourceTextComposition(texts))
+                {
+                    maxLength = length;
+                }
+            }
+
+            return maxLength;
+        }
+
+        private bool HasProvenSourceTextComposition(IReadOnlyList<string> lines)
+        {
+            if (lines.Count < 2)
+            {
+                return false;
+            }
+
+            var key = UnorderedMultilineKey(string.Join("\n", lines.Select(NormalizeExactEvidence)));
+            if (sourceTextExact.ContainsKey(key))
+            {
+                return true;
+            }
+
+            return dynamic.Any(candidate =>
+                compositionModifierIds.Contains(candidate.Candidate.ModifierId) &&
+                MatchesDynamicPattern(candidate.Pattern, lines));
+        }
+
         public bool HasMatch(
             IReadOnlyList<string> lines,
             string baseType,
@@ -2761,14 +3176,16 @@ public sealed partial class PoBUniqueCatalogImporter
                     .ToArray(), baseType, hasGeneratedOptionEvidence);
                 staticStrict = staticStrict with
                 {
-                    Candidates = RetainStrongestValueEvidence(staticStrict.Candidates),
+                    Candidates = RejectIncompleteCompositionMatches(
+                        lines,
+                        RetainStrongestValueEvidence(staticStrict.Candidates)),
                 };
                 staticStrict = ApplySemanticFingerprint(
                     staticStrict,
                     sourceSemanticFingerprint);
             }
             var dynamicStrict = FilterCandidates(dynamic
-                .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
+                .Where(candidate => MatchesDynamicPattern(candidate.Pattern, lines))
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
@@ -2816,14 +3233,16 @@ public sealed partial class PoBUniqueCatalogImporter
                     .ToArray(), baseType, hasGeneratedOptionEvidence);
                 partialStatic = partialStatic with
                 {
-                    Candidates = RetainStrongestValueEvidence(partialStatic.Candidates),
+                    Candidates = RejectIncompleteCompositionMatches(
+                        lines,
+                        RetainStrongestValueEvidence(partialStatic.Candidates)),
                 };
                 partialStatic = ApplySemanticFingerprint(
                     partialStatic,
                     sourceSemanticFingerprint);
             }
             var partialDynamicMatches = FilterCandidates(partialDynamic
-                .Where(candidate => candidate.Pattern.IsMatch(orderedExactText))
+                .Where(candidate => MatchesDynamicPattern(candidate.Pattern, lines))
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
@@ -2868,6 +3287,22 @@ public sealed partial class PoBUniqueCatalogImporter
                     sourceSemanticFingerprint);
             }
             return Resolution(sourceTextMatches, usedStrictEvidence: true, orderedExactText);
+        }
+
+        private IReadOnlyList<MechanicalCandidate> RejectIncompleteCompositionMatches(
+            IReadOnlyList<string> lines,
+            IReadOnlyList<MechanicalCandidate> candidates)
+        {
+            if (lines.Count != 1)
+            {
+                return candidates;
+            }
+
+            return candidates
+                .Where(candidate =>
+                    candidate.UsesSourceTextEvidence ||
+                    !compositionModifierIds.Contains(candidate.ModifierId))
+                .ToArray();
         }
 
         private static MechanicalResolution Resolution(
@@ -2916,7 +3351,8 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             var hadCandidates = filtered.Candidates.Count > 0;
             if (!hadCandidates ||
-                sourceFingerprint.Locality == UniqueModifierSemanticLocality.Unknown)
+                sourceFingerprint.Locality is UniqueModifierSemanticLocality.Unknown or
+                    UniqueModifierSemanticLocality.Mixed)
             {
                 return filtered with
                 {
@@ -3166,7 +3602,9 @@ public sealed partial class PoBUniqueCatalogImporter
         string? ObservationId,
         UniqueItemKind Kind,
         bool IsGenerated = false,
-        IReadOnlyList<SourceOptionAxis>? SourceOptionAxes = null)
+        IReadOnlyList<SourceOptionAxis>? SourceOptionAxes = null,
+        int CoSelectableSelectionLimit = 0,
+        int LimitedToSelectionCount = 0)
     {
         public IReadOnlyList<SourceOptionAxis> OptionAxes => SourceOptionAxes ?? [];
     }
