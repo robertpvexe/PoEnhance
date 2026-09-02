@@ -537,6 +537,7 @@ public sealed class PathOfExileTradeStatMatcherTests
             RequestedMinimum = 10m,
             RequestedMaximum = null,
             FixedQueryValue = null,
+            NumericQueryRole = NumericQueryRole.SkillGemLevelThreshold,
             DefaultBoundDirection = ModifierBoundDirection.Minimum,
         };
 

@@ -325,6 +325,7 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.Equal([10m], row.ObservedNumericValues);
         Assert.Equal([10m], row.CanonicalNumericValues);
         Assert.Null(row.FixedQueryValue);
+        Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
         Assert.Equal(ModifierBoundDirection.Minimum, row.DefaultBoundDirection);
     }
 
@@ -442,6 +443,312 @@ public sealed class ParsedUniqueItemResolverTests
         Assert.True(row.SupportsValueBounds);
         Assert.Equal(2m, row.RequestedMinimum);
         Assert.Null(row.RequestedMaximum);
+        Assert.Null(row.FixedQueryValue);
+        Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
+    }
+
+    [Fact]
+    public void CreateDraft_TriggerLevelSkill_ExposesEditableMinimumBound()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Void Gaze Helmet
+            Hubris Circlet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Trigger Level 10 Void Gaze when you use a Skill — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Void Gaze Helmet",
+            "Hubris Circlet",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "void-gaze",
+                        "Trigger Level 10 Void Gaze when you use a Skill",
+                        "Trigger Level <number> Void Gaze when you use a Skill",
+                        "local_display_trigger_level_x_void_gaze_on_skill_use")),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:void-gaze",
+                    StatIds = ["local_display_trigger_level_x_void_gaze_on_skill_use"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Trigger Level {0} Void Gaze when you use a Skill",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
+        Assert.True(row.SupportsValueBounds);
+        Assert.Equal(10m, row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Null(row.FixedQueryValue);
+    }
+
+    [Theory]
+    [InlineData(
+        "+1 Maximum Life per Level",
+        "+<number> Maximum Life per Level",
+        "maximum_life_per_level",
+        "+{0} Maximum Life per Level",
+        1)]
+    [InlineData(
+        "1% increased Chaos Damage per Level",
+        "<number>% increased Chaos Damage per Level",
+        "chaos_damage_per_level",
+        "{0}% increased Chaos Damage per Level",
+        1)]
+    [InlineData(
+        "Regenerate 3 Life per second per Level",
+        "Regenerate <number> Life per second per Level",
+        "life_regeneration_per_level",
+        "Regenerate {0} Life per second per Level",
+        3)]
+    public void CreateDraft_CharacterPerLevel_DoesNotExposeEditableGemLevelBound(
+        string line,
+        string canonicalSignature,
+        string statId,
+        string formatLine,
+        decimal expectedFixedValue)
+    {
+        var parsed = parser.Parse($$"""
+            Item Class: Body Armours
+            Rarity: Unique
+            Test Per Level Armour
+            Full Plate
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{line}} — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Per Level Armour",
+            "Full Plate",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "per-level",
+                        line,
+                        canonicalSignature,
+                        statId)),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:per-level",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = [formatLine],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.NotEqual(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
+        Assert.Equal(expectedFixedValue, row.FixedQueryValue);
+        Assert.False(row.SupportsValueBounds);
+    }
+
+    [Fact]
+    public void CreateDraft_CoupledRatio_KeepsFixedQueryValue()
+    {
+        const string line = "+1% to Chaos Resistance per 1% Cold Resistance";
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Test Coupled Amulet
+            Amber Amulet
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +1% to Chaos Resistance per 1% Cold Resistance — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Coupled Amulet",
+            "Amber Amulet",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    EvidenceBlock(
+                        "coupled-ratio",
+                        line,
+                        "+<number>% to Chaos Resistance per 1% Cold Resistance",
+                        "chaos_resistance_per_cold_resistance_percent")),
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:coupled-ratio",
+                    StatIds = ["chaos_resistance_per_cold_resistance_percent"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["{0}% to Chaos Resistance per 1% Cold Resistance"],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(NumericQueryRole.CoupledRatio, row.NumericQueryRole);
+        Assert.Equal(1m, row.FixedQueryValue);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Null(row.RequestedMinimum);
+    }
+
+    [Fact]
+    public void CreateDraft_MultiIndexTriggerChance_DoesNotExposeEditableGemLevelBound()
+    {
+        const string line = "25% chance to Trigger Level 10 Summon Raging Spirit on Kill";
+        var parsed = parser.Parse($$"""
+            Item Class: Wands
+            Rarity: Unique
+            Test Ashcaller Wand
+            Carved Wand
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{line}} — Unscalable Value
+            """);
+        var catalog = CreateCatalog(
+            "Test Ashcaller Wand",
+            "Carved Wand",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Current", UniqueItemVersionRole.Current,
+                    new UniqueModifierBlock
+                    {
+                        Id = "block:trigger-chance",
+                        Kind = UniqueModifierBlockKind.Unique,
+                        Lines = [line],
+                        CanonicalSignatures =
+                        [
+                            "<number>% chance to Trigger Level <number> Summon Raging Spirit on Kill",
+                        ],
+                        MechanicalMapping = new UniqueModifierMechanicalMapping
+                        {
+                            Status = UniqueModifierMechanicalMappingStatus.Exact,
+                            ModifierIds = ["modifier:trigger-chance"],
+                            StatIds = ["trigger_chance_percent", "trigger_skill_level"],
+                        },
+                        SourceObservationIds = ["pob-observation:test"],
+                    }),
+            ],
+            additionalModifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "modifier:trigger-chance",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "trigger_chance_percent",
+                            MinValue = 25m,
+                            MaxValue = 25m,
+                        },
+                        new ModifierStat
+                        {
+                            Index = 1,
+                            StatId = "trigger_skill_level",
+                            MinValue = 10m,
+                            MaxValue = 10m,
+                        },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:trigger-chance",
+                    StatIds = ["trigger_chance_percent", "trigger_skill_level"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0 },
+                                new StatTranslationCondition { Index = 1 },
+                            ],
+                            ValueFormats = ["#", "#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                            ],
+                            FormatLines =
+                            [
+                                "{0}% chance to Trigger Level {1} Summon Raging Spirit on Kill",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.NotEqual(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
+        Assert.False(row.SupportsValueBounds);
         Assert.Null(row.FixedQueryValue);
     }
 

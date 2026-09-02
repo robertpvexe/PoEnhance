@@ -939,14 +939,11 @@ public sealed partial class TradeSearchDraftMapper
         var componentSignatureForSemantics = translationRecognition?.CanonicalSignature.Lines.Count > 0
             ? string.Join("\n", translationRecognition.CanonicalSignature.Lines)
             : NormalizeComponentSignature(componentLines);
-        var gemSkillLevelSignatures = new List<string?>
-        {
-            boundDefault.ProviderCanonicalSignature,
+        var numericQueryRole = ResolveNumericQueryRole(
+            boundDefault,
             componentSignatureForSemantics,
-        };
-        gemSkillLevelSignatures.AddRange(providerSearchSignatures);
-        var isGemOrSkillLevelQuery = GemSkillLevelQuerySemantics.IsGemOrSkillLevelQuery(
-            gemSkillLevelSignatures);
+            providerSearchSignatures);
+        var isSkillGemLevelThreshold = numericQueryRole == NumericQueryRole.SkillGemLevelThreshold;
         var qualifiesForFixedNumericIdentity = treatAsUnscalablePresence &&
             usesUniqueSourceMechanics &&
             uniqueBlockResolution is
@@ -961,13 +958,13 @@ public sealed partial class TradeSearchDraftMapper
             boundStats.All(stat => stat.MinValue.HasValue &&
                 stat.MaxValue.HasValue &&
                 stat.MinValue == stat.MaxValue);
-        // Gem/skill-level numerics stay editable Min bounds even when the Unique source is fixed.
+        // Skill/gem-level numerics stay editable Min bounds even when the Unique source is fixed.
         // Other identity-fixed numerics keep FixedQueryValue. Timeless seeds use exact-initialized
         // editable bounds, not FixedQueryValue.
-        var fixedQueryValue = qualifiesForFixedNumericIdentity && !isGemOrSkillLevelQuery
+        var fixedQueryValue = qualifiesForFixedNumericIdentity && !isSkillGemLevelThreshold
             ? boundDefault.ObservedCanonicalValue
             : (decimal?)null;
-        var editableGemSkillLevelBounds = isGemOrSkillLevelQuery &&
+        var editableGemSkillLevelBounds = isSkillGemLevelThreshold &&
             boundDefault.IsSupported &&
             boundDefault.Shape == ModifierBoundShape.Scalar &&
             boundDefault.ObservedValues.Count == 1 &&
@@ -1169,6 +1166,7 @@ public sealed partial class TradeSearchDraftMapper
                 ? [exactInitializedEditableQueryValue.Value]
                 : effectiveUnscalablePresence ? [] : canonicalNumericValues,
             FixedQueryValue = fixedQueryValue,
+            NumericQueryRole = numericQueryRole,
             ProviderFallbackNumericValues = effectiveUnscalablePresence ? [] : providerFallbackNumericValues,
             ProviderCanonicalSignature = boundDefault.ProviderCanonicalSignature,
             ValueBoundTranslationHandlers = boundDefault.TranslationHandlers,
@@ -2028,6 +2026,32 @@ public sealed partial class TradeSearchDraftMapper
         }
 
         return count;
+    }
+
+    private static NumericQueryRole ResolveNumericQueryRole(
+        ModifierBoundDefaultResult boundDefault,
+        string? componentSignature,
+        IReadOnlyList<string> providerSearchSignatures)
+    {
+        if (boundDefault.NumericQueryRole is NumericQueryRole.SkillGemLevelThreshold or
+            NumericQueryRole.CoupledRatio or
+            NumericQueryRole.PresenceOnly)
+        {
+            return boundDefault.NumericQueryRole;
+        }
+
+        var fallbackSignatures = new List<string?>
+        {
+            boundDefault.ProviderCanonicalSignature,
+            componentSignature,
+        };
+        fallbackSignatures.AddRange(providerSearchSignatures);
+        if (GemSkillLevelQuerySemantics.IsGemOrSkillLevelQuery(fallbackSignatures))
+        {
+            return NumericQueryRole.SkillGemLevelThreshold;
+        }
+
+        return boundDefault.NumericQueryRole;
     }
 
     private static bool IsFixedLiteralUniqueCatalogLine(string? line)

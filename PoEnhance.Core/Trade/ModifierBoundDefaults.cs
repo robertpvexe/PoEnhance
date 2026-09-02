@@ -148,7 +148,8 @@ internal static partial class ModifierBoundDefaults
                 "The GameData translation is presence-only and has no displayed numeric value.",
                 ModifierBoundShape.PresenceOnly,
                 observedValues,
-                retainedHandlers)
+                retainedHandlers,
+                NumericQueryRole.PresenceOnly)
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
@@ -185,6 +186,12 @@ internal static partial class ModifierBoundDefaults
             var canonical = direction == ModifierBoundDirection.Maximum
                 ? -decimal.Abs(observed)
                 : observed;
+            var role = NumericQueryRoleClassifier.Classify(
+                statIds,
+                numericIndexes,
+                variant,
+                ModifierBoundShape.Scalar,
+                isSupported: true);
             return new ModifierBoundDefaultResult(
                 true,
                 canonical,
@@ -192,7 +199,8 @@ internal static partial class ModifierBoundDefaults
                 null,
                 ModifierBoundShape.Scalar,
                 observedValues,
-                retainedHandlers)
+                retainedHandlers,
+                role)
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
@@ -214,7 +222,8 @@ internal static partial class ModifierBoundDefaults
                 "The damage range requires confirmation against the resolved two-value Trade stat.",
                 ModifierBoundShape.ArithmeticMeanRange,
                 observedValues,
-                retainedHandlers)
+                retainedHandlers,
+                NumericQueryRole.Unknown)
             {
                 TranslationIdentity = translationIdentity,
                 ProviderCanonicalSignature = CreateProviderCanonicalSignature(
@@ -727,7 +736,8 @@ internal static partial class ModifierBoundDefaults
             reason,
             ModifierBoundShape.Unsupported,
             observedValues ?? [],
-            handlers ?? []);
+            handlers ?? [],
+            NumericQueryRole.Unknown);
     }
 
     private enum RangeRole
@@ -762,9 +772,13 @@ internal readonly record struct ModifierBoundDefaultResult(
     string? UnsupportedReason,
     ModifierBoundShape Shape,
     IReadOnlyList<decimal> ObservedValues,
-    IReadOnlyList<IReadOnlyList<string>> TranslationHandlers)
+    IReadOnlyList<IReadOnlyList<string>> TranslationHandlers,
+    NumericQueryRole NumericQueryRole)
 {
     public string? TranslationIdentity { get; init; }
 
     public string? ProviderCanonicalSignature { get; init; }
+
+    public bool IsSkillGemLevelThreshold =>
+        NumericQueryRole == NumericQueryRole.SkillGemLevelThreshold;
 }

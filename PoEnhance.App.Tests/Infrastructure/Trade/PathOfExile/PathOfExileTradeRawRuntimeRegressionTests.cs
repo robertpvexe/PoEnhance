@@ -555,6 +555,25 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_EbersUnification_VoidGazeUsesEditableMinimumBounds()
+    {
+        var parsed = new ItemTextParser().Parse(EbersUnificationText);
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            gameDataCatalog: GameData.Value).Draft);
+        var component = FindComponent(
+            draft,
+            "Trigger Level 10 Void Gaze when you use a Skill");
+
+        Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, component.NumericQueryRole);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal(10m, component.RequestedMinimum);
+        Assert.Null(component.RequestedMaximum);
+        Assert.Null(component.FixedQueryValue);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_ReverberationRod_GemLevelSupportsUseEditableMinimumBounds()
     {
         var catalog = OfficialTradeCatalog.Value;
@@ -587,6 +606,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Assert.Equal([10m], component.ObservedNumericValues);
             Assert.Equal([10m], component.CanonicalNumericValues);
             Assert.Null(component.FixedQueryValue);
+            Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, component.NumericQueryRole);
             Assert.Equal(ModifierBoundDirection.Minimum, component.DefaultBoundDirection);
 
             var selectedDraft = runtime.ProviderDraft with
@@ -2111,6 +2131,20 @@ Items and Gems have 5(10-5)% reduced Attribute Requirements
 "Did we make this? Why do we have no record of it?
 We were warned that there would be consequences..."
 - Administrator Qotra
+""";
+
+    private const string EbersUnificationText = """
+Item Class: Helmets
+Rarity: Unique
+Eber's Unification
+Hubris Circlet
+--------
+Item Level: 84
+--------
+{ Unique Modifier }
+Trigger Level 10 Void Gaze when you use a Skill — Unscalable Value
+--------
+Corrupted
 """;
 
     private const string ReverberationRodText = """

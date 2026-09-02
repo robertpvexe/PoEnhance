@@ -205,6 +205,11 @@ public sealed record ResolvedSearchComponent
     /// </summary>
     public decimal? FixedQueryValue { get; init; }
 
+    /// <summary>
+    /// Structured numeric query semantics derived from GameData translation/stat evidence.
+    /// </summary>
+    public NumericQueryRole NumericQueryRole { get; init; }
+
     public IReadOnlyList<decimal> ProviderFallbackNumericValues { get; init; } = [];
 
     public string? ProviderCanonicalSignature { get; init; }

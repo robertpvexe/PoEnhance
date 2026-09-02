@@ -3,8 +3,9 @@ using System.Text.RegularExpressions;
 namespace PoEnhance.Core.Trade;
 
 /// <summary>
-/// Identifies gem/skill-level numeric query shapes from normalized provider/stat templates.
-/// Requires a numeric placeholder; does not use raw item or modifier names.
+/// Conservative fallback for gem/skill-level query shapes when structured
+/// <see cref="NumericQueryRole"/> evidence is unavailable. Primary classification
+/// lives in <see cref="NumericQueryRoleClassifier"/>.
 /// </summary>
 internal static partial class GemSkillLevelQuerySemantics
 {

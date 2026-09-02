@@ -484,6 +484,18 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             return false;
         }
 
+        if (component.NumericQueryRole == NumericQueryRole.SkillGemLevelThreshold)
+        {
+            return true;
+        }
+
+        if (component.NumericQueryRole is NumericQueryRole.CoupledRatio or
+            NumericQueryRole.PresenceOnly or
+            NumericQueryRole.OrdinaryScalar)
+        {
+            return false;
+        }
+
         var signatures = new List<string?>
         {
             component.ProviderCanonicalSignature,
