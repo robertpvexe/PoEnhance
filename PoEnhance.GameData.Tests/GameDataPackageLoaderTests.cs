@@ -48,7 +48,7 @@ public sealed class GameDataPackageLoaderTests
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
-        Assert.Equal("3.29.1.2.2-unique-composition", result.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.1.2.2-unique-block-identity", result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
         Assert.Equal(3, result.Package.Manifest.SchemaVersion);
     }

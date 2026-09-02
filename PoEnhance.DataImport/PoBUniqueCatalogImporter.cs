@@ -852,7 +852,14 @@ public sealed partial class PoBUniqueCatalogImporter
                     signature,
                     string.Join('\u001f', candidatePoolMembershipIds),
                     string.Join('\n', lines))
-                : StableId("unique-block", identityId, versionLabel, kind.ToString(), signature);
+                : StableId(
+                    "unique-block",
+                    identityId,
+                    versionLabel,
+                    kind.ToString(),
+                    signature,
+                    ExtractSourceValueDomainKey(lines),
+                    SourceObservationStructureKey(sourceSemanticFingerprint));
         var composition = resolved
             ? BuildComposition(blockId, lines, signatures, observationId, candidates)
             : null;
@@ -2346,6 +2353,97 @@ public sealed partial class PoBUniqueCatalogImporter
         return normalized.Trim();
     }
 
+    internal static string ComputeLegacyFixedBlockStableId(
+        string identityId,
+        string versionLabel,
+        UniqueModifierBlockKind kind,
+        IReadOnlyList<string> lines) =>
+        StableId(
+            "unique-block",
+            identityId,
+            versionLabel,
+            kind.ToString(),
+            string.Join("\n", lines.Select(NormalizeSignature)));
+
+    internal static string ExtractSourceValueDomainKey(IReadOnlyList<string> lines) =>
+        string.Join('\u001e', lines.Select(ExtractLineSourceValueDomainKey));
+
+    private static string ExtractLineSourceValueDomainKey(string line)
+    {
+        var trimmed = line.Trim();
+        var components = new List<string>();
+        var consumed = new List<(int Start, int End)>();
+        foreach (Match match in RangePattern().Matches(trimmed))
+        {
+            if (!TryParseSourceRangeDomain(match.Value, out var domain))
+            {
+                continue;
+            }
+
+            components.Add(domain);
+            consumed.Add((match.Index, match.Index + match.Length));
+        }
+
+        if (components.Count == 0)
+        {
+            foreach (Match match in NumberPattern().Matches(trimmed))
+            {
+                if (consumed.Any(span => match.Index >= span.Start && match.Index < span.End))
+                {
+                    continue;
+                }
+
+                components.Add(FormatSourceScalarDomain(match));
+            }
+        }
+
+        return components.Count == 0 ? "none" : string.Join('\u001f', components);
+    }
+
+    private static bool TryParseSourceRangeDomain(string matchedRange, out string domain)
+    {
+        domain = string.Empty;
+        var inner = SourceRangeInnerPattern().Match(matchedRange);
+        if (!inner.Success ||
+            !TryParseSourceDecimal(inner.Groups["min"].Value, out var minimum) ||
+            !TryParseSourceDecimal(inner.Groups["max"].Value, out var maximum))
+        {
+            return false;
+        }
+
+        if (minimum > maximum)
+        {
+            (minimum, maximum) = (maximum, minimum);
+        }
+
+        domain = $"r:{FormatDecimal(minimum)}..{FormatDecimal(maximum)}";
+        return true;
+    }
+
+    private static string FormatSourceScalarDomain(Match match)
+    {
+        var sign = match.Groups["sign"].Value;
+        var magnitude = match.Value[sign.Length..];
+        return TryParseSourceDecimal(magnitude, out var value)
+            ? $"s:{sign}{FormatDecimal(value)}"
+            : $"s:{match.Value}";
+    }
+
+    private static bool TryParseSourceDecimal(string value, out decimal parsed)
+    {
+        var normalized = value.Trim().Replace(',', '.');
+        return decimal.TryParse(
+            normalized,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out parsed);
+    }
+
+    private static string SourceObservationStructureKey(UniqueModifierSemanticFingerprint fingerprint) =>
+        fingerprint.Locality == UniqueModifierSemanticLocality.Unknown
+            ? string.Empty
+            : fingerprint.Locality.ToString();
+
     private static string Render(string format, IReadOnlyList<string> valueFormats)
     {
         var rendered = format;
@@ -2449,6 +2547,9 @@ public sealed partial class PoBUniqueCatalogImporter
 
     [GeneratedRegex(@"(?<sign>[+-]?)\(\s*[+-]?\d+(?:[\.,]\d+)?\s*-\s*[+-]?\d+(?:[\.,]\d+)?\s*\)", RegexOptions.CultureInvariant)]
     private static partial Regex RangePattern();
+
+    [GeneratedRegex(@"\(\s*(?<min>[+-]?\d+(?:[.,]\d+)?)\s*-\s*(?<max>[+-]?\d+(?:[.,]\d+)?)\s*\)", RegexOptions.CultureInvariant)]
+    private static partial Regex SourceRangeInnerPattern();
 
     [GeneratedRegex(@"(?<![A-Za-z<])(?<sign>[+-]?)\d+(?:[\.,]\d+)?", RegexOptions.CultureInvariant)]
     private static partial Regex NumberPattern();
