@@ -555,7 +555,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
-    public void ResolveRawCopiedItem_EbersUnification_VoidGazeUsesEditableMinimumBounds()
+    public void ResolveRawCopiedItem_EbersUnification_VoidGazeUsesFixedQueryValue()
     {
         var parsed = new ItemTextParser().Parse(EbersUnificationText);
         var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
@@ -566,15 +566,15 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             "Trigger Level 10 Void Gaze when you use a Skill");
 
         Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, component.NumericQueryRole);
-        Assert.True(component.SupportsValueBounds);
-        Assert.Equal(10m, component.RequestedMinimum);
+        Assert.False(component.SupportsValueBounds);
+        Assert.Null(component.RequestedMinimum);
         Assert.Null(component.RequestedMaximum);
-        Assert.Null(component.FixedQueryValue);
+        Assert.Equal(10m, component.FixedQueryValue);
         Assert.True(component.IsSearchable, component.NotSearchableReason);
     }
 
     [Fact]
-    public void ResolveRawCopiedItem_ReverberationRod_GemLevelSupportsUseEditableMinimumBounds()
+    public void ResolveRawCopiedItem_ReverberationRod_UnscalableGemSupportsUseFixedQueryValue()
     {
         var catalog = OfficialTradeCatalog.Value;
         var runtime = Resolve(ReverberationRodText, catalog);
@@ -599,13 +599,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             });
             Assert.True(component.IsSearchable, component.NotSearchableReason);
             Assert.True(IsInteractionReady(component));
-            Assert.True(component.SupportsValueBounds);
+            Assert.False(component.SupportsValueBounds);
             Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
-            Assert.Equal(10m, component.RequestedMinimum);
+            Assert.Null(component.RequestedMinimum);
             Assert.Null(component.RequestedMaximum);
             Assert.Equal([10m], component.ObservedNumericValues);
             Assert.Equal([10m], component.CanonicalNumericValues);
-            Assert.Null(component.FixedQueryValue);
+            Assert.Equal(10m, component.FixedQueryValue);
             Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, component.NumericQueryRole);
             Assert.Equal(ModifierBoundDirection.Minimum, component.DefaultBoundDirection);
 
@@ -627,7 +627,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             Assert.All(mapped.Alternatives, alternative =>
             {
                 Assert.Equal(10m, alternative.Minimum);
-                Assert.Null(alternative.Maximum);
+                Assert.Equal(10m, alternative.Maximum);
             });
 
             var query = new PathOfExileTradeQueryBuilder().Build(
@@ -653,27 +653,8 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             {
                 var value = filter.GetProperty("value");
                 Assert.Equal(10m, value.GetProperty("min").GetDecimal());
-                Assert.False(value.TryGetProperty("max", out _));
+                Assert.Equal(10m, value.GetProperty("max").GetDecimal());
             });
-
-            var editedMapping = SelectedMapper.Map(
-                selectedDraft with
-                {
-                    ModifierFilters =
-                    [
-                        component with
-                        {
-                            IsSelected = true,
-                            RequestedMinimum = 11m,
-                            RequestedMaximum = null,
-                        },
-                    ],
-                },
-                catalog);
-            Assert.True(editedMapping.IsSuccess);
-            var editedFilter = Assert.Single(editedMapping.Filters);
-            Assert.Equal(11m, editedFilter.Minimum);
-            Assert.Null(editedFilter.Maximum);
         }
 
         var gemLevels = FindComponent(runtime.ProviderDraft, "+2 to Level of Socketed Gems");

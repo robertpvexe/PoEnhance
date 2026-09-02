@@ -958,18 +958,28 @@ public sealed partial class TradeSearchDraftMapper
             boundStats.All(stat => stat.MinValue.HasValue &&
                 stat.MaxValue.HasValue &&
                 stat.MinValue == stat.MaxValue);
-        // Skill/gem-level numerics stay editable Min bounds even when the Unique source is fixed.
-        // Other identity-fixed numerics keep FixedQueryValue. Timeless seeds use exact-initialized
-        // editable bounds, not FixedQueryValue.
-        var fixedQueryValue = qualifiesForFixedNumericIdentity && !isSkillGemLevelThreshold
+        var explicitNumericUnscalable = treatAsUnscalablePresence &&
+            boundDefault.IsSupported &&
+            boundDefault.Shape == ModifierBoundShape.Scalar &&
+            boundDefault.ObservedValues.Count == 1;
+        // Explicit numeric Unscalable Value is fixed/non-editable and overrides SkillGemLevelThreshold.
+        // Proven generated textual option ranges keep editable Min bounds. Timeless seeds use
+        // exact-initialized editable bounds, not FixedQueryValue.
+        var fixedQueryValue = (qualifiesForFixedNumericIdentity || explicitNumericUnscalable) &&
+            (!isSkillGemLevelThreshold || explicitNumericUnscalable)
             ? boundDefault.ObservedCanonicalValue
             : (decimal?)null;
         var editableGemSkillLevelBounds = isSkillGemLevelThreshold &&
+            !explicitNumericUnscalable &&
             boundDefault.IsSupported &&
             boundDefault.Shape == ModifierBoundShape.Scalar &&
             boundDefault.ObservedValues.Count == 1 &&
-            (qualifiesForFixedNumericIdentity || treatAsUnscalablePresence);
-        var effectiveUnscalablePresence = treatAsUnscalablePresence && !editableGemSkillLevelBounds;
+            (qualifiesForFixedNumericIdentity ||
+                treatAsUnscalablePresence ||
+                hasProvenGeneratedTextualOptionRange);
+        var effectiveUnscalablePresence = treatAsUnscalablePresence &&
+            !editableGemSkillLevelBounds &&
+            !explicitNumericUnscalable;
         var exactInitializedEditableQueryValue = fixedQueryValue is null &&
             !effectiveUnscalablePresence &&
             !boundDefault.IsSupported
@@ -982,7 +992,8 @@ public sealed partial class TradeSearchDraftMapper
                 : [];
         var hasProviderOnlyUniqueScalar = !effectiveUnscalablePresence &&
             providerOnlyUniqueValues.Count == 1;
-        var supportsValueBounds = !effectiveUnscalablePresence &&
+        var supportsValueBounds = fixedQueryValue is null &&
+            !effectiveUnscalablePresence &&
             (boundDefault.IsSupported ||
                 hasProviderOnlyUniqueScalar ||
                 exactInitializedEditableQueryValue.HasValue);

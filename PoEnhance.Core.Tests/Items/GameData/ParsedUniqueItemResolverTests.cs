@@ -257,7 +257,7 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
-    public void CreateDraft_GemSkillLevelUniqueSource_ExposesEditableMinimumBound()
+    public void CreateDraft_GemSkillLevelUniqueSource_WithUnscalableUsesFixedQueryValue()
     {
         var parsed = parser.Parse("""
             Item Class: Wands
@@ -318,19 +318,19 @@ public sealed class ParsedUniqueItemResolverTests
             "Socketed Gems are Supported by Level 10 Spell Echo",
             row.ProviderSearchSignatures);
         Assert.True(row.IsSearchable);
-        Assert.True(row.SupportsValueBounds);
+        Assert.False(row.SupportsValueBounds);
         Assert.Equal(ModifierBoundShape.Scalar, row.ValueBoundShape);
-        Assert.Equal(10m, row.RequestedMinimum);
+        Assert.Null(row.RequestedMinimum);
         Assert.Null(row.RequestedMaximum);
         Assert.Equal([10m], row.ObservedNumericValues);
         Assert.Equal([10m], row.CanonicalNumericValues);
-        Assert.Null(row.FixedQueryValue);
+        Assert.Equal(10m, row.FixedQueryValue);
         Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
         Assert.Equal(ModifierBoundDirection.Minimum, row.DefaultBoundDirection);
     }
 
     [Fact]
-    public void CreateDraft_GrantsLevelSkill_ExposesEditableMinimumBound()
+    public void CreateDraft_GrantsLevelSkill_WithUnscalableUsesFixedQueryValue()
     {
         var parsed = parser.Parse("""
             Item Class: Amulets
@@ -381,10 +381,10 @@ public sealed class ParsedUniqueItemResolverTests
             modifierResolutions: [],
             gameDataCatalog: catalog).Draft);
         var row = Assert.Single(draft.ModifierFilters);
-        Assert.True(row.SupportsValueBounds);
-        Assert.Equal(20m, row.RequestedMinimum);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Null(row.RequestedMinimum);
         Assert.Null(row.RequestedMaximum);
-        Assert.Null(row.FixedQueryValue);
+        Assert.Equal(20m, row.FixedQueryValue);
         Assert.Equal([20m], row.ObservedNumericValues);
     }
 
@@ -448,7 +448,7 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
-    public void CreateDraft_TriggerLevelSkill_ExposesEditableMinimumBound()
+    public void CreateDraft_TriggerLevelSkill_WithUnscalableUsesFixedQueryValue()
     {
         var parsed = parser.Parse("""
             Item Class: Helmets
@@ -503,10 +503,93 @@ public sealed class ParsedUniqueItemResolverTests
             gameDataCatalog: catalog).Draft);
         var row = Assert.Single(draft.ModifierFilters);
         Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Null(row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.Equal(10m, row.FixedQueryValue);
+    }
+
+    [Fact]
+    public void CreateDraft_ProvenGeneratedTextualOptionRange_WithUnscalable_RemainsEditable()
+    {
+        const string rawLine =
+            "Socketed Gems are Supported by Level 26(25-35) Inspiration(Greater Multiple Projectiles-Hallow) — Unscalable Value";
+        const string presentationLine = "Socketed Gems are Supported by Level 26(25-35) Inspiration";
+        var parsed = parser.Parse($$"""
+            Item Class: Helmets
+            Rarity: Unique
+            Test Generated Crown
+            Great Crown
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            {{rawLine}}
+            """);
+        var catalog = CreateCatalog(
+            "Test Generated Crown",
+            "Great Crown",
+            UniqueItemKind.Ordinary,
+            [
+                Version("Generated", UniqueItemVersionRole.Current,
+                    GeneratedEvidenceBlock(
+                        "inspiration-low",
+                        "Socketed Gems are Supported by Level (1-10) Inspiration",
+                        "Socketed Gems are Supported by Level <number> Inspiration",
+                        "inspiration_stat",
+                        "pool:low"),
+                    GeneratedEvidenceBlock(
+                        "inspiration-high",
+                        "Socketed Gems are Supported by Level (25-35) Inspiration",
+                        "Socketed Gems are Supported by Level <number> Inspiration",
+                        "inspiration_stat",
+                        "pool:high")) with
+                {
+                    GeneratedCandidateSelectionLimit = 2,
+                },
+            ],
+            additionalModifiers: [],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "translation:inspiration",
+                    StatIds = ["inspiration_stat"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Socketed Gems are Supported by Level {0} Inspiration",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            foulbornRelationships: []);
+
+        var resolution = resolver.Resolve(parsed, catalog);
+        var block = Assert.Single(resolution.ModifierBlocks);
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.NotEmpty(block.TextualOptionRangeAnnotations);
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+        Assert.Equal(NumericQueryRole.SkillGemLevelThreshold, row.NumericQueryRole);
         Assert.True(row.SupportsValueBounds);
-        Assert.Equal(10m, row.RequestedMinimum);
+        Assert.Equal(26m, row.RequestedMinimum);
         Assert.Null(row.RequestedMaximum);
         Assert.Null(row.FixedQueryValue);
+        Assert.Equal(presentationLine, row.PresentationText);
+        Assert.Equal(["Greater Multiple Projectiles-Hallow"], row.UniqueTextualOptionRangeAnnotations);
     }
 
     [Theory]
