@@ -9,6 +9,8 @@ internal static class PathOfExileTradeStatMatchDiagnosticCodes
         "POE_TRADE_STAT_MATCH_MALFORMED_ADVANCED_RANGE_ANNOTATION";
     public const string NoCandidate = "POE_TRADE_STAT_MATCH_NO_CANDIDATE";
     public const string AmbiguousCandidates = "POE_TRADE_STAT_MATCH_AMBIGUOUS_CANDIDATES";
+    public const string ExactConjunctiveComposition =
+        "POE_TRADE_STAT_MATCH_EXACT_CONJUNCTIVE_COMPOSITION";
     public const string ModifierKindMismatch = "POE_TRADE_STAT_MATCH_MODIFIER_KIND_MISMATCH";
     public const string LocalityAmbiguous = "POE_TRADE_STAT_MATCH_LOCALITY_AMBIGUOUS";
     public const string ExpectedLocalCandidateMissing =

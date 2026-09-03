@@ -1904,9 +1904,10 @@ internal sealed class PriceCheckerSearchController
             !string.IsNullOrWhiteSpace(modifier.ResolvedModifierId) &&
             modifier.ResolvedStatIds.Count > 0;
         var hasExactUniqueCatalogBlockProof = modifier.HasExactUniqueSourceProvenance;
-        return modifier.ProviderResolutionStatus is
+        return modifier.ProviderResolutionStatus is (
                 SearchComponentProviderResolutionStatus.Exact or
-                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet) &&
             modifier.IsSearchable &&
             HasResolvedProviderRepresentation(modifier) &&
             (modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact ||
@@ -1924,6 +1925,7 @@ internal sealed class PriceCheckerSearchController
         var providerReady = modifier.ProviderResolutionStatus is
                 SearchComponentProviderResolutionStatus.Exact or
                 SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet or
                 SearchComponentProviderResolutionStatus.Approximate
             ? RequiresExactAvailability(modifier)
                 ? IsExactlySearchableRestrictedModifier(modifier)

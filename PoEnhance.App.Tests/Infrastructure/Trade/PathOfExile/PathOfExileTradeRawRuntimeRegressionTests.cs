@@ -804,11 +804,62 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Equal("Unique", StaticModifierLabel(battleComponent));
         Assert.Equal(ModifierCandidateResolutionStatus.Exact, battleComponent.ResolutionStatus);
         Assert.True(battleComponent.HasExactUniqueSourceProvenance);
-        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous,
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactConjunctiveSet,
             battleComponent.ProviderResolutionStatus);
-        Assert.Equal("Ambiguous", ModifierAvailabilityStatus(battleComponent));
-        Assert.False(battleComponent.IsSearchable);
-        Assert.False(IsInteractionReady(battleComponent));
+        Assert.True(battleComponent.IsSearchable);
+        Assert.True(IsInteractionReady(battleComponent));
+        Assert.Equal(2, battleComponent.ResolvedStatIds.Count);
+        Assert.Equal(2, battleComponent.ProviderStatAlternativeIds.Count);
+        Assert.Equal(
+            PathOfExileTradeStatMatchDiagnosticCodes.ExactConjunctiveComposition,
+            battleComponent.ProviderDiagnosticCode);
+
+        var selectedBattleDraft = battle.ProviderDraft with
+        {
+            ModifierFilters = battle.ProviderDraft.ModifierFilters
+                .Select(candidate => candidate with { IsSelected = true })
+                .ToArray(),
+        };
+        var battleMapping = SelectedMapper.Map(selectedBattleDraft, catalog);
+        Assert.True(
+            battleMapping.IsSuccess,
+            string.Join(" | ", battleMapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Equal(2, battleMapping.Filters.Count);
+        Assert.All(battleMapping.Filters, filter =>
+        {
+            Assert.Equal([0], filter.SourceIndexes.ToArray());
+            Assert.Empty(filter.Alternatives);
+            Assert.Null(filter.Minimum);
+            Assert.Null(filter.Maximum);
+        });
+        Assert.Equal(
+            battleComponent.ProviderStatAlternativeIds.Order(StringComparer.Ordinal).ToArray(),
+            battleMapping.Filters.Select(filter => filter.StatId).Order(StringComparer.Ordinal).ToArray());
+
+        var battleQuery = new PathOfExileTradeQueryBuilder().Build(
+            selectedBattleDraft,
+            new TradeSearchDraftValidator().Validate(selectedBattleDraft),
+            "Standard",
+            battleMapping.Filters,
+            battle.UniqueIdentity,
+            FilterCatalog);
+        Assert.True(
+            battleQuery.IsSuccess,
+            string.Join(" | ", battleQuery.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        using var battleDocument = JsonDocument.Parse(battleQuery.SerializedJson!);
+        var battleStats = battleDocument.RootElement.GetProperty("query").GetProperty("stats");
+        Assert.Equal(1, battleStats.GetArrayLength());
+        var battleGroup = battleStats[0];
+        Assert.Equal("and", battleGroup.GetProperty("type").GetString());
+        var battleFilterIds = battleGroup.GetProperty("filters")
+            .EnumerateArray()
+            .Select(filter => filter.GetProperty("id").GetString()!)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            battleComponent.ProviderStatAlternativeIds.Order(StringComparer.Ordinal).ToArray(),
+            battleFilterIds);
     }
 
     [Fact]

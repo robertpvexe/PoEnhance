@@ -1418,6 +1418,133 @@ public sealed class PathOfExileTradeStatMatcherTests
     }
 
     [Fact]
+    public void Match_ExactAtomicMultiLineUniqueCompositionProjectsConjunctiveAnd()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Does not inflict Mana Burn over time",
+            "Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon") with
+        {
+            ResolvedStatIds =
+            [
+                "local_cannot_generate_toxicity_stacks_over_time",
+                "toxicity_stacks_gained_on_hit_with_tinctured_weapons",
+            ],
+            ProviderSearchSignatures =
+            [
+                "Does not inflict Mana Burn over time",
+                "Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [],
+            CanonicalNumericValues = [],
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var catalog = Catalog(
+            Entry("explicit.stat_a", "Does not inflict Mana Burn over time", "explicit"),
+            Entry("explicit.stat_b", "Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon", "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.ExactConjunctiveSet, result.Status);
+        Assert.Equal(
+            ["explicit.stat_a", "explicit.stat_b"],
+            result.ExactEquivalentCandidates.Select(candidate => candidate.StatId).Order().ToArray());
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Code ==
+                PathOfExileTradeStatMatchDiagnosticCodes.ExactConjunctiveComposition);
+    }
+
+    [Fact]
+    public void Match_ExactAtomicMultiLineUniqueWithConflictingTradeCandidatePerLineFailsAmbiguous()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Shared presence line A",
+            "Shared presence line B") with
+        {
+            ResolvedStatIds = ["stat_a", "stat_b"],
+            ProviderSearchSignatures =
+            [
+                "Shared presence line A",
+                "Shared presence line B",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [],
+            CanonicalNumericValues = [],
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var catalog = Catalog(
+            Entry("explicit.a1", "Shared presence line A", "explicit"),
+            Entry("explicit.a2", "Shared presence line A", "explicit"),
+            Entry("explicit.b", "Shared presence line B", "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Ambiguous, result.Status);
+    }
+
+    [Fact]
+    public void Match_ExactAtomicMultiLineUniqueWithMissingTradeCandidateFailsAmbiguousOrNotFound()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Present presence line",
+            "Missing presence line") with
+        {
+            ResolvedStatIds = ["stat_present", "stat_missing"],
+            ProviderSearchSignatures =
+            [
+                "Present presence line",
+                "Missing presence line",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [],
+            CanonicalNumericValues = [],
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var catalog = Catalog(Entry("explicit.present", "Present presence line", "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.True(
+            result.Status is PathOfExileTradeStatMatchStatus.Ambiguous or
+                PathOfExileTradeStatMatchStatus.NotFound,
+            result.Status.ToString());
+        Assert.NotEqual(PathOfExileTradeStatMatchStatus.ExactConjunctiveSet, result.Status);
+    }
+
+    [Fact]
+    public void Match_ExactAtomicMultiLineUniqueWithDuplicateTradeCollapseFailsAmbiguous()
+    {
+        var component = ExactAtomicMultiLineUniqueComponent(
+            "Duplicate mapped presence",
+            "Duplicate mapped presence") with
+        {
+            ResolvedStatIds = ["stat_a", "stat_b"],
+            ProviderSearchSignatures =
+            [
+                "Duplicate mapped presence",
+            ],
+            SupportsValueBounds = false,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            ObservedNumericValues = [],
+            CanonicalNumericValues = [],
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+        };
+        var catalog = Catalog(Entry("explicit.dup", "Duplicate mapped presence", "explicit"));
+
+        var result = matcher.Match(component, catalog);
+
+        Assert.NotEqual(PathOfExileTradeStatMatchStatus.ExactConjunctiveSet, result.Status);
+    }
+
+    [Fact]
     public void Match_AtomicMultiLineUniqueDoesNotStripArbitraryParentheticalText()
     {
         var component = ExactAtomicMultiLineUniqueComponent(

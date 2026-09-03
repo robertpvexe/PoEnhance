@@ -1142,6 +1142,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             PathOfExileTradeStatMatchStatus.Exact => SearchComponentProviderResolutionStatus.Exact,
             PathOfExileTradeStatMatchStatus.ExactEquivalentSet =>
                 SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            PathOfExileTradeStatMatchStatus.ExactConjunctiveSet =>
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet,
             PathOfExileTradeStatMatchStatus.Ambiguous => SearchComponentProviderResolutionStatus.Ambiguous,
             PathOfExileTradeStatMatchStatus.NotFound => SearchComponentProviderResolutionStatus.NotFound,
             _ => SearchComponentProviderResolutionStatus.Unsupported,
@@ -1164,7 +1166,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         if (expectedSpecialProviderKind is not null &&
             providerStatus is
                 SearchComponentProviderResolutionStatus.Exact or
-                SearchComponentProviderResolutionStatus.ExactEquivalentSet &&
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet &&
             exactCandidates.Any(candidate => !string.Equals(
                 PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
                 expectedSpecialProviderKind,
@@ -1180,7 +1183,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         {
             StatMappingProof = (hasProviderOwnedUniqueProof || hasStructuredAdvancedExplicitProof) && providerStatus is
                     SearchComponentProviderResolutionStatus.Exact or
-                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.ExactConjunctiveSet
                 ? ModifierStatMappingProofStatus.ProviderExact
                 : component.StatMappingProof,
             IsSearchable = ProviderResolutionPreservesSearchability(
@@ -1199,12 +1203,14 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 : null,
             ProviderStatText = providerStatus is
                     SearchComponentProviderResolutionStatus.Exact or
-                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.ExactConjunctiveSet
                 ? exactCandidates.FirstOrDefault()?.Text
                 : null,
             ProviderStatAlternativeIds = providerStatus is
                     SearchComponentProviderResolutionStatus.Exact or
-                    SearchComponentProviderResolutionStatus.ExactEquivalentSet
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                    SearchComponentProviderResolutionStatus.ExactConjunctiveSet
                 ? exactCandidates.Select(candidate => candidate.StatId)
                     .Distinct(StringComparer.Ordinal)
                     .ToArray()
@@ -1220,7 +1226,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         };
         if (providerStatus is not (
                 SearchComponentProviderResolutionStatus.Exact or
-                SearchComponentProviderResolutionStatus.ExactEquivalentSet))
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet))
         {
             return RecordProviderResolutionDiagnostic(
                 draft,
@@ -1237,7 +1244,13 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         }
 
         ResolvedSearchComponent applied;
-        if (hasProviderOwnedUniqueProof)
+        if (providerStatus == SearchComponentProviderResolutionStatus.ExactConjunctiveSet)
+        {
+            applied = PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExactConjunctive(
+                resolved,
+                exactCandidates);
+        }
+        else if (hasProviderOwnedUniqueProof)
         {
             applied = PathOfExileTradeModifierVariantResolver.ApplyProviderOwnedUniqueExact(
                 resolved,
@@ -1293,9 +1306,12 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     ProviderIdentity = exactCandidates.Count == 1
                         ? PathOfExileTradeProviderIdentity.Create(exactCandidates[0].StatId)
                         : null,
-                    ProviderResolutionStatus = exactCandidates.Count == 1
-                        ? SearchComponentProviderResolutionStatus.Exact
-                        : SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+                    ProviderResolutionStatus = applied.ProviderResolutionStatus is
+                            SearchComponentProviderResolutionStatus.ExactConjunctiveSet
+                        ? SearchComponentProviderResolutionStatus.ExactConjunctiveSet
+                        : exactCandidates.Count == 1
+                            ? SearchComponentProviderResolutionStatus.Exact
+                            : SearchComponentProviderResolutionStatus.ExactEquivalentSet,
                 }).ToArray(),
             }
             : applied;
@@ -2089,7 +2105,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         }
 
         if (providerStatus is SearchComponentProviderResolutionStatus.Exact or
-            SearchComponentProviderResolutionStatus.ExactEquivalentSet)
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet or
+            SearchComponentProviderResolutionStatus.ExactConjunctiveSet)
         {
             return component.HasResolvedUniqueSourceSemantics
                 ? hasProviderOwnedUniqueProof
@@ -2848,7 +2865,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     {
         return match.Status is
             PathOfExileTradeStatMatchStatus.Exact or
-            PathOfExileTradeStatMatchStatus.ExactEquivalentSet;
+            PathOfExileTradeStatMatchStatus.ExactEquivalentSet or
+            PathOfExileTradeStatMatchStatus.ExactConjunctiveSet;
     }
 
     private static IReadOnlyList<PathOfExileTradeStatMatchCandidate> ExactCandidates(
@@ -2859,6 +2877,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             PathOfExileTradeStatMatchStatus.Exact when match.ExactCandidate is not null =>
                 [match.ExactCandidate],
             PathOfExileTradeStatMatchStatus.ExactEquivalentSet =>
+                match.ExactEquivalentCandidates,
+            PathOfExileTradeStatMatchStatus.ExactConjunctiveSet =>
                 match.ExactEquivalentCandidates,
             _ => [],
         };

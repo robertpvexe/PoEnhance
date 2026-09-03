@@ -97,7 +97,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             };
         }
 
-        var (lookupTemplate, discoveredGroups) = DiscoverCandidateGroups(
+        var (lookupTemplate, discoveredGroups, discoveryMode) = DiscoverCandidateGroups(
             source,
             normalization,
             catalog,
@@ -181,6 +181,19 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
         if (compatibleGroups.Length > 1)
         {
+            if (TryResolveExactConjunctiveComposition(
+                    source,
+                    normalization,
+                    expectedLocality,
+                    initialCandidates,
+                    compatibleGroups,
+                    kindRejections,
+                    context,
+                    out var conjunctive))
+            {
+                return conjunctive;
+            }
+
             return Failure(
                 PathOfExileTradeStatMatchStatus.Ambiguous,
                 normalization,
@@ -192,6 +205,22 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 "Multiple Trade stat candidate groups matched the modifier text and kind.",
                 context,
                 providerCandidateGroupKey: null);
+        }
+
+        if (discoveryMode == CandidateDiscoveryMode.PerLineComposition &&
+            RequiresExactConjunctiveComposition(source.Component))
+        {
+            return Failure(
+                PathOfExileTradeStatMatchStatus.Ambiguous,
+                normalization,
+                expectedLocality,
+                initialCandidates,
+                compatibleCandidates,
+                kindRejections,
+                PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+                "Exact Unique source composition requires every component Trade mapping; only a partial Trade projection was found.",
+                context,
+                providerCandidateGroupKey: compatibleGroups[0].Key.ToString());
         }
 
         var group = compatibleGroups[0];
@@ -279,7 +308,14 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             source.Component);
     }
 
-    private static (string LookupTemplate, PathOfExileTradeStatCandidateGroup[] Groups)
+    private enum CandidateDiscoveryMode
+    {
+        WholeComposition,
+        PerLineComposition,
+        None,
+    }
+
+    private static (string LookupTemplate, PathOfExileTradeStatCandidateGroup[] Groups, CandidateDiscoveryMode Mode)
         DiscoverCandidateGroups(
             StatMatchSource source,
             PathOfExileTradeStatModifierNormalization normalization,
@@ -315,13 +351,13 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
             if (direct.Length > 0)
             {
-                return (lookup, direct);
+                return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
             }
 
             var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
             if (qualified.Length > 0)
             {
-                return (lookup, qualified);
+                return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
             }
         }
 
@@ -367,7 +403,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 .ToArray();
             if (perLineGroups.Length > 0)
             {
-                return (perLineMatches[0].Lookup, perLineGroups);
+                return (perLineMatches[0].Lookup, perLineGroups, CandidateDiscoveryMode.PerLineComposition);
             }
         }
 
@@ -385,7 +421,7 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             var direct = catalog.FindCandidateGroupsByNormalizedTemplate(signedValueLookup).ToArray();
             if (direct.Length > 0)
             {
-                return (signedValueLookup, direct);
+                return (signedValueLookup, direct, CandidateDiscoveryMode.WholeComposition);
             }
 
             var qualified = FindItemClassQualifiedGroups(
@@ -394,12 +430,12 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 context?.ItemClass);
             if (qualified.Length > 0)
             {
-                return (signedValueLookup, qualified);
+                return (signedValueLookup, qualified, CandidateDiscoveryMode.WholeComposition);
             }
         }
 
         var fallbackLookup = lookups.FirstOrDefault() ?? string.Empty;
-        return (fallbackLookup, []);
+        return (fallbackLookup, [], CandidateDiscoveryMode.None);
     }
 
     private static bool ContainsNewLine(string value) =>
@@ -450,6 +486,234 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
     private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component) =>
         component?.HasExactUniqueSourceProvenance == true;
+
+    private static bool RequiresExactConjunctiveComposition(ResolvedSearchComponent? component)
+    {
+        if (!HasExactUniqueEvidence(component) ||
+            component!.SourceLineIndex >= 0 ||
+            !ContainsNewLine(component.OriginalText))
+        {
+            return false;
+        }
+
+        var resolvedStatIds = component.ResolvedStatIds
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Select(statId => statId.Trim())
+            .ToArray();
+        if (resolvedStatIds.Length < 2 ||
+            resolvedStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != resolvedStatIds.Length)
+        {
+            return false;
+        }
+
+        var perLineSignatures = component.ProviderSearchSignatures
+            .Where(signature => !string.IsNullOrWhiteSpace(signature) && !ContainsNewLine(signature))
+            .Select(signature => signature.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return perLineSignatures.Length >= 2 &&
+            perLineSignatures.Length == resolvedStatIds.Length;
+    }
+
+    private static bool TryResolveExactConjunctiveComposition(
+        StatMatchSource source,
+        PathOfExileTradeStatModifierNormalization normalization,
+        ModifierLocality expectedLocality,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> initialCandidates,
+        IReadOnlyList<PathOfExileTradeStatCandidateGroup> compatibleGroups,
+        IReadOnlyList<PathOfExileTradeStatCandidateRejection> kindRejections,
+        PathOfExileTradeStatMatchContext? context,
+        out PathOfExileTradeStatMatchResult result)
+    {
+        result = Failure(
+            PathOfExileTradeStatMatchStatus.Ambiguous,
+            normalization,
+            expectedLocality,
+            initialCandidates,
+            [],
+            kindRejections,
+            PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+            "Multiple Trade stat candidate groups matched the modifier text and kind.",
+            context,
+            providerCandidateGroupKey: null);
+
+        if (!HasExactUniqueEvidence(source.Component))
+        {
+            return false;
+        }
+
+        var component = source.Component!;
+        if (component.SourceLineIndex >= 0 ||
+            !ContainsNewLine(component.OriginalText))
+        {
+            return false;
+        }
+
+        var resolvedStatIds = component.ResolvedStatIds
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Select(statId => statId.Trim())
+            .ToArray();
+        if (resolvedStatIds.Length < 2 ||
+            resolvedStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != resolvedStatIds.Length)
+        {
+            return false;
+        }
+
+        var perLineSignatures = component.ProviderSearchSignatures
+            .Where(signature => !string.IsNullOrWhiteSpace(signature) && !ContainsNewLine(signature))
+            .Select(signature => signature.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (perLineSignatures.Length != resolvedStatIds.Length)
+        {
+            var originalLines = SplitNonEmptyLines(component.OriginalText);
+            if (originalLines.Length != resolvedStatIds.Length)
+            {
+                return false;
+            }
+
+            perLineSignatures = originalLines;
+        }
+
+        if (compatibleGroups.Count != resolvedStatIds.Length)
+        {
+            return false;
+        }
+
+        var exactCandidates = new List<PathOfExileTradeStatMatchCandidate>(compatibleGroups.Count);
+        foreach (var group in compatibleGroups)
+        {
+            var groupResult = ResolveRemainingCandidates(
+                normalization,
+                expectedLocality,
+                initialCandidates,
+                group.Candidates,
+                kindRejections,
+                context,
+                group.Key.ToString(),
+                canProveEquivalentSet: false,
+                component);
+            if (groupResult.Status != PathOfExileTradeStatMatchStatus.Exact ||
+                groupResult.ExactCandidate is null)
+            {
+                return false;
+            }
+
+            exactCandidates.Add(groupResult.ExactCandidate);
+        }
+
+        var ordered = exactCandidates
+            .OrderBy(candidate => candidate.ProviderOrder)
+            .ThenBy(candidate => candidate.StatId, StringComparer.Ordinal)
+            .ToArray();
+        if (ordered.Select(candidate => candidate.StatId)
+                .Distinct(StringComparer.Ordinal)
+                .Count() != ordered.Length)
+        {
+            return false;
+        }
+
+        if (!HasOneToOneLineProviderProjection(perLineSignatures, ordered))
+        {
+            return false;
+        }
+
+        result = ExactConjunctiveSet(
+            normalization,
+            expectedLocality,
+            initialCandidates,
+            ordered,
+            kindRejections,
+            context);
+        return true;
+    }
+
+    private static bool HasOneToOneLineProviderProjection(
+        IReadOnlyList<string> perLineSignatures,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> exactCandidates)
+    {
+        if (perLineSignatures.Count != exactCandidates.Count)
+        {
+            return false;
+        }
+
+        var remaining = exactCandidates.ToList();
+        foreach (var signature in perLineSignatures)
+        {
+            var lookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                ToProviderTemplate(signature));
+            var matches = remaining
+                .Where(candidate =>
+                    string.Equals(candidate.LookupTemplate, lookup, StringComparison.Ordinal) ||
+                    string.Equals(candidate.NormalizedTemplate, lookup, StringComparison.Ordinal) ||
+                    string.Equals(
+                        PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                            ToProviderTemplate(candidate.Text)),
+                        lookup,
+                        StringComparison.Ordinal))
+                .ToArray();
+            if (matches.Length != 1)
+            {
+                return false;
+            }
+
+            remaining.Remove(matches[0]);
+        }
+
+        return remaining.Count == 0;
+    }
+
+    private static string[] SplitNonEmptyLines(string text)
+    {
+        return text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static PathOfExileTradeStatMatchResult ExactConjunctiveSet(
+        PathOfExileTradeStatModifierNormalization normalization,
+        ModifierLocality expectedLocality,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> initialCandidates,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> exactCandidates,
+        IReadOnlyList<PathOfExileTradeStatCandidateRejection> rejections,
+        PathOfExileTradeStatMatchContext? context)
+    {
+        var ordered = exactCandidates
+            .OrderBy(candidate => candidate.ProviderOrder)
+            .ThenBy(candidate => candidate.StatId, StringComparer.Ordinal)
+            .ToArray();
+        Log.Debug(
+            "Path of Exile Trade conjunctive composition selected. CandidateCount={CandidateCount}; StatIds={StatIds}; NormalizedTemplate={NormalizedTemplate}",
+            ordered.Length,
+            string.Join(",", ordered.Select(candidate => candidate.StatId)),
+            normalization.NormalizedTemplate);
+        return new PathOfExileTradeStatMatchResult
+        {
+            Status = PathOfExileTradeStatMatchStatus.ExactConjunctiveSet,
+            NormalizedItemTemplate = normalization.NormalizedTemplate,
+            ExtractedNumericValues = normalization.ExtractedNumericValues,
+            RequestedLocality = expectedLocality,
+            ExactEquivalentCandidates = ordered,
+            InitialCandidates = initialCandidates,
+            Candidates = ordered,
+            RejectedCandidates = rejections.Select(rejection => rejection.Candidate).ToArray(),
+            Diagnostics =
+            [
+                new PathOfExileTradeStatMatchDiagnostic(
+                    PathOfExileTradeStatMatchDiagnosticCodes.ExactConjunctiveComposition,
+                    $"Exact Unique source composition projects to {ordered.Length} Trade stats required as AND."),
+            ],
+            Trace = CreateTrace(
+                normalization.NormalizedTemplate,
+                context,
+                providerCandidateGroupKey: "exact-conjunctive-composition",
+                ordered,
+                rejections,
+                selectedProviderStatId: null,
+                finalDiagnosticCode: PathOfExileTradeStatMatchDiagnosticCodes.ExactConjunctiveComposition),
+        };
+    }
 
     private static bool HasProvenSingleScalarProviderQuery(ResolvedSearchComponent component) =>
         component.FixedQueryValue.HasValue ||

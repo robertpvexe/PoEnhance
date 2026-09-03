@@ -33,6 +33,23 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 contributorFilters,
                 diagnostics);
 
+            if (TryCreateConjunctiveProviderFilters(
+                    selectedModifier.Index,
+                    selectedModifier.Modifier,
+                    catalog,
+                    out var conjunctiveFilters,
+                    out var conjunctiveDiagnostic))
+            {
+                filters.AddRange(conjunctiveFilters);
+                continue;
+            }
+
+            if (conjunctiveDiagnostic is not null)
+            {
+                diagnostics.Add(conjunctiveDiagnostic);
+                continue;
+            }
+
             if (TryCreateResolvedProviderFilter(
                     selectedModifier.Index,
                     selectedModifier.Modifier,
@@ -212,6 +229,99 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                     : null,
             });
         }
+    }
+
+    private static bool TryCreateConjunctiveProviderFilters(
+        int sourceIndex,
+        ResolvedSearchComponent modifier,
+        PathOfExileTradeStatCatalog? catalog,
+        out IReadOnlyList<PathOfExileTradeSelectedModifierFilter> filters,
+        out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
+    {
+        filters = [];
+        diagnostic = null;
+        if (modifier.ProviderResolutionStatus !=
+            SearchComponentProviderResolutionStatus.ExactConjunctiveSet)
+        {
+            return false;
+        }
+
+        if (!CanSerializeProviderResolvedComponent(modifier))
+        {
+            diagnostic = ToProviderResolutionDiagnostic(sourceIndex, modifier);
+            return false;
+        }
+
+        var providerStatIds = SelectedProviderStatIds(modifier);
+        if (providerStatIds.Count < 2)
+        {
+            diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+                "Exact conjunctive Unique composition requires at least two distinct Trade stats.",
+                sourceIndex);
+            return false;
+        }
+
+        if (!TryVerifySpecialProviderKind(sourceIndex, modifier, catalog, out diagnostic) ||
+            !TryVerifyReviewedLocalProviderScope(sourceIndex, modifier, catalog, out diagnostic))
+        {
+            return false;
+        }
+
+        var projected = new List<PathOfExileTradeSelectedModifierFilter>(providerStatIds.Count);
+        foreach (var providerStatId in providerStatIds)
+        {
+            decimal? minimum = null;
+            decimal? maximum = null;
+            if (catalog is not null &&
+                catalog.TryGetById(providerStatId, out var entry))
+            {
+                var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+                    modifier,
+                    PathOfExileTradeStatCandidateClassifier.ToCandidate(entry));
+                if (!bounds.IsFaithful)
+                {
+                    diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.IncompatibleBounds,
+                        "A conjunctive composition member has no faithful projection from the selected displayed-value bounds.",
+                        sourceIndex);
+                    return false;
+                }
+
+                minimum = bounds.Minimum;
+                maximum = bounds.Maximum;
+            }
+            else if (modifier.SupportsValueBounds)
+            {
+                minimum = modifier.RequestedMinimum;
+                maximum = modifier.RequestedMaximum;
+            }
+
+            projected.Add(new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = sourceIndex,
+                SourceIndexes = [sourceIndex],
+                StatId = providerStatId,
+                OriginalText = modifier.OriginalText,
+                NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
+                ExtractedNumericValues = [],
+                Minimum = minimum,
+                Maximum = maximum,
+            });
+        }
+
+        if (projected.Select(filter => filter.StatId).Distinct(StringComparer.Ordinal).Count() !=
+            projected.Count)
+        {
+            diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous,
+                "Exact conjunctive Unique composition collapsed to duplicate Trade stats.",
+                sourceIndex);
+            return false;
+        }
+
+        filters = projected;
+        return true;
     }
 
     private static bool TryCreateResolvedProviderFilter(
@@ -512,9 +622,12 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var hasExactProviderOwnedUniqueProvenance =
             modifier.HasResolvedUniqueSourceSemantics &&
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
-            modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&
+            modifier.ProviderResolutionStatus is (
+                SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactConjunctiveSet) &&
             modifier.IsSearchable &&
-            !string.IsNullOrWhiteSpace(modifier.ProviderStatId);
+            (!string.IsNullOrWhiteSpace(modifier.ProviderStatId) ||
+                modifier.ProviderStatAlternativeIds.Count > 0);
         var hasExactProviderOwnedVeiledPresence = modifier.IsVeiled &&
             modifier.StatMappingProof == ModifierStatMappingProofStatus.ProviderExact &&
             modifier.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&

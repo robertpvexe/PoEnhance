@@ -74,6 +74,81 @@ internal static class PathOfExileTradeModifierVariantResolver
         return ApplyBounds(resolved, option, exactCandidates);
     }
 
+    public static ResolvedSearchComponent ApplyProviderOwnedUniqueExactConjunctive(
+        ResolvedSearchComponent component,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> exactCandidates)
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(exactCandidates);
+        if (exactCandidates.Count < 2)
+        {
+            throw new ArgumentException(
+                "A conjunctive Unique composition requires at least two exact Trade candidates.",
+                nameof(exactCandidates));
+        }
+
+        var ordered = exactCandidates
+            .OrderBy(candidate => candidate.ProviderOrder)
+            .ThenBy(candidate => candidate.StatId, StringComparer.Ordinal)
+            .ToArray();
+        var distinctIds = ordered
+            .Select(candidate => candidate.StatId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (distinctIds.Length != ordered.Length)
+        {
+            throw new ArgumentException(
+                "Conjunctive Unique composition candidates must map to distinct Trade stats.",
+                nameof(exactCandidates));
+        }
+
+        var first = ordered[0];
+        var providerKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(first);
+        var allPresenceOnly = ordered.All(candidate =>
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 0);
+        var option = new SearchFilterVariant
+        {
+            Identity = "conjunctive:" + string.Join("+", distinctIds),
+            Label = ConciseLabel(first, providerKind),
+            Description = string.Join(" + ", ordered.Select(candidate => candidate.Text)),
+            ProviderKind = providerKind,
+            Mode = SearchFilterVariantMode.Standalone,
+            SupportsContributorComposition = false,
+            SupportsValueBounds = !allPresenceOnly && component.SupportsValueBounds,
+            ValueBoundsUnsupportedReason = allPresenceOnly
+                ? "This Trade composition represents presence only and has no numeric Min/Max."
+                : null,
+        };
+        return component with
+        {
+            StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            IsSearchable = true,
+            NotSearchableReason = null,
+            FilterVariants = [option],
+            SelectedFilterVariantIdentity = option.Identity,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.ExactConjunctiveSet,
+            ProviderStatId = null,
+            ProviderStatText = first.Text,
+            ProviderStatAlternativeIds = distinctIds,
+            ProviderCandidateStatIds = distinctIds,
+            ProviderDiagnosticCode = PathOfExileTradeStatMatchDiagnosticCodes.ExactConjunctiveComposition,
+            ProviderDiagnosticMessage =
+                $"Exact Unique source composition projects to {distinctIds.Length} Trade stats required as AND.",
+            SupportsValueBounds = option.SupportsValueBounds,
+            ValueBoundsUnsupportedReason = option.ValueBoundsUnsupportedReason,
+            RequestedMinimum = allPresenceOnly ? null : component.RequestedMinimum,
+            RequestedMaximum = allPresenceOnly ? null : component.RequestedMaximum,
+            ValueBoundShape = allPresenceOnly
+                ? ModifierBoundShape.PresenceOnly
+                : component.ValueBoundShape,
+            Contributors = [],
+            Sources = component.Sources.Select(source => source with
+            {
+                StatMappingProof = ModifierStatMappingProofStatus.ProviderExact,
+            }).ToArray(),
+        };
+    }
+
     public static ResolvedSearchComponent ApplyProviderOwnedPresenceExact(
         ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate exactCandidate)
