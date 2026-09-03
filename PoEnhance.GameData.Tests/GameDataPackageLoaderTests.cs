@@ -48,7 +48,7 @@ public sealed class GameDataPackageLoaderTests
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
-        Assert.Equal("3.29.1.2.2-exact-conflict-provenance", result.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.1.2.2-current-encoding-resolution", result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
         Assert.Equal(3, result.Package.Manifest.SchemaVersion);
     }

@@ -344,6 +344,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     UniqueModifierBlockKind.Implicit,
                     identityId,
                     spec.Label,
+                    spec.Role,
                     spec.BaseType,
                     item.ObservationId!,
                     item.IsGenerated,
@@ -353,6 +354,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     UniqueModifierBlockKind.Unique,
                     identityId,
                     spec.Label,
+                    spec.Role,
                     spec.BaseType,
                     item.ObservationId!,
                     item.IsGenerated,
@@ -862,6 +864,7 @@ public sealed partial class PoBUniqueCatalogImporter
         UniqueModifierBlockKind kind,
         string identityId,
         string versionLabel,
+        UniqueItemVersionRole versionRole,
         string baseType,
         string observationId,
         bool isGeneratedSource,
@@ -881,6 +884,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 yield return BuildBlock(
                     identityId,
                     versionLabel,
+                    versionRole,
                     compositionLines.Select(line => line.Text).ToArray(),
                     kind,
                     observationId,
@@ -913,6 +917,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     yield return BuildBlock(
                         identityId,
                         versionLabel,
+                        versionRole,
                         [skippedLine.Text],
                         kind,
                         observationId,
@@ -960,6 +965,7 @@ public sealed partial class PoBUniqueCatalogImporter
             yield return BuildBlock(
                 identityId,
                 versionLabel,
+                versionRole,
                 selectedLines.Select(line => line.Text).ToArray(),
                 kind,
                 observationId,
@@ -1022,6 +1028,7 @@ public sealed partial class PoBUniqueCatalogImporter
     private static UniqueModifierBlock BuildBlock(
         string identityId,
         string versionLabel,
+        UniqueItemVersionRole versionRole,
         IReadOnlyList<string> lines,
         UniqueModifierBlockKind kind,
         string observationId,
@@ -1042,6 +1049,7 @@ public sealed partial class PoBUniqueCatalogImporter
             hasGeneratedOptionEvidence,
             sourceSemanticFingerprint);
         var candidates = resolution.Candidates;
+        var usedCurrentEncodingDisambiguation = false;
         var semanticFingerprints = candidates
             .Select(SemanticFingerprintEquivalenceKey)
             .Distinct(StringComparer.Ordinal)
@@ -1053,6 +1061,24 @@ public sealed partial class PoBUniqueCatalogImporter
             _ when semanticFingerprints.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
             _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
         };
+        if (status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+            resolution.UsedStrictEvidence &&
+            versionRole == UniqueItemVersionRole.Current &&
+            TryResolveCurrentDeprecatedPermyriadConflict(candidates, out var survivors))
+        {
+            candidates = survivors;
+            usedCurrentEncodingDisambiguation = true;
+            semanticFingerprints = candidates
+                .Select(SemanticFingerprintEquivalenceKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            status = candidates.Count switch
+            {
+                1 => UniqueModifierMechanicalMappingStatus.Exact,
+                _ => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            };
+        }
+
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
             UniqueModifierMechanicalMappingStatus.EquivalentSourceSet;
         var blockId = optionChoiceMemberships.Count > 0
@@ -1100,6 +1126,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 ? ["structured-translation-option"]
                 : [])
             .Concat(composition is null ? [] : ["source-block-composition"])
+            .Concat(usedCurrentEncodingDisambiguation
+                ? ["current-role-deprecated-encoding-filter"]
+                : [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(reason => reason, StringComparer.Ordinal)
             .ToArray();
@@ -1141,7 +1170,9 @@ public sealed partial class PoBUniqueCatalogImporter
                             translationEvidence.Any(evidence => evidence.DefaultedStatIds.Count > 0),
                         CatalogValuesUsedForSelection = resolution.UsedStrictEvidence,
                         ValueAuthority = "copiedInstance",
-                        SafetyRationale = "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
+                        SafetyRationale = usedCurrentEncodingDisambiguation
+                            ? "Current-role ExactConflict of deprecated percent vs current permyriad encoding collapsed to one surviving mechanical vector after removing only proven deprecated/legacy encoding candidates; copied instance values remain authoritative."
+                            : "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
                     }
                     : null,
                 ConflictEvidence = conflictEvidence,
@@ -1176,6 +1207,66 @@ public sealed partial class PoBUniqueCatalogImporter
             },
             SourceObservationIds = [observationId],
         };
+    }
+
+    private static bool TryResolveCurrentDeprecatedPermyriadConflict(
+        IReadOnlyList<MechanicalCandidate> candidates,
+        out IReadOnlyList<MechanicalCandidate> survivors)
+    {
+        survivors = [];
+        if (candidates.Count < 2)
+        {
+            return false;
+        }
+
+        var conflictEvidence = BuildExactConflictEvidence(candidates);
+        if (conflictEvidence.Kind !=
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent)
+        {
+            return false;
+        }
+
+        var deprecatedModifierIds = conflictEvidence.Candidates
+            .Where(UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence)
+            .Select(candidate => candidate.ModifierId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (deprecatedModifierIds.Count == 0 ||
+            deprecatedModifierIds.Count == conflictEvidence.Candidates.Count)
+        {
+            return false;
+        }
+
+        var selected = candidates
+            .Where(candidate => !deprecatedModifierIds.Contains(candidate.ModifierId))
+            .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            return false;
+        }
+
+        var mechanicalVectors = selected
+            .Select(candidate => string.Join('\u001f', candidate.StatIds))
+            .Where(vector => vector.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (mechanicalVectors.Length != 1)
+        {
+            return false;
+        }
+
+        var fingerprintKeys = selected
+            .Select(SemanticFingerprintEquivalenceKey)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (fingerprintKeys.Length != 1)
+        {
+            return false;
+        }
+
+        survivors = selected;
+        return true;
     }
 
     private static UniqueMechanicalConflictEvidence BuildExactConflictEvidence(

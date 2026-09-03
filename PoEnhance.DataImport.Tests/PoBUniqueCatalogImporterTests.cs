@@ -471,7 +471,7 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
-    public void Import_LocalLeechFingerprint_CannotChooseCurrentVersusLegacyEncoding()
+    public void Import_CurrentLocalLeechFingerprint_ResolvesDeprecatedPercentVersusPermyriad()
     {
         const string line = "2% of Physical Attack Damage Leeched as Life";
         var result = ImportSingle(
@@ -501,27 +501,202 @@ public sealed class PoBUniqueCatalogImporterTests
             sourceLine: line,
             sourceBaseType: "Crude Bow");
 
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        var block = Assert.Single(version.ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.DiagnosticCode);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(["unique.leech.local"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["local_life_leech_from_physical_attack_damage_permyriad"],
+            block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Contains("current-role-deprecated-encoding-filter", provenance.ResolutionReasons);
+        Assert.DoesNotContain(
+            provenance.Translations,
+            evidence => evidence.StatIds.Any(statId =>
+                UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                    "x",
+                    [statId],
+                    []).Contains(UniqueMechanicalConflictClassifier.MarkerDeprecatedName)));
+    }
+
+    [Fact]
+    public void Import_CurrentPermyriadConflict_MultipleSurvivors_BecomeEquivalentSourceSet()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.a", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.b", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.legacy", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-current", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-legacy", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(["unique.leech.a", "unique.leech.b"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["local_life_leech_from_physical_attack_damage_permyriad"],
+            block.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-deprecated-encoding-filter",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_CurrentPermyriadConflict_TwoModernVectorsSurvive_RemainsExactConflict()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.local", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.global", "life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.legacy", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-local", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-global", "life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-legacy", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "life_leech_from_physical_attack_damage_permyriad", IsLocal = false },
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+            ]);
+
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
-        Assert.Empty(block.MechanicalMapping.StatIds);
         var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
             block.MechanicalMapping.ConflictEvidence);
         Assert.Equal(
             UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
             conflict.Kind);
-        Assert.Contains(
-            conflict.Candidates,
-            candidate => candidate.EncodingMarkers.Contains(
-                UniqueMechanicalConflictClassifier.MarkerPermyriad));
-        Assert.Contains(
-            conflict.Candidates,
-            candidate => candidate.EncodingMarkers.Contains(
-                UniqueMechanicalConflictClassifier.MarkerDeprecatedName) &&
-                candidate.EncodingMarkers.Contains(
-                    UniqueMechanicalConflictClassifier.MarkerPercent));
-        Assert.Null(block.MechanicalMapping.Provenance);
+        Assert.Equal(3, conflict.Candidates.Count);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_CurrentPermyriadConflict_OnlyDeprecatedCandidates_RemainsExactConflict()
+    {
+        const string line = "2% of Physical Attack Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Bow
+                Crude Bow
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.legacy.a", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+                Modifier("unique.leech.legacy.b", "old_do_not_use_local_life_leech_from_physical_damage_%", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-legacy-a", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+                TranslationWithHandler("leech-legacy-b", "old_do_not_use_local_life_leech_from_physical_damage_%", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+                new StatDefinition { Id = "old_do_not_use_local_life_leech_from_physical_damage_%", IsLocal = true },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.NotNull(block.MechanicalMapping.ConflictEvidence);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_HistoricalPermyriadConflict_DoesNotPreferModernEncoding()
+    {
+        var result = ImportSingle(
+            """
+                Test Bow
+                Crude Bow
+                Variant: Pre 2.6.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}2% of Physical Attack Damage Leeched as Life
+                {variant:2}10% increased Attack Speed
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.leech.local", "local_life_leech_from_physical_attack_damage_permyriad", 200, 200, "unique"),
+                Modifier("unique.leech.legacy", "old_local_life_leech_from_physical_attack_damage_percent", 10, 10, "unique"),
+                Modifier("unique.attack-speed", "local_attack_speed_+%", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler("leech-local", "local_life_leech_from_physical_attack_damage_permyriad", "{0}% of Physical Attack Damage Leeched as Life", "divide_by_one_hundred"),
+                TranslationWithHandler("leech-legacy", "old_local_life_leech_from_physical_attack_damage_percent", "{0}% of Physical Attack Damage Leeched as Life", "old_leech_percent"),
+                Translation("attack-speed", "local_attack_speed_+%", "{0}% increased Attack Speed", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "local_life_leech_from_physical_attack_damage_permyriad", IsLocal = true },
+                new StatDefinition { Id = "old_local_life_leech_from_physical_attack_damage_percent", IsLocal = true },
+                new StatDefinition { Id = "local_attack_speed_+%", IsLocal = true },
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Crude Bow", Domain = "item" }]);
+
+        var historical = Assert.Single(
+            Assert.Single(result.Catalog!.Items).Versions,
+            version => version.Role == UniqueItemVersionRole.Historical);
+        var leech = Assert.Single(
+            historical.ModifierBlocks,
+            block => block.Lines.Contains(
+                "2% of Physical Attack Damage Leeched as Life"));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, leech.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", leech.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            leech.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
+            conflict.Kind);
+        Assert.Empty(leech.MechanicalMapping.StatIds);
+        Assert.Null(leech.MechanicalMapping.Provenance);
     }
 
     [Fact]

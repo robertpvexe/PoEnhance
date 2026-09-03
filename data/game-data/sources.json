@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-exact-conflict-provenance",
-    "createdAtUtc": "2026-09-03T12:00:00+00:00",
-    "sizeBytes": 188998914,
-    "sha256": "1e870125f3a614bdcdfc368d59a1994b83d622dd136fe0997ad90c5a4bb32912",
+    "dataVersion": "3.29.1.2.2-current-encoding-resolution",
+    "createdAtUtc": "2026-09-03T14:00:00+00:00",
+    "sizeBytes": 188945456,
+    "sha256": "e4bc4c495631d00e993cdeabc13ee9694478bc57faabf78370eb768c2a2bc147",
     "foulbornRelationshipCount": 353,
     "exactFoulbornRelationshipCount": 353,
     "unsupportedFoulbornRelationshipCount": 0

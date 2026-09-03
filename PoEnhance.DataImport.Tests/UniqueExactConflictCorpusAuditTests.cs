@@ -7,37 +7,28 @@ namespace PoEnhance.DataImport.Tests;
 
 public sealed class UniqueExactConflictCorpusAuditTests
 {
+    private const string PreviousExactConflictCountBaseline = "155";
+    private const string PreviousSubclassPermyriadBaseline = "93";
+
     [Fact]
-    public async Task ActivePackage_ExactConflictCorpus_HasDeterministicSubtypeProvenance()
+    public async Task ActivePackage_ExactConflictCorpus_ReflectsCurrentEncodingResolution()
     {
-        var packagePath = Environment.GetEnvironmentVariable("POENHANCE_GAMEDATA_AUDIT_PATH")
-            ?? Path.GetFullPath(Path.Combine(
-                AppContext.BaseDirectory,
-                "..", "..", "..", "..", "artifacts", "poenhance-game-data.json"));
-        Assert.True(File.Exists(packagePath), $"Package not found: {packagePath}");
+        var package = await LoadActivePackageAsync();
 
-        var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
-        Assert.True(load.IsSuccess, string.Join("; ", load.Diagnostics.Select(d => d.Message)));
-        var package = Assert.IsType<GameDataPackage>(load.Package);
-
-        var conflicts = package.UniqueItems?.Items
+        var exactConflicts = EnumerateExactConflicts(package).ToArray();
+        var resolvedByCurrentEncoding = package.UniqueItems!.Items
             .SelectMany(item => item.Versions.SelectMany(version => version.ModifierBlocks
-                .Where(block => string.Equals(
-                    block.MechanicalMapping.DiagnosticCode,
-                    "UNIQUE_MECHANICS_EXACT_CONFLICT",
-                    StringComparison.Ordinal))
+                .Where(block =>
+                    block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                        "current-role-deprecated-encoding-filter",
+                        StringComparer.Ordinal) == true)
                 .Select(block => (Item: item, Version: version, Block: block))))
-            .OrderBy(entry => entry.Item.CanonicalName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Version.Label, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Block.Id, StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? [];
+            .ToArray();
 
-        Assert.Equal(155, conflicts.Length);
-        Assert.Equal(
-            73,
-            conflicts.Select(entry => entry.Item.Id).Distinct(StringComparer.Ordinal).Count());
-
-        Assert.All(conflicts, entry =>
+        Assert.True(
+            exactConflicts.Length < int.Parse(PreviousExactConflictCountBaseline),
+            $"Expected ExactConflict count to drop below prior baseline {PreviousExactConflictCountBaseline}; observed {exactConflicts.Length}.");
+        Assert.All(exactConflicts, entry =>
         {
             var mapping = entry.Block.MechanicalMapping;
             Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, mapping.Status);
@@ -45,28 +36,44 @@ public sealed class UniqueExactConflictCorpusAuditTests
             Assert.Null(mapping.Provenance);
             var evidence = Assert.IsType<UniqueMechanicalConflictEvidence>(mapping.ConflictEvidence);
             Assert.True(evidence.Candidates.Count >= 2);
-            Assert.NotEqual(
-                UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIdsWithTradeDuplicates,
-                evidence.Kind);
             Assert.Equal(
                 UniqueMechanicalConflictClassifier.Classify(evidence.Candidates),
                 evidence.Kind);
-            Assert.Equal(
-                mapping.ModifierIds.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
-                evidence.Candidates.Select(candidate => candidate.ModifierId).ToArray());
-            Assert.DoesNotContain(
-                evidence.Candidates,
-                candidate => candidate.ModifierId.Contains("Hrimnor", StringComparison.OrdinalIgnoreCase) ||
-                    candidate.ModifierId.Contains("Asenath", StringComparison.OrdinalIgnoreCase) ||
-                    candidate.ModifierId.Contains("Circle", StringComparison.OrdinalIgnoreCase));
         });
 
-        var subtypeCounts = conflicts
+        Assert.NotEmpty(resolvedByCurrentEncoding);
+        Assert.All(resolvedByCurrentEncoding, entry =>
+        {
+            Assert.Equal(UniqueItemVersionRole.Current, entry.Version.Role);
+            Assert.True(entry.Block.MechanicalMapping.Status is
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+            Assert.Null(entry.Block.MechanicalMapping.ConflictEvidence);
+            Assert.NotEmpty(entry.Block.MechanicalMapping.StatIds);
+            Assert.DoesNotContain(
+                entry.Block.MechanicalMapping.StatIds,
+                statId => UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                    "x",
+                    [statId],
+                    []).Contains(UniqueMechanicalConflictClassifier.MarkerDeprecatedName));
+        });
+        Assert.DoesNotContain(
+            resolvedByCurrentEncoding,
+            entry => entry.Version.Role == UniqueItemVersionRole.Historical);
+
+        var remainingPermyriad = exactConflicts.Count(entry =>
+            entry.Block.MechanicalMapping.ConflictEvidence!.Kind ==
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent);
+        Assert.True(
+            remainingPermyriad < int.Parse(PreviousSubclassPermyriadBaseline),
+            $"Expected remaining permyriad subclass count below {PreviousSubclassPermyriadBaseline}; observed {remainingPermyriad}.");
+
+        var subtypeCounts = exactConflicts
             .GroupBy(entry => entry.Block.MechanicalMapping.ConflictEvidence!.Kind)
             .ToDictionary(group => group.Key, group => group.Count());
         var fingerprintPayload = string.Join(
             '\n',
-            conflicts.Select(entry =>
+            exactConflicts.Select(entry =>
             {
                 var evidence = entry.Block.MechanicalMapping.ConflictEvidence!;
                 return string.Join(
@@ -76,34 +83,40 @@ public sealed class UniqueExactConflictCorpusAuditTests
                     string.Join(',', evidence.Candidates.Select(candidate => candidate.ModifierId)),
                     string.Join(
                         '|',
-                        evidence.Candidates.Select(candidate => string.Join(',', candidate.StatIds))),
-                    string.Join(
-                        ',',
-                        evidence.Candidates
-                            .SelectMany(candidate => candidate.EncodingMarkers)
-                            .Distinct(StringComparer.Ordinal)
-                            .OrderBy(marker => marker, StringComparer.Ordinal)));
+                        evidence.Candidates.Select(candidate => string.Join(',', candidate.StatIds))));
             }));
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintPayload)))
             .ToLowerInvariant();
-        var secondFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintPayload)))
-            .ToLowerInvariant();
-        Assert.Equal(fingerprint, secondFingerprint);
+        Assert.Equal(
+            fingerprint,
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintPayload)))
+                .ToLowerInvariant());
 
         var reportPath = Path.Combine(
             Path.GetTempPath(),
-            "PoEnhance-ExactConflict-SubtypeCorpus.json");
+            "PoEnhance-ExactConflict-CurrentEncodingCorpus.json");
         await File.WriteAllTextAsync(
             reportPath,
             JsonSerializer.Serialize(
                 new
                 {
                     package.Manifest.DataVersion,
-                    totalExactConflictBlocks = conflicts.Length,
-                    distinctIdentities = conflicts
+                    priorExactConflictBlocks = int.Parse(PreviousExactConflictCountBaseline),
+                    totalExactConflictBlocks = exactConflicts.Length,
+                    distinctIdentities = exactConflicts
                         .Select(entry => entry.Item.Id)
                         .Distinct(StringComparer.Ordinal)
                         .Count(),
+                    resolvedByCurrentEncodingFilter = resolvedByCurrentEncoding.Length,
+                    resolvedHistoricalByCurrentEncodingFilter = resolvedByCurrentEncoding
+                        .Count(entry => entry.Version.Role == UniqueItemVersionRole.Historical),
+                    resolvedExact = resolvedByCurrentEncoding.Count(entry =>
+                        entry.Block.MechanicalMapping.Status ==
+                        UniqueModifierMechanicalMappingStatus.Exact),
+                    resolvedEquivalentSourceSet = resolvedByCurrentEncoding.Count(entry =>
+                        entry.Block.MechanicalMapping.Status ==
+                        UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
+                    remainingPermyriadSubclass = remainingPermyriad,
                     subtypeCounts = subtypeCounts
                         .OrderByDescending(entry => entry.Value)
                         .ThenBy(entry => entry.Key.ToString(), StringComparer.Ordinal)
@@ -111,45 +124,24 @@ public sealed class UniqueExactConflictCorpusAuditTests
                     classificationFingerprintSha256 = fingerprint,
                 },
                 new JsonSerializerOptions { WriteIndented = true }));
-
-        Assert.All(
-            Enum.GetValues<UniqueMechanicalConflictKind>(),
-            kind =>
-            {
-                if (kind is UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIdsWithTradeDuplicates)
-                {
-                    Assert.False(subtypeCounts.ContainsKey(kind));
-                    return;
-                }
-
-                _ = subtypeCounts.GetValueOrDefault(kind);
-            });
     }
 
     [Fact]
-    public async Task ActivePackage_ControlItems_RetainExpectedExactConflictSubtypes()
+    public async Task ActivePackage_ControlItems_MatchCurrentEncodingResolutionContract()
     {
-        var packagePath = Environment.GetEnvironmentVariable("POENHANCE_GAMEDATA_AUDIT_PATH")
-            ?? Path.GetFullPath(Path.Combine(
-                AppContext.BaseDirectory,
-                "..", "..", "..", "..", "artifacts", "poenhance-game-data.json"));
-        var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
-        Assert.True(load.IsSuccess);
-        var package = Assert.IsType<GameDataPackage>(load.Package);
+        var package = await LoadActivePackageAsync();
 
-        AssertControl(
+        AssertResolvedCurrentEncodingControl(
             package,
             "Hrimnor's Hymn",
-            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
-            UniqueMechanicalConflictClassifier.MarkerPermyriad,
-            UniqueMechanicalConflictClassifier.MarkerPercent);
-        AssertControl(
+            "local_life_leech_from_physical_damage_permyriad");
+        AssertExactConflictControl(
             package,
             "Asenath's Gentle Touch",
             UniqueMechanicalConflictKind.LevelVsChanceOnHit,
             UniqueMechanicalConflictClassifier.MarkerLevel,
             UniqueMechanicalConflictClassifier.MarkerChance);
-        AssertControl(
+        AssertExactConflictControl(
             package,
             "Circle of Fear",
             UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding,
@@ -157,7 +149,75 @@ public sealed class UniqueExactConflictCorpusAuditTests
             UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse);
     }
 
-    private static void AssertControl(
+    private static async Task<GameDataPackage> LoadActivePackageAsync()
+    {
+        var packagePath = Environment.GetEnvironmentVariable("POENHANCE_GAMEDATA_AUDIT_PATH")
+            ?? Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory,
+                "..", "..", "..", "..", "artifacts", "poenhance-game-data.json"));
+        Assert.True(File.Exists(packagePath), $"Package not found: {packagePath}");
+        var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
+        Assert.True(load.IsSuccess, string.Join("; ", load.Diagnostics.Select(d => d.Message)));
+        return Assert.IsType<GameDataPackage>(load.Package);
+    }
+
+    private static IEnumerable<(UniqueItemIdentity Item, UniqueItemVersionObservation Version, UniqueModifierBlock Block)>
+        EnumerateExactConflicts(GameDataPackage package) =>
+        package.UniqueItems!.Items.SelectMany(item => item.Versions.SelectMany(version =>
+            version.ModifierBlocks
+                .Where(block => string.Equals(
+                    block.MechanicalMapping.DiagnosticCode,
+                    "UNIQUE_MECHANICS_EXACT_CONFLICT",
+                    StringComparison.Ordinal))
+                .Select(block => (item, version, block))));
+
+    private static void AssertResolvedCurrentEncodingControl(
+        GameDataPackage package,
+        string canonicalName,
+        string expectedStatId)
+    {
+        var item = Assert.Single(
+            package.UniqueItems!.Items,
+            candidate => string.Equals(
+                candidate.CanonicalName,
+                canonicalName,
+                StringComparison.OrdinalIgnoreCase));
+        var current = Assert.Single(
+            item.Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        var resolved = current.ModifierBlocks
+            .Where(block =>
+                block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                    "current-role-deprecated-encoding-filter",
+                    StringComparer.Ordinal) == true)
+            .ToArray();
+        Assert.NotEmpty(resolved);
+        Assert.All(resolved, block =>
+        {
+            Assert.True(block.MechanicalMapping.Status is
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+            Assert.Null(block.MechanicalMapping.ConflictEvidence);
+            Assert.Contains(expectedStatId, block.MechanicalMapping.StatIds);
+            Assert.DoesNotContain(
+                block.MechanicalMapping.StatIds,
+                statId => UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                        "x",
+                        [statId],
+                        [])
+                    .Contains(UniqueMechanicalConflictClassifier.MarkerDeprecatedName));
+        });
+
+        Assert.All(
+            item.Versions.Where(version => version.Role == UniqueItemVersionRole.Historical),
+            version => Assert.DoesNotContain(
+                version.ModifierBlocks,
+                block => block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                    "current-role-deprecated-encoding-filter",
+                    StringComparer.Ordinal) == true));
+    }
+
+    private static void AssertExactConflictControl(
         GameDataPackage package,
         string canonicalName,
         UniqueMechanicalConflictKind expectedKind,

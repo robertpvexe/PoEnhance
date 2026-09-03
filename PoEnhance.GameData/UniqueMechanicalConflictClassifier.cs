@@ -187,6 +187,14 @@ public static class UniqueMechanicalConflictClassifier
         HasMarker(MarkerDeprecatedName)(candidate) ||
         HasMarker(MarkerHandlerLegacy)(candidate);
 
+    /// <summary>
+    /// True when compact conflict provenance proves deprecated-name or legacy-handler encoding
+    /// evidence for this candidate.
+    /// </summary>
+    public static bool HasDeprecatedLegacyEncodingEvidence(
+        UniqueMechanicalConflictCandidate candidate) =>
+        HasDeprecatedEvidence(candidate);
+
     private static Func<UniqueMechanicalConflictCandidate, bool> HasMarker(string marker) =>
         candidate => candidate.EncodingMarkers.Contains(marker, StringComparer.Ordinal);
 
