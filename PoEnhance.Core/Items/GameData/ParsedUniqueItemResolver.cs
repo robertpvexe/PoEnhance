@@ -366,6 +366,9 @@ public sealed partial class ParsedUniqueItemResolver
             PresentationLines = presentationLines.Length == 1
                 ? presentationLines[0].Split('\u001f')
                 : [],
+            ConflictEvidence = resolved
+                ? null
+                : SelectConflictEvidence(mappings),
             DiagnosticCode = resolved ? null : optionSelectionLimitRejectsBlock
                 ? "UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED"
                 : selectionLimitRejectsBlock
@@ -805,6 +808,37 @@ public sealed partial class ParsedUniqueItemResolver
                 UniqueModifierMechanicalMappingStatus.EquivalentSourceSet) &&
             mapping.ModifierIds.Count > 0 &&
             mapping.StatIds.Count > 0;
+    }
+
+    private static UniqueMechanicalConflictEvidence? SelectConflictEvidence(
+        IReadOnlyList<UniqueModifierMechanicalMapping> mappings)
+    {
+        var conflicts = mappings
+            .Select(mapping => mapping.ConflictEvidence)
+            .Where(evidence => evidence is not null)
+            .Cast<UniqueMechanicalConflictEvidence>()
+            .ToArray();
+        if (conflicts.Length == 0)
+        {
+            return null;
+        }
+
+        if (conflicts.Length == 1)
+        {
+            return conflicts[0];
+        }
+
+        // Multiple ExactConflict blocks on one parsed row remain fail-closed; retain the first
+        // deterministic subtype payload for diagnostics without merging incompatible sets.
+        return conflicts
+            .OrderBy(evidence => evidence.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(evidence => evidence.Candidates.Count)
+            .ThenBy(
+                evidence => string.Join(
+                    '\u001f',
+                    evidence.Candidates.Select(candidate => candidate.ModifierId)),
+                StringComparer.Ordinal)
+            .First();
     }
 
     private static string CreateSemanticEvidenceKey(UniqueModifierBlock block)

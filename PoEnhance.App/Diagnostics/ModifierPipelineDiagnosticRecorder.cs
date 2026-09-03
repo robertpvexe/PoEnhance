@@ -237,7 +237,8 @@ internal sealed class ModifierPipelineDiagnosticSession
             SourceLineIndex = component.SourceLineIndex,
             SourceComponentIndex = component.SourceComponentIndex,
             Raw = source?.Raw,
-            SourceResolution = source?.SourceResolution,
+            SourceResolution = ModifierPipelineSourceResolutionCapture.FromResolution(null, component)
+                ?? source?.SourceResolution,
             ResolvedSemantics = ModifierPipelineResolvedSemanticsCapture.FromComponent(component),
             Signatures = ModifierPipelineSignatureCapture.FromComponent(component),
             Multiline = ModifierPipelineMultilineCapture.FromComponent(component),
@@ -572,17 +573,35 @@ internal sealed class ModifierPipelineSourceResolutionCapture
 
     public int SourceCandidateCount { get; init; }
 
+    public string? UniqueConflictKind { get; init; }
+
+    public int UniqueConflictCandidateCount { get; init; }
+
+    public IReadOnlyList<string> UniqueConflictCandidateModifierIds { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueConflictCandidateStatVectors { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueConflictCandidateHandlers { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueConflictCandidateEncodingMarkers { get; init; } = [];
+
+    public IReadOnlyList<string> UniqueConflictCandidateSourceAvailability { get; init; } = [];
+
     public static ModifierPipelineSourceResolutionCapture? FromResolution(
         ModifierCandidateResolutionResult? resolution,
         ResolvedSearchComponent component)
     {
         if (resolution is null &&
             component.ResolutionStatus is null &&
-            component.ResolvedStatIds.Count == 0)
+            component.ResolvedStatIds.Count == 0 &&
+            component.UniqueConflictEvidence is null &&
+            string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
+            component.UniqueCatalogBlockIds.Count == 0)
         {
             return null;
         }
 
+        var conflict = component.UniqueConflictEvidence;
         return new ModifierPipelineSourceResolutionCapture
         {
             Status = (resolution?.Status ?? component.ResolutionStatus)?.ToString(),
@@ -605,6 +624,29 @@ internal sealed class ModifierPipelineSourceResolutionCapture
             UniqueResolutionDiagnosticCode = component.UniqueResolutionDiagnosticCode,
             IsEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true || component.IsEquivalentSourceSet,
             SourceCandidateCount = resolution?.CandidateCount ?? 0,
+            UniqueConflictKind = conflict?.Kind.ToString(),
+            UniqueConflictCandidateCount = conflict?.Candidates.Count ?? 0,
+            UniqueConflictCandidateModifierIds = conflict?.Candidates
+                .Select(candidate => candidate.ModifierId)
+                .ToArray() ?? [],
+            UniqueConflictCandidateStatVectors = conflict?.Candidates
+                .Select(candidate => string.Join(',', candidate.StatIds))
+                .ToArray() ?? [],
+            UniqueConflictCandidateHandlers = conflict?.Candidates
+                .SelectMany(candidate => candidate.Handlers)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(handler => handler, StringComparer.Ordinal)
+                .ToArray() ?? [],
+            UniqueConflictCandidateEncodingMarkers = conflict?.Candidates
+                .SelectMany(candidate => candidate.EncodingMarkers)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(marker => marker, StringComparer.Ordinal)
+                .ToArray() ?? [],
+            UniqueConflictCandidateSourceAvailability = conflict?.Candidates
+                .Select(candidate => candidate.SourceAvailability.ToString())
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray() ?? [],
         };
     }
 }

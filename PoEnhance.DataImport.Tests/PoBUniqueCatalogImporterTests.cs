@@ -100,6 +100,17 @@ public sealed class PoBUniqueCatalogImporterTests
             block.SourceSemanticFingerprint.Locality);
         Assert.Empty(block.MechanicalMapping.StatIds);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds, conflict.Kind);
+        Assert.Equal(2, conflict.Candidates.Count);
+        Assert.Equal(
+            ["unique.critical.one", "unique.critical.two"],
+            conflict.Candidates.Select(candidate => candidate.ModifierId).ToArray());
+        Assert.Contains(
+            "ExactConflict: SameDisplayTextDifferentStatIds",
+            block.MechanicalMapping.Diagnostic,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -153,6 +164,7 @@ public sealed class PoBUniqueCatalogImporterTests
             provenance.MatchedSemanticFingerprint.ValueShape);
         Assert.Equal("percent", Assert.Single(provenance.MatchedSemanticFingerprint.Values).Unit);
         Assert.Equal("attack-speed-local", Assert.Single(provenance.Translations).TranslationId);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
         Assert.Single(block.SourceObservationIds);
         Assert.All(block.SourceObservationIds, observationId =>
             Assert.StartsWith("pob-observation:", observationId));
@@ -494,6 +506,139 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
         Assert.Empty(block.MechanicalMapping.StatIds);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
+            conflict.Kind);
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerPermyriad));
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerDeprecatedName) &&
+                candidate.EncodingMarkers.Contains(
+                    UniqueMechanicalConflictClassifier.MarkerPercent));
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_ExactConflict_LevelVersusChanceOnHit_RetainsSubtypeAndVectors()
+    {
+        const string line = "Curse Enemies with Temporal Chains on Hit";
+        var result = ImportSingle(
+            $"""
+                Test Gloves
+                Silk Gloves
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.curse.level", "curse_on_hit_level_temporal_chains", 10, 10, "unique"),
+                Modifier("unique.curse.chance", "curse_on_hit_%_temporal_chains", 100, 100, "unique"),
+            ],
+            translations:
+            [
+                Translation("curse-level", "curse_on_hit_level_temporal_chains", line, "ignore"),
+                Translation("curse-chance", "curse_on_hit_%_temporal_chains", line, "ignore"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "curse_on_hit_level_temporal_chains", IsLocal = false },
+                new StatDefinition { Id = "curse_on_hit_%_temporal_chains", IsLocal = false },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.LevelVsChanceOnHit, conflict.Kind);
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.StatIds.Contains("curse_on_hit_level_temporal_chains"));
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.StatIds.Contains("curse_on_hit_%_temporal_chains"));
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_ExactConflict_InverseLegacyHandlerEncoding_RetainsSubtypeEvidence()
+    {
+        const string line = "Herald of Ice has (30-40)% increased Mana Reservation Efficiency";
+        var result = ImportSingle(
+            $"""
+                Test Ring
+                Sapphire Ring
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.modern",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    30,
+                    40,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.legacy",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    30,
+                    40,
+                    "unique"),
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation-modern",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "#"),
+                Translation(
+                    "reservation-legacy",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "#"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_+%",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    IsLocal = false,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding, conflict.Kind);
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerEfficiencyPlus));
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse));
+        Assert.Null(block.MechanicalMapping.Provenance);
     }
 
     [Fact]
@@ -522,6 +667,7 @@ public sealed class PoBUniqueCatalogImporterTests
             .ModifierBlocks);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
         Assert.Equal(["unique.accuracy.global"], block.MechanicalMapping.ModifierIds);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
     }
 
     [Fact]
@@ -967,13 +1113,37 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Equal(3, block.Lines.Count);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous,
             block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
         Assert.Equal(
             ["unique.minion-count.current", "unique.minion-count.legacy"],
             block.MechanicalMapping.ModifierIds);
         Assert.Empty(block.MechanicalMapping.StatIds);
-        Assert.Contains("conflicting RePoE mechanical stat vectors",
-            block.MechanicalMapping.Diagnostic);
         Assert.Null(block.MechanicalMapping.Provenance);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds, conflict.Kind);
+        Assert.Equal(2, conflict.Candidates.Count);
+        Assert.Equal(
+            ["unique.minion-count.current", "unique.minion-count.legacy"],
+            conflict.Candidates.Select(candidate => candidate.ModifierId).ToArray());
+        Assert.Equal(
+            2,
+            conflict.Candidates
+                .Select(candidate => string.Join('\u001f', candidate.StatIds))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.StatIds.SequenceEqual(
+                ["zombies", "skeletons", "spectres"]));
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.StatIds.SequenceEqual(
+                ["zombies", "legacy_skeletons", "spectres"]));
+        Assert.Contains(
+            "ExactConflict: SameDisplayTextDifferentStatIds",
+            block.MechanicalMapping.Diagnostic,
+            StringComparison.Ordinal);
     }
 
     [Fact]

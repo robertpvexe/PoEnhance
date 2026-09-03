@@ -105,6 +105,12 @@ public sealed record ResolvedSearchComponent
     public string? UniqueResolutionDiagnosticCode { get; init; }
 
     /// <summary>
+    /// ExactConflict diagnostic provenance from Unique catalog blocks. Diagnostic only —
+    /// never authorizes provider alternatives or searchable resolution.
+    /// </summary>
+    public UniqueMechanicalConflictEvidence? UniqueConflictEvidence { get; init; }
+
+    /// <summary>
     /// True when the Unique source block was proven from the resolved Unique identity even though the
     /// copied metadata carried no Unique modifier kind. Provenance only: <see cref="UniqueOrigin"/>
     /// and the parsed metadata still report what the client actually emitted.

@@ -335,6 +335,17 @@ public sealed partial class UniqueCandidateRuntimeTests
         var reservation = fear.ModifierBlocks.Single(block => block.ParsedModifierIndex == 0);
         Assert.False(reservation.IsResolved);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", reservation.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(reservation.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding, conflict.Kind);
+        Assert.Equal(2, conflict.Candidates.Count);
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerEfficiencyPlus));
+        Assert.Contains(
+            conflict.Candidates,
+            candidate => candidate.EncodingMarkers.Contains(
+                UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse));
         Assert.Single(reservation.OptionChoiceMemberships);
         var maximumCold = fear.ModifierBlocks.Single(block => block.ParsedModifierIndex == 1);
         Assert.True(maximumCold.IsResolved, maximumCold.Diagnostic);

@@ -1135,6 +1135,7 @@ public sealed partial class TradeSearchDraftMapper
             UniqueNormalCounterpartModifierIds = uniqueBlockResolution?.NormalCounterpartModifierIds ?? [],
             UniqueSourceObservationIds = uniqueBlockResolution?.SourceObservationIds ?? [],
             UniqueResolutionDiagnosticCode = uniqueBlockResolution?.DiagnosticCode,
+            UniqueConflictEvidence = uniqueBlockResolution?.ConflictEvidence,
             UsesIdentityBoundUniqueRecovery =
                 uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true,
             RecoveredSourceKind = uniqueBlockResolution?.RecoveredSourceKind,

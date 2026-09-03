@@ -68,6 +68,12 @@ public sealed record UniqueModifierBlockResolution
     /// </summary>
     public IReadOnlyList<string> PresentationLines { get; init; } = [];
 
+    /// <summary>
+    /// ExactConflict diagnostic provenance retained from catalog blocks. Never authorizes
+    /// selection, Trade alternatives, or searchable resolution.
+    /// </summary>
+    public UniqueMechanicalConflictEvidence? ConflictEvidence { get; init; }
+
     public string? DiagnosticCode { get; init; }
 
     public string? Diagnostic { get; init; }

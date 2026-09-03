@@ -1103,6 +1103,11 @@ public sealed partial class PoBUniqueCatalogImporter
             .Distinct(StringComparer.Ordinal)
             .OrderBy(reason => reason, StringComparer.Ordinal)
             .ToArray();
+        var isExactConflict = status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+            resolution.UsedStrictEvidence;
+        var conflictEvidence = isExactConflict
+            ? BuildExactConflictEvidence(candidates)
+            : null;
         return new UniqueModifierBlock
         {
             Id = blockId,
@@ -1139,6 +1144,7 @@ public sealed partial class PoBUniqueCatalogImporter
                         SafetyRationale = "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
                     }
                     : null,
+                ConflictEvidence = conflictEvidence,
                 DiagnosticCode = status switch
                 {
                     UniqueModifierMechanicalMappingStatus.Unsupported when
@@ -1162,7 +1168,7 @@ public sealed partial class PoBUniqueCatalogImporter
                     UniqueModifierMechanicalMappingStatus.Unsupported =>
                         "No exact Unique-generation evidence or broader RePoE stat-translation signature matched this PoB Unique source block.",
                     UniqueModifierMechanicalMappingStatus.Ambiguous when resolution.UsedStrictEvidence =>
-                        "Exact Unique-generation text and value evidence matched conflicting RePoE mechanical stat vectors.",
+                        FormatExactConflictDiagnostic(conflictEvidence),
                     UniqueModifierMechanicalMappingStatus.Ambiguous =>
                         "The PoB Unique line matched conflicting RePoE mechanical stat vectors.",
                     _ => null,
@@ -1170,6 +1176,77 @@ public sealed partial class PoBUniqueCatalogImporter
             },
             SourceObservationIds = [observationId],
         };
+    }
+
+    private static UniqueMechanicalConflictEvidence BuildExactConflictEvidence(
+        IReadOnlyList<MechanicalCandidate> candidates)
+    {
+        var conflictCandidates = candidates
+            .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+            .Select(BuildConflictCandidate)
+            .ToArray();
+        return new UniqueMechanicalConflictEvidence
+        {
+            Kind = UniqueMechanicalConflictClassifier.Classify(conflictCandidates),
+            Candidates = conflictCandidates,
+        };
+    }
+
+    private static UniqueMechanicalConflictCandidate BuildConflictCandidate(
+        MechanicalCandidate candidate)
+    {
+        var translations = candidate.ProvenanceTranslations;
+        var handlers = translations
+            .SelectMany(evidence => evidence.IndexHandlers)
+            .SelectMany(indexHandler => indexHandler.Handlers)
+            .Where(handler => !string.IsNullOrWhiteSpace(handler))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(handler => handler, StringComparer.Ordinal)
+            .ToArray();
+        var valueFormats = translations
+            .SelectMany(evidence => evidence.ValueFormats)
+            .Where(format => !string.IsNullOrWhiteSpace(format))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(format => format, StringComparer.Ordinal)
+            .ToArray();
+        var translationIds = translations
+            .Select(evidence => evidence.TranslationId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        return new UniqueMechanicalConflictCandidate
+        {
+            ModifierId = candidate.ModifierId,
+            StatIds = candidate.StatIds.ToArray(),
+            Domain = string.IsNullOrWhiteSpace(candidate.Domain) ? null : candidate.Domain.Trim(),
+            SourceGenerationType = string.IsNullOrWhiteSpace(candidate.SourceGenerationType)
+                ? null
+                : candidate.SourceGenerationType.Trim(),
+            SourceAvailability = candidate.SourceAvailability,
+            Locality = candidate.CandidateSemanticFingerprint.Locality,
+            TranslationIds = translationIds,
+            ValueFormats = valueFormats,
+            Handlers = handlers,
+            EncodingMarkers = UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                candidate.ModifierId,
+                candidate.StatIds,
+                handlers),
+        };
+    }
+
+    private static string FormatExactConflictDiagnostic(
+        UniqueMechanicalConflictEvidence? conflictEvidence)
+    {
+        if (conflictEvidence is null)
+        {
+            return "Exact Unique-generation text and value evidence matched conflicting RePoE mechanical stat vectors.";
+        }
+
+        return
+            $"ExactConflict: {conflictEvidence.Kind}; {conflictEvidence.Candidates.Count} candidate source records remain after item-scoped matching.";
     }
 
     private static UniqueModifierComposition? BuildComposition(
@@ -1375,7 +1452,9 @@ public sealed partial class PoBUniqueCatalogImporter
                         SemanticFingerprint: BuildCandidateSemanticFingerprint(
                             statIds,
                             statsById,
-                            [CreateTranslationEvidence(translation, variant, statIds)])));
+                            [CreateTranslationEvidence(translation, variant, statIds)]),
+                        SourceGenerationType: modifier.SourceGenerationType,
+                        SourceAvailability: modifier.SourceAvailability));
                 }
             }
 
@@ -1396,7 +1475,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 SemanticFingerprint: BuildCandidateSemanticFingerprint(
                     statIds,
                     statsById,
-                    []));
+                    []),
+                SourceGenerationType: modifier.SourceGenerationType,
+                SourceAvailability: modifier.SourceAvailability);
             foreach (var rendering in BuildStrictRenderings(
                          modifier,
                          translationsByFirstStat,
@@ -3018,7 +3099,9 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<UniqueModifierTranslationEvidence>? TranslationEvidence = null,
         string? OrderedRenderingText = null,
         UniqueModifierSemanticFingerprint? SemanticFingerprint = null,
-        bool UsesSourceTextEvidence = false)
+        bool UsesSourceTextEvidence = false,
+        string? SourceGenerationType = null,
+        ModifierSourceAvailability SourceAvailability = ModifierSourceAvailability.Unknown)
     {
         public IReadOnlyList<ModifierStat> OrderedModifierStats => ModifierStats ?? [];
 

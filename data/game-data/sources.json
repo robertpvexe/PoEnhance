@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.2-importer-multiline-axis",
-    "createdAtUtc": "2026-09-02T08:00:00+00:00",
-    "sizeBytes": 188381774,
-    "sha256": "1adc29b802e7373b1185937cc4e8e0fd20467d494905c680a58a83ba3d6ca3cc",
+    "dataVersion": "3.29.1.2.2-exact-conflict-provenance",
+    "createdAtUtc": "2026-09-03T12:00:00+00:00",
+    "sizeBytes": 188998914,
+    "sha256": "1e870125f3a614bdcdfc368d59a1994b83d622dd136fe0997ad90c5a4bb32912",
     "foulbornRelationshipCount": 353,
     "exactFoulbornRelationshipCount": 353,
     "unsupportedFoulbornRelationshipCount": 0

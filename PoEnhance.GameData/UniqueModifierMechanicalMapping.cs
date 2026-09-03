@@ -17,6 +17,13 @@ public sealed record UniqueModifierMechanicalMapping
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public UniqueModifierMechanicalProvenance? Provenance { get; init; }
 
+    /// <summary>
+    /// Compact ExactConflict candidate provenance and structural subtype. Present only when
+    /// status is Ambiguous with ExactConflict evidence. Never authorizes selection or search.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public UniqueMechanicalConflictEvidence? ConflictEvidence { get; init; }
+
     public string? DiagnosticCode { get; init; }
 
     public string? Diagnostic { get; init; }

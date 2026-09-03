@@ -594,16 +594,84 @@ public static class GameDataPackageValidator
         return mapping.Status switch
         {
             UniqueModifierMechanicalMappingStatus.Exact =>
-                mapping.ModifierIds.Count > 0 && mapping.StatIds.Count > 0,
+                mapping.ModifierIds.Count > 0 &&
+                mapping.StatIds.Count > 0 &&
+                mapping.ConflictEvidence is null,
             UniqueModifierMechanicalMappingStatus.EquivalentSourceSet =>
-                mapping.ModifierIds.Count > 1 && mapping.StatIds.Count > 0,
+                mapping.ModifierIds.Count > 1 &&
+                mapping.StatIds.Count > 0 &&
+                mapping.ConflictEvidence is null,
             UniqueModifierMechanicalMappingStatus.Ambiguous =>
                 mapping.ModifierIds.Count > 1 &&
-                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
+                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode) &&
+                IsValidUniqueMechanicalConflictEvidence(
+                    mapping.ConflictEvidence,
+                    mapping.DiagnosticCode,
+                    knownModifierIds,
+                    knownStatIds),
             UniqueModifierMechanicalMappingStatus.Unsupported =>
-                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
+                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode) &&
+                mapping.ConflictEvidence is null,
             _ => false,
         };
+    }
+
+    private static bool IsValidUniqueMechanicalConflictEvidence(
+        UniqueMechanicalConflictEvidence? evidence,
+        string? diagnosticCode,
+        ISet<string>? knownModifierIds,
+        ISet<string>? knownStatIds)
+    {
+        var isExactConflict = string.Equals(
+            diagnosticCode,
+            "UNIQUE_MECHANICS_EXACT_CONFLICT",
+            StringComparison.Ordinal);
+        if (!isExactConflict)
+        {
+            return evidence is null;
+        }
+
+        if (evidence is null ||
+            evidence.Kind == UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIdsWithTradeDuplicates ||
+            evidence.Candidates.Count < 2)
+        {
+            return false;
+        }
+
+        foreach (var candidate in evidence.Candidates)
+        {
+            if (candidate is null ||
+                string.IsNullOrWhiteSpace(candidate.ModifierId) ||
+                candidate.StatIds.Count == 0 ||
+                candidate.StatIds.Any(string.IsNullOrWhiteSpace) ||
+                knownModifierIds is not null && !knownModifierIds.Contains(candidate.ModifierId) ||
+                knownStatIds is not null && candidate.StatIds.Any(id => !knownStatIds.Contains(id)) ||
+                candidate.TranslationIds.Any(string.IsNullOrWhiteSpace) ||
+                candidate.TranslationIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
+                    candidate.TranslationIds.Count ||
+                candidate.ValueFormats.Any(string.IsNullOrWhiteSpace) ||
+                candidate.Handlers.Any(string.IsNullOrWhiteSpace) ||
+                candidate.Handlers.Distinct(StringComparer.Ordinal).Count() !=
+                    candidate.Handlers.Count ||
+                candidate.EncodingMarkers.Any(string.IsNullOrWhiteSpace) ||
+                candidate.EncodingMarkers.Distinct(StringComparer.Ordinal).Count() !=
+                    candidate.EncodingMarkers.Count)
+            {
+                return false;
+            }
+        }
+
+        var orderedModifierIds = evidence.Candidates
+            .Select(candidate => candidate.ModifierId.Trim())
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (orderedModifierIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
+            orderedModifierIds.Length)
+        {
+            return false;
+        }
+
+        return UniqueMechanicalConflictClassifier.Classify(evidence.Candidates) == evidence.Kind;
     }
 
     private static bool IsValidUniqueMechanicalProvenance(
