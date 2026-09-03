@@ -10,6 +10,7 @@ internal sealed class RuntimeGameDataService
     private readonly Func<GameDataPackage, GameDataCatalog> createCatalog;
     private readonly object sync = new();
     private Task<RuntimeGameDataStatus>? loadTask;
+    private TaskCompletionSource<Task<RuntimeGameDataStatus>>? loadKickoff;
 
     public RuntimeGameDataService()
         : this(
@@ -41,8 +42,60 @@ internal sealed class RuntimeGameDataService
         lock (sync)
         {
             loadTask ??= LoadCoreAsync(commandLineArgs, cancellationToken);
+            loadKickoff?.TrySetResult(loadTask);
             return loadTask;
         }
+    }
+
+    /// <summary>
+    /// Returns immediately when Loaded; otherwise awaits the in-progress (or soon-started) load.
+    /// Does not reload or rebuild the catalog when already Loaded.
+    /// </summary>
+    public async Task<RuntimeGameDataStatus> WaitForLoadCompletionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        Task<RuntimeGameDataStatus>? existingLoad;
+        Task<Task<RuntimeGameDataStatus>>? kickoff;
+        lock (sync)
+        {
+            if (Current.State == RuntimeGameDataState.Loaded && Current.Catalog is not null)
+            {
+                return Current;
+            }
+
+            if (loadTask is not null)
+            {
+                if (loadTask.IsCompleted)
+                {
+                    return Current;
+                }
+
+                existingLoad = loadTask;
+                kickoff = null;
+            }
+            else
+            {
+                loadKickoff ??= new TaskCompletionSource<Task<RuntimeGameDataStatus>>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                existingLoad = null;
+                kickoff = loadKickoff.Task;
+            }
+        }
+
+        if (existingLoad is not null)
+        {
+            return await existingLoad.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return await WaitForKickoffThenLoadAsync(kickoff!, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<RuntimeGameDataStatus> WaitForKickoffThenLoadAsync(
+        Task<Task<RuntimeGameDataStatus>> kickoff,
+        CancellationToken cancellationToken)
+    {
+        var load = await kickoff.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return await load.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<RuntimeGameDataStatus> LoadCoreAsync(

@@ -101,6 +101,59 @@ public sealed class RuntimeGameDataServiceTests
         Assert.Equal(1, loadCount);
     }
 
+    [Fact]
+    public async Task WaitForLoadCompletionAsync_WhileLoading_CompletesWithSameLoadedStatus()
+    {
+        var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = CreateService(
+            configuredPath: "package.json",
+            loadPackageAsync: async (_, _) =>
+            {
+                await releaseLoad.Task;
+                return new GameDataPackageLoadResult
+                {
+                    Package = CreatePackage(),
+                    SourcePath = "package.json",
+                };
+            });
+
+        var loadTask = service.LoadAsync([]);
+        var waitTask = service.WaitForLoadCompletionAsync();
+        Assert.False(waitTask.IsCompleted);
+        releaseLoad.SetResult();
+
+        var waited = await waitTask;
+        Assert.Same(await loadTask, waited);
+        Assert.Equal(RuntimeGameDataState.Loaded, waited.State);
+    }
+
+    [Fact]
+    public async Task WaitForLoadCompletionAsync_BeforeLoadStarts_AwaitsKickoffThenLoad()
+    {
+        var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = CreateService(
+            configuredPath: "package.json",
+            loadPackageAsync: async (_, _) =>
+            {
+                await releaseLoad.Task;
+                return new GameDataPackageLoadResult
+                {
+                    Package = CreatePackage(),
+                    SourcePath = "package.json",
+                };
+            });
+
+        var waitTask = service.WaitForLoadCompletionAsync();
+        Assert.False(waitTask.IsCompleted);
+
+        var loadTask = service.LoadAsync([]);
+        releaseLoad.SetResult();
+
+        var waited = await waitTask;
+        Assert.Same(await loadTask, waited);
+        Assert.Equal(RuntimeGameDataState.Loaded, waited.State);
+    }
+
     private static RuntimeGameDataService CreateService(
         string? configuredPath,
         Func<string, CancellationToken, Task<GameDataPackageLoadResult>> loadPackageAsync)

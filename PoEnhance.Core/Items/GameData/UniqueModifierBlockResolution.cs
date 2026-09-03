@@ -74,6 +74,20 @@ public sealed record UniqueModifierBlockResolution
     /// </summary>
     public UniqueMechanicalConflictEvidence? ConflictEvidence { get; init; }
 
+    /// <summary>
+    /// Historical ExactConflict evidence that did not override Current-proven mechanics during
+    /// multi-version aggregation. Diagnostic only — Historical GameData blocks remain ExactConflict.
+    /// </summary>
+    public UniqueMechanicalConflictEvidence? NonBlockingHistoricalConflictEvidence { get; init; }
+
+    /// <summary>
+    /// Structured aggregation reason when Historical encoding ambiguity was treated as non-blocking
+    /// relative to already-proven Current mechanics. Never replaces <see cref="DiagnosticCode"/>.
+    /// </summary>
+    public string? AggregationDiagnosticCode { get; init; }
+
+    public string? AggregationDiagnostic { get; init; }
+
     public string? DiagnosticCode { get; init; }
 
     public string? Diagnostic { get; init; }

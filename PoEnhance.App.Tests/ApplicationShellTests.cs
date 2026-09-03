@@ -26,6 +26,19 @@ public sealed class ApplicationShellTests
             "PriceCheckerWindowController.UpdateGameOverlayContext",
             hostCode,
             StringComparison.Ordinal);
+
+        var mainWindowCode = ReadRepositoryFile("PoEnhance.App", "MainWindow.xaml.cs");
+        Assert.Contains("PriceCheckerCapturedTextPreparation", mainWindowCode, StringComparison.Ordinal);
+        Assert.Contains("ProcessClipboardItemForPriceCheckerAsync", mainWindowCode, StringComparison.Ordinal);
+        Assert.Contains("ReadClipboardTextAfterCaptureAsync", mainWindowCode, StringComparison.Ordinal);
+        var clipboardReadIndex = mainWindowCode.IndexOf(
+            "clipboardTextReader.ReadText()",
+            StringComparison.Ordinal);
+        var preparationIndex = mainWindowCode.IndexOf(
+            "PriceCheckerCapturedTextPreparation",
+            StringComparison.Ordinal);
+        Assert.True(clipboardReadIndex >= 0);
+        Assert.True(preparationIndex > clipboardReadIndex);
     }
 
     [Fact]

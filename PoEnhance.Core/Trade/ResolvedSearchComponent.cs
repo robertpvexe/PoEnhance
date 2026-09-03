@@ -111,6 +111,20 @@ public sealed record ResolvedSearchComponent
     public UniqueMechanicalConflictEvidence? UniqueConflictEvidence { get; init; }
 
     /// <summary>
+    /// Historical ExactConflict evidence retained when aggregation preserved Current-proven
+    /// mechanics. Diagnostic only — never authorizes provider alternatives.
+    /// </summary>
+    public UniqueMechanicalConflictEvidence? UniqueNonBlockingHistoricalConflictEvidence { get; init; }
+
+    /// <summary>
+    /// Aggregation-only diagnostic code. Never replaces <see cref="UniqueResolutionDiagnosticCode"/>
+    /// and never clears exact Unique source provenance on its own.
+    /// </summary>
+    public string? UniqueAggregationDiagnosticCode { get; init; }
+
+    public string? UniqueAggregationDiagnostic { get; init; }
+
+    /// <summary>
     /// True when the Unique source block was proven from the resolved Unique identity even though the
     /// copied metadata carried no Unique modifier kind. Provenance only: <see cref="UniqueOrigin"/>
     /// and the parsed metadata still report what the client actually emitted.

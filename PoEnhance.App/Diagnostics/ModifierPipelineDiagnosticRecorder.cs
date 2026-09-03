@@ -390,6 +390,8 @@ internal sealed class ModifierPipelineDiagnosticCapture
 
     public ModifierPipelineUniqueIdentityCapture? UniqueIdentity { get; set; }
 
+    public ModifierPipelineUniqueMechanicalResolutionCapture? UniqueMechanicalResolution { get; init; }
+
     public ModifierPipelineCatalogCapture? Catalog { get; set; }
 
     public int ValidationDiagnosticCount { get; set; }
@@ -436,7 +438,54 @@ internal sealed class ModifierPipelineDiagnosticCapture
                 BaseResolutionStatus = baseResolution?.Status.ToString(),
                 ResolvedBaseName = baseResolution?.ResolvedBaseName,
             },
+            UniqueMechanicalResolution = CaptureUniqueMechanicalResolution(initialDraft.UniqueItemResolution),
             InitialModifiers = initialModifiers,
+        };
+    }
+
+    private static ModifierPipelineUniqueMechanicalResolutionCapture? CaptureUniqueMechanicalResolution(
+        UniqueItemResolutionResult? uniqueItemResolution)
+    {
+        if (uniqueItemResolution is null)
+        {
+            return new ModifierPipelineUniqueMechanicalResolutionCapture
+            {
+                CatalogPassedToCreateDraft = false,
+                Status = "null",
+                Diagnostic =
+                    "TradeSearchDraft.UniqueItemResolution is null — CreateDraft ran without GameDataCatalog (or Unique resolver was not invoked).",
+            };
+        }
+
+        return new ModifierPipelineUniqueMechanicalResolutionCapture
+        {
+            CatalogPassedToCreateDraft = true,
+            Status = uniqueItemResolution.Status.ToString(),
+            DiagnosticCode = uniqueItemResolution.DiagnosticCode,
+            Diagnostic = uniqueItemResolution.Diagnostic,
+            IdentityCanonicalName = uniqueItemResolution.Identity?.CanonicalName,
+            CompatibleVersionRoles = uniqueItemResolution.CompatibleVersions
+                .Select(version => version.Role.ToString())
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(role => role, StringComparer.Ordinal)
+                .ToArray(),
+            ModifierBlocks = uniqueItemResolution.ModifierBlocks
+                .Select(block => new ModifierPipelineUniqueMechanicalBlockCapture
+                {
+                    ParsedModifierIndex = block.ParsedModifierIndex,
+                    IsResolved = block.IsResolved,
+                    IsEquivalentSourceSet = block.IsEquivalentSourceSet,
+                    DiagnosticCode = block.DiagnosticCode,
+                    AggregationDiagnosticCode = block.AggregationDiagnosticCode,
+                    StatIds = block.StatIds.ToArray(),
+                    ModifierIds = block.ModifierIds.ToArray(),
+                    SourceObservationIds = block.SourceObservationIds.ToArray(),
+                    CatalogBlockIds = block.CatalogBlocks.Select(catalogBlock => catalogBlock.Id!).ToArray(),
+                    ConflictKind = block.ConflictEvidence?.Kind.ToString(),
+                    NonBlockingHistoricalConflictKind =
+                        block.NonBlockingHistoricalConflictEvidence?.Kind.ToString(),
+                })
+                .ToArray(),
         };
     }
 }
@@ -470,6 +519,48 @@ internal sealed class ModifierPipelineUniqueIdentityCapture
     public string? CanonicalType { get; init; }
 
     public string? Foulborn { get; init; }
+}
+
+internal sealed class ModifierPipelineUniqueMechanicalResolutionCapture
+{
+    public bool CatalogPassedToCreateDraft { get; init; }
+
+    public string Status { get; init; } = string.Empty;
+
+    public string? DiagnosticCode { get; init; }
+
+    public string? Diagnostic { get; init; }
+
+    public string? IdentityCanonicalName { get; init; }
+
+    public IReadOnlyList<string> CompatibleVersionRoles { get; init; } = [];
+
+    public IReadOnlyList<ModifierPipelineUniqueMechanicalBlockCapture> ModifierBlocks { get; init; } = [];
+}
+
+internal sealed class ModifierPipelineUniqueMechanicalBlockCapture
+{
+    public int ParsedModifierIndex { get; init; }
+
+    public bool IsResolved { get; init; }
+
+    public bool IsEquivalentSourceSet { get; init; }
+
+    public string? DiagnosticCode { get; init; }
+
+    public string? AggregationDiagnosticCode { get; init; }
+
+    public IReadOnlyList<string> StatIds { get; init; } = [];
+
+    public IReadOnlyList<string> ModifierIds { get; init; } = [];
+
+    public IReadOnlyList<string> SourceObservationIds { get; init; } = [];
+
+    public IReadOnlyList<string> CatalogBlockIds { get; init; } = [];
+
+    public string? ConflictKind { get; init; }
+
+    public string? NonBlockingHistoricalConflictKind { get; init; }
 }
 
 internal sealed class ModifierPipelineInitialModifierCapture
@@ -569,6 +660,10 @@ internal sealed class ModifierPipelineSourceResolutionCapture
 
     public string? UniqueResolutionDiagnosticCode { get; init; }
 
+    public string? UniqueAggregationDiagnosticCode { get; init; }
+
+    public string? UniqueAggregationDiagnostic { get; init; }
+
     public bool IsEquivalentSourceSet { get; init; }
 
     public int SourceCandidateCount { get; init; }
@@ -587,6 +682,10 @@ internal sealed class ModifierPipelineSourceResolutionCapture
 
     public IReadOnlyList<string> UniqueConflictCandidateSourceAvailability { get; init; } = [];
 
+    public string? UniqueNonBlockingHistoricalConflictKind { get; init; }
+
+    public int UniqueNonBlockingHistoricalConflictCandidateCount { get; init; }
+
     public static ModifierPipelineSourceResolutionCapture? FromResolution(
         ModifierCandidateResolutionResult? resolution,
         ResolvedSearchComponent component)
@@ -595,13 +694,16 @@ internal sealed class ModifierPipelineSourceResolutionCapture
             component.ResolutionStatus is null &&
             component.ResolvedStatIds.Count == 0 &&
             component.UniqueConflictEvidence is null &&
+            component.UniqueNonBlockingHistoricalConflictEvidence is null &&
             string.IsNullOrWhiteSpace(component.UniqueResolutionDiagnosticCode) &&
+            string.IsNullOrWhiteSpace(component.UniqueAggregationDiagnosticCode) &&
             component.UniqueCatalogBlockIds.Count == 0)
         {
             return null;
         }
 
-        var conflict = component.UniqueConflictEvidence;
+        var conflict = component.UniqueConflictEvidence ??
+            component.UniqueNonBlockingHistoricalConflictEvidence;
         return new ModifierPipelineSourceResolutionCapture
         {
             Status = (resolution?.Status ?? component.ResolutionStatus)?.ToString(),
@@ -622,6 +724,8 @@ internal sealed class ModifierPipelineSourceResolutionCapture
                 .ToArray(),
             UniqueSourceObservationIds = component.UniqueSourceObservationIds.ToArray(),
             UniqueResolutionDiagnosticCode = component.UniqueResolutionDiagnosticCode,
+            UniqueAggregationDiagnosticCode = component.UniqueAggregationDiagnosticCode,
+            UniqueAggregationDiagnostic = component.UniqueAggregationDiagnostic,
             IsEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true || component.IsEquivalentSourceSet,
             SourceCandidateCount = resolution?.CandidateCount ?? 0,
             UniqueConflictKind = conflict?.Kind.ToString(),
@@ -647,6 +751,10 @@ internal sealed class ModifierPipelineSourceResolutionCapture
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
                 .ToArray() ?? [],
+            UniqueNonBlockingHistoricalConflictKind =
+                component.UniqueNonBlockingHistoricalConflictEvidence?.Kind.ToString(),
+            UniqueNonBlockingHistoricalConflictCandidateCount =
+                component.UniqueNonBlockingHistoricalConflictEvidence?.Candidates.Count ?? 0,
         };
     }
 }

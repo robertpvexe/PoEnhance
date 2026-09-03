@@ -10,6 +10,7 @@ using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Shortcuts;
 using PoEnhance.App.Shell;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.GameData;
 using Serilog;
 
 namespace PoEnhance.App;
@@ -317,7 +318,7 @@ public partial class MainWindow : Window, IDeveloperWindow
                 return;
             }
 
-            await ReadClipboardTextAfterCaptureAsync();
+            await ReadClipboardTextAfterCaptureAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -361,7 +362,7 @@ public partial class MainWindow : Window, IDeveloperWindow
         ClipboardCaptureStatusText.Text = $"Clipboard: {status}";
     }
 
-    private async Task ReadClipboardTextAfterCaptureAsync()
+    private async Task ReadClipboardTextAfterCaptureAsync(CancellationToken cancellationToken)
     {
         ClipboardTextReadResult result = clipboardTextReader.ReadText();
 
@@ -370,7 +371,10 @@ public partial class MainWindow : Window, IDeveloperWindow
             case ClipboardTextReadStatus.TextAvailable:
                 var rawClipboardText = result.Text ?? string.Empty;
                 DisplayRawInputText(rawClipboardText);
-                await ParseRawItemTextAsync(rawClipboardText, ItemInputSource.Clipboard);
+                await ParseRawItemTextAsync(
+                    rawClipboardText,
+                    ItemInputSource.Clipboard,
+                    cancellationToken);
                 Log.Information("Item capture succeeded from clipboard text");
                 break;
 
@@ -393,6 +397,17 @@ public partial class MainWindow : Window, IDeveloperWindow
         await ParseRawItemTextAsync(rawManualItemText, ItemInputSource.Manual);
     }
 
+    /// <summary>
+    /// Test/production seam: process already-captured clipboard text through the Price Checker path
+    /// without re-reading the clipboard.
+    /// </summary>
+    internal Task ProcessCapturedClipboardTextAsync(
+        string rawText,
+        CancellationToken cancellationToken = default)
+    {
+        return ParseRawItemTextAsync(rawText, ItemInputSource.Clipboard, cancellationToken);
+    }
+
     private void ClearManualItemInput()
     {
         ManualItemInputTextBox.Clear();
@@ -411,7 +426,10 @@ public partial class MainWindow : Window, IDeveloperWindow
         RawInputTextBox.Clear();
     }
 
-    private async Task ParseRawItemTextAsync(string rawText, ItemInputSource inputSource)
+    private async Task ParseRawItemTextAsync(
+        string rawText,
+        ItemInputSource inputSource,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
@@ -422,6 +440,13 @@ public partial class MainWindow : Window, IDeveloperWindow
 
         try
         {
+            if (inputSource == ItemInputSource.Clipboard)
+            {
+                await ProcessClipboardItemForPriceCheckerAsync(rawText, cancellationToken)
+                    .ConfigureAwait(true);
+                return;
+            }
+
             ParsedItem parsedItem = itemTextParser.Parse(rawText);
             var itemBaseResolution = itemGameDataDisplayService.ResolveItemBase(
                 parsedItem,
@@ -431,12 +456,6 @@ public partial class MainWindow : Window, IDeveloperWindow
                 runtimeGameDataService.Current.Catalog,
                 itemBaseResolution.Result);
             DisplayParsedItemResult(parsedItem, itemBaseResolution, modifierCandidateResolutions);
-            var priceCheckerUpdateResult = inputSource == ItemInputSource.Clipboard
-                ? await ShowOrUpdatePriceCheckerWindowAsync(
-                    parsedItem,
-                    itemBaseResolution,
-                    modifierCandidateResolutions)
-                : null;
             if (itemBaseResolution.Result is not null)
             {
                 await RecordProvisionalGameDataAsync(
@@ -446,13 +465,11 @@ public partial class MainWindow : Window, IDeveloperWindow
                     CreateProcessingEventKey(inputSource));
             }
 
-            var status = $"Parsed {rawText.Length} characters";
-            if (priceCheckerUpdateResult is not null)
-            {
-                status = $"{status}; {priceCheckerUpdateResult.Diagnostic}";
-            }
-
-            SetInputStatus(inputSource, status);
+            SetInputStatus(inputSource, $"Parsed {rawText.Length} characters");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Log.Information("Clipboard item processing canceled while waiting for game data");
         }
         catch (Exception exception)
         {
@@ -460,6 +477,63 @@ public partial class MainWindow : Window, IDeveloperWindow
             SetInputStatus(inputSource, "Item parsing failed");
             LogItemParsingFailure(inputSource, exception);
         }
+    }
+
+    private async Task ProcessClipboardItemForPriceCheckerAsync(
+        string rawText,
+        CancellationToken cancellationToken)
+    {
+        if (runtimeGameDataService.Current.State != RuntimeGameDataState.Loaded ||
+            runtimeGameDataService.Current.Catalog is null)
+        {
+            SetInputStatus(ItemInputSource.Clipboard, PriceCheckerRuntimeGameDataGate.WaitingForGameDataStatus);
+        }
+
+        var preparation = await PriceCheckerCapturedTextPreparation
+            .PrepareAsync(
+                rawText,
+                runtimeGameDataService,
+                itemTextParser,
+                itemGameDataDisplayService,
+                cancellationToken)
+            .ConfigureAwait(true);
+
+        if (!preparation.IsReady ||
+            preparation.ParsedItem is null ||
+            preparation.ItemBaseResolution is null ||
+            preparation.ModifierCandidateResolutions is null ||
+            preparation.Catalog is null)
+        {
+            ClearParsedItemResult();
+            SetInputStatus(ItemInputSource.Clipboard, preparation.UserFacingStatus);
+            Log.Warning(
+                "Price Checker skipped because Runtime GameData is unavailable. State={GameDataState}; Diagnostic={Diagnostic}",
+                preparation.Readiness.Status.State,
+                preparation.UserFacingStatus);
+            return;
+        }
+
+        DisplayParsedItemResult(
+            preparation.ParsedItem,
+            preparation.ItemBaseResolution,
+            preparation.ModifierCandidateResolutions);
+        var priceCheckerUpdateResult = await ShowOrUpdatePriceCheckerWindowAsync(
+            preparation.ParsedItem,
+            preparation.ItemBaseResolution,
+            preparation.ModifierCandidateResolutions,
+            preparation.Catalog);
+        if (preparation.ItemBaseResolution.Result is not null)
+        {
+            await RecordProvisionalGameDataAsync(
+                preparation.ParsedItem,
+                preparation.ItemBaseResolution.Result,
+                preparation.ModifierCandidateResolutions,
+                CreateProcessingEventKey(ItemInputSource.Clipboard));
+        }
+
+        SetInputStatus(
+            ItemInputSource.Clipboard,
+            $"Parsed {rawText.Length} characters; {priceCheckerUpdateResult.Diagnostic}");
     }
 
     private static string CreateProcessingEventKey(ItemInputSource inputSource)
@@ -470,7 +544,8 @@ public partial class MainWindow : Window, IDeveloperWindow
     private async Task<PriceCheckerWindowUpdateResult> ShowOrUpdatePriceCheckerWindowAsync(
         ParsedItem parsedItem,
         ItemBaseResolutionDisplay itemBaseResolution,
-        ModifierCandidateResolutionsDisplay modifierCandidateResolutions)
+        ModifierCandidateResolutionsDisplay modifierCandidateResolutions,
+        GameDataCatalog gameDataCatalog)
     {
         var result = await priceCheckerWindowController.ShowOrUpdateAsync(
             parsedItem,
@@ -479,7 +554,7 @@ public partial class MainWindow : Window, IDeveloperWindow
                 .Select(display => display.Result)
                 .OfType<PoEnhance.Core.Items.GameData.ModifierCandidateResolutionResult>()
                 .ToArray(),
-            runtimeGameDataService.Current.Catalog);
+            gameDataCatalog);
 
         if (!result.IsSuccess)
         {

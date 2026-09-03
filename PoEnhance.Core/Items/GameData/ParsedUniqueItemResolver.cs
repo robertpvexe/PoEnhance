@@ -288,23 +288,71 @@ public sealed partial class ParsedUniqueItemResolver
                 version,
                 parsedItem.UniqueModifiers,
                 isFoulborn));
-        var mappingsAreResolved = coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
-            mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
-                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
-        var effectiveStatIds = matchedBlocks
+        var canPreserveCurrentProofAcrossHistoricalEncodingConflicts =
+            TryPreserveCurrentProofAcrossCompatibleHistoricalEncodingConflicts(
+                matchedByVersion,
+                out var currentProofMatchedBlocks,
+                out var compatibleHistoricalConflictEvidence);
+        var provisionalMatchedBlocks = canPreserveCurrentProofAcrossHistoricalEncodingConflicts
+            ? currentProofMatchedBlocks
+            : matchedBlocks;
+        var provisionalBlocks = provisionalMatchedBlocks
+            .Select(candidate => candidate.Block)
+            .DistinctBy(block => block.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var provisionalMappings = provisionalBlocks.Select(block => block.MechanicalMapping).ToArray();
+        var provisionalMappingsAreResolved = coversEveryLine &&
+            provisionalMappings.Length > 0 &&
+            provisionalMappings.All(mapping =>
+                mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
+                    UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+        var provisionalEffectiveStatIds = provisionalMatchedBlocks
             .Select(EffectiveStatIds)
             .ToArray();
-        var statVectors = effectiveStatIds.Select(statIds => string.Join('\u001f', statIds))
+        var provisionalStatVectors = provisionalEffectiveStatIds
+            .Select(statIds => string.Join('\u001f', statIds))
             .Where(value => value.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var resolved = mappingsAreResolved &&
-            statVectors.Length == 1 &&
+        var provisionalResolved = provisionalMappingsAreResolved &&
+            provisionalStatVectors.Length == 1 &&
             sourceSemanticsAreUnambiguous &&
             candidatePoolProofIsComplete &&
             !textualOptionRangeCollision &&
             !selectionLimitRejectsBlock &&
             !optionSelectionLimitRejectsBlock;
+        var preservedCurrentProofAcrossHistoricalEncodingConflicts =
+            canPreserveCurrentProofAcrossHistoricalEncodingConflicts && provisionalResolved;
+        var resolutionMatchedBlocks = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalMatchedBlocks
+            : matchedBlocks;
+        var resolutionBlocks = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalBlocks
+            : blocks;
+        var resolutionMappings = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalMappings
+            : mappings;
+        var mappingsAreResolved = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalMappingsAreResolved
+            : coversEveryLine && mappings.Length > 0 && mappings.All(mapping =>
+                mapping.Status is UniqueModifierMechanicalMappingStatus.Exact or
+                    UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+        var effectiveStatIds = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalEffectiveStatIds
+            : matchedBlocks.Select(EffectiveStatIds).ToArray();
+        var statVectors = effectiveStatIds.Select(statIds => string.Join('\u001f', statIds))
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var resolved = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? provisionalResolved
+            : mappingsAreResolved &&
+                statVectors.Length == 1 &&
+                sourceSemanticsAreUnambiguous &&
+                candidatePoolProofIsComplete &&
+                !textualOptionRangeCollision &&
+                !selectionLimitRejectsBlock &&
+                !optionSelectionLimitRejectsBlock;
         var mappingDiagnosticCodes = mappings
             .Select(mapping => mapping.DiagnosticCode?.Trim())
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -315,10 +363,19 @@ public sealed partial class ParsedUniqueItemResolver
             .Where(diagnostic => !string.IsNullOrWhiteSpace(diagnostic))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        var sourceObservationIds = blocks.SelectMany(block => block.SourceObservationIds)
+        var sourceObservationIds = resolutionBlocks.SelectMany(block => block.SourceObservationIds)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
+        var aggregationDiagnosticCode = preservedCurrentProofAcrossHistoricalEncodingConflicts
+            ? UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof
+            : null;
+        var aggregationDiagnostic = aggregationDiagnosticCode is null
+            ? null
+            : FormatHistoricalEncodingCompatibilityDiagnostic(
+                resolutionBlocks,
+                compatibleHistoricalConflictEvidence,
+                effectiveStatIds[0]);
         return new UniqueModifierBlockResolution
         {
             ParsedModifierIndex = modifierIndex,
@@ -330,13 +387,13 @@ public sealed partial class ParsedUniqueItemResolver
             RecoveredSourceUniqueOrigin = resolved && isIdentityBoundRecovery
                 ? ParsedUniqueModifierOrigin.Ordinary
                 : null,
-            IsEquivalentSourceSet = blocks.Length > 1 ||
+            IsEquivalentSourceSet = resolutionBlocks.Length > 1 ||
                 sourceObservationIds.Length > 1 ||
-                matchedBlocks.Any(candidate => candidate.Match.CompositionComponent is not null) ||
-                mappings.Any(mapping =>
+                resolutionMatchedBlocks.Any(candidate => candidate.Match.CompositionComponent is not null) ||
+                resolutionMappings.Any(mapping =>
                     mapping.Status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
-            CatalogBlocks = blocks,
-            ModifierIds = mappings.SelectMany(mapping => mapping.ModifierIds)
+            CatalogBlocks = resolutionBlocks,
+            ModifierIds = resolutionMappings.SelectMany(mapping => mapping.ModifierIds)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray(),
@@ -344,7 +401,7 @@ public sealed partial class ParsedUniqueItemResolver
             StatLocalities = resolved
                 ? effectiveStatIds[0].Select(statId => ResolveStatLocality(statId, catalog)).ToArray()
                 : [],
-            CanonicalSignatures = matchedBlocks.Select(candidate => string.Join(
+            CanonicalSignatures = resolutionMatchedBlocks.Select(candidate => string.Join(
                     "\n",
                     candidate.Match.CompositionComponent?.CanonicalSignatures ??
                         candidate.Block.CanonicalSignatures))
@@ -369,6 +426,11 @@ public sealed partial class ParsedUniqueItemResolver
             ConflictEvidence = resolved
                 ? null
                 : SelectConflictEvidence(mappings),
+            NonBlockingHistoricalConflictEvidence = preservedCurrentProofAcrossHistoricalEncodingConflicts
+                ? compatibleHistoricalConflictEvidence
+                : null,
+            AggregationDiagnosticCode = aggregationDiagnosticCode,
+            AggregationDiagnostic = aggregationDiagnostic,
             DiagnosticCode = resolved ? null : optionSelectionLimitRejectsBlock
                 ? "UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED"
                 : selectionLimitRejectsBlock
@@ -808,6 +870,156 @@ public sealed partial class ParsedUniqueItemResolver
                 UniqueModifierMechanicalMappingStatus.EquivalentSourceSet) &&
             mapping.ModifierIds.Count > 0 &&
             mapping.StatIds.Count > 0;
+    }
+
+    private static bool TryPreserveCurrentProofAcrossCompatibleHistoricalEncodingConflicts(
+        IReadOnlyList<VersionBlockMatches> matchedByVersion,
+        out IReadOnlyList<MatchedBlock> currentProofMatches,
+        out UniqueMechanicalConflictEvidence? nonBlockingHistoricalConflictEvidence)
+    {
+        currentProofMatches = [];
+        nonBlockingHistoricalConflictEvidence = null;
+
+        // Historical-only / explicitly Historical-compatible sets have no Current proof to preserve.
+        if (matchedByVersion.Count == 0 ||
+            matchedByVersion.All(version => version.Version.Role != UniqueItemVersionRole.Current) ||
+            matchedByVersion.All(version => version.Version.Role != UniqueItemVersionRole.Historical))
+        {
+            return false;
+        }
+
+        var currentMatches = matchedByVersion
+            .Where(version => version.Version.Role == UniqueItemVersionRole.Current)
+            .SelectMany(version => version.Matches)
+            .DistinctBy(match => match.Block.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (currentMatches.Length == 0)
+        {
+            return false;
+        }
+
+        if (currentMatches.Any(match => !HasCompleteMechanicalEvidence(match.Block)))
+        {
+            return false;
+        }
+
+        var currentVectors = currentMatches
+            .Select(match => string.Join('\u001f', EffectiveStatIds(match)))
+            .Where(vector => vector.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (currentVectors.Length != 1)
+        {
+            return false;
+        }
+
+        var currentVector = currentVectors[0];
+        var historicalMatches = matchedByVersion
+            .Where(version => version.Version.Role == UniqueItemVersionRole.Historical)
+            .SelectMany(version => version.Matches)
+            .DistinctBy(match => match.Block.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (historicalMatches.Length == 0)
+        {
+            return false;
+        }
+
+        var compatibleHistoricalConflicts = new List<UniqueMechanicalConflictEvidence>();
+        foreach (var historicalMatch in historicalMatches)
+        {
+            var mapping = historicalMatch.Block.MechanicalMapping;
+            if (HasCompleteMechanicalEvidence(historicalMatch.Block))
+            {
+                var historicalVector = string.Join('\u001f', EffectiveStatIds(historicalMatch));
+                if (!string.Equals(historicalVector, currentVector, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (!IsExactConflictMapping(mapping) ||
+                mapping.ConflictEvidence is null ||
+                !IsHistoricalEncodingConflictCompatibleWithCurrentVector(
+                    mapping.ConflictEvidence,
+                    currentVector))
+            {
+                return false;
+            }
+
+            compatibleHistoricalConflicts.Add(mapping.ConflictEvidence);
+        }
+
+        if (compatibleHistoricalConflicts.Count == 0)
+        {
+            return false;
+        }
+
+        currentProofMatches = currentMatches;
+        nonBlockingHistoricalConflictEvidence = SelectConflictEvidence(
+            compatibleHistoricalConflicts
+                .Select(evidence => new UniqueModifierMechanicalMapping
+                {
+                    Status = UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    ConflictEvidence = evidence,
+                    DiagnosticCode = "UNIQUE_MECHANICS_EXACT_CONFLICT",
+                })
+                .ToArray());
+        return true;
+    }
+
+    private static bool IsExactConflictMapping(UniqueModifierMechanicalMapping mapping) =>
+        mapping.Status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+        string.Equals(
+            mapping.DiagnosticCode,
+            "UNIQUE_MECHANICS_EXACT_CONFLICT",
+            StringComparison.Ordinal);
+
+    private static bool IsHistoricalEncodingConflictCompatibleWithCurrentVector(
+        UniqueMechanicalConflictEvidence conflictEvidence,
+        string currentVector)
+    {
+        if (conflictEvidence.Kind !=
+                UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent ||
+            conflictEvidence.Candidates.Count < 2)
+        {
+            return false;
+        }
+
+        var candidateVectors = conflictEvidence.Candidates
+            .Select(candidate => string.Join('\u001f', candidate.StatIds))
+            .Where(vector => vector.Length > 0)
+            .ToArray();
+        if (!candidateVectors.Contains(currentVector, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var contradictoryNonDeprecatedVectors = conflictEvidence.Candidates
+            .Where(candidate =>
+                !UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(candidate))
+            .Select(candidate => string.Join('\u001f', candidate.StatIds))
+            .Where(vector => vector.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(vector => !string.Equals(vector, currentVector, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return contradictoryNonDeprecatedVectors.Length == 0;
+    }
+
+    private static string FormatHistoricalEncodingCompatibilityDiagnostic(
+        IReadOnlyList<UniqueModifierBlock> currentBlocks,
+        UniqueMechanicalConflictEvidence? historicalConflict,
+        IReadOnlyList<string> currentStatIds)
+    {
+        var currentBlockIds = string.Join(", ", currentBlocks.Select(block => block.Id));
+        var historicalKind = historicalConflict?.Kind.ToString() ?? "none";
+        var historicalCandidateCount = historicalConflict?.Candidates.Count ?? 0;
+        return
+            "Historical ExactConflict remained fail-closed in GameData but did not override Current-proven mechanics. " +
+            $"Current blocks [{currentBlockIds}] vector [{string.Join(',', currentStatIds)}]; " +
+            $"Historical conflict kind={historicalKind}, candidates={historicalCandidateCount}; " +
+            "compatibility=non-blocking; selected provenance=Current.";
     }
 
     private static UniqueMechanicalConflictEvidence? SelectConflictEvidence(
