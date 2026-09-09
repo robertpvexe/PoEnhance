@@ -49,6 +49,65 @@ public sealed class UniqueMechanicalConflictClassifierTests
     }
 
     [Fact]
+    public void HasInverseLegacyEncodingEvidence_MarksEfficiencyInverseAndBareNegateOnly()
+    {
+        var efficiencyInverse = Candidate(
+            "mod.inverse",
+            ["herald_of_ice_mana_reservation_efficiency_-2%_per_1"],
+            handlers: ["negate_and_double"]);
+        var efficiencyPlus = Candidate(
+            "mod.plus",
+            ["herald_of_ice_mana_reservation_efficiency_+%"]);
+        var modernReducedDisplay = Candidate(
+            "mod.reduced-modern",
+            ["base_reservation_efficiency_+%"],
+            handlers: ["negate"]);
+        var bareNegate = Candidate(
+            "mod.bare-negate",
+            ["some_reservation_stat"],
+            handlers: ["negate"]);
+
+        Assert.True(
+            UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(efficiencyInverse));
+        Assert.False(
+            UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(efficiencyPlus));
+        Assert.False(
+            UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(modernReducedDisplay));
+        Assert.True(
+            UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(bareNegate));
+        Assert.Contains(
+            UniqueMechanicalConflictClassifier.MarkerEfficiencyPlus,
+            modernReducedDisplay.EncodingMarkers);
+        Assert.Contains(
+            UniqueMechanicalConflictClassifier.MarkerHandlerNegate,
+            modernReducedDisplay.EncodingMarkers);
+    }
+
+    [Fact]
+    public void SurvivorCollapse_OneVectorWithIncompatibleFingerprints_FailsClosed()
+    {
+        Assert.False(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["stat_a"],
+                    ["stat_a"],
+                ],
+                ["fingerprint-one", "fingerprint-two"]));
+    }
+
+    [Fact]
+    public void SurvivorCollapse_OneVectorWithOneFingerprint_Succeeds()
+    {
+        Assert.True(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["stat_a"],
+                    ["stat_a"],
+                ],
+                ["fingerprint-one", "fingerprint-one"]));
+    }
+
+    [Fact]
     public void Classify_DeprecatedWithoutPermyriad_IsCurrentVsDeprecatedSourceMechanics()
     {
         var kind = UniqueMechanicalConflictClassifier.Classify(

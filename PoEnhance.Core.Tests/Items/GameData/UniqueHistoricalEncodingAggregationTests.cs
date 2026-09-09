@@ -380,6 +380,85 @@ public sealed class UniqueHistoricalEncodingAggregationTests
     }
 
     [Fact]
+    public async Task ActivePackage_CircleOfFearReservation_CurrentResolvesWithoutChangingHistoricalConflict()
+    {
+        var package = await LoadActivePackageAsync();
+        var item = Assert.Single(
+            package.UniqueItems!.Items,
+            candidate => string.Equals(
+                candidate.CanonicalName,
+                "Circle of Fear",
+                StringComparison.OrdinalIgnoreCase));
+        var current = Assert.Single(
+            item.Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        var currentReservation = Assert.Single(
+            current.ModifierBlocks,
+            block => block.Lines.Any(line =>
+                line.Contains("increased Mana Reservation Efficiency", StringComparison.Ordinal)));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, currentReservation.MechanicalMapping.Status);
+        Assert.Null(currentReservation.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(
+            ["herald_of_ice_mana_reservation_efficiency_+%"],
+            currentReservation.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-inverse-legacy-encoding-filter",
+            currentReservation.MechanicalMapping.Provenance!.ResolutionReasons);
+        Assert.DoesNotContain(
+            currentReservation.MechanicalMapping.StatIds,
+            statId => UniqueMechanicalConflictClassifier.BuildEncodingMarkers("x", [statId], [])
+                .Contains(UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse));
+
+        Assert.All(
+            item.Versions.Where(version => version.Role == UniqueItemVersionRole.Historical),
+            version =>
+            {
+                Assert.DoesNotContain(
+                    version.ModifierBlocks,
+                    block => block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                        "current-role-inverse-legacy-encoding-filter",
+                        StringComparer.Ordinal) == true);
+                var historicalReservation = Assert.Single(
+                    version.ModifierBlocks,
+                    block => block.Lines.Any(line =>
+                        line.Contains("Mana Reservation Efficiency", StringComparison.Ordinal)));
+                Assert.Equal(
+                    UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    historicalReservation.MechanicalMapping.Status);
+                Assert.NotEqual(
+                    UniqueModifierMechanicalMappingStatus.Exact,
+                    historicalReservation.MechanicalMapping.Status);
+            });
+
+        var catalog = GameDataCatalog.FromPackage(package);
+        var parsed = parser.Parse("""
+            Item Class: Rings
+            Rarity: Unique
+            Circle of Fear
+            Sapphire Ring
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Herald of Ice has 36(30-40)% increased Mana Reservation Efficiency
+            { Unique Modifier }
+            +1% to maximum Cold Resistance while affected by Herald of Ice
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        Assert.Single(unique.CompatibleVersions);
+        Assert.Equal(UniqueItemVersionRole.Current, unique.CompatibleVersions[0].Role);
+        var reservation = unique.ModifierBlocks.Single(block => block.ParsedModifierIndex == 0);
+        Assert.True(reservation.IsResolved, reservation.Diagnostic);
+        Assert.Null(reservation.DiagnosticCode);
+        Assert.Equal(
+            ["herald_of_ice_mana_reservation_efficiency_+%"],
+            reservation.StatIds);
+        Assert.Null(reservation.AggregationDiagnosticCode);
+        var maximumCold = unique.ModifierBlocks.Single(block => block.ParsedModifierIndex == 1);
+        Assert.True(maximumCold.IsResolved, maximumCold.Diagnostic);
+    }
+
+    [Fact]
     public async Task ActivePackage_MultiVersionAggregationCorpus_ReportsCompatibleHistoricalEncodingGroups()
     {
         var package = await LoadActivePackageAsync();

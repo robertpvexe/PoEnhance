@@ -745,7 +745,7 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
-    public void Import_ExactConflict_InverseLegacyHandlerEncoding_RetainsSubtypeEvidence()
+    public void Import_CurrentInverseLegacyEncoding_ResolvesToCurrentVector()
     {
         const string line = "Herald of Ice has (30-40)% increased Mana Reservation Efficiency";
         var result = ImportSingle(
@@ -767,8 +767,8 @@ public sealed class PoBUniqueCatalogImporterTests
                 Modifier(
                     "unique.reservation.legacy",
                     "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
-                    30,
-                    40,
+                    -20,
+                    -15,
                     "unique"),
             ],
             translations:
@@ -778,11 +778,11 @@ public sealed class PoBUniqueCatalogImporterTests
                     "herald_of_ice_mana_reservation_efficiency_+%",
                     "Herald of Ice has {0}% increased Mana Reservation Efficiency",
                     "#"),
-                Translation(
+                TranslationWithHandler(
                     "reservation-legacy",
                     "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
                     "Herald of Ice has {0}% increased Mana Reservation Efficiency",
-                    "#"),
+                    "negate_and_double"),
             ],
             stats:
             [
@@ -798,6 +798,162 @@ public sealed class PoBUniqueCatalogImporterTests
                 },
             ]);
 
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        var block = Assert.Single(version.ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.DiagnosticCode);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(["unique.reservation.modern"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["herald_of_ice_mana_reservation_efficiency_+%"],
+            block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Contains(
+            "current-role-inverse-legacy-encoding-filter",
+            provenance.ResolutionReasons);
+        Assert.DoesNotContain(
+            provenance.Translations,
+            evidence => evidence.StatIds.Any(statId =>
+                UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                    "x",
+                    [statId],
+                    []).Contains(UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse)));
+    }
+
+    [Fact]
+    public void Import_CurrentInverseLegacyEncoding_MultipleSurvivors_BecomeEquivalentSourceSet()
+    {
+        const string line = "16% increased Mana Reservation Efficiency of Skills";
+        var result = ImportSingle(
+            $"""
+                Test Helmet
+                Leather Cap
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.a",
+                    "base_mana_reservation_efficiency_+%",
+                    16,
+                    16,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.b",
+                    "base_mana_reservation_efficiency_+%",
+                    16,
+                    16,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.legacy",
+                    "mana_reservation_efficiency_-2%_per_1",
+                    -8,
+                    -8,
+                    "unique"),
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation-a",
+                    "base_mana_reservation_efficiency_+%",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "#"),
+                Translation(
+                    "reservation-b",
+                    "base_mana_reservation_efficiency_+%",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "#"),
+                TranslationWithHandler(
+                    "reservation-legacy",
+                    "mana_reservation_efficiency_-2%_per_1",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "negate_and_double"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "base_mana_reservation_efficiency_+%", IsLocal = false },
+                new StatDefinition { Id = "mana_reservation_efficiency_-2%_per_1", IsLocal = false },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(
+            ["unique.reservation.a", "unique.reservation.b"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["base_mana_reservation_efficiency_+%"],
+            block.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-inverse-legacy-encoding-filter",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_CurrentInverseLegacyEncoding_TwoModernVectorsSurvive_RemainsExactConflict()
+    {
+        const string line = "16% increased Mana Reservation Efficiency of Skills";
+        var result = ImportSingle(
+            $"""
+                Test Helmet
+                Leather Cap
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.mana",
+                    "base_mana_reservation_efficiency_+%",
+                    16,
+                    16,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.generic",
+                    "base_reservation_efficiency_+%",
+                    16,
+                    16,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.legacy",
+                    "mana_reservation_efficiency_-2%_per_1",
+                    -8,
+                    -8,
+                    "unique"),
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation-mana",
+                    "base_mana_reservation_efficiency_+%",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "#"),
+                Translation(
+                    "reservation-generic",
+                    "base_reservation_efficiency_+%",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "#"),
+                TranslationWithHandler(
+                    "reservation-legacy",
+                    "mana_reservation_efficiency_-2%_per_1",
+                    "{0}% increased Mana Reservation Efficiency of Skills",
+                    "negate_and_double"),
+            ],
+            stats:
+            [
+                new StatDefinition { Id = "base_mana_reservation_efficiency_+%", IsLocal = false },
+                new StatDefinition { Id = "base_reservation_efficiency_+%", IsLocal = false },
+                new StatDefinition { Id = "mana_reservation_efficiency_-2%_per_1", IsLocal = false },
+            ]);
+
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
@@ -805,15 +961,252 @@ public sealed class PoBUniqueCatalogImporterTests
         var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
             block.MechanicalMapping.ConflictEvidence);
         Assert.Equal(UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding, conflict.Kind);
-        Assert.Contains(
-            conflict.Candidates,
-            candidate => candidate.EncodingMarkers.Contains(
-                UniqueMechanicalConflictClassifier.MarkerEfficiencyPlus));
-        Assert.Contains(
-            conflict.Candidates,
-            candidate => candidate.EncodingMarkers.Contains(
-                UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse));
+        Assert.Equal(3, conflict.Candidates.Count);
+        Assert.Empty(block.MechanicalMapping.StatIds);
         Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_CurrentInverseLegacyEncoding_OnlyInverseCandidates_RemainsExactConflict()
+    {
+        const string line = "Herald of Ice has (30-40)% increased Mana Reservation Efficiency";
+        var result = ImportSingle(
+            $"""
+                Test Ring
+                Sapphire Ring
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.legacy.a",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    -20,
+                    -15,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.legacy.b",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1_b",
+                    -20,
+                    -15,
+                    "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "reservation-legacy-a",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "negate_and_double"),
+                TranslationWithHandler(
+                    "reservation-legacy-b",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1_b",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "negate_and_double"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_-2%_per_1_b",
+                    IsLocal = false,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.NotNull(block.MechanicalMapping.ConflictEvidence);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_CurrentInverseLegacyEncoding_NoProvenInverseEvidence_RemainsExactConflict()
+    {
+        const string line = "Herald of Ice has (30-40)% increased Mana Reservation Efficiency";
+        var result = ImportSingle(
+            $"""
+                Test Ring
+                Sapphire Ring
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.one",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    30,
+                    40,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.two",
+                    "herald_of_ice_mana_reservation_efficiency_+%_alt",
+                    30,
+                    40,
+                    "unique"),
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation-one",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "#"),
+                Translation(
+                    "reservation-two",
+                    "herald_of_ice_mana_reservation_efficiency_+%_alt",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "#"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_+%",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_+%_alt",
+                    IsLocal = false,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.NotEqual(
+            UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding,
+            conflict.Kind);
+        Assert.DoesNotContain(
+            conflict.Candidates,
+            candidate => UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(candidate));
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_CurrentInverseLegacyEncoding_IncompatibleFingerprintsSurvive_RemainsExactConflict()
+    {
+        // Importer wiring uses UniqueMechanicalEncodingSurvivorCollapse; prove the fingerprint
+        // fail-closed gate with the same inputs the resolver validates after legacy removal.
+        Assert.False(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["herald_of_ice_mana_reservation_efficiency_+%"],
+                    ["herald_of_ice_mana_reservation_efficiency_+%"],
+                ],
+                [
+                    "global\u001dherald_of_ice_mana_reservation_efficiency_+%\u001dScalar\u001dfamily-a",
+                    "global\u001dherald_of_ice_mana_reservation_efficiency_+%\u001dScalar\u001dfamily-b",
+                ]));
+        Assert.True(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["herald_of_ice_mana_reservation_efficiency_+%"],
+                    ["herald_of_ice_mana_reservation_efficiency_+%"],
+                ],
+                [
+                    "global\u001dherald_of_ice_mana_reservation_efficiency_+%\u001dScalar\u001dfamily-a",
+                    "global\u001dherald_of_ice_mana_reservation_efficiency_+%\u001dScalar\u001dfamily-a",
+                ]));
+    }
+
+    [Fact]
+    public void Import_HistoricalInverseLegacyEncoding_DoesNotPreferModernEncoding()
+    {
+        var result = ImportSingle(
+            """
+                Test Ring
+                Sapphire Ring
+                Variant: Pre 3.11.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}Herald of Ice has (30-40)% increased Mana Reservation Efficiency
+                {variant:2}10% increased Attack Speed
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.reservation.modern",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    30,
+                    40,
+                    "unique"),
+                Modifier(
+                    "unique.reservation.legacy",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    -20,
+                    -15,
+                    "unique"),
+                Modifier("unique.attack-speed", "local_attack_speed_+%", 10, 10, "unique"),
+            ],
+            translations:
+            [
+                Translation(
+                    "reservation-modern",
+                    "herald_of_ice_mana_reservation_efficiency_+%",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "#"),
+                TranslationWithHandler(
+                    "reservation-legacy",
+                    "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    "Herald of Ice has {0}% increased Mana Reservation Efficiency",
+                    "negate_and_double"),
+                Translation("attack-speed", "local_attack_speed_+%", "{0}% increased Attack Speed", "#"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_+%",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "herald_of_ice_mana_reservation_efficiency_-2%_per_1",
+                    IsLocal = false,
+                },
+                new StatDefinition { Id = "local_attack_speed_+%", IsLocal = true },
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Sapphire Ring", Domain = "item" }]);
+
+        var historical = Assert.Single(
+            Assert.Single(result.Catalog!.Items).Versions,
+            version => version.Role == UniqueItemVersionRole.Historical);
+        var reservation = Assert.Single(
+            historical.ModifierBlocks,
+            block => block.Lines.Contains(
+                "Herald of Ice has (30-40)% increased Mana Reservation Efficiency"));
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.Ambiguous,
+            reservation.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", reservation.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            reservation.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding, conflict.Kind);
+        Assert.Empty(reservation.MechanicalMapping.StatIds);
+        Assert.Null(reservation.MechanicalMapping.Provenance);
+        Assert.DoesNotContain(
+            historical.ModifierBlocks,
+            block => block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                "current-role-inverse-legacy-encoding-filter",
+                StringComparer.Ordinal) == true);
     }
 
     [Fact]

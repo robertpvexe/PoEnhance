@@ -9,6 +9,7 @@ public sealed class UniqueExactConflictCorpusAuditTests
 {
     private const string PreviousExactConflictCountBaseline = "155";
     private const string PreviousSubclassPermyriadBaseline = "93";
+    private const string PreviousSubclassInverseBaseline = "22";
 
     [Fact]
     public async Task ActivePackage_ExactConflictCorpus_ReflectsCurrentEncodingResolution()
@@ -21,6 +22,14 @@ public sealed class UniqueExactConflictCorpusAuditTests
                 .Where(block =>
                     block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
                         "current-role-deprecated-encoding-filter",
+                        StringComparer.Ordinal) == true)
+                .Select(block => (Item: item, Version: version, Block: block))))
+            .ToArray();
+        var resolvedByInverseLegacy = package.UniqueItems!.Items
+            .SelectMany(item => item.Versions.SelectMany(version => version.ModifierBlocks
+                .Where(block =>
+                    block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                        "current-role-inverse-legacy-encoding-filter",
                         StringComparer.Ordinal) == true)
                 .Select(block => (Item: item, Version: version, Block: block))))
             .ToArray();
@@ -61,12 +70,56 @@ public sealed class UniqueExactConflictCorpusAuditTests
             resolvedByCurrentEncoding,
             entry => entry.Version.Role == UniqueItemVersionRole.Historical);
 
+        Assert.NotEmpty(resolvedByInverseLegacy);
+        Assert.All(resolvedByInverseLegacy, entry =>
+        {
+            Assert.Equal(UniqueItemVersionRole.Current, entry.Version.Role);
+            Assert.True(entry.Block.MechanicalMapping.Status is
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
+            Assert.Null(entry.Block.MechanicalMapping.ConflictEvidence);
+            Assert.NotEmpty(entry.Block.MechanicalMapping.StatIds);
+            Assert.DoesNotContain(
+                entry.Block.MechanicalMapping.StatIds,
+                statId => UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                        "x",
+                        [statId],
+                        [])
+                    .Contains(UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse));
+            Assert.DoesNotContain(
+                entry.Block.MechanicalMapping.ModifierIds,
+                modifierId => UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence(
+                    new UniqueMechanicalConflictCandidate
+                    {
+                        ModifierId = modifierId,
+                        StatIds = entry.Block.MechanicalMapping.StatIds,
+                        EncodingMarkers = UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                            modifierId,
+                            entry.Block.MechanicalMapping.StatIds,
+                            []),
+                    }));
+        });
+        Assert.DoesNotContain(
+            resolvedByInverseLegacy,
+            entry => entry.Version.Role == UniqueItemVersionRole.Historical);
+
         var remainingPermyriad = exactConflicts.Count(entry =>
             entry.Block.MechanicalMapping.ConflictEvidence!.Kind ==
             UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent);
         Assert.True(
             remainingPermyriad < int.Parse(PreviousSubclassPermyriadBaseline),
             $"Expected remaining permyriad subclass count below {PreviousSubclassPermyriadBaseline}; observed {remainingPermyriad}.");
+
+        var remainingInverse = exactConflicts.Count(entry =>
+            entry.Block.MechanicalMapping.ConflictEvidence!.Kind ==
+            UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding);
+        Assert.True(
+            remainingInverse < int.Parse(PreviousSubclassInverseBaseline),
+            $"Expected remaining inverse subclass count below {PreviousSubclassInverseBaseline}; observed {remainingInverse}.");
+        Assert.Equal(
+            0,
+            resolvedByInverseLegacy.Count(entry =>
+                entry.Version.Role == UniqueItemVersionRole.Historical));
 
         var subtypeCounts = exactConflicts
             .GroupBy(entry => entry.Block.MechanicalMapping.ConflictEvidence!.Kind)
@@ -94,7 +147,7 @@ public sealed class UniqueExactConflictCorpusAuditTests
 
         var reportPath = Path.Combine(
             Path.GetTempPath(),
-            "PoEnhance-ExactConflict-CurrentEncodingCorpus.json");
+            "PoEnhance-ExactConflict-InverseLegacyCorpus.json");
         await File.WriteAllTextAsync(
             reportPath,
             JsonSerializer.Serialize(
@@ -102,21 +155,30 @@ public sealed class UniqueExactConflictCorpusAuditTests
                 {
                     package.Manifest.DataVersion,
                     priorExactConflictBlocks = int.Parse(PreviousExactConflictCountBaseline),
+                    priorInverseSubclass = int.Parse(PreviousSubclassInverseBaseline),
                     totalExactConflictBlocks = exactConflicts.Length,
                     distinctIdentities = exactConflicts
                         .Select(entry => entry.Item.Id)
                         .Distinct(StringComparer.Ordinal)
                         .Count(),
                     resolvedByCurrentEncodingFilter = resolvedByCurrentEncoding.Length,
-                    resolvedHistoricalByCurrentEncodingFilter = resolvedByCurrentEncoding
+                    resolvedByInverseLegacyEncodingFilter = resolvedByInverseLegacy.Length,
+                    resolvedHistoricalByInverseLegacyEncodingFilter = resolvedByInverseLegacy
                         .Count(entry => entry.Version.Role == UniqueItemVersionRole.Historical),
-                    resolvedExact = resolvedByCurrentEncoding.Count(entry =>
+                    resolvedExact = resolvedByInverseLegacy.Count(entry =>
                         entry.Block.MechanicalMapping.Status ==
                         UniqueModifierMechanicalMappingStatus.Exact),
-                    resolvedEquivalentSourceSet = resolvedByCurrentEncoding.Count(entry =>
+                    resolvedEquivalentSourceSet = resolvedByInverseLegacy.Count(entry =>
                         entry.Block.MechanicalMapping.Status ==
                         UniqueModifierMechanicalMappingStatus.EquivalentSourceSet),
                     remainingPermyriadSubclass = remainingPermyriad,
+                    remainingInverseSubclass = remainingInverse,
+                    remainingInverseByRole = exactConflicts
+                        .Where(entry =>
+                            entry.Block.MechanicalMapping.ConflictEvidence!.Kind ==
+                            UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding)
+                        .GroupBy(entry => entry.Version.Role)
+                        .ToDictionary(group => group.Key.ToString(), group => group.Count()),
                     subtypeCounts = subtypeCounts
                         .OrderByDescending(entry => entry.Value)
                         .ThenBy(entry => entry.Key.ToString(), StringComparer.Ordinal)
@@ -134,19 +196,19 @@ public sealed class UniqueExactConflictCorpusAuditTests
         AssertResolvedCurrentEncodingControl(
             package,
             "Hrimnor's Hymn",
-            "local_life_leech_from_physical_damage_permyriad");
+            "local_life_leech_from_physical_damage_permyriad",
+            "current-role-deprecated-encoding-filter");
+        AssertResolvedCurrentEncodingControl(
+            package,
+            "Circle of Fear",
+            "herald_of_ice_mana_reservation_efficiency_+%",
+            "current-role-inverse-legacy-encoding-filter");
         AssertExactConflictControl(
             package,
             "Asenath's Gentle Touch",
             UniqueMechanicalConflictKind.LevelVsChanceOnHit,
             UniqueMechanicalConflictClassifier.MarkerLevel,
             UniqueMechanicalConflictClassifier.MarkerChance);
-        AssertExactConflictControl(
-            package,
-            "Circle of Fear",
-            UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding,
-            UniqueMechanicalConflictClassifier.MarkerEfficiencyPlus,
-            UniqueMechanicalConflictClassifier.MarkerEfficiencyInverse);
     }
 
     private static async Task<GameDataPackage> LoadActivePackageAsync()
@@ -174,7 +236,8 @@ public sealed class UniqueExactConflictCorpusAuditTests
     private static void AssertResolvedCurrentEncodingControl(
         GameDataPackage package,
         string canonicalName,
-        string expectedStatId)
+        string expectedStatId,
+        string resolutionReason)
     {
         var item = Assert.Single(
             package.UniqueItems!.Items,
@@ -188,7 +251,7 @@ public sealed class UniqueExactConflictCorpusAuditTests
         var resolved = current.ModifierBlocks
             .Where(block =>
                 block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
-                    "current-role-deprecated-encoding-filter",
+                    resolutionReason,
                     StringComparer.Ordinal) == true)
             .ToArray();
         Assert.NotEmpty(resolved);
@@ -199,13 +262,6 @@ public sealed class UniqueExactConflictCorpusAuditTests
                 UniqueModifierMechanicalMappingStatus.EquivalentSourceSet);
             Assert.Null(block.MechanicalMapping.ConflictEvidence);
             Assert.Contains(expectedStatId, block.MechanicalMapping.StatIds);
-            Assert.DoesNotContain(
-                block.MechanicalMapping.StatIds,
-                statId => UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
-                        "x",
-                        [statId],
-                        [])
-                    .Contains(UniqueMechanicalConflictClassifier.MarkerDeprecatedName));
         });
 
         Assert.All(
@@ -213,7 +269,7 @@ public sealed class UniqueExactConflictCorpusAuditTests
             version => Assert.DoesNotContain(
                 version.ModifierBlocks,
                 block => block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
-                    "current-role-deprecated-encoding-filter",
+                    resolutionReason,
                     StringComparer.Ordinal) == true));
     }
 

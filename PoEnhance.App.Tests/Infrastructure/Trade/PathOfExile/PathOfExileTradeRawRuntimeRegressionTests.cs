@@ -907,13 +907,30 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             fear.ProviderDraft,
             "Herald of Ice has 36(30-40)% increased Mana Reservation Efficiency");
         Assert.Equal("Unique", StaticModifierLabel(reservation));
-        Assert.Equal("Ambiguous", ModifierAvailabilityStatus(reservation));
-        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", reservation.UniqueResolutionDiagnosticCode);
-        Assert.False(reservation.IsSearchable);
-        Assert.False(IsInteractionReady(reservation));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, reservation.ResolutionStatus);
+        Assert.Null(reservation.UniqueResolutionDiagnosticCode);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            reservation.ProviderResolutionStatus);
+        Assert.Null(reservation.ProviderStatId);
+        Assert.Equal(
+            ["explicit.stat_3059700363", "explicit.stat_3395872960"],
+            reservation.ProviderStatAlternativeIds.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(["herald_of_ice_mana_reservation_efficiency_+%"], reservation.ResolvedStatIds);
+        Assert.True(reservation.IsSearchable, reservation.NotSearchableReason);
+        Assert.True(IsInteractionReady(reservation));
         Assert.True(reservation.SupportsValueBounds);
         Assert.Equal(36m, reservation.RequestedMinimum);
         Assert.Null(reservation.RequestedMaximum);
+        Assert.All(reservation.ProviderStatAlternativeIds, statId =>
+        {
+            Assert.True(catalog.TryGetById(statId, out var entry));
+            Assert.Equal("Herald of Ice has #% increased Mana Reservation Efficiency", entry.Text);
+        });
+        var reservationFilter = MapSingle(fear.ProviderDraft, reservation, catalog);
+        Assert.Contains(reservationFilter.StatId, reservation.ProviderStatAlternativeIds);
+        Assert.Equal(36m, reservationFilter.Minimum);
+        Assert.Null(reservationFilter.Maximum);
         AssertExpectedSupported(
             fear,
             "+1% to maximum Cold Resistance while affected by Herald of Ice",

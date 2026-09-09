@@ -1049,7 +1049,7 @@ public sealed partial class PoBUniqueCatalogImporter
             hasGeneratedOptionEvidence,
             sourceSemanticFingerprint);
         var candidates = resolution.Candidates;
-        var usedCurrentEncodingDisambiguation = false;
+        string? currentRoleResolutionReason = null;
         var semanticFingerprints = candidates
             .Select(SemanticFingerprintEquivalenceKey)
             .Distinct(StringComparer.Ordinal)
@@ -1063,20 +1063,31 @@ public sealed partial class PoBUniqueCatalogImporter
         };
         if (status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
             resolution.UsedStrictEvidence &&
-            versionRole == UniqueItemVersionRole.Current &&
-            TryResolveCurrentDeprecatedPermyriadConflict(candidates, out var survivors))
+            versionRole == UniqueItemVersionRole.Current)
         {
-            candidates = survivors;
-            usedCurrentEncodingDisambiguation = true;
-            semanticFingerprints = candidates
-                .Select(SemanticFingerprintEquivalenceKey)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            status = candidates.Count switch
+            if (TryResolveCurrentDeprecatedPermyriadConflict(candidates, out var permyriadSurvivors))
             {
-                1 => UniqueModifierMechanicalMappingStatus.Exact,
-                _ => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
-            };
+                candidates = permyriadSurvivors;
+                currentRoleResolutionReason = "current-role-deprecated-encoding-filter";
+            }
+            else if (TryResolveCurrentInverseLegacyEncodingConflict(candidates, out var inverseSurvivors))
+            {
+                candidates = inverseSurvivors;
+                currentRoleResolutionReason = "current-role-inverse-legacy-encoding-filter";
+            }
+
+            if (currentRoleResolutionReason is not null)
+            {
+                semanticFingerprints = candidates
+                    .Select(SemanticFingerprintEquivalenceKey)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                status = candidates.Count switch
+                {
+                    1 => UniqueModifierMechanicalMappingStatus.Exact,
+                    _ => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                };
+            }
         }
 
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
@@ -1126,9 +1137,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 ? ["structured-translation-option"]
                 : [])
             .Concat(composition is null ? [] : ["source-block-composition"])
-            .Concat(usedCurrentEncodingDisambiguation
-                ? ["current-role-deprecated-encoding-filter"]
-                : [])
+            .Concat(currentRoleResolutionReason is null
+                ? []
+                : [currentRoleResolutionReason])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(reason => reason, StringComparer.Ordinal)
             .ToArray();
@@ -1170,9 +1181,15 @@ public sealed partial class PoBUniqueCatalogImporter
                             translationEvidence.Any(evidence => evidence.DefaultedStatIds.Count > 0),
                         CatalogValuesUsedForSelection = resolution.UsedStrictEvidence,
                         ValueAuthority = "copiedInstance",
-                        SafetyRationale = usedCurrentEncodingDisambiguation
-                            ? "Current-role ExactConflict of deprecated percent vs current permyriad encoding collapsed to one surviving mechanical vector after removing only proven deprecated/legacy encoding candidates; copied instance values remain authoritative."
-                            : "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
+                        SafetyRationale = currentRoleResolutionReason switch
+                        {
+                            "current-role-deprecated-encoding-filter" =>
+                                "Current-role ExactConflict of deprecated percent vs current permyriad encoding collapsed to one surviving mechanical vector after removing only proven deprecated/legacy encoding candidates; copied instance values remain authoritative.",
+                            "current-role-inverse-legacy-encoding-filter" =>
+                                "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
+                            _ =>
+                                "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
+                        },
                     }
                     : null,
                 ConflictEvidence = conflictEvidence,
@@ -1211,6 +1228,26 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static bool TryResolveCurrentDeprecatedPermyriadConflict(
         IReadOnlyList<MechanicalCandidate> candidates,
+        out IReadOnlyList<MechanicalCandidate> survivors) =>
+        TryResolveCurrentEncodingConflict(
+            candidates,
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
+            UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence,
+            out survivors);
+
+    private static bool TryResolveCurrentInverseLegacyEncodingConflict(
+        IReadOnlyList<MechanicalCandidate> candidates,
+        out IReadOnlyList<MechanicalCandidate> survivors) =>
+        TryResolveCurrentEncodingConflict(
+            candidates,
+            UniqueMechanicalConflictKind.InverseLegacyHandlerEncoding,
+            UniqueMechanicalConflictClassifier.HasInverseLegacyEncodingEvidence,
+            out survivors);
+
+    private static bool TryResolveCurrentEncodingConflict(
+        IReadOnlyList<MechanicalCandidate> candidates,
+        UniqueMechanicalConflictKind expectedKind,
+        Func<UniqueMechanicalConflictCandidate, bool> hasRejectableEvidence,
         out IReadOnlyList<MechanicalCandidate> survivors)
     {
         survivors = [];
@@ -1220,24 +1257,23 @@ public sealed partial class PoBUniqueCatalogImporter
         }
 
         var conflictEvidence = BuildExactConflictEvidence(candidates);
-        if (conflictEvidence.Kind !=
-            UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent)
+        if (conflictEvidence.Kind != expectedKind)
         {
             return false;
         }
 
-        var deprecatedModifierIds = conflictEvidence.Candidates
-            .Where(UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence)
+        var rejectedModifierIds = conflictEvidence.Candidates
+            .Where(hasRejectableEvidence)
             .Select(candidate => candidate.ModifierId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (deprecatedModifierIds.Count == 0 ||
-            deprecatedModifierIds.Count == conflictEvidence.Candidates.Count)
+        if (rejectedModifierIds.Count == 0 ||
+            rejectedModifierIds.Count == conflictEvidence.Candidates.Count)
         {
             return false;
         }
 
         var selected = candidates
-            .Where(candidate => !deprecatedModifierIds.Contains(candidate.ModifierId))
+            .Where(candidate => !rejectedModifierIds.Contains(candidate.ModifierId))
             .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
             .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
             .ToArray();
@@ -1246,21 +1282,9 @@ public sealed partial class PoBUniqueCatalogImporter
             return false;
         }
 
-        var mechanicalVectors = selected
-            .Select(candidate => string.Join('\u001f', candidate.StatIds))
-            .Where(vector => vector.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (mechanicalVectors.Length != 1)
-        {
-            return false;
-        }
-
-        var fingerprintKeys = selected
-            .Select(SemanticFingerprintEquivalenceKey)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (fingerprintKeys.Length != 1)
+        if (!UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                selected.Select(candidate => candidate.StatIds).ToArray(),
+                selected.Select(SemanticFingerprintEquivalenceKey).ToArray()))
         {
             return false;
         }

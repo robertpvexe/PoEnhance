@@ -195,6 +195,21 @@ public static class UniqueMechanicalConflictClassifier
         UniqueMechanicalConflictCandidate candidate) =>
         HasDeprecatedEvidence(candidate);
 
+    /// <summary>
+    /// True when compact conflict provenance proves inverse/legacy handler or efficiency
+    /// encoding evidence for this candidate.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MarkerEfficiencyInverse"/> is always inverse/legacy evidence.
+    /// <see cref="MarkerHandlerNegate"/> is inverse evidence only when it is not the modern
+    /// efficiency-plus display transform used for reduced-efficiency wording.
+    /// </remarks>
+    public static bool HasInverseLegacyEncodingEvidence(
+        UniqueMechanicalConflictCandidate candidate) =>
+        HasMarker(MarkerEfficiencyInverse)(candidate) ||
+        (HasMarker(MarkerHandlerNegate)(candidate) &&
+            !HasMarker(MarkerEfficiencyPlus)(candidate));
+
     private static Func<UniqueMechanicalConflictCandidate, bool> HasMarker(string marker) =>
         candidate => candidate.EncodingMarkers.Contains(marker, StringComparer.Ordinal);
 
