@@ -437,6 +437,38 @@ public sealed class PathOfExileTradeStatMatcherTests
         Assert.Equal(
             ["explicit.suppress.one", "explicit.suppress.two"],
             result.ExactEquivalentCandidates.Select(candidate => candidate.StatId));
+        Assert.True(
+            PathOfExileTradeStatMatcher.AreEquivalentProviderCandidates(result.ExactEquivalentCandidates));
+        // Catalog equivalence proves ExactEquivalentSet eligibility, not a single Exact ID.
+        // Live Trade interchangeability is a separate proof and is not assumed here.
+        Assert.Null(result.ExactCandidate);
+        Assert.Equal(2, result.ExactEquivalentCandidates.Count);
+    }
+
+    [Fact]
+    public void AreEquivalentProviderCandidates_SameTextDifferentProviderKind_IsNotEquivalent()
+    {
+        var catalog = Catalog(
+            Entry("explicit.dup", "Herald of Ice has #% increased Mana Reservation Efficiency", "explicit"),
+            Entry("enchant.dup", "Herald of Ice has #% increased Mana Reservation Efficiency", "enchant"));
+        var candidates = catalog.Entries
+            .Select(PathOfExileTradeStatCandidateClassifier.ToCandidate)
+            .ToArray();
+
+        Assert.False(PathOfExileTradeStatMatcher.AreEquivalentProviderCandidates(candidates));
+    }
+
+    [Fact]
+    public void AreEquivalentProviderCandidates_SameTextDifferentLocality_IsNotEquivalent()
+    {
+        var catalog = Catalog(
+            Entry("explicit.unmarked", "+#% to Fire Resistance", "explicit"),
+            Entry("explicit.local", "+#% to Fire Resistance (Local)", "explicit"));
+        var candidates = catalog.Entries
+            .Select(PathOfExileTradeStatCandidateClassifier.ToCandidate)
+            .ToArray();
+
+        Assert.False(PathOfExileTradeStatMatcher.AreEquivalentProviderCandidates(candidates));
     }
 
     [Fact]

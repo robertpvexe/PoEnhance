@@ -931,6 +931,23 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Contains(reservationFilter.StatId, reservation.ProviderStatAlternativeIds);
         Assert.Equal(36m, reservationFilter.Minimum);
         Assert.Null(reservationFilter.Maximum);
+        // Catalog fields are identical under AreEquivalentProviderCandidates, but live Trade
+        // A/B proves explicit.stat_3059700363 returns 0 listings while explicit.stat_3395872960
+        // returns the searchable set. Do not collapse ExactEquivalentSet to Exact.
+        Assert.True(
+            reservationFilter.Alternatives.Count > 1,
+            "ExactEquivalentSet must serialize as an OR of all catalog-equivalent Trade IDs.");
+        Assert.Equal(
+            reservation.ProviderStatAlternativeIds.Order(StringComparer.Ordinal).ToArray(),
+            reservationFilter.Alternatives
+                .Select(alternative => alternative.StatId)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+        Assert.All(reservationFilter.Alternatives, alternative =>
+        {
+            Assert.Equal(36m, alternative.Minimum);
+            Assert.Null(alternative.Maximum);
+        });
         AssertExpectedSupported(
             fear,
             "+1% to maximum Cold Resistance while affected by Herald of Ice",
