@@ -20,7 +20,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord>? baseItems = null,
         IReadOnlyList<ItemPropertySemanticDescriptor>? itemPropertySemantics = null,
-        IReadOnlyList<StatDefinition>? stats = null)
+        IReadOnlyList<StatDefinition>? stats = null,
+        string? pobSourceRootPath = null)
     {
         if (!File.Exists(filePath))
         {
@@ -40,6 +41,20 @@ public sealed partial class PoBUniqueCatalogImporter
                     "Evaluated Path of Building Unique input must contain an entries array.");
             }
 
+            PoBExportUniqueOwnershipIndex? exportOwnership = null;
+            if (!string.IsNullOrWhiteSpace(pobSourceRootPath))
+            {
+                var exportDirectory = Path.Combine(
+                    pobSourceRootPath,
+                    "src",
+                    "Export",
+                    "Uniques");
+                if (Directory.Exists(exportDirectory))
+                {
+                    exportOwnership = PoBExportUniqueOwnershipParser.LoadFromDirectory(exportDirectory);
+                }
+            }
+
             return ImportEntries(
                 entries,
                 repositoryUri,
@@ -49,12 +64,18 @@ public sealed partial class PoBUniqueCatalogImporter
                 translations,
                 baseItems ?? [],
                 itemPropertySemantics ?? [],
-                stats ?? []);
+                stats ?? [],
+                exportOwnership);
         }
         catch (JsonException exception)
         {
             return Failure(RePoeImportDiagnosticCodes.PoBUniqueJsonMalformed,
                 $"Evaluated Path of Building Unique input is invalid JSON: {exception.Message}");
+        }
+        catch (DirectoryNotFoundException exception)
+        {
+            return Failure(RePoeImportDiagnosticCodes.PoBExportUniquesDirectoryNotFound,
+                exception.Message);
         }
     }
 
@@ -67,7 +88,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord> baseItems,
         IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
-        IReadOnlyList<StatDefinition> stats)
+        IReadOnlyList<StatDefinition> stats,
+        PoBExportUniqueOwnershipIndex? exportOwnership)
     {
         var diagnostics = new List<ImportDiagnostic>();
         var observations = new List<UniqueCatalogSourceObservation>();
@@ -183,7 +205,7 @@ public sealed partial class PoBUniqueCatalogImporter
             stats);
         var identities = parsed
             .GroupBy(item => new IdentityKey(item.Name, item.Kind))
-            .Select(group => BuildIdentity(group, mechanicalIndex))
+            .Select(group => BuildIdentity(group, mechanicalIndex, exportOwnership))
             .OrderBy(identity => identity.CanonicalName, StringComparer.Ordinal)
             .ThenBy(identity => identity.Kind)
             .ThenBy(identity => identity.Id, StringComparer.Ordinal)
@@ -205,11 +227,12 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static UniqueItemIdentity BuildIdentity(
         IGrouping<IdentityKey, ParsedSourceItem> group,
-        MechanicalIndex mechanicalIndex)
+        MechanicalIndex mechanicalIndex,
+        PoBExportUniqueOwnershipIndex? exportOwnership)
     {
         var identityId = StableId("unique", group.Key.Name, group.Key.Kind.ToString());
         var versions = group
-            .SelectMany(item => BuildVersions(identityId, item, mechanicalIndex))
+            .SelectMany(item => BuildVersions(identityId, group.Key.Name, item, mechanicalIndex, exportOwnership))
             .GroupBy(version => new
             {
                 version.Label,
@@ -300,8 +323,10 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static IEnumerable<UniqueItemVersionObservation> BuildVersions(
         string identityId,
+        string canonicalUniqueName,
         ParsedSourceItem item,
-        MechanicalIndex mechanicalIndex)
+        MechanicalIndex mechanicalIndex,
+        PoBExportUniqueOwnershipIndex? exportOwnership)
     {
         var baseVariantIndices = item.BaseTypes.SelectMany(baseType => baseType.Variants).ToHashSet();
         var plans = BuildVersionPlans(item);
@@ -343,22 +368,28 @@ public sealed partial class PoBUniqueCatalogImporter
                     implicitLines,
                     UniqueModifierBlockKind.Implicit,
                     identityId,
+                    canonicalUniqueName,
                     spec.Label,
                     spec.Role,
+                    spec.VariantIndex,
                     spec.BaseType,
                     item.ObservationId!,
                     item.IsGenerated,
-                    mechanicalIndex)
+                    mechanicalIndex,
+                    exportOwnership)
                 .Concat(GroupBlocks(
                     uniqueLines,
                     UniqueModifierBlockKind.Unique,
                     identityId,
+                    canonicalUniqueName,
                     spec.Label,
                     spec.Role,
+                    spec.VariantIndex,
                     spec.BaseType,
                     item.ObservationId!,
                     item.IsGenerated,
-                    mechanicalIndex))
+                    mechanicalIndex,
+                    exportOwnership))
                 .ToArray();
             var selectedCandidateCount = item.SelectedVariantIndices.Count(index =>
                 item.IsGenerated &&
@@ -863,12 +894,15 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<SelectedEffectLine> lines,
         UniqueModifierBlockKind kind,
         string identityId,
+        string canonicalUniqueName,
         string versionLabel,
         UniqueItemVersionRole versionRole,
+        int? sourceVariantIndex,
         string baseType,
         string observationId,
         bool isGeneratedSource,
-        MechanicalIndex mechanicalIndex)
+        MechanicalIndex mechanicalIndex,
+        PoBExportUniqueOwnershipIndex? exportOwnership)
     {
         for (var index = 0; index < lines.Count;)
         {
@@ -883,8 +917,10 @@ public sealed partial class PoBUniqueCatalogImporter
                 var firstCompositionLine = compositionLines[0];
                 yield return BuildBlock(
                     identityId,
+                    canonicalUniqueName,
                     versionLabel,
                     versionRole,
+                    sourceVariantIndex,
                     compositionLines.Select(line => line.Text).ToArray(),
                     kind,
                     observationId,
@@ -905,7 +941,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         .ToArray(),
                     CombineSourceSemanticFingerprints(compositionLines.Select(line =>
                         line.SemanticFingerprint)),
-                    mechanicalIndex);
+                    mechanicalIndex,
+                    exportOwnership);
                 for (var skippedIndex = index + 1; skippedIndex < compositionEndIndex; skippedIndex++)
                 {
                     var skippedLine = lines[skippedIndex];
@@ -916,8 +953,10 @@ public sealed partial class PoBUniqueCatalogImporter
 
                     yield return BuildBlock(
                         identityId,
+                        canonicalUniqueName,
                         versionLabel,
                         versionRole,
+                        sourceVariantIndex,
                         [skippedLine.Text],
                         kind,
                         observationId,
@@ -928,7 +967,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         skippedLine.CandidatePoolMembershipIds,
                         skippedLine.OptionChoiceMemberships,
                         skippedLine.SemanticFingerprint,
-                        mechanicalIndex);
+                        mechanicalIndex,
+                        exportOwnership);
                 }
 
                 index = compositionEndIndex + 1;
@@ -964,8 +1004,10 @@ public sealed partial class PoBUniqueCatalogImporter
             var selectedLines = lines.Skip(index).Take(selectedLength).ToArray();
             yield return BuildBlock(
                 identityId,
+                canonicalUniqueName,
                 versionLabel,
                 versionRole,
+                sourceVariantIndex,
                 selectedLines.Select(line => line.Text).ToArray(),
                 kind,
                 observationId,
@@ -986,7 +1028,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     .ToArray(),
                 CombineSourceSemanticFingerprints(selectedLines.Select(line =>
                     line.SemanticFingerprint)),
-                mechanicalIndex);
+                mechanicalIndex,
+                exportOwnership);
             index += selectedLength;
         }
     }
@@ -1027,8 +1070,10 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static UniqueModifierBlock BuildBlock(
         string identityId,
+        string canonicalUniqueName,
         string versionLabel,
         UniqueItemVersionRole versionRole,
+        int? sourceVariantIndex,
         IReadOnlyList<string> lines,
         UniqueModifierBlockKind kind,
         string observationId,
@@ -1039,7 +1084,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<string> candidatePoolMembershipIds,
         IReadOnlyList<UniqueModifierOptionChoiceMembership> optionChoiceMemberships,
         UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
-        MechanicalIndex mechanicalIndex)
+        MechanicalIndex mechanicalIndex,
+        PoBExportUniqueOwnershipIndex? exportOwnership)
     {
         var signatures = lines.Select(NormalizeSignature).ToArray();
         var signature = string.Join("\n", signatures);
@@ -1061,9 +1107,46 @@ public sealed partial class PoBUniqueCatalogImporter
             _ when semanticFingerprints.Length == 1 => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
             _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
         };
+
+        // Ownership filtering is scoped to SameDisplay ExactConflicts only so it cannot
+        // bypass typed Current encoding resolvers (permyriad / source-mechanics / inverse).
+        if (status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+            resolution.UsedStrictEvidence)
+        {
+            var provisionalConflict = BuildExactConflictEvidence(candidates);
+            if (provisionalConflict.Kind == UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds &&
+                TryApplyExportUniqueOwnershipFilter(
+                    canonicalUniqueName,
+                    versionLabel,
+                    sourceVariantIndex,
+                    lines,
+                    candidates,
+                    exportOwnership,
+                    out var ownershipSurvivors,
+                    out var ownershipReason,
+                    out _))
+            {
+                candidates = ownershipSurvivors;
+                currentRoleResolutionReason = ownershipReason;
+                semanticFingerprints = candidates
+                    .Select(SemanticFingerprintEquivalenceKey)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                status = candidates.Count switch
+                {
+                    0 => UniqueModifierMechanicalMappingStatus.Unsupported,
+                    1 => UniqueModifierMechanicalMappingStatus.Exact,
+                    _ when semanticFingerprints.Length == 1 =>
+                        UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                    _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
+                };
+            }
+        }
+
         if (status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
             resolution.UsedStrictEvidence &&
-            versionRole == UniqueItemVersionRole.Current)
+            versionRole == UniqueItemVersionRole.Current &&
+            currentRoleResolutionReason is null)
         {
             if (TryResolveCurrentDeprecatedPermyriadConflict(candidates, out var permyriadSurvivors))
             {
@@ -1194,6 +1277,8 @@ public sealed partial class PoBUniqueCatalogImporter
                                 "Current-role ExactConflict of deprecated source-mechanic records vs current source-mechanic records collapsed to one surviving mechanical vector after removing only proven deprecated/legacy source-mechanic candidates; copied instance values remain authoritative.",
                             "current-role-inverse-legacy-encoding-filter" =>
                                 "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
+                            ExportUniqueOwnershipFilterReason =>
+                                "Pinned Path of Building Export Uniques typed ownership removed cross-item ModifierId candidates that are not owned by this Unique identity/variant; copied instance values remain authoritative.",
                             _ =>
                                 "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
                         },

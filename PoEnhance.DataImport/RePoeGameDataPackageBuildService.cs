@@ -160,7 +160,8 @@ public sealed class RePoeGameDataPackageBuildService
                 translations.ImportedRecords,
                 baseItems.ImportedRecords,
                 itemPropertySemantics.ImportedRecords,
-                stats.ImportedRecords)
+                stats.ImportedRecords,
+                request.PoBSourceRootPath)
             : null;
         var foulbornRelationships = HasPoBFoulbornInputs(request) && uniqueItems?.Catalog is not null
             ? _foulbornRelationshipImporter.Import(
