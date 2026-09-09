@@ -980,8 +980,10 @@ public sealed partial class ParsedUniqueItemResolver
         UniqueMechanicalConflictEvidence conflictEvidence,
         string currentVector)
     {
-        if (conflictEvidence.Kind !=
-                UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent ||
+        if ((conflictEvidence.Kind !=
+                    UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent &&
+                conflictEvidence.Kind !=
+                    UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics) ||
             conflictEvidence.Candidates.Count < 2)
         {
             return false;
@@ -996,15 +998,29 @@ public sealed partial class ParsedUniqueItemResolver
             return false;
         }
 
-        var contradictoryNonDeprecatedVectors = conflictEvidence.Candidates
+        var nonDeprecatedCandidates = conflictEvidence.Candidates
             .Where(candidate =>
                 !UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(candidate))
+            .ToArray();
+        var contradictoryNonDeprecatedVectors = nonDeprecatedCandidates
             .Select(candidate => string.Join('\u001f', candidate.StatIds))
             .Where(vector => vector.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(vector => !string.Equals(vector, currentVector, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        return contradictoryNonDeprecatedVectors.Length == 0;
+        if (contradictoryNonDeprecatedVectors.Length > 0)
+        {
+            return false;
+        }
+
+        // Known Local/Global localities among non-deprecated candidates must be unanimous.
+        var nonDeprecatedLocalities = nonDeprecatedCandidates
+            .Select(candidate => candidate.Locality)
+            .Where(locality => locality is UniqueModifierSemanticLocality.Local or
+                UniqueModifierSemanticLocality.Global)
+            .Distinct()
+            .ToArray();
+        return nonDeprecatedLocalities.Length <= 1;
     }
 
     private static string FormatHistoricalEncodingCompatibilityDiagnostic(

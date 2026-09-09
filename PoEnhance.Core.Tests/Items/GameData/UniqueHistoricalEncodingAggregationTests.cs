@@ -17,6 +17,12 @@ public sealed class UniqueHistoricalEncodingAggregationTests
     private const string CurrentPermyriadStat = "local_life_leech_from_physical_damage_permyriad";
     private const string DeprecatedPercentStat = "old_local_life_leech_from_physical_damage_percent";
     private const string OtherModernStat = "local_mana_leech_from_physical_damage_permyriad";
+    private const string CurrentSourceMechanicsStat =
+        "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing";
+    private const string DeprecatedSourceMechanicsStat =
+        "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing";
+    private const string OtherModernSourceMechanicsStat =
+        "base_life_leech_from_elemental_damage_permyriad";
 
     [Fact]
     public void Resolve_CurrentExact_PlusCompatibleHistoricalPermyriadConflict_PreservesCurrentVector()
@@ -183,6 +189,259 @@ public sealed class UniqueHistoricalEncodingAggregationTests
         Assert.False(block.IsResolved);
         Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
         Assert.Null(block.AggregationDiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_CurrentExact_PlusCompatibleHistoricalSourceMechanicsConflict_PreservesCurrentVector()
+    {
+        var catalog = CreateLeechCatalog(
+            CurrentResolvedBlock(
+                "current-leech",
+                UniqueModifierMechanicalMappingStatus.Exact,
+                ["modifier:current"],
+                [CurrentSourceMechanicsStat]),
+            HistoricalSourceMechanicsConflictBlock(
+                "historical-leech",
+                CurrentSourceMechanicsStat,
+                DeprecatedSourceMechanicsStat));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.Null(block.DiagnosticCode);
+        Assert.Equal([CurrentSourceMechanicsStat], block.StatIds);
+        Assert.Equal(["modifier:current"], block.ModifierIds);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            block.AggregationDiagnosticCode);
+        Assert.NotNull(block.NonBlockingHistoricalConflictEvidence);
+        Assert.Equal(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            block.NonBlockingHistoricalConflictEvidence!.Kind);
+        Assert.DoesNotContain(
+            block.ModifierIds,
+            id => id.Contains("deprecated", StringComparison.OrdinalIgnoreCase));
+        Assert.All(
+            block.CatalogBlocks,
+            catalogBlock => Assert.Equal(
+                UniqueModifierMechanicalMappingStatus.Exact,
+                catalogBlock.MechanicalMapping.Status));
+    }
+
+    [Fact]
+    public void Resolve_CurrentEquivalentSourceSet_PlusCompatibleHistoricalSourceMechanics_PreservesEquivalentProvenance()
+    {
+        var catalog = CreateLeechCatalog(
+            CurrentResolvedBlock(
+                "current-leech",
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                ["modifier:current-a", "modifier:current-b"],
+                [CurrentSourceMechanicsStat]),
+            HistoricalSourceMechanicsConflictBlock(
+                "historical-leech",
+                CurrentSourceMechanicsStat,
+                DeprecatedSourceMechanicsStat));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.True(block.IsEquivalentSourceSet);
+        Assert.Equal([CurrentSourceMechanicsStat], block.StatIds);
+        Assert.Equal(["modifier:current-a", "modifier:current-b"], block.ModifierIds);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            block.AggregationDiagnosticCode);
+        Assert.DoesNotContain(
+            block.ModifierIds,
+            id => id.Contains("old_do_not_use", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Resolve_HistoricalSourceMechanicsMissingCurrentVector_RemainsFailClosed()
+    {
+        var catalog = CreateLeechCatalog(
+            CurrentResolvedBlock(
+                "current-leech",
+                UniqueModifierMechanicalMappingStatus.Exact,
+                ["modifier:current"],
+                [CurrentSourceMechanicsStat]),
+            HistoricalSourceMechanicsConflictBlock(
+                "historical-leech",
+                OtherModernSourceMechanicsStat,
+                DeprecatedSourceMechanicsStat));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+        Assert.Empty(block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_HistoricalSourceMechanicsWithExtraModernVector_RemainsFailClosed()
+    {
+        var conflict = new UniqueMechanicalConflictEvidence
+        {
+            Kind = UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            Candidates =
+            [
+                Candidate(
+                    "modifier:current",
+                    [CurrentSourceMechanicsStat],
+                    ["permyriad"],
+                    UniqueModifierSemanticLocality.Global),
+                Candidate(
+                    "modifier:other-modern",
+                    [OtherModernSourceMechanicsStat],
+                    ["permyriad"],
+                    UniqueModifierSemanticLocality.Global),
+                Candidate(
+                    "modifier:deprecated",
+                    [DeprecatedSourceMechanicsStat],
+                    ["permyriad", "deprecated-name", "handler-legacy"],
+                    UniqueModifierSemanticLocality.Global),
+            ],
+        };
+        var catalog = CreateLeechCatalog(
+            CurrentResolvedBlock(
+                "current-leech",
+                UniqueModifierMechanicalMappingStatus.Exact,
+                ["modifier:current"],
+                [CurrentSourceMechanicsStat]),
+            HistoricalConflictBlockWithEvidence("historical-leech", conflict));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_HistoricalSourceMechanicsIncompatibleLocality_RemainsFailClosed()
+    {
+        var conflict = new UniqueMechanicalConflictEvidence
+        {
+            Kind = UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            Candidates =
+            [
+                Candidate(
+                    "modifier:current-local",
+                    [CurrentSourceMechanicsStat],
+                    ["permyriad"],
+                    UniqueModifierSemanticLocality.Local),
+                Candidate(
+                    "modifier:current-global",
+                    [CurrentSourceMechanicsStat],
+                    ["permyriad"],
+                    UniqueModifierSemanticLocality.Global),
+                Candidate(
+                    "modifier:deprecated",
+                    [DeprecatedSourceMechanicsStat],
+                    ["permyriad", "deprecated-name", "handler-legacy"],
+                    UniqueModifierSemanticLocality.Local),
+            ],
+        };
+        var catalog = CreateLeechCatalog(
+            CurrentResolvedBlock(
+                "current-leech",
+                UniqueModifierMechanicalMappingStatus.Exact,
+                ["modifier:current"],
+                [CurrentSourceMechanicsStat]),
+            HistoricalConflictBlockWithEvidence("historical-leech", conflict));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_HistoricalSourceMechanicsSignatureMismatch_RemainsFailClosed()
+    {
+        var catalog = CreateCatalog(
+            "Test Hymn",
+            "Sledgehammer",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                CurrentResolvedBlock(
+                    "current-other",
+                    UniqueModifierMechanicalMappingStatus.Exact,
+                    ["modifier:other"],
+                    ["local_physical_damage_+%"],
+                    line: "50% increased Physical Damage",
+                    signature: "50% increased Physical Damage")),
+            Version("Pre 2.6.0", UniqueItemVersionRole.Historical,
+                HistoricalSourceMechanicsConflictBlock(
+                    "historical-leech",
+                    CurrentSourceMechanicsStat,
+                    DeprecatedSourceMechanicsStat)));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+        Assert.All(
+            Assert.IsType<UniqueItemResolutionResult>(
+                resolver.Resolve(ParseLeechItem(), catalog)).CompatibleVersions,
+            version => Assert.Equal(UniqueItemVersionRole.Historical, version.Role));
+    }
+
+    [Fact]
+    public void Resolve_HistoricalOnlySourceMechanicsConflict_RemainsFailClosed()
+    {
+        var catalog = CreateCatalog(
+            "Test Hymn",
+            "Sledgehammer",
+            UniqueItemKind.Ordinary,
+            Version("Pre 2.6.0", UniqueItemVersionRole.Historical,
+                HistoricalSourceMechanicsConflictBlock(
+                    "historical-leech",
+                    CurrentSourceMechanicsStat,
+                    DeprecatedSourceMechanicsStat)));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+        Assert.NotNull(block.ConflictEvidence);
+        Assert.Empty(block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_TwoConflictingCurrentResolvedBlocks_WithSourceMechanicsHistorical_RemainsFailClosed()
+    {
+        var catalog = CreateCatalog(
+            "Test Hymn",
+            "Sledgehammer",
+            UniqueItemKind.Ordinary,
+            Version("Current A", UniqueItemVersionRole.Current,
+                CurrentResolvedBlock(
+                    "current-leech-a",
+                    UniqueModifierMechanicalMappingStatus.Exact,
+                    ["modifier:current-a"],
+                    [CurrentSourceMechanicsStat])),
+            Version("Current B", UniqueItemVersionRole.Current,
+                CurrentResolvedBlock(
+                    "current-leech-b",
+                    UniqueModifierMechanicalMappingStatus.Exact,
+                    ["modifier:current-b"],
+                    [OtherModernSourceMechanicsStat])),
+            Version("Pre 2.6.0", UniqueItemVersionRole.Historical,
+                HistoricalSourceMechanicsConflictBlock(
+                    "historical-leech",
+                    CurrentSourceMechanicsStat,
+                    DeprecatedSourceMechanicsStat)));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Null(block.AggregationDiagnosticCode);
+        Assert.Empty(block.StatIds);
     }
 
     [Fact]
@@ -459,6 +718,248 @@ public sealed class UniqueHistoricalEncodingAggregationTests
     }
 
     [Fact]
+    public async Task ActivePackage_AtziriChaosLeech_PreservesCurrentSourceMechanicsAcrossHistoricalConflict()
+    {
+        var package = await LoadActivePackageAsync();
+        var item = Assert.Single(
+            package.UniqueItems!.Items,
+            candidate => string.Equals(
+                candidate.CanonicalName,
+                "Atziri's Promise",
+                StringComparison.OrdinalIgnoreCase));
+        var current = Assert.Single(
+            item.Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        var currentLeech = Assert.Single(
+            current.ModifierBlocks,
+            block => block.Lines.Any(line =>
+                line.Contains("Chaos Damage Leeched as Life", StringComparison.Ordinal)));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, currentLeech.MechanicalMapping.Status);
+        Assert.Equal(
+            ["local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing"],
+            currentLeech.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-deprecated-source-mechanics-filter",
+            currentLeech.MechanicalMapping.Provenance!.ResolutionReasons);
+        Assert.All(
+            item.Versions.Where(version => version.Role == UniqueItemVersionRole.Historical),
+            version =>
+            {
+                var historicalLeech = Assert.Single(
+                    version.ModifierBlocks,
+                    block => block.Lines.Any(line =>
+                        line.Contains("Chaos Damage Leeched as Life", StringComparison.Ordinal)));
+                Assert.Equal(
+                    UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    historicalLeech.MechanicalMapping.Status);
+                Assert.Equal(
+                    "UNIQUE_MECHANICS_EXACT_CONFLICT",
+                    historicalLeech.MechanicalMapping.DiagnosticCode);
+                Assert.Equal(
+                    UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+                    historicalLeech.MechanicalMapping.ConflictEvidence!.Kind);
+            });
+
+        var catalog = GameDataCatalog.FromPackage(package);
+        var parsed = parser.Parse("""
+            Item Class: Life Flasks
+            Rarity: Unique
+            Atziri's Promise
+            Amethyst Flask
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Gain 15% of Physical Damage as Extra Chaos Damage during effect
+            { Unique Modifier }
+            2% of Chaos Damage Leeched as Life during Effect
+            { Unique Modifier }
+            Gain 12% of Elemental Damage as Extra Chaos Damage during effect
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        var leech = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.StatIds.Contains(
+                "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing") ||
+                block.AggregationDiagnosticCode is not null ||
+                (block.DiagnosticCode == "UNIQUE_MECHANICS_EXACT_CONFLICT" &&
+                    block.ConflictEvidence?.Kind ==
+                        UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics));
+
+        Assert.True(leech.IsResolved, leech.Diagnostic);
+        Assert.Null(leech.DiagnosticCode);
+        Assert.Equal(
+            ["local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing"],
+            leech.StatIds);
+        Assert.Equal(
+            ["ChaosDamageLifeLeechPermyriadWhileUsingFlaskUniqueFlask5New"],
+            leech.ModifierIds);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            leech.AggregationDiagnosticCode);
+        Assert.NotNull(leech.NonBlockingHistoricalConflictEvidence);
+        Assert.Equal(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            leech.NonBlockingHistoricalConflictEvidence!.Kind);
+        Assert.DoesNotContain(
+            leech.ModifierIds,
+            id => id.Contains("old_do_not_use", StringComparison.OrdinalIgnoreCase) ||
+                id.Equals(
+                    "ChaosDamageLifeLeechPerMyriadWhileUsingFlaskUniqueFlask5",
+                    StringComparison.OrdinalIgnoreCase));
+
+        var draft = new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog);
+        var filter = Assert.Single(
+            Assert.IsType<TradeSearchDraft>(draft.Draft).ModifierFilters,
+            component => component.RawCopiedText.Contains(
+                "Chaos Damage Leeched as Life",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            ["local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing"],
+            filter.ResolvedStatIds);
+        Assert.Null(filter.UniqueResolutionDiagnosticCode);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            filter.UniqueAggregationDiagnosticCode);
+        Assert.True(filter.HasExactUniqueSourceProvenance);
+    }
+
+    [Fact]
+    public async Task ActivePackage_DoryaniElementalLeech_PreservesCurrentEquivalentSourceSetAcrossHistoricalConflict()
+    {
+        var package = await LoadActivePackageAsync();
+        var item = Assert.Single(
+            package.UniqueItems!.Items,
+            candidate => string.Equals(
+                candidate.CanonicalName,
+                "Doryani's Catalyst",
+                StringComparison.OrdinalIgnoreCase));
+        var current = Assert.Single(
+            item.Versions,
+            version => version.Role == UniqueItemVersionRole.Current);
+        var currentLeech = Assert.Single(
+            current.ModifierBlocks,
+            block => block.Lines.Any(line =>
+                line.Contains("Elemental Damage Leeched as Life", StringComparison.Ordinal)));
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            currentLeech.MechanicalMapping.Status);
+        Assert.Equal(
+            ["base_life_leech_from_elemental_damage_permyriad"],
+            currentLeech.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-deprecated-source-mechanics-filter",
+            currentLeech.MechanicalMapping.Provenance!.ResolutionReasons);
+        Assert.All(
+            item.Versions.Where(version => version.Role == UniqueItemVersionRole.Historical),
+            version =>
+            {
+                var historicalLeech = Assert.Single(
+                    version.ModifierBlocks,
+                    block => block.Lines.Any(line =>
+                        line.Contains("Elemental Damage Leeched as Life", StringComparison.Ordinal)));
+                Assert.Equal(
+                    UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    historicalLeech.MechanicalMapping.Status);
+                Assert.Equal(
+                    UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+                    historicalLeech.MechanicalMapping.ConflictEvidence!.Kind);
+            });
+
+        var catalog = GameDataCatalog.FromPackage(package);
+        var parsed = parser.Parse("""
+            Item Class: Sceptres
+            Rarity: Unique
+            Doryani's Catalyst
+            Vaal Sceptre
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            0.2% of Elemental Damage Leeched as Life
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        var leech = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.StatIds.Contains("base_life_leech_from_elemental_damage_permyriad") ||
+                block.AggregationDiagnosticCode is not null);
+
+        Assert.True(leech.IsResolved, leech.Diagnostic);
+        Assert.Null(leech.DiagnosticCode);
+        Assert.Equal(["base_life_leech_from_elemental_damage_permyriad"], leech.StatIds);
+        Assert.True(leech.IsEquivalentSourceSet);
+        Assert.Equal(
+            [
+                "ElementalDamageLeechedAsLifePermyriadUniqueSceptre7_",
+                "SynthesisImplicitElementalLeechMinor1",
+            ],
+            leech.ModifierIds);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            leech.AggregationDiagnosticCode);
+        Assert.Equal(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            leech.NonBlockingHistoricalConflictEvidence!.Kind);
+        Assert.DoesNotContain(
+            leech.ModifierIds,
+            id => id.Equals(
+                "ElementalDamageLeechedAsLifeUniqueSceptre7",
+                StringComparison.OrdinalIgnoreCase));
+
+        var draft = new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog);
+        var filter = Assert.Single(
+            Assert.IsType<TradeSearchDraft>(draft.Draft).ModifierFilters,
+            component => component.RawCopiedText.Contains(
+                "Elemental Damage Leeched as Life",
+                StringComparison.Ordinal));
+        Assert.Equal(["base_life_leech_from_elemental_damage_permyriad"], filter.ResolvedStatIds);
+        Assert.True(filter.HasExactUniqueSourceProvenance);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof,
+            filter.UniqueAggregationDiagnosticCode);
+    }
+
+    [Fact]
+    public async Task ActivePackage_TheHarvestLeech_RemainsExactWithoutHistoricalAggregation()
+    {
+        var package = await LoadActivePackageAsync();
+        var catalog = GameDataCatalog.FromPackage(package);
+        var parsed = parser.Parse("""
+            Item Class: Two Hand Axes
+            Rarity: Unique
+            The Harvest
+            Jasper Chopper
+            --------
+            Item Level: 70
+            --------
+            { Unique Modifier }
+            1.2% of Damage Leeched as Life on Critical Strike
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        Assert.Equal(UniqueItemVersionRole.Current, Assert.Single(unique.CompatibleVersions).Role);
+        var leech = Assert.Single(unique.ModifierBlocks);
+        Assert.True(leech.IsResolved, leech.Diagnostic);
+        Assert.Equal(["life_leech_permyriad_on_crit"], leech.StatIds);
+        Assert.Null(leech.AggregationDiagnosticCode);
+        Assert.Null(leech.NonBlockingHistoricalConflictEvidence);
+
+        var draft = new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog);
+        var filter = Assert.Single(Assert.IsType<TradeSearchDraft>(draft.Draft).ModifierFilters);
+        Assert.True(filter.HasExactUniqueSourceProvenance);
+        Assert.Equal(["life_leech_permyriad_on_crit"], filter.ResolvedStatIds);
+        Assert.Null(filter.UniqueAggregationDiagnosticCode);
+    }
+
+    [Fact]
     public async Task ActivePackage_MultiVersionAggregationCorpus_ReportsCompatibleHistoricalEncodingGroups()
     {
         var package = await LoadActivePackageAsync();
@@ -478,7 +979,8 @@ public sealed class UniqueHistoricalEncodingAggregationTests
         {
             currentVectorAbsent = groups.Count(group =>
                 group.HistoricalConflicts.Any(conflict =>
-                    conflict.Kind == UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent &&
+                    (conflict.Kind == UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent ||
+                        conflict.Kind == UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics) &&
                     !conflict.Candidates.Any(candidate =>
                         string.Join('\u001f', candidate.StatIds)
                             .Equals(group.CurrentVector, StringComparison.OrdinalIgnoreCase)))),
@@ -497,7 +999,8 @@ public sealed class UniqueHistoricalEncodingAggregationTests
             multipleCurrentVectors = groups.Count(group => group.CurrentVectorCount > 1),
             otherSubtypes = groups.Count(group =>
                 group.HistoricalConflicts.Any(conflict =>
-                    conflict.Kind != UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent)),
+                    conflict.Kind != UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent &&
+                    conflict.Kind != UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics)),
         };
 
         var reportPath = Path.Combine(
@@ -597,6 +1100,31 @@ public sealed class UniqueHistoricalEncodingAggregationTests
                 ],
             });
 
+    private static UniqueModifierBlock HistoricalSourceMechanicsConflictBlock(
+        string id,
+        string currentStatId,
+        string deprecatedStatId,
+        string deprecatedModifierId = "modifier:deprecated-source") =>
+        HistoricalConflictBlockWithEvidence(
+            id,
+            new UniqueMechanicalConflictEvidence
+            {
+                Kind = UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+                Candidates =
+                [
+                    Candidate(
+                        "modifier:historical-current",
+                        [currentStatId],
+                        ["permyriad"],
+                        UniqueModifierSemanticLocality.Local),
+                    Candidate(
+                        deprecatedModifierId,
+                        [deprecatedStatId],
+                        ["permyriad", "deprecated-name", "handler-legacy"],
+                        UniqueModifierSemanticLocality.Local),
+                ],
+            });
+
     private static UniqueModifierBlock HistoricalConflictBlockWithKind(
         string id,
         UniqueMechanicalConflictKind kind,
@@ -633,11 +1161,13 @@ public sealed class UniqueHistoricalEncodingAggregationTests
     private static UniqueMechanicalConflictCandidate Candidate(
         string modifierId,
         IReadOnlyList<string> statIds,
-        IReadOnlyList<string> markers) => new()
+        IReadOnlyList<string> markers,
+        UniqueModifierSemanticLocality locality = UniqueModifierSemanticLocality.Unknown) => new()
     {
         ModifierId = modifierId,
         StatIds = statIds,
         EncodingMarkers = markers,
+        Locality = locality,
         SourceAvailability = ModifierSourceAvailability.Unknown,
     };
 
@@ -830,8 +1360,10 @@ public sealed class UniqueHistoricalEncodingAggregationTests
             UniqueMechanicalConflictEvidence conflictEvidence,
             string currentVector)
         {
-            if (conflictEvidence.Kind !=
-                    UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent ||
+            if ((conflictEvidence.Kind !=
+                        UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent &&
+                    conflictEvidence.Kind !=
+                        UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics) ||
                 conflictEvidence.Candidates.Count < 2)
             {
                 return false;
@@ -846,13 +1378,26 @@ public sealed class UniqueHistoricalEncodingAggregationTests
                 return false;
             }
 
-            return !conflictEvidence.Candidates
+            var nonDeprecatedCandidates = conflictEvidence.Candidates
                 .Where(candidate =>
                     !UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(candidate))
+                .ToArray();
+            if (nonDeprecatedCandidates
                 .Select(candidate => string.Join('\u001f', candidate.StatIds))
                 .Where(vector => vector.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Any(vector => !string.Equals(vector, currentVector, StringComparison.OrdinalIgnoreCase));
+                .Any(vector => !string.Equals(vector, currentVector, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            var nonDeprecatedLocalities = nonDeprecatedCandidates
+                .Select(candidate => candidate.Locality)
+                .Where(locality => locality is UniqueModifierSemanticLocality.Local or
+                    UniqueModifierSemanticLocality.Global)
+                .Distinct()
+                .ToArray();
+            return nonDeprecatedLocalities.Length <= 1;
         }
     }
 }
