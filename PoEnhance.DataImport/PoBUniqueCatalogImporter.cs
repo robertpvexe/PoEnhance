@@ -1070,6 +1070,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 candidates = permyriadSurvivors;
                 currentRoleResolutionReason = "current-role-deprecated-encoding-filter";
             }
+            else if (TryResolveCurrentDeprecatedSourceMechanicsConflict(candidates, out var sourceMechanicsSurvivors))
+            {
+                candidates = sourceMechanicsSurvivors;
+                currentRoleResolutionReason = "current-role-deprecated-source-mechanics-filter";
+            }
             else if (TryResolveCurrentInverseLegacyEncodingConflict(candidates, out var inverseSurvivors))
             {
                 candidates = inverseSurvivors;
@@ -1185,6 +1190,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         {
                             "current-role-deprecated-encoding-filter" =>
                                 "Current-role ExactConflict of deprecated percent vs current permyriad encoding collapsed to one surviving mechanical vector after removing only proven deprecated/legacy encoding candidates; copied instance values remain authoritative.",
+                            "current-role-deprecated-source-mechanics-filter" =>
+                                "Current-role ExactConflict of deprecated source-mechanic records vs current source-mechanic records collapsed to one surviving mechanical vector after removing only proven deprecated/legacy source-mechanic candidates; copied instance values remain authoritative.",
                             "current-role-inverse-legacy-encoding-filter" =>
                                 "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
                             _ =>
@@ -1232,6 +1239,15 @@ public sealed partial class PoBUniqueCatalogImporter
         TryResolveCurrentEncodingConflict(
             candidates,
             UniqueMechanicalConflictKind.CurrentVsDeprecatedEncodingPermyriadPercent,
+            UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence,
+            out survivors);
+
+    private static bool TryResolveCurrentDeprecatedSourceMechanicsConflict(
+        IReadOnlyList<MechanicalCandidate> candidates,
+        out IReadOnlyList<MechanicalCandidate> survivors) =>
+        TryResolveCurrentEncodingConflict(
+            candidates,
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
             UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence,
             out survivors);
 

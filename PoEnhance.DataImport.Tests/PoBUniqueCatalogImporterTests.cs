@@ -1210,6 +1210,446 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_ResolvesToCurrentVector()
+    {
+        const string line = "2% of Chaos Damage Leeched as Life during Effect";
+        var result = ImportSingle(
+            $"""
+                Test Flask
+                Amethyst Flask
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.leech.current",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    200,
+                    200,
+                    "unique") with { Domain = "flask" },
+                // old_leech_permyriad uses scale 0.002, so 1000 renders as 2%.
+                Modifier(
+                    "unique.leech.deprecated",
+                    "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    1000,
+                    1000,
+                    "unique") with { Domain = "flask" },
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "leech-current",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-deprecated",
+                    "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "old_leech_permyriad"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    IsLocal = true,
+                },
+                new StatDefinition
+                {
+                    Id = "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    IsLocal = true,
+                },
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Amethyst Flask", Domain = "flask" }]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        var block = Assert.Single(version.ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.DiagnosticCode);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(["unique.leech.current"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing"],
+            block.MechanicalMapping.StatIds);
+        var provenance = Assert.IsType<UniqueModifierMechanicalProvenance>(
+            block.MechanicalMapping.Provenance);
+        Assert.Contains(
+            "current-role-deprecated-source-mechanics-filter",
+            provenance.ResolutionReasons);
+        Assert.DoesNotContain(
+            provenance.Translations,
+            evidence => evidence.StatIds.Any(statId =>
+                UniqueMechanicalConflictClassifier.BuildEncodingMarkers(
+                    "x",
+                    [statId],
+                    []).Contains(UniqueMechanicalConflictClassifier.MarkerDeprecatedName)));
+    }
+
+    [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_MultipleSurvivors_BecomeEquivalentSourceSet()
+    {
+        const string line = "0.2% of Elemental Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Sceptre
+                Driftwood Sceptre
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.leech.a",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    20,
+                    20,
+                    "unique"),
+                Modifier(
+                    "unique.leech.b",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    20,
+                    20,
+                    "unique"),
+                // old_leech_permyriad uses scale 0.002, so 100 renders as 0.2%.
+                Modifier(
+                    "unique.leech.deprecated",
+                    "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    100,
+                    100,
+                    "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "leech-a",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-b",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-deprecated",
+                    "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "old_leech_permyriad"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "base_life_leech_from_elemental_damage_permyriad",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    IsLocal = false,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+            block.MechanicalMapping.Status);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(["unique.leech.a", "unique.leech.b"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["base_life_leech_from_elemental_damage_permyriad"],
+            block.MechanicalMapping.StatIds);
+        Assert.Contains(
+            "current-role-deprecated-source-mechanics-filter",
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_TwoModernVectorsSurvive_RemainsExactConflict()
+    {
+        const string line = "0.2% of Elemental Damage Leeched as Life";
+        var result = ImportSingle(
+            $"""
+                Test Sceptre
+                Driftwood Sceptre
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.leech.elemental",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    20,
+                    20,
+                    "unique"),
+                Modifier(
+                    "unique.leech.chaos",
+                    "base_life_leech_from_chaos_damage_permyriad",
+                    20,
+                    20,
+                    "unique"),
+                Modifier(
+                    "unique.leech.deprecated",
+                    "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    100,
+                    100,
+                    "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "leech-elemental",
+                    "base_life_leech_from_elemental_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-chaos",
+                    "base_life_leech_from_chaos_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-deprecated",
+                    "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    "{0}% of Elemental Damage Leeched as Life",
+                    "old_leech_permyriad"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "base_life_leech_from_elemental_damage_permyriad",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "base_life_leech_from_chaos_damage_permyriad",
+                    IsLocal = false,
+                },
+                new StatDefinition
+                {
+                    Id = "old_do_not_use_base_life_leech_from_elemental_damage_permyriad",
+                    IsLocal = false,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics, conflict.Kind);
+        Assert.Equal(3, conflict.Candidates.Count);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_IncompatibleFingerprintsSurvive_RemainsExactConflict()
+    {
+        Assert.False(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                ],
+                [
+                    "global\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar\u001dfamily-a",
+                    "global\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar\u001dfamily-b",
+                ]));
+        Assert.True(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                ],
+                [
+                    "global\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar\u001dfamily-a",
+                    "global\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar\u001dfamily-a",
+                ]));
+    }
+
+    [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_IncompleteEvidence_RemainsExactConflict()
+    {
+        const string line = "2% of Chaos Damage Leeched as Life during Effect";
+        var result = ImportSingle(
+            $"""
+                Test Flask
+                Amethyst Flask
+                Implicits: 0
+                {line}
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.leech.one",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    200,
+                    200,
+                    "unique"),
+                Modifier(
+                    "unique.leech.two",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing_alt",
+                    200,
+                    200,
+                    "unique"),
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "leech-one",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-two",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing_alt",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "divide_by_one_hundred"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    IsLocal = true,
+                },
+                new StatDefinition
+                {
+                    Id = "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing_alt",
+                    IsLocal = true,
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.NotEqual(
+            UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics,
+            conflict.Kind);
+        Assert.DoesNotContain(
+            conflict.Candidates,
+            candidate => UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(candidate));
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_CurrentDeprecatedSourceMechanics_IncompatibleLocality_RemainsExactConflict()
+    {
+        Assert.False(
+            UniqueMechanicalEncodingSurvivorCollapse.TryValidate(
+                [
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                    ["base_life_leech_from_elemental_damage_permyriad"],
+                ],
+                [
+                    "local\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar",
+                    "global\u001dbase_life_leech_from_elemental_damage_permyriad\u001dScalar",
+                ]));
+    }
+
+    [Fact]
+    public void Import_HistoricalDeprecatedSourceMechanics_DoesNotPreferModernSource()
+    {
+        var result = ImportSingle(
+            """
+                Test Flask
+                Amethyst Flask
+                Variant: Pre 3.0.0
+                Variant: Current
+                Implicits: 0
+                {variant:1}2% of Chaos Damage Leeched as Life during Effect
+                {variant:2}10% increased Charge Recovery
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.leech.current",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    200,
+                    200,
+                    "unique") with { Domain = "flask" },
+                Modifier(
+                    "unique.leech.deprecated",
+                    "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    1000,
+                    1000,
+                    "unique") with { Domain = "flask" },
+                Modifier("unique.charges", "local_flask_recharge_rate_+%", 10, 10, "unique") with
+                {
+                    Domain = "flask",
+                },
+            ],
+            translations:
+            [
+                TranslationWithHandler(
+                    "leech-current",
+                    "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "divide_by_one_hundred"),
+                TranslationWithHandler(
+                    "leech-deprecated",
+                    "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    "{0}% of Chaos Damage Leeched as Life during Effect",
+                    "old_leech_permyriad"),
+                Translation(
+                    "charges",
+                    "local_flask_recharge_rate_+%",
+                    "{0}% increased Charge Recovery",
+                    "#"),
+            ],
+            stats:
+            [
+                new StatDefinition
+                {
+                    Id = "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    IsLocal = true,
+                },
+                new StatDefinition
+                {
+                    Id = "old_do_not_use_local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
+                    IsLocal = true,
+                },
+                new StatDefinition { Id = "local_flask_recharge_rate_+%", IsLocal = true },
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Amethyst Flask", Domain = "flask" }]);
+
+        var historical = Assert.Single(
+            Assert.Single(result.Catalog!.Items).Versions,
+            version => version.Role == UniqueItemVersionRole.Historical);
+        var leech = Assert.Single(
+            historical.ModifierBlocks,
+            block => block.Lines.Contains("2% of Chaos Damage Leeched as Life during Effect"));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, leech.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", leech.MechanicalMapping.DiagnosticCode);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            leech.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.CurrentVsDeprecatedSourceMechanics, conflict.Kind);
+        Assert.Empty(leech.MechanicalMapping.StatIds);
+        Assert.Null(leech.MechanicalMapping.Provenance);
+        Assert.DoesNotContain(
+            historical.ModifierBlocks,
+            block => block.MechanicalMapping.Provenance?.ResolutionReasons.Contains(
+                "current-role-deprecated-source-mechanics-filter",
+                StringComparer.Ordinal) == true);
+    }
+
+    [Fact]
     public void Import_KnownSourceLocalityWithUniformCandidateAxis_PreservesExactEvidence()
     {
         const string line = "+30 to Accuracy Rating";

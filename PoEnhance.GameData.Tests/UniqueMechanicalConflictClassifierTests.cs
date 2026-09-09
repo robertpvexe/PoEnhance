@@ -120,6 +120,21 @@ public sealed class UniqueMechanicalConflictClassifierTests
     }
 
     [Fact]
+    public void HasCurrentSourceMechanicEvidence_IsComplementOfDeprecatedEvidence()
+    {
+        var current = Candidate("mod.current", ["life_leech_permyriad_on_crit"]);
+        var deprecated = Candidate(
+            "mod.legacy",
+            ["old_do_not_use_life_leech_permyriad_on_crit"],
+            handlers: ["old_leech_permyriad"]);
+
+        Assert.True(UniqueMechanicalConflictClassifier.HasCurrentSourceMechanicEvidence(current));
+        Assert.False(UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(current));
+        Assert.False(UniqueMechanicalConflictClassifier.HasCurrentSourceMechanicEvidence(deprecated));
+        Assert.True(UniqueMechanicalConflictClassifier.HasDeprecatedLegacyEncodingEvidence(deprecated));
+    }
+
+    [Fact]
     public void Classify_DistinctStatVectorsWithoutSpecialMarkers_IsSameDisplayTextDifferentStatIds()
     {
         var kind = UniqueMechanicalConflictClassifier.Classify(

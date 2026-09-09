@@ -16,12 +16,12 @@ public sealed class GameDataDistributionWorkflowTests
 
         Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(
-            "3.29.1.2.2-inverse-legacy-encoding-resolution",
+            "3.29.1.2.2-deprecated-source-mechanics-resolution",
             package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-09-03T20:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(188958839, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal("2026-09-09T10:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
+        Assert.Equal(188961936, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "2caae797c27a2ae275064964d43ee8d45b9980c94446512e6281387e2f8a20db",
+            "46b1bc25fb120775bb491135399a988f5f3ec183a25acf7739319f4759dcfb76",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());

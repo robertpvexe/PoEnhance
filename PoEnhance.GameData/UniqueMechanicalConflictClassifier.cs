@@ -196,6 +196,14 @@ public static class UniqueMechanicalConflictClassifier
         HasDeprecatedEvidence(candidate);
 
     /// <summary>
+    /// True when compact conflict provenance proves a non-deprecated / current source-mechanic
+    /// candidate (the complementary side of <see cref="HasDeprecatedLegacyEncodingEvidence"/>).
+    /// </summary>
+    public static bool HasCurrentSourceMechanicEvidence(
+        UniqueMechanicalConflictCandidate candidate) =>
+        !HasDeprecatedEvidence(candidate);
+
+    /// <summary>
     /// True when compact conflict provenance proves inverse/legacy handler or efficiency
     /// encoding evidence for this candidate.
     /// </summary>
