@@ -259,9 +259,11 @@ public sealed partial class ParsedUniqueItemResolver
             sourceSemantics[0] == UniqueModifierSourceSemantics.GeneratedCandidate;
         var candidatePoolProofIsComplete = !isGeneratedCandidate ||
             candidatePoolMembershipIds.Length > 0;
-        var usesTextualOptionRangeProjection = matchedBlocks.Any(candidate =>
+        var usesGeneratedTextualOptionRangeProjection = matchedBlocks.Any(candidate =>
             candidate.Match.Kind == UniqueBlockTextMatchKind.TextualOptionRangeProjection);
-        var textualOptionRangeCollision = usesTextualOptionRangeProjection &&
+        var usesFixedTextualOptionRangeProjection = matchedBlocks.Any(candidate =>
+            candidate.Match.Kind == UniqueBlockTextMatchKind.FixedTextualOptionAnnotationProjection);
+        var textualOptionRangeCollision = usesGeneratedTextualOptionRangeProjection &&
             matchedByVersion.Any(version => version.Matches.Count > 1);
         var textualOptionRangeAnnotations = matchedBlocks
             .SelectMany(candidate => candidate.Match.TextualOptionRangeAnnotations)
@@ -416,7 +418,8 @@ public sealed partial class ParsedUniqueItemResolver
                 ? candidatePoolMembershipIds
                 : [],
             OptionChoiceMemberships = optionChoiceMemberships,
-            TextualOptionRangeAnnotations = resolved && usesTextualOptionRangeProjection
+            TextualOptionRangeAnnotations = resolved &&
+                (usesGeneratedTextualOptionRangeProjection || usesFixedTextualOptionRangeProjection)
                 ? textualOptionRangeAnnotations
                 : [],
             SourceObservationIds = sourceObservationIds,
@@ -804,12 +807,12 @@ public sealed partial class ParsedUniqueItemResolver
                     .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
                     .Select(block =>
                     {
-                        var direct = MatchParsedModifier(block, modifier);
+                        var direct = MatchParsedModifier(block, modifier, version.Role);
                         return new MatchedBlock(
                             block,
                             direct.IsMatch && direct.Kind == UniqueBlockTextMatchKind.Direct
                                 ? direct
-                                : MatchSafeRuntimePresentation(block, modifier));
+                                : MatchSafeRuntimePresentation(block, modifier, version.Role));
                     })
                     .Where(candidate => candidate.Match.IsMatch)
                     .ToArray()))
@@ -1108,7 +1111,8 @@ public sealed partial class ParsedUniqueItemResolver
 
     private static UniqueBlockTextMatch MatchSafeRuntimePresentation(
         UniqueModifierBlock block,
-        ParsedModifier modifier)
+        ParsedModifier modifier,
+        UniqueItemVersionRole versionRole)
     {
         if (block.SourceSemantics != UniqueModifierSourceSemantics.Fixed ||
             modifier.ValueLines.Count == 0 ||
@@ -1119,45 +1123,35 @@ public sealed partial class ParsedUniqueItemResolver
         }
 
         var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
-        if (!HasObservedRollValuesWithinCatalogDomains(rawLines, block.Lines))
+        if (HasObservedRollValuesWithinCatalogDomains(rawLines, block.Lines))
         {
-            return UniqueBlockTextMatch.NoMatch;
+            var projectedLines = ProjectCanonicalRollAnnotations(rawLines);
+            if (LinesMatch(block, projectedLines, allowPolarityInversion: false))
+            {
+                return UniqueBlockTextMatch.AnnotatedBoundMatch;
+            }
+            if (SignaturesDifferOnlyByNumericPlural(block, projectedLines, rawLines))
+            {
+                return UniqueBlockTextMatch.NumericPluralMatch;
+            }
+            if (SignaturesDifferOnlyBySignedMixedRange(block, projectedLines, rawLines))
+            {
+                return UniqueBlockTextMatch.SignedMixedRangeMatch;
+            }
         }
 
-        var projectedLines = ProjectCanonicalRollAnnotations(rawLines);
-        if (LinesMatch(block, projectedLines, allowPolarityInversion: false))
-        {
-            return UniqueBlockTextMatch.AnnotatedBoundMatch;
-        }
-        if (SignaturesDifferOnlyByNumericPlural(block, projectedLines, rawLines))
-        {
-            return UniqueBlockTextMatch.NumericPluralMatch;
-        }
-        if (SignaturesDifferOnlyBySignedMixedRange(block, projectedLines, rawLines))
-        {
-            return UniqueBlockTextMatch.SignedMixedRangeMatch;
-        }
-
-        if (!TryProjectTextualOptionRange(modifier, out var semanticLines, out _) ||
-            !HasObservedRollValuesWithinCatalogDomains(semanticLines, block.Lines))
-        {
-            return UniqueBlockTextMatch.NoMatch;
-        }
-
-        var projectedSemanticLines = ProjectCanonicalRollAnnotations(semanticLines);
-        return LinesMatch(block, semanticLines, allowPolarityInversion: false) ||
-            LinesMatch(block, projectedSemanticLines, allowPolarityInversion: false)
-            ? new UniqueBlockTextMatch(
-                true,
-                semanticLines,
-                [],
-                UniqueBlockTextMatchKind.FixedTextualOptionAnnotationProjection)
-            : UniqueBlockTextMatch.NoMatch;
+        // Fixed textual option ranges are game AID annotations, not numeric observed rolls.
+        return TryMatchFixedTextualOptionRangeProjection(
+            block,
+            modifier,
+            versionRole,
+            allowPolarityInversion: false);
     }
 
     private static UniqueBlockTextMatch MatchParsedModifier(
         UniqueModifierBlock block,
-        ParsedModifier modifier)
+        ParsedModifier modifier,
+        UniqueItemVersionRole versionRole = UniqueItemVersionRole.Current)
     {
         if (modifier.ValueLines.Count == 0 || block.Lines.Count != modifier.ValueLines.Count)
         {
@@ -1180,6 +1174,21 @@ public sealed partial class ParsedUniqueItemResolver
             LinesMatch(block, projectedLines, HasSignedCanonicalRollAnnotation(rawLines)))
         {
             return UniqueBlockTextMatch.DirectMatch;
+        }
+
+        // Fixed Unique AID lines keep the textual option range on OriginalText. Match the
+        // parser SemanticText so version containment can retain the exact catalog variant.
+        if (block.SourceSemantics == UniqueModifierSourceSemantics.Fixed)
+        {
+            var fixedMatch = TryMatchFixedTextualOptionRangeProjection(
+                block,
+                modifier,
+                versionRole,
+                HasSignedCanonicalRollAnnotation(rawLines));
+            if (fixedMatch.IsMatch)
+            {
+                return fixedMatch;
+            }
         }
 
         if (block.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate ||
@@ -1205,6 +1214,89 @@ public sealed partial class ParsedUniqueItemResolver
                 textualOptionRangeAnnotations,
                 UniqueBlockTextMatchKind.TextualOptionRangeProjection)
             : UniqueBlockTextMatch.NoMatch;
+    }
+
+    /// <summary>
+    /// Matches a Current Fixed Unique catalog block against parser SemanticText when Advanced
+    /// Item Description attached an end-bound textual option-range annotation to the raw line.
+    /// Does not require numeric observed-roll domain validation. Historical Fixed blocks stay on
+    /// Direct matching so Generated textual-option Current proof is not broadened.
+    /// </summary>
+    private static UniqueBlockTextMatch TryMatchFixedTextualOptionRangeProjection(
+        UniqueModifierBlock block,
+        ParsedModifier modifier,
+        UniqueItemVersionRole versionRole,
+        bool allowPolarityInversion)
+    {
+        if (versionRole != UniqueItemVersionRole.Current ||
+            block.SourceSemantics != UniqueModifierSourceSemantics.Fixed ||
+            !TryProjectTextualOptionRange(
+                modifier,
+                out var semanticLines,
+                out var textualOptionRangeAnnotations) ||
+            !IsEndAttachedTextualOptionRange(modifier, semanticLines, textualOptionRangeAnnotations) ||
+            !HasCompatibleAnnotatedRollEvidence(semanticLines, block.Lines))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var projectedSemanticLines = ProjectCanonicalRollAnnotations(semanticLines);
+        return LinesMatch(block, semanticLines, allowPolarityInversion: false) ||
+            LinesMatch(block, projectedSemanticLines, allowPolarityInversion)
+            ? new UniqueBlockTextMatch(
+                true,
+                semanticLines,
+                textualOptionRangeAnnotations,
+                UniqueBlockTextMatchKind.FixedTextualOptionAnnotationProjection)
+            : UniqueBlockTextMatch.NoMatch;
+    }
+
+    private static bool IsEndAttachedTextualOptionRange(
+        ParsedModifier modifier,
+        IReadOnlyList<string> semanticLines,
+        IReadOnlyList<string> textualOptionRangeAnnotations)
+    {
+        if (modifier.Effects.Count != semanticLines.Count ||
+            textualOptionRangeAnnotations.Count == 0)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < modifier.Effects.Count; index++)
+        {
+            var effect = modifier.Effects[index];
+            var semantic = semanticLines[index];
+            if (effect.TextualOptionRange is null)
+            {
+                if (!string.Equals(effect.RawText.Trim(), semantic, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            var expectedPrefix = $"{semantic}({effect.TextualOptionRange.Text})";
+            var raw = effect.RawText.Trim();
+            if (string.Equals(raw, expectedPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            const string unscalableSuffix = " — Unscalable Value";
+            if (raw.EndsWith(unscalableSuffix, StringComparison.Ordinal) &&
+                string.Equals(
+                    raw[..^unscalableSuffix.Length],
+                    expectedPrefix,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private static IReadOnlyList<string> MatchGeneratedPresentation(
@@ -1238,7 +1330,7 @@ public sealed partial class ParsedUniqueItemResolver
             .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
             .Select(block => new MatchedBlock(
                 block,
-                MatchParsedModifier(block, modifier)))
+                MatchParsedModifier(block, modifier, version.Role)))
             .Where(candidate => candidate.Match.IsMatch)
             .ToList();
         if (compositionModifiers is not null)
@@ -1252,7 +1344,8 @@ public sealed partial class ParsedUniqueItemResolver
                 {
                     var componentMatch = MatchParsedModifier(
                         ProjectCompositionComponent(block, component),
-                        modifier);
+                        modifier,
+                        version.Role);
                     if (!componentMatch.IsMatch)
                     {
                         continue;
