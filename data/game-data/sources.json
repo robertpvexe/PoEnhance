@@ -1,11 +1,11 @@
-﻿{
+{
   "schemaVersion": 1,
   "package": {
     "schemaVersion": 3,
-    "dataVersion": "3.29.1.2.3-unique-export-ownership-filtering",
-    "createdAtUtc": "2026-09-09T12:00:00+00:00",
-    "sizeBytes": 188964773,
-    "sha256": "dd726a6ac35b0d36dfa55882a2ffaaf301ac416053b03ba4e79e529ab22da15a",
+    "dataVersion": "3.29.1.2.4-passage-owned-statids-superset",
+    "createdAtUtc": "2026-09-09T14:00:00+00:00",
+    "sizeBytes": 188979773,
+    "sha256": "05b5f446cd4e6658e9fa0aa23e71d8476b4d1b2e5754759d3402c74aed5ea64b",
     "foulbornRelationshipCount": 353,
     "exactFoulbornRelationshipCount": 353,
     "unsupportedFoulbornRelationshipCount": 0

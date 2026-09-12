@@ -1114,32 +1114,65 @@ public sealed partial class PoBUniqueCatalogImporter
             resolution.UsedStrictEvidence)
         {
             var provisionalConflict = BuildExactConflictEvidence(candidates);
-            if (provisionalConflict.Kind == UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds &&
-                TryApplyExportUniqueOwnershipFilter(
-                    canonicalUniqueName,
-                    versionLabel,
-                    sourceVariantIndex,
-                    lines,
-                    candidates,
-                    exportOwnership,
-                    out var ownershipSurvivors,
-                    out var ownershipReason,
-                    out _))
+            if (provisionalConflict.Kind == UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds)
             {
-                candidates = ownershipSurvivors;
-                currentRoleResolutionReason = ownershipReason;
-                semanticFingerprints = candidates
-                    .Select(SemanticFingerprintEquivalenceKey)
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                status = candidates.Count switch
+                if (TryApplyExportUniqueOwnershipFilter(
+                        canonicalUniqueName,
+                        versionLabel,
+                        sourceVariantIndex,
+                        lines,
+                        candidates,
+                        exportOwnership,
+                        out var ownershipSurvivors,
+                        out var ownershipReason,
+                        out _))
                 {
-                    0 => UniqueModifierMechanicalMappingStatus.Unsupported,
-                    1 => UniqueModifierMechanicalMappingStatus.Exact,
-                    _ when semanticFingerprints.Length == 1 =>
-                        UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
-                    _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
-                };
+                    candidates = ownershipSurvivors;
+                    currentRoleResolutionReason = ownershipReason;
+                    semanticFingerprints = candidates
+                        .Select(SemanticFingerprintEquivalenceKey)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    status = candidates.Count switch
+                    {
+                        0 => UniqueModifierMechanicalMappingStatus.Unsupported,
+                        1 => UniqueModifierMechanicalMappingStatus.Exact,
+                        _ when semanticFingerprints.Length == 1 =>
+                            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                        _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    };
+                }
+
+                // Same-item Export-orphan forks stay fail-closed under ownership filtering, but a
+                // Passage-chrome display with one owned multi-StatId vector that properly
+                // supersedes every non-owned competitor is safe to collapse to Exact.
+                if (status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+                    TryApplyPassageOwnedStatIdsSupersetCollapse(
+                        canonicalUniqueName,
+                        versionLabel,
+                        sourceVariantIndex,
+                        lines,
+                        candidates,
+                        exportOwnership,
+                        out var passageSurvivors,
+                        out var passageReason,
+                        out _))
+                {
+                    candidates = passageSurvivors;
+                    currentRoleResolutionReason = passageReason;
+                    semanticFingerprints = candidates
+                        .Select(SemanticFingerprintEquivalenceKey)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    status = candidates.Count switch
+                    {
+                        0 => UniqueModifierMechanicalMappingStatus.Unsupported,
+                        1 => UniqueModifierMechanicalMappingStatus.Exact,
+                        _ when semanticFingerprints.Length == 1 =>
+                            UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                        _ => UniqueModifierMechanicalMappingStatus.Ambiguous,
+                    };
+                }
             }
         }
 
@@ -1207,7 +1240,11 @@ public sealed partial class PoBUniqueCatalogImporter
                     signature,
                     ExtractSourceValueDomainKey(lines),
                     SourceObservationStructureKey(sourceSemanticFingerprint));
-        var composition = resolved
+        var composition = resolved &&
+            !string.Equals(
+                currentRoleResolutionReason,
+                PassageOwnedStatIdsSupersetCollapseReason,
+                StringComparison.Ordinal)
             ? BuildComposition(blockId, lines, signatures, observationId, candidates)
             : null;
         var translationEvidence = candidates
@@ -1279,6 +1316,8 @@ public sealed partial class PoBUniqueCatalogImporter
                                 "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
                             ExportUniqueOwnershipFilterReason =>
                                 "Pinned Path of Building Export Uniques typed ownership removed cross-item ModifierId candidates that are not owned by this Unique identity/variant; copied instance values remain authoritative.",
+                            PassageOwnedStatIdsSupersetCollapseReason =>
+                                "SameDisplay ExactConflict under shared Passage display-chrome evidence collapsed to the single Export-owned candidate whose StatIds properly supersede every non-owned competitor; copied instance values remain authoritative.",
                             _ =>
                                 "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
                         },
