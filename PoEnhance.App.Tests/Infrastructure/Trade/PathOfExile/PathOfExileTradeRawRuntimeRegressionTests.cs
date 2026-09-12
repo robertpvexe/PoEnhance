@@ -733,19 +733,30 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         var catalog = OfficialTradeCatalog.Value;
         var separatedCases = new[]
         {
-            (Resolve(AsenathsMarkCompositionText, catalog), "+39(30-50) to maximum Energy Shield"),
-            (Resolve(HrimnorsResolveCompositionText, catalog), "108(100-120)% increased Armour"),
-            (Resolve(MarkOfTheRedCovenantCompositionText, catalog), "+45(30-50) to maximum Energy Shield"),
+            (Resolve(AsenathsMarkCompositionText, catalog), "+39(30-50) to maximum Energy Shield", "local_energy_shield", 39m),
+            (Resolve(HrimnorsResolveCompositionText, catalog), "108(100-120)% increased Armour", "local_physical_damage_reduction_rating_+%", 108m),
+            (Resolve(MarkOfTheRedCovenantCompositionText, catalog), "+45(30-50) to maximum Energy Shield", "local_energy_shield", 45m),
         };
-        foreach (var (runtime, text) in separatedCases)
+        foreach (var (runtime, text, statId, minimum) in separatedCases)
         {
             var component = FindComponent(runtime.ProviderDraft, text);
             Assert.Equal("Unique", StaticModifierLabel(component));
-            Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", component.UniqueResolutionDiagnosticCode);
-            Assert.Equal("Ambiguous", ModifierAvailabilityStatus(component));
-            Assert.False(component.HasExactUniqueSourceProvenance);
-            Assert.False(component.IsSearchable);
-            Assert.False(IsInteractionReady(component));
+            Assert.Null(component.UniqueResolutionDiagnosticCode);
+            Assert.Equal(
+                ParsedUniqueItemResolver.SourceBlockPartialComponentProjectionReason,
+                component.UniqueCompositionProjectionReason);
+            Assert.NotEmpty(component.UniqueOmittedCompositionComponentIds);
+            Assert.Equal([statId], component.ResolvedStatIds);
+            Assert.DoesNotContain("base_stun_recovery_+%", component.ResolvedStatIds);
+            Assert.True(component.HasExactUniqueSourceProvenance);
+            Assert.True(component.IsSearchable);
+            Assert.True(IsInteractionReady(component));
+            Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+            Assert.Equal(minimum, component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+            Assert.DoesNotContain(
+                runtime.ProviderDraft.ModifierFilters,
+                filter => filter.ResolvedStatIds.Contains("base_stun_recovery_+%"));
         }
 
         var redCovenant = Resolve(MarkOfTheRedCovenantCompositionText, catalog);

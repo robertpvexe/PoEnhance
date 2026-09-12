@@ -125,6 +125,16 @@ public sealed record ResolvedSearchComponent
     public string? UniqueAggregationDiagnostic { get; init; }
 
     /// <summary>
+    /// Provenance reason when Unique composition projected only the copied component subset.
+    /// </summary>
+    public string? UniqueCompositionProjectionReason { get; init; }
+
+    /// <summary>
+    /// Source composition-component ids omitted from the copied clipboard modifier.
+    /// </summary>
+    public IReadOnlyList<string> UniqueOmittedCompositionComponentIds { get; init; } = [];
+
+    /// <summary>
     /// True when the Unique source block was proven from the resolved Unique identity even though the
     /// copied metadata carried no Unique modifier kind. Provenance only: <see cref="UniqueOrigin"/>
     /// and the parsed metadata still report what the client actually emitted.

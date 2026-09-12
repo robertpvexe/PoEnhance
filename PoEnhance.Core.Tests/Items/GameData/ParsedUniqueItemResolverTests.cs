@@ -1079,13 +1079,119 @@ public sealed class ParsedUniqueItemResolverTests
             {{defenceCopiedLine}}
             """);
         var missingResult = resolver.Resolve(missingSibling, catalog);
-        var unresolved = Assert.Single(missingResult.ModifierBlocks);
+        var partial = Assert.Single(missingResult.ModifierBlocks);
+        Assert.True(partial.IsResolved, $"{partial.DiagnosticCode}: {partial.Diagnostic}");
+        Assert.Equal([defenceStatId], partial.StatIds);
+        Assert.True(partial.IsEquivalentSourceSet);
+        Assert.Equal(
+            ParsedUniqueItemResolver.SourceBlockPartialComponentProjectionReason,
+            partial.CompositionProjectionReason);
+        Assert.NotEmpty(partial.OmittedCompositionComponentIds);
+        Assert.DoesNotContain("base_stun_recovery_+%", partial.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_PartialComposition_HistoricalRole_RemainsFailClosed()
+    {
+        var block = CompositionBlock(
+            "defence-stun",
+            ["+(30-50) to maximum Energy Shield", "(10-15)% increased Stun and Block Recovery"],
+            ["local_energy_shield", "base_stun_recovery_+%"]);
+        var catalog = CreateCatalog(
+            "Asenath's Mark",
+            "Iron Hat",
+            UniqueItemKind.Ordinary,
+            Version("Pre 3.0.0", UniqueItemVersionRole.Historical, block));
+        var parsed = parser.Parse("""
+            Item Class: Helmets
+            Rarity: Unique
+            Asenath's Mark
+            Iron Hat
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            +39(30-50) to maximum Energy Shield
+            """);
+
+        var unresolved = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+        Assert.False(unresolved.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unresolved.DiagnosticCode);
+        Assert.Null(unresolved.CompositionProjectionReason);
+    }
+
+    [Fact]
+    public void Resolve_PartialComposition_InseparableMinMaxPair_RemainsFailClosed()
+    {
+        var block = CompositionBlock(
+            "wasp",
+            [
+                "Attacks with this Weapon deal 80 to 120 added Chaos Damage against",
+                "Enemies affected by at least 5 Poisons",
+            ],
+            [
+                "minimum_added_chaos_damage_vs_enemies_with_5+_poisons",
+                "maximum_added_chaos_damage_vs_enemies_with_5+_poisons",
+            ]);
+        var catalog = CreateCatalog(
+            "The Wasp Nest",
+            "Laminated Bow",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var parsed = parser.Parse("""
+            Item Class: Bows
+            Rarity: Unique
+            The Wasp Nest
+            Laminated Bow
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Attacks with this Weapon deal 80 to 120 added Chaos Damage against
+            """);
+
+        var unresolved = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
         Assert.False(unresolved.IsResolved);
         Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unresolved.DiagnosticCode);
     }
 
     [Fact]
-    public void Resolve_SeparatedCompositionWithDifferentSiblingText_FailsClosed()
+    public void Resolve_PartialComposition_ThresholdJewelSentenceSplit_RemainsFailClosed()
+    {
+        var block = CompositionBlock(
+            "weight",
+            [
+                "With at least 40 Strength in Radius, Heavy Strike has a",
+                "20% chance to deal Double Damage",
+            ],
+            [
+                "local_unique_jewel_heavy_strike_chance_to_deal_double_damage_%_with_50_strength_in_radius",
+                "local_jewel_effect_base_radius",
+            ]);
+        var catalog = CreateCatalog(
+            "Weight of the Empire",
+            "Crimson Jewel",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current, block));
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Weight of the Empire
+            Crimson Jewel
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            With at least 40 Strength in Radius, Heavy Strike has a
+            """);
+
+        var unresolved = Assert.Single(resolver.Resolve(parsed, catalog).ModifierBlocks);
+        Assert.False(unresolved.IsResolved);
+        Assert.Equal("UNIQUE_BLOCK_VERSION_MISMATCH", unresolved.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Resolve_SeparatedCompositionWithDifferentSiblingText_ProjectsMatchedDefenceOnly()
     {
         var block = CompositionBlock(
             "defence-stun",
@@ -1109,8 +1215,13 @@ public sealed class ParsedUniqueItemResolverTests
 
         var result = resolver.Resolve(parsed, catalog);
 
-        Assert.All(result.ModifierBlocks, resolution => Assert.False(resolution.IsResolved));
+        var defence = Assert.Single(result.ModifierBlocks, resolution => resolution.IsResolved);
+        Assert.Equal(["local_energy_shield"], defence.StatIds);
+        Assert.Equal(
+            ParsedUniqueItemResolver.SourceBlockPartialComponentProjectionReason,
+            defence.CompositionProjectionReason);
         Assert.Contains(result.ModifierBlocks, resolution =>
+            !resolution.IsResolved &&
             resolution.DiagnosticCode == "UNIQUE_BLOCK_VERSION_MISMATCH");
     }
 

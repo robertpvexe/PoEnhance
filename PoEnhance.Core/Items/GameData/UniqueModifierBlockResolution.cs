@@ -88,6 +88,18 @@ public sealed record UniqueModifierBlockResolution
 
     public string? AggregationDiagnostic { get; init; }
 
+    /// <summary>
+    /// Provenance reason when a source-composed Unique block projected only the copied
+    /// component subset. Never authorizes synthesizing omitted sibling components.
+    /// </summary>
+    public string? CompositionProjectionReason { get; init; }
+
+    /// <summary>
+    /// Composition-component ids present on the source block but not represented by the copied
+    /// clipboard modifier. Empty for complete composition projection and non-composition rows.
+    /// </summary>
+    public IReadOnlyList<string> OmittedCompositionComponentIds { get; init; } = [];
+
     public string? DiagnosticCode { get; init; }
 
     public string? Diagnostic { get; init; }

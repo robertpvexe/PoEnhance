@@ -7,6 +7,9 @@ namespace PoEnhance.Core.Items.GameData;
 
 public sealed partial class ParsedUniqueItemResolver
 {
+    public const string SourceBlockPartialComponentProjectionReason =
+        "source-block-partial-component-projection";
+
     private const string FoulbornPrefix = "Foulborn ";
 
     public UniqueItemResolutionResult Resolve(
@@ -434,6 +437,12 @@ public sealed partial class ParsedUniqueItemResolver
                 : null,
             AggregationDiagnosticCode = aggregationDiagnosticCode,
             AggregationDiagnostic = aggregationDiagnostic,
+            CompositionProjectionReason = resolved
+                ? SelectCompositionProjectionReason(resolutionMatchedBlocks)
+                : null,
+            OmittedCompositionComponentIds = resolved
+                ? SelectOmittedCompositionComponentIds(resolutionMatchedBlocks)
+                : [],
             DiagnosticCode = resolved ? null : optionSelectionLimitRejectsBlock
                 ? "UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED"
                 : selectionLimitRejectsBlock
@@ -476,6 +485,22 @@ public sealed partial class ParsedUniqueItemResolver
                     : "The source block was not present in every retained compatible version observation.",
         };
     }
+
+    private static string? SelectCompositionProjectionReason(
+        IReadOnlyList<MatchedBlock> matchedBlocks) =>
+        matchedBlocks.Any(candidate => candidate.Match.IsPartialCompositionProjection)
+            ? SourceBlockPartialComponentProjectionReason
+            : null;
+
+    private static IReadOnlyList<string> SelectOmittedCompositionComponentIds(
+        IReadOnlyList<MatchedBlock> matchedBlocks) =>
+        matchedBlocks
+            .Where(candidate => candidate.Match.IsPartialCompositionProjection)
+            .SelectMany(candidate => candidate.Match.ResolvedOmittedCompositionComponentIds)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
 
     private static UniqueModifierBlockResolution ResolveFoulbornBlock(
         int modifierIndex,
@@ -1337,10 +1362,51 @@ public sealed partial class ParsedUniqueItemResolver
         {
             foreach (var block in version.ModifierBlocks.Where(block =>
                          block.Kind == UniqueModifierBlockKind.Unique &&
-                         block.Composition is not null &&
-                         HasCompleteCompositionProjection(block, compositionModifiers)))
+                         block.Composition is not null))
             {
-                foreach (var component in block.Composition!.Components)
+                if (HasCompleteCompositionProjection(block, compositionModifiers))
+                {
+                    foreach (var component in block.Composition!.Components)
+                    {
+                        var componentMatch = MatchParsedModifier(
+                            ProjectCompositionComponent(block, component),
+                            modifier,
+                            version.Role);
+                        if (!componentMatch.IsMatch)
+                        {
+                            continue;
+                        }
+
+                        matches.Add(new MatchedBlock(
+                            block,
+                            componentMatch with
+                            {
+                                Kind = UniqueBlockTextMatchKind.CompositionComponentProjection,
+                                CompositionComponent = component,
+                            }));
+                    }
+
+                    continue;
+                }
+
+                if (version.Role != UniqueItemVersionRole.Current ||
+                    !IsEligibleForIndependentComponentPartialProjection(block) ||
+                    !TryMatchPartialCompositionProjection(
+                        block,
+                        compositionModifiers,
+                        out var matchedComponents))
+                {
+                    continue;
+                }
+
+                var omittedIds = block.Composition!.Components
+                    .Where(component => matchedComponents.All(matched =>
+                        !string.Equals(matched.Id, component.Id, StringComparison.OrdinalIgnoreCase)))
+                    .Select(component => component.Id)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Cast<string>()
+                    .ToArray();
+                foreach (var component in matchedComponents)
                 {
                     var componentMatch = MatchParsedModifier(
                         ProjectCompositionComponent(block, component),
@@ -1350,12 +1416,15 @@ public sealed partial class ParsedUniqueItemResolver
                     {
                         continue;
                     }
+
                     matches.Add(new MatchedBlock(
                         block,
                         componentMatch with
                         {
                             Kind = UniqueBlockTextMatchKind.CompositionComponentProjection,
                             CompositionComponent = component,
+                            IsPartialCompositionProjection = true,
+                            OmittedCompositionComponentIds = omittedIds,
                         }));
                 }
             }
@@ -1367,6 +1436,141 @@ public sealed partial class ParsedUniqueItemResolver
 
         var strongestKind = matches.Min(candidate => candidate.Match.Kind);
         return matches.Where(candidate => candidate.Match.Kind == strongestKind).ToArray();
+    }
+
+    private static bool IsEligibleForIndependentComponentPartialProjection(UniqueModifierBlock block)
+    {
+        var composition = block.Composition;
+        if (composition is null ||
+            composition.Components.Count < 2 ||
+            composition.AuxiliaryStatIds.Count > 0)
+        {
+            return false;
+        }
+
+        if (block.MechanicalMapping.Status is not (
+                UniqueModifierMechanicalMappingStatus.Exact or
+                UniqueModifierMechanicalMappingStatus.EquivalentSourceSet))
+        {
+            return false;
+        }
+
+        if (composition.Components.Any(component =>
+                component.StatIds.Count != 1 ||
+                string.IsNullOrWhiteSpace(component.StatIds[0]) ||
+                !component.Lines.Any(HasNumericCompositionEvidence)))
+        {
+            return false;
+        }
+
+        if (HasThresholdJewelCompoundDisplay(composition) ||
+            HasInseparableMinimumMaximumPair(composition))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasNumericCompositionEvidence(string line) =>
+        line.AsSpan().IndexOfAny("0123456789") >= 0;
+
+    private static bool HasThresholdJewelCompoundDisplay(UniqueModifierComposition composition) =>
+        composition.Components.Any(component =>
+            component.StatIds.Any(IsThresholdJewelCompoundStatId));
+
+    private static bool IsThresholdJewelCompoundStatId(string statId) =>
+        string.Equals(statId, "local_jewel_effect_base_radius", StringComparison.OrdinalIgnoreCase) ||
+        statId.StartsWith("local_unique_jewel_", StringComparison.OrdinalIgnoreCase) ||
+        statId.Contains("_in_radius", StringComparison.OrdinalIgnoreCase) ||
+        statId.Contains("_with_40_", StringComparison.OrdinalIgnoreCase) ||
+        statId.Contains("_with_50_", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasInseparableMinimumMaximumPair(UniqueModifierComposition composition)
+    {
+        var stems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var statId in composition.Components.SelectMany(component => component.StatIds))
+        {
+            if (TryGetMinimumMaximumStem(statId, out var stem) && !stems.Add(stem))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetMinimumMaximumStem(string statId, out string stem)
+    {
+        const string minimum = "minimum_";
+        const string maximum = "maximum_";
+        if (statId.StartsWith(minimum, StringComparison.OrdinalIgnoreCase))
+        {
+            stem = statId[minimum.Length..];
+            return stem.Length > 0;
+        }
+
+        if (statId.StartsWith(maximum, StringComparison.OrdinalIgnoreCase))
+        {
+            stem = statId[maximum.Length..];
+            return stem.Length > 0;
+        }
+
+        stem = string.Empty;
+        return false;
+    }
+
+    private static bool TryMatchPartialCompositionProjection(
+        UniqueModifierBlock block,
+        IReadOnlyList<ParsedModifier> modifiers,
+        out IReadOnlyList<UniqueModifierCompositionComponent> matchedComponents)
+    {
+        matchedComponents = [];
+        var components = block.Composition?.Components;
+        if (components is null || components.Count < 2)
+        {
+            return false;
+        }
+
+        var eligible = modifiers
+            .Select((modifier, index) => (Modifier: modifier, Index: index))
+            .Where(candidate =>
+                candidate.Modifier.Kind == ParsedModifierKind.Unique &&
+                candidate.Modifier.UniqueOrigin != ParsedUniqueModifierOrigin.Foulborn)
+            .ToArray();
+        var selectedModifierIndices = new HashSet<int>();
+        var matched = new List<UniqueModifierCompositionComponent>();
+        foreach (var component in components.OrderBy(component => component.Order))
+        {
+            var projectedBlock = ProjectCompositionComponent(block, component);
+            var matchingModifiers = eligible
+                .Where(candidate => MatchParsedModifier(
+                    projectedBlock,
+                    candidate.Modifier).IsMatch)
+                .Select(candidate => candidate.Index)
+                .ToArray();
+            if (matchingModifiers.Length == 0)
+            {
+                continue;
+            }
+
+            if (matchingModifiers.Length != 1 || !selectedModifierIndices.Add(matchingModifiers[0]))
+            {
+                matchedComponents = [];
+                return false;
+            }
+
+            matched.Add(component);
+        }
+
+        if (matched.Count == 0 || matched.Count >= components.Count)
+        {
+            matchedComponents = [];
+            return false;
+        }
+
+        matchedComponents = matched;
+        return true;
     }
 
     private static bool HasCompleteCompositionProjection(
@@ -1919,8 +2123,13 @@ public sealed partial class ParsedUniqueItemResolver
         IReadOnlyList<string> PresentationLines,
         IReadOnlyList<string> TextualOptionRangeAnnotations,
         UniqueBlockTextMatchKind Kind,
-        UniqueModifierCompositionComponent? CompositionComponent = null)
+        UniqueModifierCompositionComponent? CompositionComponent = null,
+        bool IsPartialCompositionProjection = false,
+        IReadOnlyList<string>? OmittedCompositionComponentIds = null)
     {
+        public IReadOnlyList<string> ResolvedOmittedCompositionComponentIds =>
+            OmittedCompositionComponentIds ?? [];
+
         public static UniqueBlockTextMatch NoMatch { get; } = new(
             false,
             [],

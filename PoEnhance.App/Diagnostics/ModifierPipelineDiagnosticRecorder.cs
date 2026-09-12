@@ -477,6 +477,8 @@ internal sealed class ModifierPipelineDiagnosticCapture
                     IsEquivalentSourceSet = block.IsEquivalentSourceSet,
                     DiagnosticCode = block.DiagnosticCode,
                     AggregationDiagnosticCode = block.AggregationDiagnosticCode,
+                    CompositionProjectionReason = block.CompositionProjectionReason,
+                    OmittedCompositionComponentIds = block.OmittedCompositionComponentIds.ToArray(),
                     StatIds = block.StatIds.ToArray(),
                     ModifierIds = block.ModifierIds.ToArray(),
                     SourceObservationIds = block.SourceObservationIds.ToArray(),
@@ -549,6 +551,10 @@ internal sealed class ModifierPipelineUniqueMechanicalBlockCapture
     public string? DiagnosticCode { get; init; }
 
     public string? AggregationDiagnosticCode { get; init; }
+
+    public string? CompositionProjectionReason { get; init; }
+
+    public IReadOnlyList<string> OmittedCompositionComponentIds { get; init; } = [];
 
     public IReadOnlyList<string> StatIds { get; init; } = [];
 
@@ -664,6 +670,10 @@ internal sealed class ModifierPipelineSourceResolutionCapture
 
     public string? UniqueAggregationDiagnostic { get; init; }
 
+    public string? UniqueCompositionProjectionReason { get; init; }
+
+    public IReadOnlyList<string> UniqueOmittedCompositionComponentIds { get; init; } = [];
+
     public bool IsEquivalentSourceSet { get; init; }
 
     public int SourceCandidateCount { get; init; }
@@ -726,6 +736,8 @@ internal sealed class ModifierPipelineSourceResolutionCapture
             UniqueResolutionDiagnosticCode = component.UniqueResolutionDiagnosticCode,
             UniqueAggregationDiagnosticCode = component.UniqueAggregationDiagnosticCode,
             UniqueAggregationDiagnostic = component.UniqueAggregationDiagnostic,
+            UniqueCompositionProjectionReason = component.UniqueCompositionProjectionReason,
+            UniqueOmittedCompositionComponentIds = component.UniqueOmittedCompositionComponentIds.ToArray(),
             IsEquivalentSourceSet = resolution?.IsEquivalentSourceSet == true || component.IsEquivalentSourceSet,
             SourceCandidateCount = resolution?.CandidateCount ?? 0,
             UniqueConflictKind = conflict?.Kind.ToString(),
