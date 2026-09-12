@@ -556,7 +556,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 MatchesEldritchTier(candidate, modifier.EldritchTier.Value))
             .ToArray();
         var candidates = originAndTierCandidates
-            .Where(candidate => SpecialImplicitValuesMatchCandidate(modifier, candidate))
+            .Where(candidate => SpecialImplicitValuesMatchCandidate(modifier, candidate, catalog))
             .ToArray();
         if (candidates.Length == 0)
         {
@@ -630,12 +630,17 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
     private static bool SpecialImplicitValuesMatchCandidate(
         ParsedModifier modifier,
-        ModifierDefinition candidate)
+        ModifierDefinition candidate,
+        GameDataCatalog catalog)
     {
         var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
         if (advancedRanges.Count > 0)
         {
-            return CandidateRangesMatch(candidate, advancedRanges);
+            return SpecialImplicitAdvancedValuesMatch(
+                candidate,
+                catalog,
+                modifier.ValueLines,
+                advancedRanges);
         }
 
         var observedValues = ExtractDisplayedStatValues(modifier.ValueLines);
@@ -644,16 +649,60 @@ public sealed partial class ParsedItemModifierCandidateResolver
             return true;
         }
 
-        var stats = candidate.Stats
-            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
-            .OrderBy(stat => stat.Index)
-            .ToArray();
+        var stats = OrderedTypedStats(candidate);
         if (stats.Length != observedValues.Count)
         {
             return false;
         }
 
-        for (var index = 0; index < stats.Length; index++)
+        var variants = FindStatTranslationVariants(catalog, stats);
+        if (variants.Any(variant => VariantProjectsNumericValues(stats, variant)))
+        {
+            // Prefer displayed-domain proof when typed translation projection is available.
+            // Do not fall back to raw Min/Max compare (rejects raw-domain false positives).
+            return variants.Any(variant =>
+                TranslationDisplayedValuesMatch(stats, variant, observedValues));
+        }
+
+        return SpecialImplicitRawDisplayedValuesMatch(stats, observedValues);
+    }
+
+    private static bool SpecialImplicitAdvancedValuesMatch(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog,
+        IReadOnlyList<string> valueLines,
+        IReadOnlyList<AdvancedStatRange> ranges)
+    {
+        var stats = OrderedTypedStats(candidate);
+        var observedValues = ExtractAdvancedObservedValues(valueLines);
+        if (stats.Length != ranges.Count ||
+            observedValues.Count != ranges.Count)
+        {
+            return false;
+        }
+
+        var variants = FindStatTranslationVariants(catalog, stats);
+        var projectableVariants = variants
+            .Where(variant => VariantProjectsNumericValues(stats, variant))
+            .ToArray();
+        if (projectableVariants.Length > 0)
+        {
+            return projectableVariants.Any(variant =>
+                TranslationProjectionMatches(
+                    stats,
+                    variant,
+                    ranges,
+                    observedValues));
+        }
+
+        return CandidateRangesMatch(candidate, ranges);
+    }
+
+    private static bool SpecialImplicitRawDisplayedValuesMatch(
+        IReadOnlyList<ModifierStat> stats,
+        IReadOnlyList<decimal> observedValues)
+    {
+        for (var index = 0; index < stats.Count; index++)
         {
             var minimum = stats[index].MinValue;
             var maximum = stats[index].MaxValue;
@@ -661,6 +710,68 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 !maximum.HasValue ||
                 observedValues[index] < minimum.Value ||
                 observedValues[index] > maximum.Value)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ModifierStat[] OrderedTypedStats(ModifierDefinition candidate) =>
+        candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+
+    private static StatTranslationVariant[] FindStatTranslationVariants(
+        GameDataCatalog catalog,
+        IReadOnlyList<ModifierStat> stats)
+    {
+        var statIds = stats.Select(stat => stat.StatId!.Trim()).ToArray();
+        return catalog.FindStatTranslationsByStatIdGroup(statIds)
+            .SelectMany(translation => translation.Variants)
+            .ToArray();
+    }
+
+    private static bool VariantProjectsNumericValues(
+        IReadOnlyList<ModifierStat> stats,
+        StatTranslationVariant variant)
+    {
+        if (variant.ValueFormats.Count != stats.Count ||
+            variant.Conditions.Count != stats.Count)
+        {
+            return false;
+        }
+
+        var conditions = variant.Conditions
+            .GroupBy(condition => condition.Index)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        for (var index = 0; index < stats.Count; index++)
+        {
+            var stat = stats[index];
+            if (!stat.MinValue.HasValue ||
+                !stat.MaxValue.HasValue ||
+                !conditions.TryGetValue(index, out var indexedConditions) ||
+                indexedConditions.Length != 1 ||
+                !ConditionContainsRange(
+                    indexedConditions[0],
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value) ||
+                variant.ValueFormats[index] is not ("#" or "+#"))
+            {
+                return false;
+            }
+
+            var handlerGroups = variant.IndexHandlers
+                .Where(handler => handler.Index == index)
+                .ToArray();
+            if (handlerGroups.Length != 1 ||
+                !TryProjectDiscreteRange(
+                    stat.MinValue.Value,
+                    stat.MaxValue.Value,
+                    handlerGroups[0].Handlers,
+                    out _))
             {
                 return false;
             }

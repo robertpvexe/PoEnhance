@@ -274,6 +274,313 @@ Item Level: 85
     }
 
     [Fact]
+    public void Resolve_CorruptedImplicit_MatchesDisplayedValueThroughTranslationHandlers()
+    {
+        const string statId = "base_life_leech_from_cold_damage_permyriad";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.cold-leech-v2",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 50m, 50m)],
+        };
+        var disabled = eligible with
+        {
+            Id = "mod.corrupted.cold-leech-disabled",
+            GroupId = "group.mod.corrupted.cold-leech-disabled",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+            Stats = [StatRef(statId, 20m, 20m)],
+            SpawnWeights = [SpawnWeight("default", 0)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0}% of Cold Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            disabled,
+            eligible);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+0.5% of Cold Damage Leeched as Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.cold-leech-v2", Assert.Single(result.Candidates).Id);
+        Assert.DoesNotContain(result.Candidates, candidate => candidate.Id == disabled.Id);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_RejectsRawDomainFalsePositiveWhenTranslationProjects()
+    {
+        const string statId = "base_life_leech_from_cold_damage_permyriad";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.cold-leech-v2",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 50m, 50m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0}% of Cold Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            eligible);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+50% of Cold Damage Leeched as Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_RejectsTranslatedDisplayedValueOutsideCandidateDomain()
+    {
+        const string statId = "base_life_leech_from_cold_damage_permyriad";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.cold-leech-v2",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 50m, 50m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0}% of Cold Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            eligible);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+0.3% of Cold Damage Leeched as Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_AmbiguousTranslatedDisplayedValues_FailClosed()
+    {
+        const string statId = "base_life_leech_from_cold_damage_permyriad";
+        var first = ModifierWithStat(
+            "mod.corrupted.cold-leech-a",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 50m, 50m)],
+        };
+        var second = first with
+        {
+            Id = "mod.corrupted.cold-leech-b",
+            GroupId = "group.mod.corrupted.cold-leech-b",
+            Sources =
+            [
+                new GameDataSourceReference
+                {
+                    SourceId = "test",
+                    ExternalId = "mod.corrupted.cold-leech-b",
+                },
+            ],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0}% of Cold Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            first,
+            second);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+0.5% of Cold Damage Leeched as Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_OriginMismatch_DoesNotSelectCorruptedCandidate()
+    {
+        const string statId = "maximum_life";
+        var corrupted = ModifierWithStat(
+            "mod.corrupted.maximum-life",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 10m, 10m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation([statId], Variant(["+{0} to maximum Life"], ["#"]))],
+            corrupted);
+        var item = ParseWithModifier("""
+{ Implicit Modifier }
++10 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.DoesNotContain(result.Candidates, candidate => candidate.Id == corrupted.Id);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_PreservesRawCompareWhenTranslationCannotProject()
+    {
+        const string statId = "custom_unprojectable_stat";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.unprojectable",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 10m, 12m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0}% custom unprojectable"],
+                        ["#"],
+                        [["unknown_numeric_handler"]])),
+            ],
+            eligible);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+11% custom unprojectable
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.unprojectable", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_DoesNotCrossMatchWrongStatDomain()
+    {
+        const string coldStat = "base_life_leech_from_cold_damage_permyriad";
+        const string fireStat = "base_life_leech_from_fire_damage_permyriad";
+        var fire = ModifierWithStat(
+            "mod.corrupted.fire-leech",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            fireStat,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(fireStat, 50m, 50m)],
+        };
+        var catalog = CreateCatalogWithTranslationsAndStats(
+            [],
+            [Stat(coldStat), Stat(fireStat)],
+            [
+                Translation(
+                    [coldStat],
+                    Variant(
+                        ["{0}% of Cold Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+                Translation(
+                    [fireStat],
+                    Variant(
+                        ["{0}% of Fire Damage Leeched as Life"],
+                        ["#"],
+                        [["divide_by_one_hundred"]])),
+            ],
+            fire);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+0.5% of Cold Damage Leeched as Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Empty(result.Candidates);
+        Assert.DoesNotContain(result.Candidates, candidate => candidate.Id == fire.Id);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.Code is
+                    ModifierCandidateResolutionDiagnosticCodes.ModifierNotFound or
+                    ModifierCandidateResolutionDiagnosticCodes.ModifierTextNoMatch);
+    }
+
+    [Fact]
     public void Resolve_AuthenticCorruptionImplicit_ProvesExactEquivalentSourceSetAcrossCompatibleBases()
     {
         const string statId = "base_minimum_frenzy_charges";

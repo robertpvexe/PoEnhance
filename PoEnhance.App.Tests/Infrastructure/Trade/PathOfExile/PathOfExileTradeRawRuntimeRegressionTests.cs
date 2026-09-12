@@ -27,6 +27,9 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static readonly MethodInfo StaticModifierLabelMethod = typeof(PriceCheckerSearchController)
         .GetMethod("StaticModifierLabel", BindingFlags.Static | BindingFlags.NonPublic) ??
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "StaticModifierLabel");
+    private static readonly MethodInfo SectionLabelMethod = typeof(PriceCheckerSearchController)
+        .GetMethod("SectionLabel", BindingFlags.Static | BindingFlags.NonPublic) ??
+        throw new MissingMethodException(nameof(PriceCheckerSearchController), "SectionLabel");
     private static readonly MethodInfo ModifierAvailabilityStatusMethod = typeof(PriceCheckerSearchController)
         .GetMethod("ModifierAvailabilityStatus", BindingFlags.Static | BindingFlags.NonPublic) ??
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "ModifierAvailabilityStatus");
@@ -1089,6 +1092,66 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_HrimnorsResolve_CorruptedColdLeechIsSearchableImplicit()
+    {
+        var runtime = Resolve(HrimnorsResolveCorruptedColdLeechText, OfficialTradeCatalog.Value);
+        var text = "0.5% of Cold Damage Leeched as Life";
+        var parsed = Assert.Single(runtime.Parsed.Modifiers, modifier => modifier.ValueLines.Contains(text));
+        var source = Assert.Single(runtime.SourceResolutions, resolution =>
+            resolution.ParsedModifier.ValueLines.Contains(text));
+        var component = FindComponent(runtime.ProviderDraft, text);
+
+        Assert.Equal(ParsedModifierKind.Implicit, parsed.Kind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, parsed.ImplicitOrigin);
+        Assert.Equal(ModifierGenerationType.Corrupted, source.GenerationType);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, source.Status);
+        Assert.Equal("V2ColdDamageLifeLeechPermyriadCorrupted_", Assert.Single(source.Candidates).Id);
+        Assert.Equal(["base_life_leech_from_cold_damage_permyriad"], component.ResolvedStatIds);
+        Assert.Equal(ParsedModifierKind.Implicit, component.ResolvedSourceKind);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, component.ImplicitOrigin);
+        Assert.False(component.IsBaseImplicit);
+        Assert.Contains(component.ProviderDomainEvidence, evidence =>
+            evidence.IsSourceExact &&
+            string.Equals(evidence.ProviderDomain, "Implicit", StringComparison.Ordinal));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            component.ProviderResolutionStatus);
+        Assert.Null(component.ProviderStatId);
+        Assert.Contains("implicit.stat_3999401129", component.ProviderStatAlternativeIds);
+        Assert.All(
+            component.ProviderStatAlternativeIds,
+            id => Assert.StartsWith("implicit.", id, StringComparison.Ordinal));
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.True(IsInteractionReady(component));
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.Equal([0.5m], component.ObservedNumericValues);
+        Assert.Equal("Corrupted", SectionLabel(component));
+
+        var selectedDraft = runtime.ProviderDraft with
+        {
+            ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                .Select(candidate => candidate with
+                {
+                    IsSelected = candidate.ComponentId == component.ComponentId,
+                })
+                .ToArray(),
+        };
+        var mapping = SelectedMapper.Map(selectedDraft, OfficialTradeCatalog.Value);
+        Assert.True(
+            mapping.IsSuccess,
+            string.Join(" | ", mapping.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.NotEmpty(mapping.Filters);
+        Assert.Contains(
+            mapping.Filters.Select(filter => filter.StatId),
+            id => id == "implicit.stat_3999401129");
+        Assert.All(mapping.Filters, filter =>
+        {
+            Assert.True(filter.Minimum is null or 0.5m, $"min={filter.Minimum}");
+        });
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_ReverberationRod_CorruptedPowerChargeStaysSearchableImplicit()
     {
         var runtime = Resolve(ReverberationRodText, OfficialTradeCatalog.Value);
@@ -1345,6 +1408,11 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     private static string StaticModifierLabel(ResolvedSearchComponent component)
     {
         return (string)(StaticModifierLabelMethod.Invoke(null, [component]) ?? string.Empty);
+    }
+
+    private static string SectionLabel(ResolvedSearchComponent component)
+    {
+        return (string)(SectionLabelMethod.Invoke(null, [component]) ?? string.Empty);
     }
 
     private static string ModifierAvailabilityStatus(ResolvedSearchComponent component)
@@ -1692,6 +1760,27 @@ Item Level: 80
 --------
 { Unique Modifier — Defences, Armour }
 108(100-120)% increased Armour
+""";
+
+    private const string HrimnorsResolveCorruptedColdLeechText = """
+Item Class: Helmets
+Rarity: Unique
+Hrimnor's Resolve
+Samnite Helmet
+--------
+Armour: 300 (augmented)
+--------
+Item Level: 80
+--------
+{ Corruption Implicit Modifier }
+0.5% of Cold Damage Leeched as Life
+--------
+{ Unique Modifier — Defences, Armour }
+108(100-120)% increased Armour
+{ Unique Modifier }
+10% increased Stun and Block Recovery
+--------
+Corrupted
 """;
 
     private const string MarkOfTheRedCovenantCompositionText = """
