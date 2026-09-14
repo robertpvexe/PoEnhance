@@ -109,6 +109,42 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
+    public void ObservedValueExtraction_PrefersAttachedRollsOverFixedSemanticLiterals()
+    {
+        Assert.Equal(
+            [4m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "4(1-5)% increased Rarity of Items found per Mana Burn, up to a maximum of 100%"));
+        Assert.Equal(
+            [8m],
+            ModifierBoundDefaults.ExtractObservedValues("8(6-10)% chance to Ignite"));
+        Assert.Equal(
+            [45m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "45(40-50)% increased Physical Damage taken"));
+        Assert.Equal(
+            [15m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "15(10-20)% chance that if you would gain Rage on Hit, you instead gain up to your maximum Rage"));
+        Assert.Equal(
+            [14m, 25m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "Adds 14(11-15) to 25(23-26) Cold Damage per 10 Intelligence"));
+    }
+
+    [Fact]
+    public void ObservedValueExtraction_WithoutAttachedRolls_KeepsGenericDigitFallback()
+    {
+        Assert.Equal(
+            [3m],
+            ModifierBoundDefaults.ExtractObservedValues("Gain 3 Rage on Melee Weapon Hit"));
+        Assert.Equal(
+            [1m, 200m],
+            ModifierBoundDefaults.ExtractObservedValues(
+                "Melee Weapon Damage Penetrates 1% Elemental Resistances per Mana Burn, up to a maximum of 200%"));
+    }
+
+    [Fact]
     public void OriginalSourceRollExtraction_PreservesSignedRangesSeparatelyFromDisplayedValues()
     {
         var ranges = ModifierBoundDefaults.ExtractOriginalSourceRollRanges(

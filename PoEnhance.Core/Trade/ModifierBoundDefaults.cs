@@ -319,8 +319,30 @@ internal static partial class ModifierBoundDefaults
             return [];
         }
 
-        var observedOnly = AttachedRangeRegex().Replace(source, "${roll}");
-        return NumberRegex().Matches(observedOnly)
+        // Prefer structurally proven attached observed rolls (N(min-max) / N(fixed)) over a
+        // generic digit scan. Fixed semantic literals on the same line (e.g. "up to a maximum of
+        // 100%") must not become additional observed values when stronger roll evidence exists.
+        var attachedRolls = new List<decimal>();
+        foreach (Match match in AttachedRangeRegex().Matches(source))
+        {
+            if (!decimal.TryParse(
+                    match.Groups["roll"].Value,
+                    NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture,
+                    out var roll))
+            {
+                return [];
+            }
+
+            attachedRolls.Add(roll);
+        }
+
+        if (attachedRolls.Count > 0)
+        {
+            return attachedRolls;
+        }
+
+        return NumberRegex().Matches(source)
             .Select(match => decimal.TryParse(
                     match.Value,
                     NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,

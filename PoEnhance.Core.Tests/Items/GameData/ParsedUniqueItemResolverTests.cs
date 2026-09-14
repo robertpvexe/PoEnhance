@@ -1414,6 +1414,91 @@ public sealed class ParsedUniqueItemResolverTests
     }
 
     [Fact]
+    public void CreateDraft_UniqueExactAttachedRoll_ExcludesFixedSemanticLiteralFromRequestedMinimum()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Tinctures
+            Rarity: Unique
+            Bound Projection Unique
+            Oakbranch Tincture
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            4(1-5)% increased Rarity of Items found per Mana Burn, up to a maximum of 100%
+            """);
+        var catalog = CreateCatalog(
+            "Bound Projection Unique",
+            "Oakbranch Tincture",
+            UniqueItemKind.Ordinary,
+            Version(
+                "Current",
+                UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "rarity-cap",
+                    "(1-5)% increased Rarity of Items found per Mana Burn, up to a maximum of 100%",
+                    "<number>% increased Rarity of Items found per Mana Burn, up to a maximum of <number>%",
+                    "item_rarity_per_toxicity_stat")));
+
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+
+        Assert.True(row.IsSearchable);
+        Assert.Equal(["item_rarity_per_toxicity_stat"], row.ResolvedStatIds);
+        Assert.Equal(4m, row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.True(row.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.Scalar, row.ValueBoundShape);
+        Assert.Equal([4m], row.ObservedNumericValues);
+        Assert.Equal([new ModifierSourceRollRange(1m, 5m)], row.OriginalSourceRollRanges);
+        Assert.DoesNotContain(100m, row.ObservedNumericValues);
+        Assert.Null(row.FixedQueryValue);
+    }
+
+    [Fact]
+    public void CreateDraft_UniqueExactTwoAttachedRolls_DoesNotCollapseToFirstNumber()
+    {
+        var parsed = parser.Parse("""
+            Item Class: Wands
+            Rarity: Unique
+            Bound Projection Unique
+            Calling Wand
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            Adds 14(11-15) to 25(23-26) Cold Damage
+            """);
+        var catalog = CreateCatalog(
+            "Bound Projection Unique",
+            "Calling Wand",
+            UniqueItemKind.Ordinary,
+            Version(
+                "Current",
+                UniqueItemVersionRole.Current,
+                EvidenceBlock(
+                    "cold-range",
+                    "Adds 14(11-15) to 25(23-26) Cold Damage",
+                    "Adds <number> to <number> Cold Damage",
+                    "cold_min_stat")));
+
+        // Two attached rolls without a proven single-stat scalar projection — fail closed.
+        var draft = Assert.IsType<TradeSearchDraft>(new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            modifierResolutions: [],
+            gameDataCatalog: catalog).Draft);
+        var row = Assert.Single(draft.ModifierFilters);
+
+        Assert.Equal([14m, 25m], row.ObservedNumericValues);
+        Assert.Null(row.RequestedMinimum);
+        Assert.Null(row.RequestedMaximum);
+        Assert.False(row.SupportsValueBounds);
+    }
+
+    [Fact]
     public void Resolve_CompatibleVersionsWithConflictingMechanics_FailsBlockClosed()
     {
         var parsed = parser.Parse("""
