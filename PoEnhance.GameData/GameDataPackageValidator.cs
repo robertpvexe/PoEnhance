@@ -686,11 +686,16 @@ public static class GameDataPackageValidator
         var hasSourceTextEvidence = allowSourceTextEvidence && provenance.ResolutionReasons.Contains(
             "repoe-modifier-source-text",
             StringComparer.Ordinal);
+        var hasExportOwnerModTextMapBridgeEvidence = provenance.ResolutionReasons.Contains(
+            "export-owner-modtextmap-positive-exact",
+            StringComparer.Ordinal);
         if (provenance.ResolutionReasons.Count == 0 ||
             provenance.ResolutionReasons.Any(string.IsNullOrWhiteSpace) ||
             provenance.ResolutionReasons.Distinct(StringComparer.Ordinal).Count() !=
                 provenance.ResolutionReasons.Count ||
-            provenance.Translations.Count == 0 && !hasSourceTextEvidence ||
+            provenance.Translations.Count == 0 &&
+                !hasSourceTextEvidence &&
+                !hasExportOwnerModTextMapBridgeEvidence ||
             !string.Equals(provenance.ValueAuthority, "copiedInstance", StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(provenance.SafetyRationale))
         {

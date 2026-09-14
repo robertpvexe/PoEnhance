@@ -42,6 +42,7 @@ public sealed partial class PoBUniqueCatalogImporter
             }
 
             PoBExportUniqueOwnershipIndex? exportOwnership = null;
+            PoBModTextMapIndex? modTextMap = null;
             if (!string.IsNullOrWhiteSpace(pobSourceRootPath))
             {
                 var exportDirectory = Path.Combine(
@@ -52,6 +53,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 if (Directory.Exists(exportDirectory))
                 {
                     exportOwnership = PoBExportUniqueOwnershipParser.LoadFromDirectory(exportDirectory);
+                    var modTextMapPath = Path.Combine(exportDirectory, "ModTextMap.lua");
+                    if (File.Exists(modTextMapPath))
+                    {
+                        modTextMap = PoBModTextMapParser.LoadFromFile(modTextMapPath);
+                    }
                 }
             }
 
@@ -65,7 +71,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 baseItems ?? [],
                 itemPropertySemantics ?? [],
                 stats ?? [],
-                exportOwnership);
+                exportOwnership,
+                modTextMap);
         }
         catch (JsonException exception)
         {
@@ -89,7 +96,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<ItemBaseRecord> baseItems,
         IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
         IReadOnlyList<StatDefinition> stats,
-        PoBExportUniqueOwnershipIndex? exportOwnership)
+        PoBExportUniqueOwnershipIndex? exportOwnership,
+        PoBModTextMapIndex? modTextMap)
     {
         var diagnostics = new List<ImportDiagnostic>();
         var observations = new List<UniqueCatalogSourceObservation>();
@@ -205,7 +213,7 @@ public sealed partial class PoBUniqueCatalogImporter
             stats);
         var identities = parsed
             .GroupBy(item => new IdentityKey(item.Name, item.Kind))
-            .Select(group => BuildIdentity(group, mechanicalIndex, exportOwnership))
+            .Select(group => BuildIdentity(group, mechanicalIndex, exportOwnership, modTextMap))
             .OrderBy(identity => identity.CanonicalName, StringComparer.Ordinal)
             .ThenBy(identity => identity.Kind)
             .ThenBy(identity => identity.Id, StringComparer.Ordinal)
@@ -228,11 +236,18 @@ public sealed partial class PoBUniqueCatalogImporter
     private static UniqueItemIdentity BuildIdentity(
         IGrouping<IdentityKey, ParsedSourceItem> group,
         MechanicalIndex mechanicalIndex,
-        PoBExportUniqueOwnershipIndex? exportOwnership)
+        PoBExportUniqueOwnershipIndex? exportOwnership,
+        PoBModTextMapIndex? modTextMap)
     {
         var identityId = StableId("unique", group.Key.Name, group.Key.Kind.ToString());
         var versions = group
-            .SelectMany(item => BuildVersions(identityId, group.Key.Name, item, mechanicalIndex, exportOwnership))
+            .SelectMany(item => BuildVersions(
+                identityId,
+                group.Key.Name,
+                item,
+                mechanicalIndex,
+                exportOwnership,
+                modTextMap))
             .GroupBy(version => new
             {
                 version.Label,
@@ -326,7 +341,8 @@ public sealed partial class PoBUniqueCatalogImporter
         string canonicalUniqueName,
         ParsedSourceItem item,
         MechanicalIndex mechanicalIndex,
-        PoBExportUniqueOwnershipIndex? exportOwnership)
+        PoBExportUniqueOwnershipIndex? exportOwnership,
+        PoBModTextMapIndex? modTextMap)
     {
         var baseVariantIndices = item.BaseTypes.SelectMany(baseType => baseType.Variants).ToHashSet();
         var plans = BuildVersionPlans(item);
@@ -376,7 +392,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     item.ObservationId!,
                     item.IsGenerated,
                     mechanicalIndex,
-                    exportOwnership)
+                    exportOwnership,
+                    modTextMap)
                 .Concat(GroupBlocks(
                     uniqueLines,
                     UniqueModifierBlockKind.Unique,
@@ -389,7 +406,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     item.ObservationId!,
                     item.IsGenerated,
                     mechanicalIndex,
-                    exportOwnership))
+                    exportOwnership,
+                    modTextMap))
                 .ToArray();
             var selectedCandidateCount = item.SelectedVariantIndices.Count(index =>
                 item.IsGenerated &&
@@ -902,7 +920,8 @@ public sealed partial class PoBUniqueCatalogImporter
         string observationId,
         bool isGeneratedSource,
         MechanicalIndex mechanicalIndex,
-        PoBExportUniqueOwnershipIndex? exportOwnership)
+        PoBExportUniqueOwnershipIndex? exportOwnership,
+        PoBModTextMapIndex? modTextMap)
     {
         for (var index = 0; index < lines.Count;)
         {
@@ -942,7 +961,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     CombineSourceSemanticFingerprints(compositionLines.Select(line =>
                         line.SemanticFingerprint)),
                     mechanicalIndex,
-                    exportOwnership);
+                    exportOwnership,
+                    modTextMap);
                 for (var skippedIndex = index + 1; skippedIndex < compositionEndIndex; skippedIndex++)
                 {
                     var skippedLine = lines[skippedIndex];
@@ -968,7 +988,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         skippedLine.OptionChoiceMemberships,
                         skippedLine.SemanticFingerprint,
                         mechanicalIndex,
-                        exportOwnership);
+                        exportOwnership,
+                        modTextMap);
                 }
 
                 index = compositionEndIndex + 1;
@@ -1029,7 +1050,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 CombineSourceSemanticFingerprints(selectedLines.Select(line =>
                     line.SemanticFingerprint)),
                 mechanicalIndex,
-                exportOwnership);
+                exportOwnership,
+                modTextMap);
             index += selectedLength;
         }
     }
@@ -1085,7 +1107,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyList<UniqueModifierOptionChoiceMembership> optionChoiceMemberships,
         UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
         MechanicalIndex mechanicalIndex,
-        PoBExportUniqueOwnershipIndex? exportOwnership)
+        PoBExportUniqueOwnershipIndex? exportOwnership,
+        PoBModTextMapIndex? modTextMap)
     {
         var signatures = lines.Select(NormalizeSignature).ToArray();
         var signature = string.Join("\n", signatures);
@@ -1211,6 +1234,37 @@ public sealed partial class PoBUniqueCatalogImporter
             }
         }
 
+        if (status == UniqueModifierMechanicalMappingStatus.Unsupported &&
+            currentRoleResolutionReason is null &&
+            TryApplyExportOwnerModTextMapPositiveExact(
+                canonicalUniqueName,
+                versionLabel,
+                versionRole,
+                sourceVariantIndex,
+                kind,
+                lines,
+                baseType,
+                hasGeneratedOptionEvidence,
+                mechanicalIndex,
+                exportOwnership,
+                modTextMap,
+                out var bridgeSurvivors,
+                out var bridgeReason,
+                out _))
+        {
+            candidates = bridgeSurvivors;
+            currentRoleResolutionReason = bridgeReason;
+            semanticFingerprints = candidates
+                .Select(SemanticFingerprintEquivalenceKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            status = UniqueModifierMechanicalMappingStatus.Exact;
+            resolution = new MechanicalResolution(
+                candidates,
+                UsedStrictEvidence: false,
+                ResolutionReasons: [ExportOwnerModTextMapPositiveExactReason]);
+        }
+
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
             UniqueModifierMechanicalMappingStatus.EquivalentSourceSet;
         var blockId = optionChoiceMemberships.Count > 0
@@ -1318,6 +1372,8 @@ public sealed partial class PoBUniqueCatalogImporter
                                 "Pinned Path of Building Export Uniques typed ownership removed cross-item ModifierId candidates that are not owned by this Unique identity/variant; copied instance values remain authoritative.",
                             PassageOwnedStatIdsSupersetCollapseReason =>
                                 "SameDisplay ExactConflict under shared Passage display-chrome evidence collapsed to the single Export-owned candidate whose StatIds properly supersede every non-owned competitor; copied instance values remain authoritative.",
+                            ExportOwnerModTextMapPositiveExactReason =>
+                                "Pinned Export typed ownership intersected with ModTextMap for this display block yields one RePoE ModifierId with StatIds after normal mechanical matching found none; copied instance values remain authoritative.",
                             _ =>
                                 "Pinned modifier, translation-condition, and base-property evidence leaves one mechanical stat vector; copied instance values remain authoritative.",
                         },
@@ -1886,7 +1942,15 @@ public sealed partial class PoBUniqueCatalogImporter
                 .ToDictionary(
                     group => group.Key,
                     group => group.First(),
-                    StringComparer.OrdinalIgnoreCase));
+                    StringComparer.OrdinalIgnoreCase),
+            modifiers
+                .Where(modifier => !string.IsNullOrWhiteSpace(modifier.Id))
+                .GroupBy(modifier => modifier.Id!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First(),
+                    StringComparer.OrdinalIgnoreCase),
+            statsById);
     }
 
     private static bool TryCreateSourceTextCompositionKey(
@@ -3438,8 +3502,121 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlySet<string> compositionModifierIds,
         IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains,
         IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
-        IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics)
+        IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics,
+        IReadOnlyDictionary<string, ModifierDefinition> modifiersById,
+        IReadOnlyDictionary<string, StatDefinition> statsById)
     {
+        public bool TryCreateOwnedModifierCandidate(
+            string modifierId,
+            UniqueModifierBlockKind blockKind,
+            IReadOnlyList<string> blockLines,
+            string baseType,
+            bool hasGeneratedOptionEvidence,
+            UniqueItemVersionRole versionRole,
+            out MechanicalCandidate candidate,
+            out string? rejectReason)
+        {
+            candidate = null!;
+            rejectReason = null;
+            if (!modifiersById.TryGetValue(modifierId, out var modifier))
+            {
+                rejectReason = "repoe-modifier-missing";
+                return false;
+            }
+
+            if (modifier.SourceAvailability == ModifierSourceAvailability.Disabled)
+            {
+                rejectReason = "repoe-modifier-disabled";
+                return false;
+            }
+
+            var sourceGeneration = modifier.SourceGenerationType?.Trim() ?? string.Empty;
+            if (!IsSourceGenerationCompatible(blockKind, sourceGeneration))
+            {
+                rejectReason = "source-generation-incompatible";
+                return false;
+            }
+
+            // Historical-only observations must not promote Current packages through this bridge.
+            if (versionRole == UniqueItemVersionRole.Current &&
+                string.Equals(sourceGeneration, "historical", StringComparison.OrdinalIgnoreCase))
+            {
+                rejectReason = "current-historical-contradiction";
+                return false;
+            }
+
+            var statIds = modifier.Stats.OrderBy(stat => stat.Index)
+                .Select(stat => stat.StatId?.Trim())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray();
+            if (statIds.Length == 0)
+            {
+                rejectReason = "repoe-statids-missing";
+                return false;
+            }
+
+            // Multi-stat Unique modifiers must keep their SourceText composition boundary.
+            // ModTextMap often indexes only the first display line; never promote a partial
+            // component to Exact with the full StatId vector.
+            if (statIds.Length > 1)
+            {
+                if (string.IsNullOrWhiteSpace(modifier.SourceText))
+                {
+                    rejectReason = "multi-stat-missing-source-text";
+                    return false;
+                }
+
+                var sourceLines = SplitSourceTextLines(modifier.SourceText);
+                if (sourceLines.Length != blockLines.Count)
+                {
+                    rejectReason = "source-text-line-count-mismatch";
+                    return false;
+                }
+            }
+
+            var provisional = new MechanicalCandidate(
+                modifier.Id!,
+                statIds,
+                modifier.Domain,
+                ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                SourceText: modifier.SourceText,
+                SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                    statIds,
+                    statsById,
+                    []),
+                SourceGenerationType: modifier.SourceGenerationType,
+                SourceAvailability: modifier.SourceAvailability);
+            var filtered = FilterCandidates(
+                [provisional],
+                baseType,
+                hasGeneratedOptionEvidence);
+            if (filtered.Candidates.Count != 1)
+            {
+                rejectReason = "domain-or-property-incompatible";
+                return false;
+            }
+
+            candidate = filtered.Candidates[0];
+            return true;
+        }
+
+        private static bool IsSourceGenerationCompatible(
+            UniqueModifierBlockKind blockKind,
+            string sourceGeneration)
+        {
+            if (string.IsNullOrWhiteSpace(sourceGeneration))
+            {
+                return false;
+            }
+
+            // Unique-owned effects often carry RePoE generationType=implicit with
+            // sourceGenerationType=unique. Keep truthful block kind and accept both.
+            return sourceGeneration.Equals("unique", StringComparison.OrdinalIgnoreCase) ||
+                (blockKind == UniqueModifierBlockKind.Implicit &&
+                    sourceGeneration.Equals("implicit", StringComparison.OrdinalIgnoreCase));
+        }
+
         public int GetMaximumProvenCompositionLength(
             IReadOnlyList<SelectedEffectLine> lines,
             int startIndex)
