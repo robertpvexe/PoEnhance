@@ -316,8 +316,12 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         AssertDisplayedProperty(armour, 420m);
         AssertDisplayedProperty(evasion, 420m);
         AssertDisplayedProperty(block, 30m);
-        Assert.Null(armour.CalculationBasisLabel);
-        Assert.Null(evasion.CalculationBasisLabel);
+        // Quality is already +20%, so the normalized value equals the clipboard display,
+        // but EquivalentSourceSet local Armour/Evasion% now collapses to one contribution
+        // and legitimately claims Q20 (pre-A.4.3.1.4 independent projection double-counted
+        // the nine equivalent alternatives and failed closed without the badge).
+        Assert.Equal("Q20", armour.CalculationBasisLabel);
+        Assert.Equal("Q20", evasion.CalculationBasisLabel);
         Assert.Null(block.CalculationBasisLabel);
 
         var sockets = FindComponent(runtime.ProviderDraft, "Has 3 Sockets");

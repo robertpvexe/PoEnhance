@@ -178,6 +178,11 @@ public sealed partial class DerivedWeaponPropertyCalculator
         var provenance = new List<DerivedWeaponQ20ModifierProvenance>();
         foreach (var effect in effects)
         {
+            if (effect.CanonicalizationUnsupportedReason is { } canonicalizationReason)
+            {
+                return new(added, increased, provenance, canonicalizationReason);
+            }
+
             if (effect.UsesPositionalFallback && CouldAffect(effect, target))
             {
                 return new(added, increased, provenance,

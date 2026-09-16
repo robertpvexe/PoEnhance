@@ -47,8 +47,7 @@ public sealed partial class TradeSearchDraftMapper
         var derivedDefensiveProperties = derivedPropertyCalculator.CalculateDefensiveQ20(
             parsedItem,
             itemBaseResolution?.MatchedItemBase,
-            DerivedWeaponModifierEffectProjector.ProjectSourcesIndependently(
-                aggregation.Components));
+            CreateDerivedWeaponModifierEffects(aggregation.Components));
         var itemProperties = CreateItemProperties(derivedWeaponProperties, derivedDefensiveProperties);
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
             itemProperties,
