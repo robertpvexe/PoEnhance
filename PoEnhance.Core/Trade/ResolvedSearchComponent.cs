@@ -130,6 +130,11 @@ public sealed record ResolvedSearchComponent
     public string? UniqueCompositionProjectionReason { get; init; }
 
     /// <summary>
+    /// Provenance reason when a parsed Implicit row consumed a Unique-catalog Implicit block.
+    /// </summary>
+    public string? UniqueCatalogImplicitConsumptionReason { get; init; }
+
+    /// <summary>
     /// Source composition-component ids omitted from the copied clipboard modifier.
     /// </summary>
     public IReadOnlyList<string> UniqueOmittedCompositionComponentIds { get; init; } = [];

@@ -704,6 +704,119 @@ public sealed partial class TradeSearchDraftMapper
             yield break;
         }
 
+        if (modifier.Kind == ParsedModifierKind.Implicit &&
+            uniqueBlockResolution?.CatalogImplicitConsumptionReason is not null)
+        {
+            if (HasConflictingBaseImplicitMechanics(
+                    modifier,
+                    valueLines,
+                    resolution,
+                    itemBaseResolution,
+                    catalog,
+                    uniqueBlockResolution,
+                    out var conflictReason))
+            {
+                yield return CreateComponent(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate: null,
+                    stats: [],
+                    ModifierStatMappingProofStatus.Unknown,
+                    sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
+                    sourceComponentIndex: 0,
+                    componentLines: valueLines,
+                    itemBaseResolution,
+                    traditionalInfluences,
+                    catalog,
+                    isBaseImplicit: false,
+                    uniqueBlockResolution: uniqueBlockResolution with
+                    {
+                        IsResolved = false,
+                        DiagnosticCode = "UNIQUE_CATALOG_IMPLICIT_BASE_IMPLICIT_CONFLICT",
+                        Diagnostic = conflictReason,
+                    });
+                yield break;
+            }
+
+            // Case 1: Unique catalogs often re-observe the native base implicit. When that native
+            // candidate is already proven and shares the catalog mechanical vector, prefer truthful
+            // base-implicit provenance over Unique-catalog duplicate consumption.
+            if (TryResolveProvenNativeBaseImplicit(
+                    modifier,
+                    valueLines,
+                    resolution,
+                    itemBaseResolution,
+                    catalog,
+                    out var nativeBaseCandidate,
+                    out var nativeLineStats,
+                    out var nativeEffectCatalog,
+                    out var nativeBaseProvenance) &&
+                HasIdenticalBaseAndUniqueCatalogMechanics(
+                    nativeBaseCandidate,
+                    uniqueBlockResolution))
+            {
+                for (var index = 0; index < valueLines.Length; index++)
+                {
+                    yield return CreateComponent(
+                        modifierIndex,
+                        modifier,
+                        resolution,
+                        nativeBaseCandidate,
+                        nativeLineStats[index],
+                        ModifierStatMappingProofStatus.ProvenExact,
+                        sourceLineIndex: index,
+                        sourceComponentIndex: index,
+                        componentLines: [valueLines[index]],
+                        itemBaseResolution,
+                        traditionalInfluences,
+                        nativeEffectCatalog,
+                        isBaseImplicit: true,
+                        baseImplicitProvenance: nativeBaseProvenance,
+                        baseIdentityCatalog: catalog);
+                }
+
+                yield break;
+            }
+
+            if (TryExpandUniqueBlockIntoIndependentComponents(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate,
+                    valueLines,
+                    itemBaseResolution,
+                    traditionalInfluences,
+                    catalog,
+                    uniqueBlockResolution,
+                    out var expandedCatalogImplicitComponents))
+            {
+                foreach (var component in expandedCatalogImplicitComponents)
+                {
+                    yield return component;
+                }
+
+                yield break;
+            }
+
+            yield return CreateComponent(
+                modifierIndex,
+                modifier,
+                resolution,
+                exactCandidate: null,
+                stats: [],
+                ModifierStatMappingProofStatus.WholeVector,
+                sourceLineIndex: valueLines.Length == 1 ? 0 : -1,
+                sourceComponentIndex: 0,
+                componentLines: valueLines,
+                itemBaseResolution,
+                traditionalInfluences,
+                catalog,
+                isBaseImplicit: false,
+                uniqueBlockResolution: uniqueBlockResolution);
+            yield break;
+        }
+
         if (exactCandidate is null)
         {
             var baseImplicitProvenance = CreateBaseImplicitProvenance(
@@ -879,14 +992,20 @@ public sealed partial class TradeSearchDraftMapper
         UniqueModifierBlockResolution? uniqueBlockResolution = null)
     {
         isBaseImplicit = isBaseImplicit ||
-            modifier.Kind == ParsedModifierKind.Implicit &&
-            modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified;
+            (uniqueBlockResolution?.CatalogImplicitConsumptionReason is null &&
+                modifier.Kind == ParsedModifierKind.Implicit &&
+                modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified);
 
         // True when this component's mechanics come from Unique source-block evidence rather than a
-        // normal modifier candidate, whether the client labelled the row as a Unique modifier or the
-        // row was recovered from the resolved Unique identity.
+        // normal modifier candidate: parsed Unique rows, identity-bound Unique recovery, or
+        // Unique-catalog Implicit consumption. Catalog Implicit keeps ParsedKind/ResolvedSourceKind
+        // as Implicit; this flag only unlocks value/provider mechanics shared with Unique blocks.
+        var usesUniqueCatalogImplicitMechanics =
+            uniqueBlockResolution?.CatalogImplicitConsumptionReason is not null &&
+            uniqueBlockResolution.IsResolved;
         var usesUniqueSourceMechanics = modifier.Kind == ParsedModifierKind.Unique ||
-            uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true;
+            uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true ||
+            usesUniqueCatalogImplicitMechanics;
         var uniqueModifierCandidates = ResolveUniqueModifierCandidates(uniqueBlockResolution, catalog);
         var uniqueBoundCandidate = ResolveUniqueBoundCandidate(uniqueModifierCandidates);
         var boundCandidate = exactCandidate ?? uniqueBoundCandidate;
@@ -1142,6 +1261,8 @@ public sealed partial class TradeSearchDraftMapper
             UniqueCompositionProjectionReason = uniqueBlockResolution?.CompositionProjectionReason,
             UniqueOmittedCompositionComponentIds =
                 uniqueBlockResolution?.OmittedCompositionComponentIds ?? [],
+            UniqueCatalogImplicitConsumptionReason =
+                uniqueBlockResolution?.CatalogImplicitConsumptionReason,
             UsesIdentityBoundUniqueRecovery =
                 uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true,
             RecoveredSourceKind = uniqueBlockResolution?.RecoveredSourceKind,
@@ -1253,6 +1374,124 @@ public sealed partial class TradeSearchDraftMapper
                         StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
             };
+    }
+
+    private static bool HasConflictingBaseImplicitMechanics(
+        ParsedModifier modifier,
+        IReadOnlyList<string> valueLines,
+        ModifierCandidateResolutionResult? resolution,
+        ItemBaseResolutionResult? itemBaseResolution,
+        GameDataCatalog? catalog,
+        UniqueModifierBlockResolution uniqueBlockResolution,
+        out string conflictReason)
+    {
+        conflictReason = string.Empty;
+        if (uniqueBlockResolution.IsResolved != true ||
+            uniqueBlockResolution.StatIds.Count == 0 ||
+            !TryResolveProvenNativeBaseImplicit(
+                modifier,
+                valueLines,
+                resolution,
+                itemBaseResolution,
+                catalog,
+                out var nativeCandidate,
+                out _,
+                out _,
+                out _))
+        {
+            return false;
+        }
+
+        if (HasIdenticalBaseAndUniqueCatalogMechanics(nativeCandidate, uniqueBlockResolution))
+        {
+            return false;
+        }
+
+        conflictReason =
+            "The Unique-catalog Implicit block and the proven native base-implicit candidate disagree on mechanics.";
+        return true;
+    }
+
+    /// <summary>
+    /// Proven native base-implicit resolution for the copied Implicit row, independent of Unique
+    /// catalog evidence. Recognition and parsed-base matching reuse the same gates as the normal
+    /// base-implicit path.
+    /// </summary>
+    private static bool TryResolveProvenNativeBaseImplicit(
+        ParsedModifier modifier,
+        IReadOnlyList<string> valueLines,
+        ModifierCandidateResolutionResult? resolution,
+        ItemBaseResolutionResult? itemBaseResolution,
+        GameDataCatalog? catalog,
+        out ModifierDefinition candidate,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats,
+        out GameDataCatalog? effectCatalog,
+        out SearchComponentBaseImplicitProvenance? provenance)
+    {
+        candidate = null!;
+        matchedLineStats = [];
+        effectCatalog = null;
+        provenance = CreateBaseImplicitProvenance(resolution?.BaseImplicitRecognition);
+
+        if (TryResolveRecognizedBaseImplicit(
+                modifier,
+                valueLines,
+                resolution?.BaseImplicitRecognition,
+                out candidate,
+                out matchedLineStats,
+                out var recognizedCatalog))
+        {
+            effectCatalog = recognizedCatalog;
+            return true;
+        }
+
+        var recognitionIsAmbiguous = resolution?.BaseImplicitRecognition?.Status ==
+            BaseImplicitRecognitionStatus.Ambiguous;
+        if (!recognitionIsAmbiguous &&
+            TryResolveParsedBaseImplicit(
+                modifier,
+                valueLines,
+                itemBaseResolution,
+                catalog,
+                out candidate,
+                out matchedLineStats))
+        {
+            effectCatalog = catalog;
+            provenance ??= new SearchComponentBaseImplicitProvenance
+            {
+                RecognitionStatus = BaseImplicitRecognitionStatus.CurrentExact,
+            };
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasIdenticalBaseAndUniqueCatalogMechanics(
+        ModifierDefinition nativeBaseCandidate,
+        UniqueModifierBlockResolution uniqueBlockResolution)
+    {
+        if (uniqueBlockResolution.IsResolved != true ||
+            uniqueBlockResolution.StatIds.Count == 0 ||
+            string.IsNullOrWhiteSpace(nativeBaseCandidate.Id))
+        {
+            return false;
+        }
+
+        var nativeStatKey = string.Join(
+            '\u001f',
+            StatIds(nativeBaseCandidate.Stats).OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+        var catalogStatKey = string.Join(
+            '\u001f',
+            uniqueBlockResolution.StatIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+        if (!string.Equals(nativeStatKey, catalogStatKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return uniqueBlockResolution.ModifierIds.Contains(
+            nativeBaseCandidate.Id,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool IsUnveiledDomain(string? domain)

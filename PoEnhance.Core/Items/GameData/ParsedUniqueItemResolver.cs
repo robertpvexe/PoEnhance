@@ -10,6 +10,9 @@ public sealed partial class ParsedUniqueItemResolver
     public const string SourceBlockPartialComponentProjectionReason =
         "source-block-partial-component-projection";
 
+    public const string UniqueCatalogImplicitBlockConsumptionReason =
+        "unique-catalog-implicit-block-consumption";
+
     private const string FoulbornPrefix = "Foulborn ";
 
     public UniqueItemResolutionResult Resolve(
@@ -137,6 +140,20 @@ public sealed partial class ParsedUniqueItemResolver
                 continue;
             }
 
+            if (TryResolveUniqueCatalogImplicitBlock(
+                    modifierIndex,
+                    parsedModifier,
+                    parsedItem,
+                    versions,
+                    identityVersions,
+                    isFoulborn,
+                    catalog,
+                    out var uniqueCatalogImplicit))
+            {
+                results.Add(uniqueCatalogImplicit);
+                continue;
+            }
+
             if (!IsEligibleForIdentityBoundRecovery(parsedModifier, isFoulborn))
             {
                 continue;
@@ -161,6 +178,93 @@ public sealed partial class ParsedUniqueItemResolver
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Parsed Implicit rows on Unique items may consume catalog Implicit blocks that belong to the
+    /// already-resolved Unique identity. Ordinary Unique blocks remain ineligible, and rows with no
+    /// Implicit catalog text match are left for the separate base-implicit path.
+    /// </summary>
+    private static bool IsEligibleForUniqueCatalogImplicit(ParsedModifier parsedModifier)
+    {
+        return parsedModifier.Kind == ParsedModifierKind.Implicit &&
+            parsedModifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified &&
+            !parsedModifier.IsCrafted &&
+            !parsedModifier.IsFractured &&
+            !parsedModifier.IsVeiled &&
+            !parsedModifier.IsUnrevealedVeiledPlaceholder &&
+            parsedModifier.ValueLines.Count > 0;
+    }
+
+    private static bool TryResolveUniqueCatalogImplicitBlock(
+        int modifierIndex,
+        ParsedModifier parsedModifier,
+        ParsedItem parsedItem,
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        IReadOnlyList<UniqueItemVersionObservation> identityVersions,
+        bool isFoulborn,
+        GameDataCatalog catalog,
+        out UniqueModifierBlockResolution resolution)
+    {
+        resolution = null!;
+        if (!IsEligibleForUniqueCatalogImplicit(parsedModifier))
+        {
+            return false;
+        }
+
+        var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
+        var implicitVersions = SelectVersionsForCatalogImplicit(blockScopeVersions, parsedModifier);
+        if (implicitVersions.Count == 0)
+        {
+            return false;
+        }
+
+        resolution = ResolveOrdinaryBlock(
+            modifierIndex,
+            parsedModifier,
+            parsedItem,
+            implicitVersions,
+            identityVersions,
+            isFoulborn,
+            catalog,
+            isIdentityBoundRecovery: false,
+            allowExactHybridRowFallback: false,
+            requiredBlockKind: UniqueModifierBlockKind.Implicit);
+        return true;
+    }
+
+    /// <summary>
+    /// Unique-catalog Implicit rows are proven against Current when Current exists. Historical
+    /// versions that lack the copied Implicit text must not veto Current proof, and Historical
+    /// Implicit text must not override a Current identity that does not carry it.
+    /// </summary>
+    private static IReadOnlyList<UniqueItemVersionObservation> SelectVersionsForCatalogImplicit(
+        IReadOnlyList<UniqueItemVersionObservation> versions,
+        ParsedModifier parsedModifier)
+    {
+        var matching = versions
+            .Where(version => MatchVersionBlocks(
+                    version,
+                    parsedModifier,
+                    compositionModifiers: null,
+                    UniqueModifierBlockKind.Implicit)
+                .Count > 0)
+            .ToArray();
+        if (matching.Length == 0)
+        {
+            return [];
+        }
+
+        var identityHasCurrent = versions.Any(version =>
+            version.Role == UniqueItemVersionRole.Current);
+        if (!identityHasCurrent)
+        {
+            return matching;
+        }
+
+        return matching
+            .Where(version => version.Role == UniqueItemVersionRole.Current)
+            .ToArray();
     }
 
     /// <summary>
@@ -192,16 +296,22 @@ public sealed partial class ParsedUniqueItemResolver
         bool isFoulborn,
         GameDataCatalog catalog,
         bool isIdentityBoundRecovery,
-        bool allowExactHybridRowFallback)
+        bool allowExactHybridRowFallback,
+        UniqueModifierBlockKind requiredBlockKind = UniqueModifierBlockKind.Unique)
     {
         var blockScopeVersions = versions.Count > 0 ? versions : identityVersions;
         var matchedByVersion = blockScopeVersions
             .Select(version => new VersionBlockMatches(
                 version,
-                MatchVersionBlocks(version, parsedModifier, parsedItem.UniqueModifiers)))
+                MatchVersionBlocks(
+                    version,
+                    parsedModifier,
+                    parsedItem.UniqueModifiers,
+                    requiredBlockKind)))
             .ToArray();
         var hasSafeRowFallback = false;
-        if (!MatchesCoverEveryRetainedVersion(matchedByVersion) &&
+        if (requiredBlockKind == UniqueModifierBlockKind.Unique &&
+            !MatchesCoverEveryRetainedVersion(matchedByVersion) &&
             (allowExactHybridRowFallback && TrySelectExactHybridRowMatches(
                     identityVersions,
                     parsedModifier,
@@ -230,7 +340,7 @@ public sealed partial class ParsedUniqueItemResolver
             candidate.Match.Kind == UniqueBlockTextMatchKind.Direct)
             ? matchedPresentationLines
             : identityVersions.SelectMany(version => version.ModifierBlocks)
-                .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+                .Where(block => block.Kind == requiredBlockKind)
                 .Select(block => MatchGeneratedPresentation(
                     block,
                     parsedModifier))
@@ -443,6 +553,9 @@ public sealed partial class ParsedUniqueItemResolver
             OmittedCompositionComponentIds = resolved
                 ? SelectOmittedCompositionComponentIds(resolutionMatchedBlocks)
                 : [],
+            CatalogImplicitConsumptionReason = requiredBlockKind == UniqueModifierBlockKind.Implicit
+                ? UniqueCatalogImplicitBlockConsumptionReason
+                : null,
             DiagnosticCode = resolved ? null : optionSelectionLimitRejectsBlock
                 ? "UNIQUE_OPTION_SELECTION_LIMIT_EXCEEDED"
                 : selectionLimitRejectsBlock
@@ -460,7 +573,8 @@ public sealed partial class ParsedUniqueItemResolver
                         ? mappingDiagnosticCodes[0]
                         : "UNIQUE_BLOCK_MECHANICS_UNSUPPORTED"
                 : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
-                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
+                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate &&
+                    block.Kind == requiredBlockKind))
                     ? "UNIQUE_GENERATED_CANDIDATE_NOT_FOUND"
                     : "UNIQUE_BLOCK_VERSION_MISMATCH",
             Diagnostic = resolved ? null : optionSelectionLimitRejectsBlock
@@ -480,7 +594,8 @@ public sealed partial class ParsedUniqueItemResolver
                         ? mappingDiagnostics[0]
                         : "At least one line in the source block lacks unambiguous RePoE mechanical evidence."
                 : blockScopeVersions.Any(version => version.ModifierBlocks.Any(block =>
-                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate))
+                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate &&
+                    block.Kind == requiredBlockKind))
                     ? "No exact candidate in the selected generated source pool matched the copied block."
                     : "The source block was not present in every retained compatible version observation.",
         };
@@ -1349,16 +1464,18 @@ public sealed partial class ParsedUniqueItemResolver
     private static IReadOnlyList<MatchedBlock> MatchVersionBlocks(
         UniqueItemVersionObservation version,
         ParsedModifier modifier,
-        IReadOnlyList<ParsedModifier>? compositionModifiers = null)
+        IReadOnlyList<ParsedModifier>? compositionModifiers = null,
+        UniqueModifierBlockKind requiredBlockKind = UniqueModifierBlockKind.Unique)
     {
         var matches = version.ModifierBlocks
-            .Where(block => block.Kind == UniqueModifierBlockKind.Unique)
+            .Where(block => block.Kind == requiredBlockKind)
             .Select(block => new MatchedBlock(
                 block,
                 MatchParsedModifier(block, modifier, version.Role)))
             .Where(candidate => candidate.Match.IsMatch)
             .ToList();
-        if (compositionModifiers is not null)
+        if (compositionModifiers is not null &&
+            requiredBlockKind == UniqueModifierBlockKind.Unique)
         {
             foreach (var block in version.ModifierBlocks.Where(block =>
                          block.Kind == UniqueModifierBlockKind.Unique &&

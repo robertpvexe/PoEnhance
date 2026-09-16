@@ -95,6 +95,12 @@ public sealed record UniqueModifierBlockResolution
     public string? CompositionProjectionReason { get; init; }
 
     /// <summary>
+    /// Provenance reason when a parsed Implicit row consumed a Unique-catalog Implicit block.
+    /// Distinguishes Unique-owned Implicit effects from base/native implicits.
+    /// </summary>
+    public string? CatalogImplicitConsumptionReason { get; init; }
+
+    /// <summary>
     /// Composition-component ids present on the source block but not represented by the copied
     /// clipboard modifier. Empty for complete composition projection and non-composition rows.
     /// </summary>
