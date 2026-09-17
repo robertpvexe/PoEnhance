@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using PoEnhance.App.Diagnostics;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Clipboard;
 using PoEnhance.App.Infrastructure.GameData;
@@ -521,7 +522,8 @@ public partial class MainWindow : Window, IDeveloperWindow
             preparation.ParsedItem,
             preparation.ItemBaseResolution,
             preparation.ModifierCandidateResolutions,
-            preparation.Catalog);
+            preparation.Catalog,
+            rawText);
         if (preparation.ItemBaseResolution.Result is not null)
         {
             await RecordProvisionalGameDataAsync(
@@ -545,8 +547,16 @@ public partial class MainWindow : Window, IDeveloperWindow
         ParsedItem parsedItem,
         ItemBaseResolutionDisplay itemBaseResolution,
         ModifierCandidateResolutionsDisplay modifierCandidateResolutions,
-        GameDataCatalog gameDataCatalog)
+        GameDataCatalog gameDataCatalog,
+        string rawClipboardText)
     {
+        var gameDataStatus = runtimeGameDataService.Current;
+        var replayContext = ModifierPipelineReplayContextCapture.FromRuntime(
+            rawClipboardText,
+            gameDataStatus.DataVersion,
+            gameDataStatus.PackageSha256,
+            gameDataStatus.PathSource.ToString());
+
         var result = await priceCheckerWindowController.ShowOrUpdateAsync(
             parsedItem,
             itemBaseResolution.Result,
@@ -554,7 +564,9 @@ public partial class MainWindow : Window, IDeveloperWindow
                 .Select(display => display.Result)
                 .OfType<PoEnhance.Core.Items.GameData.ModifierCandidateResolutionResult>()
                 .ToArray(),
-            gameDataCatalog);
+            gameDataCatalog,
+            cancellationToken: default,
+            replayContext: replayContext);
 
         if (!result.IsSuccess)
         {

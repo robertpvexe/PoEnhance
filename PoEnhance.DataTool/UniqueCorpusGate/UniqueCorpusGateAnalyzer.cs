@@ -72,6 +72,17 @@ public static class UniqueCorpusGateAnalyzer
         var goldenControls = UniqueCorpusGateGoldenControls.Evaluate(observationalRows);
         var structuralFailures = UniqueCorpusGateFailureClustering.Build(observationalRows);
 
+        var replayClassifications = analyzedCaptures
+            .Select(capture => UniqueCorpusGateReplayReadiness.Classify(capture.Document.ReplayContext))
+            .ToArray();
+        var replayReadyCount = replayClassifications.Count(value =>
+            value == UniqueCorpusGateReplayReadiness.ReplayReady);
+        var auditOnlyCount = analyzedCaptures.Length - replayReadyCount;
+        var missingRaw = analyzedCaptures.Count(capture =>
+            !UniqueCorpusGateReplayReadiness.HasRawClipboard(capture.Document.ReplayContext));
+        var missingGameDataIdentity = analyzedCaptures.Count(capture =>
+            !UniqueCorpusGateReplayReadiness.HasGameDataIdentity(capture.Document.ReplayContext));
+
         var outcomes = CountOutcomes(components.Select(component => component.Outcome).ToArray());
         var clusters = BuildClusters(components);
         var families = BuildSignatureFamilies(components);
@@ -108,6 +119,31 @@ public static class UniqueCorpusGateAnalyzer
                 DeduplicationPolicy = options.DeduplicateLatestCapturePerItem
                     ? "keep-latest-capture-per-item-identity"
                     : "analyze-all-parsed-captures",
+                ReplayReadyCaptureCount = replayReadyCount,
+                AuditOnlyCaptureCount = auditOnlyCount,
+                MissingRawClipboardCount = missingRaw,
+                MissingGameDataIdentityCount = missingGameDataIdentity,
+                DistinctGameDataVersions = analyzedCaptures
+                    .Select(capture => capture.Document.ReplayContext?.GameDataVersion)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray(),
+                DistinctGameDataSha256Values = analyzedCaptures
+                    .Select(capture => capture.Document.ReplayContext?.GameDataSha256)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!.Trim().ToLowerInvariant())
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray(),
+                DistinctReplaySchemaVersions = analyzedCaptures
+                    .Select(capture => capture.Document.ReplayContext?.CaptureSchemaVersion)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray(),
             },
             Outcomes = outcomes,
             OutcomesByParsedKind = Breakdown(components, component => component.ParsedKind),

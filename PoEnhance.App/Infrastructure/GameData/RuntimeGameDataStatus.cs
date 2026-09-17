@@ -12,6 +12,12 @@ internal sealed record RuntimeGameDataStatus
 
     public string? DataVersion { get; init; }
 
+    /// <summary>
+    /// SHA-256 of the exact package file bytes loaded at bootstrap (lowercase hex).
+    /// Computed once during load; not recomputed per Ctrl+D.
+    /// </summary>
+    public string? PackageSha256 { get; init; }
+
     public string? SourceVersion { get; init; }
 
     public int ItemBaseCount { get; init; }

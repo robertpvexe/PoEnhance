@@ -90,6 +90,20 @@ public sealed class UniqueCorpusGateIdentity
 
     public string DeduplicationPolicy { get; init; } =
         "keep-latest-capture-per-item-identity";
+
+    public int ReplayReadyCaptureCount { get; init; }
+
+    public int AuditOnlyCaptureCount { get; init; }
+
+    public int MissingRawClipboardCount { get; init; }
+
+    public int MissingGameDataIdentityCount { get; init; }
+
+    public IReadOnlyList<string> DistinctGameDataVersions { get; init; } = [];
+
+    public IReadOnlyList<string> DistinctGameDataSha256Values { get; init; } = [];
+
+    public IReadOnlyList<string> DistinctReplaySchemaVersions { get; init; } = [];
 }
 
 public sealed class UniqueCorpusGateSkippedFile

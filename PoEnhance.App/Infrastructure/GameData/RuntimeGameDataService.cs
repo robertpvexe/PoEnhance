@@ -1,3 +1,5 @@
+using System.IO;
+using System.Security.Cryptography;
 using PoEnhance.GameData;
 using Serilog;
 
@@ -165,6 +167,11 @@ internal sealed class RuntimeGameDataService
             });
         }
 
+        // Hash the exact loaded package file once at bootstrap (immutable runtime metadata for diagnostics).
+        var packagePath = loadResult.SourcePath ?? pathResolution.Path;
+        var packageSha256 = await TryComputePackageFileSha256Async(packagePath, cancellationToken)
+            .ConfigureAwait(false);
+
         GameDataCatalog catalog;
         try
         {
@@ -176,9 +183,10 @@ internal sealed class RuntimeGameDataService
             return SetCurrent(new RuntimeGameDataStatus
             {
                 State = RuntimeGameDataState.Failed,
-                PackagePath = loadResult.SourcePath ?? pathResolution.Path,
+                PackagePath = packagePath,
                 PathSource = pathResolution.Source,
                 Package = loadResult.Package,
+                PackageSha256 = packageSha256,
                 DataVersion = loadResult.Package.Manifest.DataVersion,
                 SourceVersion = FormatSourceVersions(loadResult.Package.Manifest.Sources),
                 FailureMessage = "Game-data catalog construction failed.",
@@ -188,9 +196,10 @@ internal sealed class RuntimeGameDataService
         var status = new RuntimeGameDataStatus
         {
             State = RuntimeGameDataState.Loaded,
-            PackagePath = loadResult.SourcePath ?? pathResolution.Path,
+            PackagePath = packagePath,
             PathSource = pathResolution.Source,
             Package = loadResult.Package,
+            PackageSha256 = packageSha256,
             Catalog = catalog,
             DataVersion = loadResult.Package.Manifest.DataVersion,
             SourceVersion = FormatSourceVersions(loadResult.Package.Manifest.Sources),
@@ -201,8 +210,9 @@ internal sealed class RuntimeGameDataService
         };
 
         Log.Information(
-            "Game-data package loaded. DataVersion={DataVersion}, SourceVersion={SourceVersion}, ItemBases={ItemBaseCount}, Modifiers={ModifierCount}, Stats={StatCount}, StatTranslations={StatTranslationCount}",
+            "Game-data package loaded. DataVersion={DataVersion}, PackageSha256={PackageSha256}, SourceVersion={SourceVersion}, ItemBases={ItemBaseCount}, Modifiers={ModifierCount}, Stats={StatCount}, StatTranslations={StatTranslationCount}",
             status.DataVersion,
+            status.PackageSha256,
             status.SourceVersion,
             status.ItemBaseCount,
             status.ModifierCount,
@@ -210,6 +220,34 @@ internal sealed class RuntimeGameDataService
             status.StatTranslationCount);
 
         return SetCurrent(status);
+    }
+
+    internal static async Task<string?> TryComputePackageFileSha256Async(
+        string? path,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 1024 * 64,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Log.Warning(exception, "Game-data package SHA-256 could not be computed for diagnostics");
+            return null;
+        }
     }
 
     private RuntimeGameDataStatus SetCurrent(RuntimeGameDataStatus status)

@@ -105,7 +105,8 @@ internal sealed class PriceCheckerWindowController
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
         GameDataCatalog? gameDataCatalog = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ModifierPipelineReplayContextCapture? replayContext = null)
     {
         offerCardPreviewController.Clear();
         var requestGeneration = ++contentGeneration;
@@ -114,6 +115,7 @@ internal sealed class PriceCheckerWindowController
                 itemBaseResolution,
                 modifierResolutions,
                 gameDataCatalog,
+                replayContext,
                 out var update,
                 out var failure))
         {
@@ -174,6 +176,7 @@ internal sealed class PriceCheckerWindowController
         ItemBaseResolutionResult? itemBaseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
         GameDataCatalog? gameDataCatalog,
+        ModifierPipelineReplayContextCapture? replayContext,
         out PendingPriceCheckerUpdate update,
         out PriceCheckerWindowUpdateResult failure)
     {
@@ -208,7 +211,8 @@ internal sealed class PriceCheckerWindowController
             parsedItem,
             itemBaseResolution,
             modifierResolutions,
-            draftResult.Draft);
+            draftResult.Draft,
+            replayContext);
         update = new PendingPriceCheckerUpdate(
             draftResult.Draft,
             validationResult,

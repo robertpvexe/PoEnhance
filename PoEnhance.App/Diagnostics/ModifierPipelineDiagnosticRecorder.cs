@@ -49,7 +49,8 @@ internal static class ModifierPipelineDiagnosticRecorder
         ParsedItem parsedItem,
         ItemBaseResolutionResult? baseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
-        TradeSearchDraft initialDraft)
+        TradeSearchDraft initialDraft,
+        ModifierPipelineReplayContextCapture? replayContext = null)
     {
         if (!IsEnabled)
         {
@@ -62,7 +63,8 @@ internal static class ModifierPipelineDiagnosticRecorder
             parsedItem,
             baseResolution,
             modifierResolutions,
-            initialDraft);
+            initialDraft,
+            replayContext);
     }
 
     public static void RecordProviderResolution(
@@ -143,7 +145,8 @@ internal sealed class ModifierPipelineDiagnosticSession
         ParsedItem parsedItem,
         ItemBaseResolutionResult? baseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
-        TradeSearchDraft initialDraft)
+        TradeSearchDraft initialDraft,
+        ModifierPipelineReplayContextCapture? replayContext = null)
     {
         return new ModifierPipelineDiagnosticSession(
             outputDirectory,
@@ -151,7 +154,8 @@ internal sealed class ModifierPipelineDiagnosticSession
                 parsedItem,
                 baseResolution,
                 modifierResolutions,
-                initialDraft));
+                initialDraft,
+                replayContext));
     }
 
     public void RecordProviderResolution(
@@ -386,6 +390,11 @@ internal sealed class ModifierPipelineDiagnosticCapture
 
     public string? OutputPath { get; set; }
 
+    /// <summary>
+    /// Optional A.5.3+ replay/runtime provenance. Absent on older captures (AuditOnly).
+    /// </summary>
+    public ModifierPipelineReplayContextCapture? ReplayContext { get; init; }
+
     public ModifierPipelineItemCapture Item { get; init; } = new();
 
     public ModifierPipelineUniqueIdentityCapture? UniqueIdentity { get; set; }
@@ -404,7 +413,8 @@ internal sealed class ModifierPipelineDiagnosticCapture
         ParsedItem parsedItem,
         ItemBaseResolutionResult? baseResolution,
         IReadOnlyList<ModifierCandidateResolutionResult> modifierResolutions,
-        TradeSearchDraft initialDraft)
+        TradeSearchDraft initialDraft,
+        ModifierPipelineReplayContextCapture? replayContext = null)
     {
         var parsedByIndex = parsedItem.Modifiers
             .Select((modifier, index) => (index, modifier))
@@ -429,6 +439,7 @@ internal sealed class ModifierPipelineDiagnosticCapture
 
         return new ModifierPipelineDiagnosticCapture
         {
+            ReplayContext = replayContext,
             Item = new ModifierPipelineItemCapture
             {
                 ItemClass = parsedItem.ItemClass,
@@ -505,6 +516,59 @@ internal sealed class ModifierPipelineItemCapture
     public string? BaseResolutionStatus { get; init; }
 
     public string? ResolvedBaseName { get; init; }
+}
+
+/// <summary>
+/// Observational replay provenance for A.5.3+. Does not influence pipeline behavior.
+/// </summary>
+internal sealed class ModifierPipelineReplayContextCapture
+{
+    public const string CurrentSchemaVersion = "A.5.3-replay-1";
+
+    public const string PathOfExileClipboardInputKind = "PathOfExileClipboard";
+
+    public string CaptureSchemaVersion { get; init; } = CurrentSchemaVersion;
+
+    /// <summary>
+    /// Exact string passed to <see cref="ItemTextParser.Parse"/> for this Ctrl+D request.
+    /// </summary>
+    public string? RawClipboardText { get; init; }
+
+    public string InputKind { get; init; } = PathOfExileClipboardInputKind;
+
+    public string? GameDataVersion { get; init; }
+
+    public string? GameDataSha256 { get; init; }
+
+    /// <summary>
+    /// Non-sensitive path source enum name (Packaged / CommandLine / DevelopmentFallback / Environment).
+    /// Absolute filesystem paths are intentionally omitted.
+    /// </summary>
+    public string? GameDataPathSource { get; init; }
+
+    public static ModifierPipelineReplayContextCapture? FromRuntime(
+        string? rawClipboardText,
+        string? gameDataVersion,
+        string? gameDataSha256,
+        string? gameDataPathSource)
+    {
+        if (string.IsNullOrEmpty(rawClipboardText) &&
+            string.IsNullOrWhiteSpace(gameDataVersion) &&
+            string.IsNullOrWhiteSpace(gameDataSha256))
+        {
+            return null;
+        }
+
+        return new ModifierPipelineReplayContextCapture
+        {
+            CaptureSchemaVersion = CurrentSchemaVersion,
+            RawClipboardText = rawClipboardText,
+            InputKind = PathOfExileClipboardInputKind,
+            GameDataVersion = string.IsNullOrWhiteSpace(gameDataVersion) ? null : gameDataVersion.Trim(),
+            GameDataSha256 = string.IsNullOrWhiteSpace(gameDataSha256) ? null : gameDataSha256.Trim().ToLowerInvariant(),
+            GameDataPathSource = string.IsNullOrWhiteSpace(gameDataPathSource) ? null : gameDataPathSource.Trim(),
+        };
+    }
 }
 
 internal sealed class ModifierPipelineCatalogCapture

@@ -26,6 +26,16 @@ public static class UniqueCorpusGateReportPrinter
         writer.WriteLine(
             $"Corpus: {report.Identity.DistinctItemIdentityCount} items / {report.Identity.ModifierComponentCount} modifiers");
         writer.WriteLine(
+            $"Replay readiness: ReplayReady {report.Identity.ReplayReadyCaptureCount}, AuditOnly {report.Identity.AuditOnlyCaptureCount}, missing-raw {report.Identity.MissingRawClipboardCount}, missing-GameData-identity {report.Identity.MissingGameDataIdentityCount}");
+        if (report.Identity.DistinctGameDataVersions.Count > 0 ||
+            report.Identity.DistinctGameDataSha256Values.Count > 0 ||
+            report.Identity.DistinctReplaySchemaVersions.Count > 0)
+        {
+            writer.WriteLine(
+                $"Replay context: schemas=[{string.Join(", ", report.Identity.DistinctReplaySchemaVersions)}]; versions=[{string.Join(", ", report.Identity.DistinctGameDataVersions)}]; shaCount={report.Identity.DistinctGameDataSha256Values.Count}");
+        }
+
+        writer.WriteLine(
             $"Files: {report.Identity.CaptureFileCount} examined, {report.Identity.ParsedCaptureCount} parsed, {report.Identity.SkippedFileCount} skipped, {report.Identity.DeduplicatedCaptureCount} duplicates dropped, {report.Identity.AnalyzedCaptureCount} analyzed");
         writer.WriteLine(
             $"Outcomes: Supported {report.Outcomes.Supported} ({FormatPercent(report.Outcomes.SupportedPercent)}), Ambiguous {report.Outcomes.Ambiguous} ({FormatPercent(report.Outcomes.AmbiguousPercent)}), Unsupported {report.Outcomes.Unsupported} ({FormatPercent(report.Outcomes.UnsupportedPercent)}), Other {report.Outcomes.Other} ({FormatPercent(report.Outcomes.OtherPercent)})");

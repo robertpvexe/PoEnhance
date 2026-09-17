@@ -10,6 +10,8 @@ internal sealed class UniqueCorpusGateCaptureDocument
 
     public DateTimeOffset? CompletedAtUtc { get; init; }
 
+    public UniqueCorpusGateCaptureReplayContext? ReplayContext { get; init; }
+
     public UniqueCorpusGateCaptureItem? Item { get; init; }
 
     public UniqueCorpusGateCaptureUniqueIdentity? UniqueIdentity { get; init; }
@@ -17,6 +19,21 @@ internal sealed class UniqueCorpusGateCaptureDocument
     public UniqueCorpusGateCaptureUniqueMechanicalResolution? UniqueMechanicalResolution { get; init; }
 
     public IReadOnlyList<UniqueCorpusGateCaptureModifier>? Modifiers { get; init; }
+}
+
+public sealed class UniqueCorpusGateCaptureReplayContext
+{
+    public string? CaptureSchemaVersion { get; init; }
+
+    public string? RawClipboardText { get; init; }
+
+    public string? InputKind { get; init; }
+
+    public string? GameDataVersion { get; init; }
+
+    public string? GameDataSha256 { get; init; }
+
+    public string? GameDataPathSource { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureItem

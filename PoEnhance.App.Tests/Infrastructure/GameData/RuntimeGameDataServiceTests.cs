@@ -6,6 +6,52 @@ namespace PoEnhance.App.Tests.Infrastructure.GameData;
 public sealed class RuntimeGameDataServiceTests
 {
     [Fact]
+    public async Task LoadAsync_ComputesPackageSha256OnceFromLoadedFileBytes()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"poenhance-sha-{Guid.NewGuid():N}.json");
+        var package = CreatePackage();
+        // Exact bytes that RuntimeGameDataService will hash after a successful load.
+        var packageBytes = "observational-gamedata-package-bytes-for-sha-test-only"u8.ToArray();
+        await File.WriteAllBytesAsync(tempPath, packageBytes);
+        try
+        {
+            var expectedSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(packageBytes))
+                .ToLowerInvariant();
+            var loadCount = 0;
+            var service = CreateService(
+                configuredPath: tempPath,
+                loadPackageAsync: (_, _) =>
+                {
+                    loadCount++;
+                    return Task.FromResult(new GameDataPackageLoadResult
+                    {
+                        Package = package,
+                        SourcePath = tempPath,
+                    });
+                });
+
+            var first = await service.LoadAsync([]);
+            var second = await service.WaitForLoadCompletionAsync();
+
+            Assert.Equal(RuntimeGameDataState.Loaded, first.State);
+            Assert.Equal(expectedSha, first.PackageSha256);
+            Assert.Equal(first.PackageSha256, second.PackageSha256);
+            Assert.Equal(1, loadCount);
+            Assert.DoesNotContain(
+                "05d038a696dc095f656c27e20c411dd8cd0dfeafe333bf3c06491c647099e679",
+                first.PackageSha256 ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    [Fact]
     public async Task LoadAsync_SuccessfulLoadProducesLoadedAndExposesCatalog()
     {
         var package = CreatePackage();
