@@ -69,6 +69,106 @@ public sealed class ParsedItemBaseResolver
         return result with { ItemClassIdentity = itemClassIdentity };
     }
 
+    /// <summary>
+    /// When same-name/class base resolution remains ambiguous, Exact Unique-catalog Implicit
+    /// ModifierIds already proven later in the pipeline may uniquely select the native owner.
+    /// This refinement is applied only after Unique identity/block resolution and never invents
+    /// base ownership from display text or approximate mappings.
+    /// </summary>
+    public ItemBaseResolutionResult RefineWithExactUniqueCatalogImplicitModifierIds(
+        ItemBaseResolutionResult current,
+        UniqueItemResolutionResult? uniqueItemResolution,
+        GameDataCatalog? catalog)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+
+        if (catalog is null ||
+            uniqueItemResolution is null ||
+            current.Status is ItemBaseResolutionStatus.Exact or ItemBaseResolutionStatus.Probable ||
+            current.Candidates.Count < 2 ||
+            !current.Diagnostics.Any(diagnostic =>
+                string.Equals(
+                    diagnostic.Code,
+                    ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
+                    StringComparison.OrdinalIgnoreCase)) ||
+            uniqueItemResolution.Status != UniqueItemResolutionStatus.ExactIdentity ||
+            uniqueItemResolution.IsLegacy)
+        {
+            return current;
+        }
+
+        var provenModifierIds = CollectEligibleExactUniqueCatalogImplicitModifierIds(uniqueItemResolution);
+        if (provenModifierIds.Count == 0)
+        {
+            return current;
+        }
+
+        var matches = current.Candidates
+            .Where(candidate => provenModifierIds.All(modifierId =>
+                candidate.ImplicitModifierIds.Contains(modifierId, StringComparer.OrdinalIgnoreCase)))
+            .ToArray();
+        if (matches.Length == 1)
+        {
+            return Matched(
+                ItemBaseResolutionStatus.Exact,
+                matches[0],
+                ItemBaseResolutionDiagnosticCodes.BaseExactUniqueCatalogImplicitModifierDisambiguationMatch,
+                "Exact Unique-catalog Implicit ModifierId evidence uniquely selected one same-name, class-compatible catalog base.") with
+            {
+                ItemClassIdentity = current.ItemClassIdentity,
+            };
+        }
+
+        var incompleteReason = matches.Length == 0
+            ? "Exact Unique-catalog Implicit ModifierId evidence did not match any remaining same-name base candidate."
+            : "Exact Unique-catalog Implicit ModifierId evidence matched multiple remaining same-name base candidates.";
+        return current with
+        {
+            Diagnostics = ToReadOnly(
+                current.Diagnostics.Append(
+                    new ItemBaseResolutionDiagnostic(
+                        ItemBaseResolutionDiagnosticCodes
+                            .BaseExactUniqueCatalogImplicitModifierDisambiguationIncomplete,
+                        incompleteReason))),
+        };
+    }
+
+    private static IReadOnlyList<string> CollectEligibleExactUniqueCatalogImplicitModifierIds(
+        UniqueItemResolutionResult uniqueItemResolution)
+    {
+        var modifierIds = new List<string>();
+        foreach (var block in uniqueItemResolution.ModifierBlocks)
+        {
+            if (block.CatalogImplicitConsumptionReason is null ||
+                !block.IsResolved ||
+                block.IsEquivalentSourceSet ||
+                !string.IsNullOrWhiteSpace(block.DiagnosticCode) ||
+                block.ModifierIds.Count == 0 ||
+                block.CatalogBlocks.Count == 0 ||
+                !block.CatalogBlocks.All(catalogBlock =>
+                    catalogBlock.Kind == UniqueModifierBlockKind.Implicit &&
+                    catalogBlock.MechanicalMapping.Status ==
+                        UniqueModifierMechanicalMappingStatus.Exact))
+            {
+                continue;
+            }
+
+            foreach (var modifierId in block.ModifierIds)
+            {
+                var trimmed = modifierId?.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmed))
+                {
+                    modifierIds.Add(trimmed);
+                }
+            }
+        }
+
+        return modifierIds
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     private static ItemBaseResolutionResult ResolveExactBaseType(
         ParsedItem parsedItem,
         GameDataCatalog catalog)

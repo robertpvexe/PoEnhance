@@ -31,10 +31,18 @@ public sealed partial class TradeSearchDraftMapper
         var uniqueItemResolution = gameDataCatalog is null
             ? null
             : new ParsedUniqueItemResolver().Resolve(parsedItem, gameDataCatalog, itemBaseResolution);
+        var effectiveItemBaseResolution = itemBaseResolution is null ||
+            gameDataCatalog is null ||
+            uniqueItemResolution is null
+            ? itemBaseResolution
+            : new ParsedItemBaseResolver().RefineWithExactUniqueCatalogImplicitModifierIds(
+                itemBaseResolution,
+                uniqueItemResolution,
+                gameDataCatalog);
         var aggregation = CanonicalModifierEffectAggregator.Aggregate(
             CreateSearchComponents(
                     parsedItem,
-                    itemBaseResolution,
+                    effectiveItemBaseResolution,
                     modifierResolutionByIndex,
                     gameDataCatalog,
                     uniqueItemResolution)
@@ -42,11 +50,11 @@ public sealed partial class TradeSearchDraftMapper
         var derivedPropertyCalculator = new DerivedWeaponPropertyCalculator();
         var derivedWeaponProperties = derivedPropertyCalculator.CalculateQ20(
             parsedItem,
-            itemBaseResolution?.MatchedItemBase,
+            effectiveItemBaseResolution?.MatchedItemBase,
             CreateDerivedWeaponModifierEffects(aggregation.Components));
         var derivedDefensiveProperties = derivedPropertyCalculator.CalculateDefensiveQ20(
             parsedItem,
-            itemBaseResolution?.MatchedItemBase,
+            effectiveItemBaseResolution?.MatchedItemBase,
             CreateDerivedWeaponModifierEffects(aggregation.Components));
         var itemProperties = CreateItemProperties(derivedWeaponProperties, derivedDefensiveProperties);
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
@@ -55,7 +63,7 @@ public sealed partial class TradeSearchDraftMapper
         var draft = new TradeSearchDraft
         {
             ItemClass = TrimToNull(parsedItem.ItemClass),
-            CanonicalItemClass = ResolveCanonicalItemClass(parsedItem, itemBaseResolution),
+            CanonicalItemClass = ResolveCanonicalItemClass(parsedItem, effectiveItemBaseResolution),
             Rarity = TrimToNull(parsedItem.Rarity),
             DisplayName = TrimToNull(parsedItem.DisplayName),
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
@@ -74,7 +82,7 @@ public sealed partial class TradeSearchDraftMapper
                     : TradeTriState.Auto,
             },
             UniqueItemResolution = uniqueItemResolution,
-            Base = CreateBaseDraft(parsedItem, itemBaseResolution),
+            Base = CreateBaseDraft(parsedItem, effectiveItemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             SocketText = ReadSocketText(parsedItem),
             BaseRollPercentile = DerivedBaseRollPercentileCalculator.Calculate(derivedDefensiveProperties),

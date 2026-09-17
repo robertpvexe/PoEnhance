@@ -4,6 +4,10 @@ public static class ItemBaseResolutionDiagnosticCodes
 {
     public const string BaseExactMatch = "BASE_EXACT_MATCH";
     public const string BaseExactImplicitDisambiguationMatch = "BASE_EXACT_IMPLICIT_DISAMBIGUATION_MATCH";
+    public const string BaseExactUniqueCatalogImplicitModifierDisambiguationMatch =
+        "BASE_EXACT_UNIQUE_CATALOG_IMPLICIT_MODIFIER_DISAMBIGUATION_MATCH";
+    public const string BaseExactUniqueCatalogImplicitModifierDisambiguationIncomplete =
+        "BASE_EXACT_UNIQUE_CATALOG_IMPLICIT_MODIFIER_DISAMBIGUATION_INCOMPLETE";
     public const string BaseCurrentUsableMatch = "BASE_CURRENT_USABLE_MATCH";
     public const string BaseProbableMagicSuffixMatch = "BASE_PROBABLE_MAGIC_SUFFIX_MATCH";
     public const string BaseProbableDecoratedNameMatch = "BASE_PROBABLE_DECORATED_NAME_MATCH";
