@@ -1108,6 +1108,18 @@ public sealed partial class TradeSearchDraftMapper
             componentLines.Count == 1
                 ? ModifierBoundDefaults.ExtractObservedValues(componentLines[0])
                 : [];
+        // Composition-proven native base implicits can lack RePoE translation recognition while still
+        // exposing a single observed roll on the copied line. Reuse the Unique provider-only scalar
+        // fallback shape so Min bounds survive without inventing translation evidence.
+        if (providerOnlyUniqueValues.Count == 0 &&
+            isBaseImplicit &&
+            statMappingProof == ModifierStatMappingProofStatus.ProvenExact &&
+            boundDefault.Shape == ModifierBoundShape.Unsupported &&
+            componentLines.Count == 1 &&
+            boundStats.Count == 1)
+        {
+            providerOnlyUniqueValues = ModifierBoundDefaults.ExtractObservedValues(componentLines[0]);
+        }
         var hasProviderOnlyUniqueScalar = !effectiveUnscalablePresence &&
             providerOnlyUniqueValues.Count == 1;
         var supportsValueBounds = fixedQueryValue is null &&
@@ -1465,6 +1477,230 @@ public sealed partial class TradeSearchDraftMapper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Exact Unique-catalog composition is the authoritative independent line↔StatId proof for a
+    /// compound Unique-catalog Implicit block. Matching uses composition CanonicalSignatures against
+    /// parsed line signatures — never StatId-name heuristics or positional guesses alone.
+    /// EquivalentSourceSet remains fail-closed in this path.
+    /// Native base ownership is intentionally not upgraded here: composition proves catalog
+    /// line↔stat association, but without recognition snapshots the provider base-implicit gate
+    /// cannot be satisfied safely. Keep Unique-catalog Implicit provenance.
+    /// </summary>
+    private static bool TryMatchExactCompositionComponentsToBoundStats(
+        UniqueModifierBlockResolution uniqueBlockResolution,
+        IReadOnlyList<string> valueLines,
+        ModifierDefinition boundCandidate,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats,
+        out IReadOnlyList<string>? matchedCanonicalSignatures)
+    {
+        matchedLineStats = [];
+        matchedCanonicalSignatures = null;
+
+        if (!uniqueBlockResolution.IsResolved ||
+            uniqueBlockResolution.IsEquivalentSourceSet ||
+            valueLines.Count < 2 ||
+            uniqueBlockResolution.CatalogBlocks.Count == 0 ||
+            !uniqueBlockResolution.CatalogBlocks.All(block =>
+                block.MechanicalMapping.Status == UniqueModifierMechanicalMappingStatus.Exact))
+        {
+            return false;
+        }
+
+        var compositionBlocks = uniqueBlockResolution.CatalogBlocks
+            .Where(block => block.Composition is not null)
+            .ToArray();
+        if (compositionBlocks.Length == 0)
+        {
+            return false;
+        }
+
+        IReadOnlyList<IReadOnlyList<ModifierStat>>? agreedLineStats = null;
+        IReadOnlyList<string>? agreedSignatures = null;
+        foreach (var block in compositionBlocks)
+        {
+            if (!TryMatchExactCompositionBlockToBoundStats(
+                    block,
+                    uniqueBlockResolution,
+                    valueLines,
+                    boundCandidate,
+                    out var lineStats,
+                    out var signatures))
+            {
+                return false;
+            }
+
+            if (agreedLineStats is null)
+            {
+                agreedLineStats = lineStats;
+                agreedSignatures = signatures;
+                continue;
+            }
+
+            if (!CompositionLineStatAssignmentsEqual(agreedLineStats, lineStats))
+            {
+                return false;
+            }
+        }
+
+        if (agreedLineStats is null || agreedSignatures is null)
+        {
+            return false;
+        }
+
+        matchedLineStats = agreedLineStats;
+        matchedCanonicalSignatures = agreedSignatures;
+        return true;
+    }
+
+    private static bool TryMatchExactCompositionBlockToBoundStats(
+        UniqueModifierBlock block,
+        UniqueModifierBlockResolution uniqueBlockResolution,
+        IReadOnlyList<string> valueLines,
+        ModifierDefinition boundCandidate,
+        out IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats,
+        out IReadOnlyList<string> matchedCanonicalSignatures)
+    {
+        matchedLineStats = [];
+        matchedCanonicalSignatures = [];
+        var composition = block.Composition;
+        if (composition is null ||
+            composition.Components.Count < 2 ||
+            composition.Components.Count != valueLines.Count ||
+            composition.AuxiliaryStatIds.Count > 0)
+        {
+            return false;
+        }
+
+        var components = composition.Components.OrderBy(component => component.Order).ToArray();
+        if (components.Any(component =>
+                component.StatIds.Count != 1 ||
+                string.IsNullOrWhiteSpace(component.StatIds[0]) ||
+                component.CanonicalSignatures.Count == 0 ||
+                component.CanonicalSignatures.Any(string.IsNullOrWhiteSpace) ||
+                component.Lines.Count == 0))
+        {
+            return false;
+        }
+
+        var componentStatIds = components
+            .Select(component => component.StatIds[0].Trim())
+            .ToArray();
+        if (componentStatIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != componentStatIds.Length)
+        {
+            return false;
+        }
+
+        var resolutionStatKey = string.Join(
+            '\u001f',
+            uniqueBlockResolution.StatIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+        var compositionStatKey = string.Join(
+            '\u001f',
+            componentStatIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+        if (!string.Equals(resolutionStatKey, compositionStatKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var boundStatsById = boundCandidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .GroupBy(stat => stat.StatId!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        if (componentStatIds.Any(statId =>
+                !boundStatsById.TryGetValue(statId, out var stats) || stats.Length != 1))
+        {
+            return false;
+        }
+
+        var lineStats = new IReadOnlyList<ModifierStat>[valueLines.Count];
+        var lineSignatures = new string[valueLines.Count];
+        var usedComponentIndexes = new HashSet<int>();
+        for (var lineIndex = 0; lineIndex < valueLines.Count; lineIndex++)
+        {
+            var lineSignatureLines = ModifierTextSignatureNormalizer
+                .CreateParsedSignature([valueLines[lineIndex]])
+                .Signature.Lines;
+            if (lineSignatureLines.Count != 1 || string.IsNullOrWhiteSpace(lineSignatureLines[0]))
+            {
+                return false;
+            }
+
+            var lineSignature = lineSignatureLines[0];
+            var matches = new List<int>();
+            for (var componentIndex = 0; componentIndex < components.Length; componentIndex++)
+            {
+                if (usedComponentIndexes.Contains(componentIndex))
+                {
+                    continue;
+                }
+
+                if (ComponentSignatureMatchesLine(components[componentIndex], lineSignature))
+                {
+                    matches.Add(componentIndex);
+                }
+            }
+
+            if (matches.Count != 1)
+            {
+                return false;
+            }
+
+            var matchedComponentIndex = matches[0];
+            usedComponentIndexes.Add(matchedComponentIndex);
+            var matchedComponent = components[matchedComponentIndex];
+            var matchedStatId = matchedComponent.StatIds[0].Trim();
+            lineStats[lineIndex] = [boundStatsById[matchedStatId][0]];
+            lineSignatures[lineIndex] = matchedComponent.CanonicalSignatures[0].Trim();
+        }
+
+        if (usedComponentIndexes.Count != components.Length)
+        {
+            return false;
+        }
+
+        matchedLineStats = lineStats;
+        matchedCanonicalSignatures = lineSignatures;
+        return true;
+    }
+
+    private static bool ComponentSignatureMatchesLine(
+        UniqueModifierCompositionComponent component,
+        string lineSignature)
+    {
+        if (component.CanonicalSignatures.Any(signature =>
+                string.Equals(signature.Trim(), lineSignature, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var rendered = ModifierTextSignatureNormalizer.CreateSignature(component.Lines).Lines;
+        return rendered.Count == 1 &&
+            string.Equals(rendered[0], lineSignature, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CompositionLineStatAssignmentsEqual(
+        IReadOnlyList<IReadOnlyList<ModifierStat>> left,
+        IReadOnlyList<IReadOnlyList<ModifierStat>> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            var leftIds = StatIds(left[index]).ToArray();
+            var rightIds = StatIds(right[index]).ToArray();
+            if (leftIds.Length != 1 ||
+                rightIds.Length != 1 ||
+                !string.Equals(leftIds[0], rightIds[0], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool HasIdenticalBaseAndUniqueCatalogMechanics(
@@ -2022,17 +2258,45 @@ public sealed partial class TradeSearchDraftMapper
 
         var uniqueModifierCandidates = ResolveUniqueModifierCandidates(uniqueBlockResolution, catalog);
         var boundCandidate = ResolveUniqueBoundCandidate(uniqueModifierCandidates);
-        if (boundCandidate is null ||
-            !TryMatchIndividualStatsToParsedLinesUnordered(
-                boundCandidate,
-                valueLines,
-                catalog,
-                out var matchedLineStats) ||
-            matchedLineStats.Count != valueLines.Count)
+        if (boundCandidate is null)
         {
             return false;
         }
 
+        // Prefer source-proven Exact composition line↔stat association for Unique-catalog Implicit
+        // consumption. Ordinary Unique multi-line blocks keep the translation-gated association so
+        // conjunctive Unique compositions are not silently split.
+        IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats = [];
+        IReadOnlyList<string>? matchedCanonicalSignatures = null;
+        var matchedViaCatalogImplicitComposition =
+            uniqueBlockResolution.CatalogImplicitConsumptionReason is not null &&
+            TryMatchExactCompositionComponentsToBoundStats(
+                uniqueBlockResolution,
+                valueLines,
+                boundCandidate,
+                out matchedLineStats,
+                out matchedCanonicalSignatures);
+        if (!matchedViaCatalogImplicitComposition &&
+            !TryMatchIndividualStatsToParsedLinesUnordered(
+                boundCandidate,
+                valueLines,
+                catalog,
+                out matchedLineStats))
+        {
+            return false;
+        }
+
+        if (!matchedViaCatalogImplicitComposition)
+        {
+            matchedCanonicalSignatures = null;
+        }
+
+        if (matchedLineStats.Count != valueLines.Count)
+        {
+            return false;
+        }
+
+        matchedCanonicalSignatures ??= [];
         var expanded = new List<ResolvedSearchComponent>(valueLines.Count);
         for (var index = 0; index < valueLines.Count; index++)
         {
@@ -2046,18 +2310,17 @@ public sealed partial class TradeSearchDraftMapper
             var lineLocalities = lineStatIds
                 .Select(statId => ResolveStatLocality(statId, catalog))
                 .ToArray();
+            var lineCanonicalSignature = matchedCanonicalSignatures.ElementAtOrDefault(index) ??
+                uniqueBlockResolution.CanonicalSignatures.ElementAtOrDefault(index) ??
+                uniqueBlockResolution.CatalogBlocks
+                    .Select(block => block.CanonicalSignatures.ElementAtOrDefault(index))
+                    .FirstOrDefault(signature => !string.IsNullOrWhiteSpace(signature)) ??
+                NormalizeComponentSignature([valueLines[index]]);
             var lineResolution = uniqueBlockResolution with
             {
                 StatIds = lineStatIds,
                 StatLocalities = lineLocalities,
-                CanonicalSignatures =
-                [
-                    uniqueBlockResolution.CanonicalSignatures.ElementAtOrDefault(index) ??
-                    uniqueBlockResolution.CatalogBlocks
-                        .Select(block => block.CanonicalSignatures.ElementAtOrDefault(index))
-                        .FirstOrDefault(signature => !string.IsNullOrWhiteSpace(signature)) ??
-                    NormalizeComponentSignature([valueLines[index]]),
-                ],
+                CanonicalSignatures = [lineCanonicalSignature],
                 IsEquivalentSourceSet = false,
             };
             expanded.Add(CreateComponent(

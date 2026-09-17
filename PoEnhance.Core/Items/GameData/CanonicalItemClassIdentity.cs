@@ -96,6 +96,7 @@ public static class CanonicalItemClassIdentityResolver
         Add(aliases, "Sceptre", "Sceptres");
         Add(aliases, "Shield", "Shields");
         Add(aliases, "Staff", "Staves");
+        Add(aliases, "Tincture", "Tinctures");
         Add(
             aliases,
             "Thrusting One Hand Sword",

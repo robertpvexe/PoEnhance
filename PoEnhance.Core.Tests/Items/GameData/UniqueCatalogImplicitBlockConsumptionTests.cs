@@ -112,28 +112,30 @@ public sealed class UniqueCatalogImplicitBlockConsumptionTests
             .Where(filter =>
                 filter.RawCopiedText.Contains("Blind", StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        Assert.NotEmpty(components);
-        // Sporebloom Tincture base currently fails class mismatch (Tinctures vs Tincture), so no
-        // proven native base candidate is available and Unique-catalog Implicit remains correct.
+        Assert.Equal(2, components.Length);
+        // Exact composition proves independent line↔StatId ownership. Native base ownership is not
+        // upgraded without recognition snapshots required by the provider base-implicit gate.
         Assert.All(components, component =>
         {
             Assert.Equal(ParsedModifierKind.Implicit, component.ParsedKind);
             Assert.Equal(ParsedModifierKind.Implicit, component.ResolvedSourceKind);
             Assert.False(component.IsBaseImplicit);
             Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+            Assert.Equal(ModifierStatMappingProofStatus.ProvenExact, component.StatMappingProof);
             Assert.Equal(
                 ParsedUniqueItemResolver.UniqueCatalogImplicitBlockConsumptionReason,
                 component.UniqueCatalogImplicitConsumptionReason);
+            Assert.Equal("TinctureChanceToBlindImplicit1", component.ResolvedModifierId);
+            Assert.Single(component.ResolvedStatIds);
+            Assert.True(component.IsSearchable, component.NotSearchableReason);
         });
         Assert.Contains(
             components,
-            component => string.Equals(
-                component.ResolvedModifierId,
-                control.ModifierId,
-                StringComparison.OrdinalIgnoreCase) ||
-                component.ResolvedStatIds.SequenceEqual(control.StatIds) ||
-                control.StatIds.Any(statId => component.ResolvedStatIds.Contains(statId)));
-        Assert.Contains(components, component => component.IsSearchable);
+            component => component.ResolvedStatIds.Contains(
+                "chance_to_blind_on_hit_%_with_tinctured_weapons"));
+        Assert.Contains(
+            components,
+            component => component.ResolvedStatIds.Contains("blind_effect_+%_with_tinctured_weapons"));
     }
 
     [Fact]

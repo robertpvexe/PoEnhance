@@ -38,6 +38,7 @@ public sealed class ItemBaseClassCompatibilityTests
     [InlineData("Thrusting One Hand Swords", "Thrusting One Hand Sword")]
     [InlineData("Quivers", "Quiver")]
     [InlineData("Abyss Jewels", "AbyssJewel")]
+    [InlineData("Tinctures", "Tincture")]
     public void AreCompatible_KnownDisplayAndCatalogClasses_ReturnsTrue(
         string parsedItemClass,
         string catalogItemClass)
@@ -61,6 +62,7 @@ public sealed class ItemBaseClassCompatibilityTests
     [InlineData("Sceptres", "Sceptre", "normalized")]
     [InlineData("Shields", "Shield", "normalized")]
     [InlineData("Wands", "Wand", "normalized")]
+    [InlineData("Tinctures", "Tincture", "normalized")]
     public void AreCompatible_OrdinaryCorpusClipboardClasses_MapToCatalogClasses(
         string clipboardClass,
         string canonicalCatalogClass,
@@ -117,6 +119,22 @@ public sealed class ItemBaseClassCompatibilityTests
         Assert.Equal(rawItemClass.Trim(), result.RawItemClass);
         Assert.Contains(result.RawItemClass!, result.Diagnostic, StringComparison.Ordinal);
         Assert.Contains(expectedCanonicalItemClass, result.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_TinctureAndTinctures_ShareReviewedCanonicalIdentity()
+    {
+        var singular = CanonicalItemClassIdentityResolver.Resolve("Tincture");
+        var plural = CanonicalItemClassIdentityResolver.Resolve("Tinctures");
+
+        Assert.True(singular.IsSupported);
+        Assert.True(plural.IsSupported);
+        Assert.Equal(CanonicalItemClassResolutionStatus.Exact, singular.Status);
+        Assert.Equal(CanonicalItemClassResolutionStatus.Alias, plural.Status);
+        Assert.Equal("Tincture", singular.CanonicalItemClass);
+        Assert.Equal("Tincture", plural.CanonicalItemClass);
+        Assert.True(ItemBaseClassCompatibility.AreCompatible("Tinctures", "Tincture"));
+        Assert.True(ItemBaseClassCompatibility.AreCompatible("Tincture", "Tinctures"));
     }
 
     [Fact]
