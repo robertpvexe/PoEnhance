@@ -14,6 +14,8 @@ internal sealed class UniqueCorpusGateCaptureDocument
 
     public UniqueCorpusGateCaptureUniqueIdentity? UniqueIdentity { get; init; }
 
+    public UniqueCorpusGateCaptureUniqueMechanicalResolution? UniqueMechanicalResolution { get; init; }
+
     public IReadOnlyList<UniqueCorpusGateCaptureModifier>? Modifiers { get; init; }
 }
 
@@ -41,9 +43,41 @@ internal sealed class UniqueCorpusGateCaptureUniqueIdentity
     public string? Foulborn { get; init; }
 }
 
+internal sealed class UniqueCorpusGateCaptureUniqueMechanicalResolution
+{
+    public string? Status { get; init; }
+
+    public string? DiagnosticCode { get; init; }
+
+    public IReadOnlyList<string>? CompatibleVersionRoles { get; init; }
+
+    public IReadOnlyList<UniqueCorpusGateCaptureUniqueMechanicalBlock>? ModifierBlocks { get; init; }
+}
+
+internal sealed class UniqueCorpusGateCaptureUniqueMechanicalBlock
+{
+    public int ParsedModifierIndex { get; init; }
+
+    public bool IsResolved { get; init; }
+
+    public bool IsEquivalentSourceSet { get; init; }
+
+    public string? DiagnosticCode { get; init; }
+
+    public IReadOnlyList<string>? StatIds { get; init; }
+
+    public IReadOnlyList<string>? ModifierIds { get; init; }
+
+    public IReadOnlyList<string>? CatalogBlockIds { get; init; }
+}
+
 internal sealed class UniqueCorpusGateCaptureModifier
 {
     public string? ComponentId { get; init; }
+
+    public int SourceModifierIndex { get; init; }
+
+    public int SourceLineIndex { get; init; }
 
     public UniqueCorpusGateCaptureRaw? Raw { get; init; }
 
@@ -52,6 +86,8 @@ internal sealed class UniqueCorpusGateCaptureModifier
     public UniqueCorpusGateCaptureSemantics? ResolvedSemantics { get; init; }
 
     public UniqueCorpusGateCaptureSignatures? Signatures { get; init; }
+
+    public UniqueCorpusGateCaptureMultiline? Multiline { get; init; }
 
     public IReadOnlyList<UniqueCorpusGateCaptureProviderPass>? ProviderPasses { get; init; }
 
@@ -69,6 +105,8 @@ internal sealed class UniqueCorpusGateCaptureRaw
     public string? ImplicitOrigin { get; init; }
 
     public string? OriginalText { get; init; }
+
+    public IReadOnlyList<string>? ValueLines { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureSourceResolution
@@ -79,9 +117,21 @@ internal sealed class UniqueCorpusGateCaptureSourceResolution
 
     public IReadOnlyList<string>? ResolvedStatIds { get; init; }
 
+    public IReadOnlyList<string>? UniqueCatalogBlockIds { get; init; }
+
     public string? UniqueResolutionDiagnosticCode { get; init; }
 
+    public string? UniqueAggregationDiagnosticCode { get; init; }
+
+    public string? UniqueCompositionProjectionReason { get; init; }
+
+    public IReadOnlyList<string>? UniqueOmittedCompositionComponentIds { get; init; }
+
+    public bool IsEquivalentSourceSet { get; init; }
+
     public int SourceCandidateCount { get; init; }
+
+    public IReadOnlyList<string>? UniqueConflictCandidateModifierIds { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureSemantics
@@ -97,6 +147,8 @@ internal sealed class UniqueCorpusGateCaptureSemantics
     public bool HasResolvedUniqueSourceSemantics { get; init; }
 
     public bool HasExactUniqueSourceProvenance { get; init; }
+
+    public bool IsBaseImplicit { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureSignatures
@@ -108,6 +160,17 @@ internal sealed class UniqueCorpusGateCaptureSignatures
     public string? ProviderCanonicalSignature { get; init; }
 
     public IReadOnlyList<string>? ProviderSearchSignatures { get; init; }
+}
+
+internal sealed class UniqueCorpusGateCaptureMultiline
+{
+    public bool OriginalTextContainsNewLine { get; init; }
+
+    public bool IsEquivalentSourceSet { get; init; }
+
+    public int SourceCount { get; init; }
+
+    public int UniqueSourceObservationCount { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureProviderPass
@@ -128,6 +191,15 @@ internal sealed class UniqueCorpusGateCaptureMatch
     public string? Status { get; init; }
 
     public IReadOnlyList<UniqueCorpusGateCaptureDiagnostic>? Diagnostics { get; init; }
+
+    public IReadOnlyList<UniqueCorpusGateCaptureMatchCandidate>? Candidates { get; init; }
+}
+
+internal sealed class UniqueCorpusGateCaptureMatchCandidate
+{
+    public string? StatId { get; init; }
+
+    public string? Text { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureProjection
@@ -151,6 +223,12 @@ internal sealed class UniqueCorpusGateCaptureProviderOutcome
     public string? ProviderDiagnosticCode { get; init; }
 
     public string? ProviderDiagnosticMessage { get; init; }
+
+    public string? ProviderStatId { get; init; }
+
+    public IReadOnlyList<string>? ProviderCandidateStatIds { get; init; }
+
+    public IReadOnlyList<string>? ProviderStatAlternativeIds { get; init; }
 }
 
 internal sealed class UniqueCorpusGateCaptureConsumer

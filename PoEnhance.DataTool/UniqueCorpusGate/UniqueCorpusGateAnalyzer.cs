@@ -60,6 +60,17 @@ public static class UniqueCorpusGateAnalyzer
         var components = analyzedCaptures
             .SelectMany(ClassifyCaptureComponents)
             .ToArray();
+        var observationalRows = UniqueCorpusGateObservationalExtractor.ExtractRows(analyzedCaptures);
+        var observationalSnapshot = UniqueCorpusGateBaselineIO.Create(
+            observationalRows,
+            Path.GetFullPath(inputDirectory),
+            files.Length,
+            options.DeduplicateLatestCapturePerItem
+                ? "keep-latest-capture-per-item-identity"
+                : "analyze-all-parsed-captures");
+        var invariants = UniqueCorpusGateInvariants.Evaluate(observationalRows);
+        var goldenControls = UniqueCorpusGateGoldenControls.Evaluate(observationalRows);
+        var structuralFailures = UniqueCorpusGateFailureClustering.Build(observationalRows);
 
         var outcomes = CountOutcomes(components.Select(component => component.Outcome).ToArray());
         var clusters = BuildClusters(components);
@@ -108,6 +119,11 @@ public static class UniqueCorpusGateAnalyzer
             RootCauseClusters = clusters,
             SignatureFamilies = families,
             RankedBacklog = ranked,
+            ObservationalRows = observationalRows,
+            ObservationalSnapshot = observationalSnapshot,
+            Invariants = invariants,
+            GoldenControls = goldenControls,
+            StructuralFailureClasses = structuralFailures,
         };
     }
 
@@ -229,6 +245,38 @@ public static class UniqueCorpusGateAnalyzer
                 failures.Add(
                     $"Signature family '{regression.NormalizedSignature}' ({regression.SourceFamily}) lost Supported coverage.");
             }
+        }
+
+        if (report.ObservationalDiff is { } observationalDiff)
+        {
+            foreach (var change in observationalDiff.Changes.Where(change =>
+                         change.Kind == UniqueCorpusGateChangeKind.HardRegression))
+            {
+                failures.Add(
+                    $"Hard regression [{change.ReasonCode}] {change.ItemName}: {change.Message}");
+            }
+
+            if (options.FailOnReviewRequired)
+            {
+                foreach (var change in observationalDiff.Changes.Where(change =>
+                             change.Kind == UniqueCorpusGateChangeKind.ReviewRequired))
+                {
+                    failures.Add(
+                        $"Review-required [{change.ReasonCode}] {change.ItemName}: {change.Message}");
+                }
+            }
+        }
+
+        foreach (var invariant in report.Invariants.Where(invariant => invariant.StrictFailure))
+        {
+            failures.Add(
+                $"Invariant {invariant.Id} ({invariant.Name}) violations={invariant.Violations}.");
+        }
+
+        foreach (var golden in report.GoldenControls.Where(control => !control.Passed))
+        {
+            failures.Add(
+                $"Golden control '{golden.Id}' failed: {golden.Detail}");
         }
 
         return new UniqueCorpusGateStrictResult
@@ -775,6 +823,7 @@ public static class UniqueCorpusGateAnalyzer
     private static bool IsSuccessfulProviderStatus(string? status) =>
         EqualsOrdinal(status, "Exact") ||
         EqualsOrdinal(status, "ExactEquivalentSet") ||
+        EqualsOrdinal(status, "ExactConjunctiveSet") ||
         EqualsOrdinal(status, "Approximate") ||
         EqualsOrdinal(status, "BaseGuaranteed");
 

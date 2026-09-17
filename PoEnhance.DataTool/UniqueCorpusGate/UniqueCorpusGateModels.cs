@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PoEnhance.DataTool.UniqueCorpusGate;
 
 public sealed record UniqueCorpusGateOptions
@@ -11,6 +13,14 @@ public sealed record UniqueCorpusGateOptions
     public decimal? MaxSupportedCoverageDropPercent { get; init; }
 
     public string? BaselineReportPath { get; init; }
+
+    public string? ObservationalBaselinePath { get; init; }
+
+    public string? WriteObservationalBaselinePath { get; init; }
+
+    public string? OutputPrefix { get; init; }
+
+    public bool FailOnReviewRequired { get; init; } = true;
 }
 
 public sealed class UniqueCorpusGateReport
@@ -38,6 +48,20 @@ public sealed class UniqueCorpusGateReport
     public IReadOnlyList<UniqueCorpusGateSignatureFamily> SignatureFamilies { get; init; } = [];
 
     public IReadOnlyList<UniqueCorpusGateCluster> RankedBacklog { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<UniqueCorpusGateObservationalRow> ObservationalRows { get; init; } = [];
+
+    [JsonIgnore]
+    public UniqueCorpusGateObservationalBaseline? ObservationalSnapshot { get; init; }
+
+    public UniqueCorpusGateObservationalDiff? ObservationalDiff { get; init; }
+
+    public IReadOnlyList<UniqueCorpusGateInvariantResult> Invariants { get; init; } = [];
+
+    public IReadOnlyList<UniqueCorpusGateGoldenControlResult> GoldenControls { get; init; } = [];
+
+    public IReadOnlyList<UniqueCorpusGateStructuralFailureClass> StructuralFailureClasses { get; init; } = [];
 
     public UniqueCorpusGateComparison? Comparison { get; init; }
 
@@ -214,13 +238,6 @@ public sealed class UniqueCorpusGateStrictResult
     public bool Passed { get; init; }
 
     public IReadOnlyList<string> Failures { get; init; } = [];
-}
-
-public static class UniqueCorpusGateSchema
-{
-    public const string ReportSchemaId = "poenhance.unique-corpus-gate.v1";
-
-    public const string ComparisonSchemaId = "poenhance.unique-corpus-gate.comparison.v1";
 }
 
 public static class UniqueCorpusGateStages

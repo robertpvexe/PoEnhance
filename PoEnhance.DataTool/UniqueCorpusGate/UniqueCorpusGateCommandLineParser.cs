@@ -17,11 +17,19 @@ public sealed record UniqueCorpusGateCommandLineRequest
 
     public string? OutputPath { get; init; }
 
+    public string? OutputPrefix { get; init; }
+
     public string? BaselinePath { get; init; }
+
+    public string? ObservationalBaselinePath { get; init; }
+
+    public string? WriteObservationalBaselinePath { get; init; }
 
     public bool DeduplicateLatestCapturePerItem { get; init; } = true;
 
     public bool Strict { get; init; }
+
+    public bool FailOnReviewRequired { get; init; } = true;
 
     public int? MaxUnclassifiedClusterComponents { get; init; }
 
@@ -36,7 +44,10 @@ public static class UniqueCorpusGateCommandLineParser
     {
         "--input",
         "--output",
+        "--output-prefix",
         "--baseline",
+        "--observational-baseline",
+        "--write-observational-baseline",
         "--max-unclassified-cluster-components",
         "--max-supported-coverage-drop-percent",
     };
@@ -45,6 +56,7 @@ public static class UniqueCorpusGateCommandLineParser
     {
         "--strict",
         "--keep-duplicate-captures",
+        "--allow-review-required",
     };
 
     public static UniqueCorpusGateCommandLineParseResult Parse(IReadOnlyList<string> args)
@@ -135,11 +147,23 @@ public static class UniqueCorpusGateCommandLineParser
             }
         }
 
+        var writeBaseline = TrimOrNull(values.GetValueOrDefault("--write-observational-baseline"));
+        var observationalBaseline = TrimOrNull(values.GetValueOrDefault("--observational-baseline"));
         var strict = flags.Contains("--strict");
-        if (strict && maxUnclassified is null && maxDrop is null &&
-            !values.ContainsKey("--baseline"))
+        if (strict &&
+            writeBaseline is not null)
         {
-            errors.Add("Strict mode requires --baseline and/or a configured threshold.");
+            errors.Add("Strict mode cannot be combined with --write-observational-baseline (baseline update is explicit-only).");
+        }
+
+        if (strict &&
+            maxUnclassified is null &&
+            maxDrop is null &&
+            !values.ContainsKey("--baseline") &&
+            observationalBaseline is null)
+        {
+            errors.Add(
+                "Strict mode requires --observational-baseline and/or --baseline and/or a configured threshold.");
         }
 
         if (errors.Count > 0)
@@ -153,9 +177,13 @@ public static class UniqueCorpusGateCommandLineParser
             {
                 InputDirectory = input!.Trim(),
                 OutputPath = TrimOrNull(values.GetValueOrDefault("--output")),
+                OutputPrefix = TrimOrNull(values.GetValueOrDefault("--output-prefix")),
                 BaselinePath = TrimOrNull(values.GetValueOrDefault("--baseline")),
+                ObservationalBaselinePath = observationalBaseline,
+                WriteObservationalBaselinePath = writeBaseline,
                 DeduplicateLatestCapturePerItem = !flags.Contains("--keep-duplicate-captures"),
                 Strict = strict,
+                FailOnReviewRequired = !flags.Contains("--allow-review-required"),
                 MaxUnclassifiedClusterComponents = maxUnclassified,
                 MaxSupportedCoverageDropPercent = maxDrop,
             },
@@ -165,10 +193,11 @@ public static class UniqueCorpusGateCommandLineParser
     public static string GetUsage()
     {
         return """
-unique-corpus-gate --input <directory> [--output <report.json>] [--baseline <report.json>] [--keep-duplicate-captures] [--strict --max-unclassified-cluster-components <n> --max-supported-coverage-drop-percent <n>]
+unique-corpus-gate --input <directory> [--output <report.json>] [--output-prefix <path-prefix>] [--baseline <report.json>] [--observational-baseline <baseline.json>] [--write-observational-baseline <baseline.json>] [--keep-duplicate-captures] [--strict [--allow-review-required] --max-unclassified-cluster-components <n> --max-supported-coverage-drop-percent <n>]
 
-Analyzes ModifierPipelineDiagnosticRecorder JSON captures and writes a Unique corpus coverage report.
-Default mode only reports. Strict mode fails on configured unclassified/regression thresholds.
+Analyzes ModifierPipelineDiagnosticRecorder JSON captures and writes Unique corpus coverage, observational diffs, invariants, and golden-control results.
+Default mode only reports. --write-observational-baseline explicitly creates/updates the observational snapshot and never runs during --strict.
+Strict mode fails on hard regressions, review-required changes (unless --allow-review-required), invariant violations, golden-control failures, and configured unclassified/regression thresholds.
 """;
     }
 
