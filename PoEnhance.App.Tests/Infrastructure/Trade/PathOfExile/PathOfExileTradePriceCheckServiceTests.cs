@@ -2494,6 +2494,45 @@ and they welcomed him.
     }
 
     [Fact]
+    public void ResolveProviderComponents_IncompleteCurrentExactBaseImplicitProvenanceFailsClosed()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = RecognizedBaseImplicitDraft(
+            BaseImplicitRecognitionStatus.CurrentExact,
+            BaseImplicitSnapshotRole.CurrentCandidate);
+        draft = draft with
+        {
+            ModifierFilters =
+            [
+                draft.ModifierFilters[0] with
+                {
+                    BaseImplicitProvenance = draft.ModifierFilters[0].BaseImplicitProvenance! with
+                    {
+                        MechanicalSignatures = [],
+                        SourceSnapshots = [],
+                    },
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("explicit.stat_life_regen", "Regenerate # Life per second", "explicit"),
+            Stat("implicit.stat_life_regen", "Regenerate # Life per second", "implicit"),
+            Stat("crafted.stat_life_regen", "Regenerate # Life per second", "crafted"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+        var component = Assert.Single(resolved.ModifierFilters);
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, component.ProviderResolutionStatus);
+        Assert.False(component.IsSearchable);
+        Assert.Null(component.ProviderStatId);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.MissingGameDataProvenance,
+            component.ProviderDiagnosticCode);
+    }
+
+    [Fact]
     public void ResolveProviderComponents_NonEquivalentImplicitCandidatesAreAmbiguous()
     {
         var fixture = ServiceFixture.Create();

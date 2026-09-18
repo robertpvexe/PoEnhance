@@ -1,0 +1,27 @@
+Item Class: Amulets
+Rarity: Unique
+Ikiaho's Promise
+Coral Amulet
+--------
+Requirements:
+Level: 30
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Life }
+Regenerate 2.3(2-4) Life per second
+--------
+{ Unique Modifier — Mana }
+Regenerate 3.5(3-5) Mana per second
+{ Unique Modifier — Life }
+34(30-40)% increased Life Recovery from Flasks
+{ Unique Modifier — Mana }
+30(20-30)% increased Mana Recovery from Flasks
+{ Unique Modifier — Life }
+Life Flasks used while on Low Life apply Recovery Instantly
+(You are on Low Life if you have 50% of your Maximum Life or less)
+{ Unique Modifier — Mana }
+Mana Flasks used while on Low Mana apply Recovery Instantly
+(You are on Low Mana if you have 50% of your Maximum Mana or less)
+--------
+Even the loneliest of souls can aid a friend in times of darkness.

@@ -1,0 +1,29 @@
+Item Class: Amulets
+Rarity: Unique
+Tavukai
+Coral Amulet
+--------
+Requirements:
+Level: 54
+--------
+Item Level: 83
+--------
+{ Implicit Modifier — Life }
+Regenerate 2.5(2-4) Life per second
+--------
+{ Unique Modifier — Attribute }
++34(30-40) to Intelligence
+{ Unique Modifier — Chaos, Resistance, Minion }
+Minions have -15(-17-17)% to Chaos Resistance
+{ Unique Modifier — Minion }
+Summon Raging Spirit has 25(20-30)% increased Duration
+{ Unique Modifier — Damage, Minion }
+Summoned Raging Spirits deal 26(25-40)% increased Damage
+{ Unique Modifier — Life, Minion }
+Summoned Raging Spirits have 34(25-40)% increased maximum Life
+{ Unique Modifier — Damage, Chaos, Minion }
+Summoned Raging Spirits take 20% of their Maximum Life per second as Chaos Damage
+--------
+"Hyrri and her arrows broke the sacred code, damning herself. 
+Kaom seized her sacrifice, and in doing so, seized victory." 
+- Lavianga, Advisor to Kaom

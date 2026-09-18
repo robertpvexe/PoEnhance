@@ -1,0 +1,27 @@
+Item Class: Amulets
+Rarity: Unique
+Tainted Pact
+Coral Amulet
+--------
+Requirements:
+Level: 42
+--------
+Item Level: 83
+--------
+{ Implicit Modifier — Life }
+Regenerate 3.2(2-4) Life per second
+--------
+{ Unique Modifier — Attribute }
++29(20-30) to Strength
+{ Unique Modifier — Life, Physical, Attack }
+2.54(2-3)% of Physical Attack Damage Leeched as Life
+(Leeched Life is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+{ Unique Modifier — Mana, Physical, Attack }
+1.32(1-1.5)% of Physical Attack Damage Leeched as Mana
+(Leeched Mana is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+{ Unique Modifier }
+Taking Chaos Damage over Time heals you instead while Leeching Life — Unscalable Value
+--------
+Beidat made false promises to many denizens,
+converting only one into a conduit through
+which Wraeclast might be consumed.

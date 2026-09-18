@@ -870,6 +870,11 @@ public sealed partial class TradeSearchDraftMapper
                     out var baseImplicitCandidate,
                 out var matchedLineStats))
             {
+                var parsedOwnershipProvenance = PreferCompleteExactBaseImplicitProvenance(
+                    baseImplicitProvenance,
+                    itemBaseResolution,
+                    baseImplicitCandidate,
+                    catalog);
                 for (var index = 0; index < valueLines.Length; index++)
                 {
                     yield return CreateComponent(
@@ -886,7 +891,8 @@ public sealed partial class TradeSearchDraftMapper
                         traditionalInfluences,
                         catalog,
                         isBaseImplicit: true,
-                        baseImplicitProvenance: baseImplicitProvenance);
+                        baseImplicitProvenance: parsedOwnershipProvenance,
+                        baseIdentityCatalog: catalog);
                 }
 
                 yield break;
@@ -1462,6 +1468,11 @@ public sealed partial class TradeSearchDraftMapper
                 out var recognizedCatalog))
         {
             effectCatalog = recognizedCatalog;
+            provenance = PreferCompleteExactBaseImplicitProvenance(
+                provenance,
+                itemBaseResolution,
+                candidate,
+                catalog);
             return true;
         }
 
@@ -1477,10 +1488,14 @@ public sealed partial class TradeSearchDraftMapper
                 out matchedLineStats))
         {
             effectCatalog = catalog;
-            provenance ??= new SearchComponentBaseImplicitProvenance
-            {
-                RecognitionStatus = BaseImplicitRecognitionStatus.CurrentExact,
-            };
+            // Exact current ownership is already proven by the item-base ImplicitModifierIds match.
+            // Never emit a hollow CurrentExact object: either attach packaged history evidence or
+            // leave provenance null so ProviderDomainEvidence remains the authorization path.
+            provenance = PreferCompleteExactBaseImplicitProvenance(
+                provenance,
+                itemBaseResolution,
+                candidate,
+                catalog);
             return true;
         }
 
@@ -1908,7 +1923,7 @@ public sealed partial class TradeSearchDraftMapper
             return null;
         }
 
-        return new SearchComponentBaseImplicitProvenance
+        return NormalizeExactBaseImplicitProvenance(new SearchComponentBaseImplicitProvenance
         {
             RecognitionStatus = recognition.Status,
             MechanicalSignatures = recognition.Matches
@@ -1936,7 +1951,174 @@ public sealed partial class TradeSearchDraftMapper
                 .ToArray(),
             DiagnosticCode = TrimToNull(recognition.DiagnosticCode),
             Diagnostic = TrimToNull(recognition.Diagnostic),
-        };
+        });
+    }
+
+    /// <summary>
+    /// Exact native/base ownership proven by item-base ImplicitModifierIds + parsed text match may
+    /// outrun history text recognition (for example AID range forms with unit-scaled stats). When
+    /// packaged BaseImplicitHistory already carries the matching current/historical observation for
+    /// that exact modifier on the canonical base, attach complete provenance from that evidence.
+    /// Never invent signatures or snapshots that are absent from the package.
+    /// </summary>
+    private static SearchComponentBaseImplicitProvenance? PreferCompleteExactBaseImplicitProvenance(
+        SearchComponentBaseImplicitProvenance? existing,
+        ItemBaseResolutionResult? itemBaseResolution,
+        ModifierDefinition candidate,
+        GameDataCatalog? catalog)
+    {
+        var normalizedExisting = NormalizeExactBaseImplicitProvenance(existing);
+        if (normalizedExisting is not null &&
+            normalizedExisting.RecognitionStatus is
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact)
+        {
+            return normalizedExisting;
+        }
+
+        return TryCreateExactBaseImplicitProvenanceFromParsedOwnership(
+                itemBaseResolution,
+                candidate,
+                catalog)
+            ?? normalizedExisting;
+    }
+
+    private static SearchComponentBaseImplicitProvenance? TryCreateExactBaseImplicitProvenanceFromParsedOwnership(
+        ItemBaseResolutionResult? itemBaseResolution,
+        ModifierDefinition candidate,
+        GameDataCatalog? catalog)
+    {
+        var history = catalog?.BaseImplicitHistory;
+        var baseId = TrimToNull(itemBaseResolution?.MatchedItemBase?.Id) ??
+            TrimToNull(itemBaseResolution?.ResolvedBaseId);
+        var modifierId = TrimToNull(candidate.Id);
+        if (history is null || baseId is null || modifierId is null)
+        {
+            return null;
+        }
+
+        var sources = history.SourceSnapshots
+            .Where(source => !string.IsNullOrWhiteSpace(source.Id))
+            .ToDictionary(source => source.Id!.Trim(), StringComparer.OrdinalIgnoreCase);
+        var effects = history.MechanicalEffects
+            .Where(effect => effect.IsResolved &&
+                effect.Modifier is not null &&
+                !string.IsNullOrWhiteSpace(effect.Id) &&
+                !string.IsNullOrWhiteSpace(effect.MechanicalSignature))
+            .ToDictionary(effect => effect.Id!.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var role in new[]
+                 {
+                     BaseImplicitSnapshotRole.CurrentCandidate,
+                     BaseImplicitSnapshotRole.HistoricalObserved,
+                 })
+        {
+            var matches = new List<BaseImplicitRecognitionMatch>();
+            foreach (var observation in history.Observations)
+            {
+                if (!string.Equals(
+                        TrimToNull(observation.CanonicalBaseId),
+                        baseId,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!observation.ImplicitModifierIds.Any(id =>
+                        string.Equals(TrimToNull(id), modifierId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (!sources.TryGetValue(observation.SourceSnapshotId ?? string.Empty, out var source) ||
+                    source.Role != role)
+                {
+                    continue;
+                }
+
+                foreach (var effectId in observation.MechanicalEffectIds)
+                {
+                    if (!effects.TryGetValue(effectId ?? string.Empty, out var effect))
+                    {
+                        continue;
+                    }
+
+                    if (!string.Equals(
+                            TrimToNull(effect.SourceModifierId) ?? TrimToNull(effect.Modifier?.Id),
+                            modifierId,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    matches.Add(new BaseImplicitRecognitionMatch(observation, effect, source));
+                }
+            }
+
+            if (matches.Count == 0)
+            {
+                continue;
+            }
+
+            var distinctSignatures = matches
+                .Select(match => match.Effect.MechanicalSignature)
+                .Where(signature => !string.IsNullOrWhiteSpace(signature))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (distinctSignatures.Length != 1)
+            {
+                continue;
+            }
+
+            var status = role == BaseImplicitSnapshotRole.CurrentCandidate
+                ? BaseImplicitRecognitionStatus.CurrentExact
+                : BaseImplicitRecognitionStatus.HistoricalExact;
+            return CreateBaseImplicitProvenance(new BaseImplicitRecognitionResult(
+                status,
+                matches,
+                status == BaseImplicitRecognitionStatus.CurrentExact
+                    ? "base-implicit-current-exact-from-parsed-ownership"
+                    : "base-implicit-historical-exact-from-parsed-ownership",
+                status == BaseImplicitRecognitionStatus.CurrentExact
+                    ? "Exact parsed native/base ownership matched packaged current candidate base-implicit evidence."
+                    : "Exact parsed native/base ownership matched packaged historical observed base-implicit evidence."));
+        }
+
+        return null;
+    }
+
+    private static SearchComponentBaseImplicitProvenance? NormalizeExactBaseImplicitProvenance(
+        SearchComponentBaseImplicitProvenance? provenance)
+    {
+        if (provenance is null)
+        {
+            return null;
+        }
+
+        if (provenance.RecognitionStatus == BaseImplicitRecognitionStatus.Ambiguous)
+        {
+            return provenance;
+        }
+
+        if (provenance.RecognitionStatus is not (
+                BaseImplicitRecognitionStatus.CurrentExact or
+                BaseImplicitRecognitionStatus.HistoricalExact))
+        {
+            return provenance;
+        }
+
+        var expectedRole = provenance.RecognitionStatus == BaseImplicitRecognitionStatus.CurrentExact
+            ? BaseImplicitSnapshotRole.CurrentCandidate
+            : BaseImplicitSnapshotRole.HistoricalObserved;
+        if (provenance.MechanicalSignatures.Count == 1 &&
+            !string.IsNullOrWhiteSpace(provenance.MechanicalSignatures[0]) &&
+            provenance.SourceSnapshots.Any(snapshot => snapshot.Role == expectedRole))
+        {
+            return provenance;
+        }
+
+        // Incomplete exact objects are not authoritative; omit them rather than fail-closed as exact.
+        return null;
     }
 
     private static bool TryMatchIndividualStatsToParsedLinesUnordered(

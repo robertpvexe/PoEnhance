@@ -1,0 +1,30 @@
+Item Class: Amulets
+Rarity: Unique
+The Primordial Chain
+Coral Amulet
+--------
+Requirements:
+Level: 34
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Life }
+Regenerate 2.2(2-4) Life per second
+--------
+{ Unique Modifier — Minion }
++3 to maximum number of Summoned Golems
+{ Unique Modifier — Minion }
+You cannot have non-Golem Minions — Unscalable Value
+{ Unique Modifier — Minion }
+25% reduced Golem Size
+{ Unique Modifier — Damage, Minion }
+Golems Deal 29(35-25)% less Damage
+{ Unique Modifier — Life, Minion }
+Golems have 26(35-25)% less Life
+{ Unique Modifier — Speed, Minion }
+Golems have 92(80-100)% increased Movement Speed
+{ Unique Modifier — Minion }
+Primordial
+--------
+The leash of the lifegiver
+binds in both directions.
