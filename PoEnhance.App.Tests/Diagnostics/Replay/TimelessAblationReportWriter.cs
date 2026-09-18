@@ -61,34 +61,45 @@ internal static class TimelessAblationReportWriter
 
     public static string FormatSummary(TimelessAblationReport report)
     {
-        var realMismatch = report.AblationRows.Count(row =>
-            row.TransformName == "identity_real" && row.Outcome == "MISMATCH");
+        var realExact = report.AblationRows.Count(row =>
+            row.TransformName == "identity_real" && row.Outcome == "EXACT");
+        var realUnscalable = report.AblationRows.Count(row =>
+            row.TransformName == "identity_real" && row.HasUnscalableValue);
         var fixtureExact = report.AblationRows.Count(row =>
             row.TransformName == "identity_fixture" && row.Outcome == "EXACT");
         var fixtureTotal = report.AblationRows.Count(row => row.TransformName == "identity_fixture");
-        var singleFeature = report.MinimalTrigger.ForwardExactRestoringTransforms
-            .Where(entry => entry.AffectedItemCount >= 3)
+        var normalizeExact = report.AblationRows.Count(row =>
+            row.TransformName == "normalize_historic_to_plain" && row.Outcome == "EXACT");
+        var restoreExact = report.ReverseAdditionRows.Count(row =>
+            row.TransformName == "add_real_historic_wording" && row.Outcome == "EXACT");
+        var annotationPreserving = report.MinimalTrigger.AnnotationExactPreservingTransforms
             .Select(entry => $"{entry.TransformName}:{entry.AffectedItemCount}")
             .ToArray();
-        var reverse = report.MinimalTrigger.ReverseMismatchCausingTransforms
-            .Where(entry => entry.AffectedItemCount >= 3)
+        var reverseStillMismatch = report.MinimalTrigger.ReverseMismatchCausingTransforms
+            .Where(entry => entry.AffectedItemCount > 0)
             .Select(entry => $"{entry.TransformName}:{entry.AffectedItemCount}")
             .ToArray();
         var intentionalPreserved = report.IntentionalMismatchControls.All(row => row.Outcome == "MISMATCH");
 
         var sb = new StringBuilder();
-        sb.AppendLine("A.5.5 Timeless Ablation Summary");
+        sb.AppendLine("A.5.5/A.5.6.1 Timeless Ablation Summary (post-fix)");
         sb.AppendLine($"GameData: {report.GameDataVersion} / {report.GameDataSha256}");
-        sb.AppendLine($"Timeless real mismatch reproduced: {realMismatch}/5");
+        sb.AppendLine($"real Timeless Exact after fix: {realExact}/5");
+        sb.AppendLine($"AID unscalable present: {realUnscalable}/5");
+        sb.AppendLine($"annotation normalization preserves Exact: {normalizeExact}/5");
+        sb.AppendLine($"annotation restoration preserves Exact: {restoreExact}/5");
         sb.AppendLine($"green fixture Exact count: {fixtureExact}/{fixtureTotal}");
-        sb.AppendLine($"single-feature causal transforms: {string.Join(", ", singleFeature)}");
-        sb.AppendLine($"reverse-addition causal transforms: {string.Join(", ", reverse)}");
-        sb.AppendLine($"minimal causal feature/set: {string.Join(" + ", report.MinimalTrigger.Features)}");
-        sb.AppendLine($"evidence strength: {report.MinimalTrigger.EvidenceStrength}");
+        sb.AppendLine($"annotation Exact-preserving transforms: {string.Join(", ", annotationPreserving)}");
+        sb.AppendLine(
+            $"reverse transforms still causing mismatch: {(reverseStillMismatch.Length == 0 ? "none" : string.Join(", ", reverseStillMismatch))}");
+        sb.AppendLine($"historical root-cause trigger: {report.MinimalTrigger.HistoricalTrigger}");
+        sb.AppendLine($"historical evidence strength: {report.MinimalTrigger.HistoricalEvidenceStrength}");
+        sb.AppendLine($"current evidence strength: {report.MinimalTrigger.EvidenceStrength}");
         sb.AppendLine($"family classification: {report.MinimalTrigger.FamilyClassification}");
+        sb.AppendLine($"post-fix behavior: {report.MinimalTrigger.PostFixBehavior}");
         sb.AppendLine(
             $"broader corpus affected items/mods: {report.CorpusBlast?.BroaderAffectedItemCount}/{report.CorpusBlast?.BroaderAffectedModifierCount}");
-        sb.AppendLine($"intentional mismatch controls preserved: {intentionalPreserved}");
+        sb.AppendLine($"intentional mechanical mismatches preserved: {intentionalPreserved}");
         sb.AppendLine($"earliest responsible layer: {report.MinimalTrigger.EarliestResponsibleLayer}");
         return sb.ToString();
     }
@@ -97,7 +108,7 @@ internal static class TimelessAblationReportWriter
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "itemName,direction,transformName,outcome,inputSha256,parserSeedValueLineCount,uniqueIdentityStatus,uniqueIdentityDiagnostic,seedBlockDiagnostic,isSearchable,modifierIds,statIds,invalidReason");
+            "itemName,direction,transformName,outcome,inputSha256,parserSeedValueLineCount,uniqueIdentityStatus,uniqueIdentityDiagnostic,seedBlockDiagnostic,hasUnscalableValue,isSearchable,modifierIds,statIds,invalidReason");
         foreach (var row in rows)
         {
             sb.AppendLine(string.Join(',',
@@ -110,6 +121,7 @@ internal static class TimelessAblationReportWriter
                 Csv(row.UniqueIdentityStatus),
                 Csv(row.UniqueIdentityDiagnostic),
                 Csv(row.SeedBlockDiagnostic),
+                Csv(row.HasUnscalableValue.ToString()),
                 Csv(row.IsSearchable?.ToString()),
                 Csv(string.Join('|', row.ModifierIds)),
                 Csv(string.Join('|', row.StatIds)),

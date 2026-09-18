@@ -94,13 +94,34 @@ internal sealed class TimelessMinimalTrigger
 {
     public IReadOnlyList<string> Features { get; init; } = [];
 
+    /// <summary>
+    /// Current post-A.5.6 evidence classification (not the historical pre-fix strength).
+    /// </summary>
     public string EvidenceStrength { get; init; } = "mixed";
 
     public string FamilyClassification { get; init; } = "MULTIPLE_SUBTYPES";
 
+    /// <summary>
+    /// A.5.5 historical root-cause identity retained for provenance after the production fix.
+    /// </summary>
+    public string? HistoricalTrigger { get; init; }
+
+    /// <summary>
+    /// A.5.5 historical evidence strength (bidirectional before the fix). Distinct from
+    /// <see cref="EvidenceStrength"/>, which describes current runtime behavior.
+    /// </summary>
+    public string? HistoricalEvidenceStrength { get; init; }
+
+    /// <summary>
+    /// Factual summary of current Timeless seed behavior after A.5.6.
+    /// </summary>
+    public string? PostFixBehavior { get; init; }
+
     public IReadOnlyList<TimelessTriggerTransformStat> ForwardExactRestoringTransforms { get; init; } = [];
 
     public IReadOnlyList<TimelessTriggerTransformStat> ReverseMismatchCausingTransforms { get; init; } = [];
+
+    public IReadOnlyList<TimelessTriggerTransformStat> AnnotationExactPreservingTransforms { get; init; } = [];
 
     public string? EarliestResponsibleLayer { get; init; }
 

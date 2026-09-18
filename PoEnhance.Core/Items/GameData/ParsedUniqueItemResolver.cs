@@ -1391,6 +1391,14 @@ public sealed partial class ParsedUniqueItemResolver
             : UniqueBlockTextMatch.NoMatch;
     }
 
+    /// <summary>
+    /// Validates that Advanced Item Description textual option-range annotations are end-attached
+    /// to the raw copied lines used for Fixed Current projection. AID
+    /// <c>— Unscalable Value</c> is presentation/query metadata: when the cleaned mechanical
+    /// SemanticText already matches a Fixed catalog block, that suffix must not reject an
+    /// otherwise exact Fixed Unique compatibility candidate. It is never a blanket version-check
+    /// bypass; mechanical SemanticText disagreement and multi-candidate ambiguity stay fail-closed.
+    /// </summary>
     private static bool IsEndAttachedTextualOptionRange(
         ParsedModifier modifier,
         IReadOnlyList<string> semanticLines,
@@ -1408,7 +1416,7 @@ public sealed partial class ParsedUniqueItemResolver
             var semantic = semanticLines[index];
             if (effect.TextualOptionRange is null)
             {
-                if (!string.Equals(effect.RawText.Trim(), semantic, StringComparison.Ordinal))
+                if (!RawCopiedTextMatchesMechanicalSemantic(effect.RawText, semantic))
                 {
                     return false;
                 }
@@ -1417,26 +1425,34 @@ public sealed partial class ParsedUniqueItemResolver
             }
 
             var expectedPrefix = $"{semantic}({effect.TextualOptionRange.Text})";
-            var raw = effect.RawText.Trim();
-            if (string.Equals(raw, expectedPrefix, StringComparison.Ordinal))
+            if (!RawCopiedTextMatchesMechanicalSemantic(effect.RawText, expectedPrefix))
             {
-                continue;
+                return false;
             }
-
-            const string unscalableSuffix = " — Unscalable Value";
-            if (raw.EndsWith(unscalableSuffix, StringComparison.Ordinal) &&
-                string.Equals(
-                    raw[..^unscalableSuffix.Length],
-                    expectedPrefix,
-                    StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Compares AID RawText to the cleaned mechanical semantic (or semantic+TOR prefix).
+    /// Tolerates only the trailing AID unscalable annotation suffix; any other RawText drift
+    /// remains incompatible.
+    /// </summary>
+    private static bool RawCopiedTextMatchesMechanicalSemantic(string? rawText, string mechanical)
+    {
+        var raw = rawText?.Trim() ?? string.Empty;
+        if (string.Equals(raw, mechanical, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        const string unscalableSuffix = " — Unscalable Value";
+        return raw.EndsWith(unscalableSuffix, StringComparison.Ordinal) &&
+            string.Equals(
+                raw[..^unscalableSuffix.Length],
+                mechanical,
+                StringComparison.Ordinal);
     }
 
     private static IReadOnlyList<string> MatchGeneratedPresentation(

@@ -33,7 +33,9 @@ internal static class TimelessAblationExperiment
             .LoadIdentityAsync(gameDataPackagePath, cancellationToken)
             .ConfigureAwait(false);
         var tradeCatalog = LoadPinnedOfficialTradeCatalog();
-        var itemCatalog = new PathOfExileTradeItemCatalog([]);
+        // Provider-context catalog so Timeless seed IsSearchable can be asserted on the same
+        // production path used by Ctrl+D regressions (empty catalog yields provider-boundary noise).
+        var itemCatalog = CreateTimelessCapableTradeItemCatalog();
         var filterCatalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
 
         var captures = LoadTimelessCaptures(corpusDirectory);
@@ -370,101 +372,106 @@ internal static class TimelessAblationExperiment
         IReadOnlyList<TimelessAblationRow> forward,
         IReadOnlyList<TimelessAblationRow> reverse)
     {
-        var causalForward = forward
+        var realExact = forward.Count(row =>
+            row.TransformName == "identity_real" && row.Outcome == "EXACT");
+        var realUnscalable = forward.Count(row =>
+            row.TransformName == "identity_real" && row.HasUnscalableValue);
+        var normalizeExact = forward
+            .Where(row => row.TransformName == "normalize_historic_to_plain" && row.Outcome == "EXACT")
+            .ToArray();
+        var restoreExact = reverse
+            .Where(row => row.TransformName == "add_real_historic_wording" && row.Outcome == "EXACT")
+            .ToArray();
+        var restoreMismatch = reverse
+            .Where(row => row.TransformName == "add_real_historic_wording" && row.Outcome == "MISMATCH")
+            .ToArray();
+
+        // Post-A.5.6: annotation transforms preserve Exact. Pre-fix "causal repair/break"
+        // counts are retained only as empty/historical contrast when mismatch no longer appears.
+        var exactPreservingForward = forward
             .Where(row => row.TransformName is not ("identity_real" or "identity_fixture"))
             .Where(row => row.Outcome == "EXACT")
             .GroupBy(row => row.TransformName, StringComparer.Ordinal)
-            .Select(group => new
+            .Select(group => new TimelessTriggerTransformStat
             {
-                Transform = group.Key,
-                ExactCount = group.Count(),
-                Items = group.Select(row => row.ItemName).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                TransformName = group.Key,
+                AffectedItemCount = group.Count(),
+                ItemNames = group.Select(row => row.ItemName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
             })
-            .OrderByDescending(entry => entry.ExactCount)
-            .ThenBy(entry => entry.Transform, StringComparer.Ordinal)
+            .OrderByDescending(entry => entry.AffectedItemCount)
+            .ThenBy(entry => entry.TransformName, StringComparer.Ordinal)
             .ToArray();
 
-        var causalReverse = reverse
+        var stillMismatchReverse = reverse
             .Where(row => row.Outcome == "MISMATCH")
             .GroupBy(row => row.TransformName, StringComparer.Ordinal)
-            .Select(group => new
+            .Select(group => new TimelessTriggerTransformStat
             {
-                Transform = group.Key,
-                MismatchCount = group.Count(),
-                Items = group.Select(row => row.ItemName).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                TransformName = group.Key,
+                AffectedItemCount = group.Count(),
+                ItemNames = group.Select(row => row.ItemName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
             })
-            .OrderByDescending(entry => entry.MismatchCount)
-            .ThenBy(entry => entry.Transform, StringComparer.Ordinal)
+            .OrderByDescending(entry => entry.AffectedItemCount)
+            .ThenBy(entry => entry.TransformName, StringComparer.Ordinal)
             .ToArray();
 
-        // Preferred bidirectional single feature: Historic — Unscalable Value AID chrome.
-        var normalizeHistoricExact = causalForward.FirstOrDefault(entry =>
-            entry.Transform == "normalize_historic_to_plain");
-        var addHistoricMismatch = causalReverse.FirstOrDefault(entry =>
-            entry.Transform == "add_real_historic_wording");
-
-        string evidenceStrength;
-        string family;
-        string[] features;
-        if (normalizeHistoricExact is { ExactCount: >= 5 } &&
-            addHistoricMismatch is { MismatchCount: >= 4 })
-        {
-            evidenceStrength = "bidirectional";
-            family = "FAMILY_WIDE";
-            features = ["historic_unscalable_value_aid_annotation_on_unique_seed_block"];
-        }
-        else if (normalizeHistoricExact is { ExactCount: >= 3 } &&
-                 addHistoricMismatch is { MismatchCount: >= 3 })
-        {
-            evidenceStrength = "bidirectional";
-            family = normalizeHistoricExact.ExactCount == 5 ? "FAMILY_WIDE" : "MAJORITY_SHARED";
-            features = ["historic_unscalable_value_aid_annotation_on_unique_seed_block"];
-        }
-        else if (causalForward.FirstOrDefault() is { } bestForward &&
-                 bestForward.ExactCount >= 3)
-        {
-            evidenceStrength = addHistoricMismatch is null ? "one-directional" : "mixed";
-            family = bestForward.ExactCount >= 5 ? "FAMILY_WIDE" : "MAJORITY_SHARED";
-            features = [bestForward.Transform];
-        }
-        else
-        {
-            evidenceStrength = "mixed";
-            family = "MULTIPLE_SUBTYPES";
-            features = causalForward.Take(3).Select(entry => entry.Transform).ToArray();
-        }
+        var postFixFamilyWide =
+            realExact >= 5 &&
+            realUnscalable >= 5 &&
+            normalizeExact.Length >= 5 &&
+            restoreExact.Length >= 5 &&
+            restoreMismatch.Length == 0;
 
         return new TimelessMinimalTrigger
         {
-            Features = features,
-            EvidenceStrength = evidenceStrength,
-            FamilyClassification = family,
-            ForwardExactRestoringTransforms = causalForward
-                .Select(entry => new TimelessTriggerTransformStat
+            Features = ["historic_unscalable_value_aid_annotation_on_unique_seed_block"],
+            EvidenceStrength = postFixFamilyWide ? "post_fix_family_wide" : "mixed",
+            FamilyClassification = realExact >= 5 ? "FAMILY_WIDE" : "MULTIPLE_SUBTYPES",
+            HistoricalTrigger =
+                "AID `Historic — Unscalable Value` on Fixed Unique seed blocks (A.5.5 bidirectional causal proof before the production fix)",
+            HistoricalEvidenceStrength = "bidirectional",
+            PostFixBehavior =
+                $"real Exact {realExact}/5; AID unscalable present {realUnscalable}/5; " +
+                $"normalize_historic_to_plain Exact {normalizeExact.Length}/5; " +
+                $"add_real_historic_wording Exact {restoreExact.Length}/5 " +
+                "(annotation no longer breaks Fixed Unique compatibility)",
+            ForwardExactRestoringTransforms = exactPreservingForward,
+            ReverseMismatchCausingTransforms = stillMismatchReverse,
+            AnnotationExactPreservingTransforms =
+            [
+                new TimelessTriggerTransformStat
                 {
-                    TransformName = entry.Transform,
-                    AffectedItemCount = entry.ExactCount,
-                    ItemNames = entry.Items,
-                })
-                .ToArray(),
-            ReverseMismatchCausingTransforms = causalReverse
-                .Select(entry => new TimelessTriggerTransformStat
+                    TransformName = "normalize_historic_to_plain",
+                    AffectedItemCount = normalizeExact.Length,
+                    ItemNames = normalizeExact.Select(row => row.ItemName)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                },
+                new TimelessTriggerTransformStat
                 {
-                    TransformName = entry.Transform,
-                    AffectedItemCount = entry.MismatchCount,
-                    ItemNames = entry.Items,
-                })
-                .ToArray(),
+                    TransformName = "add_real_historic_wording",
+                    AffectedItemCount = restoreExact.Length,
+                    ItemNames = restoreExact.Select(row => row.ItemName)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                },
+            ],
             EarliestResponsibleLayer =
-                "Unique mechanical block/version matching after parse: Advanced-copy `Historic — Unscalable Value` is cleaned to ValueLine `Historic` but retains HasUnscalableValue/RawText evidence that prevents compatible Fixed Unique block matching (UNIQUE_BLOCK_VERSION_MISMATCH), while fixture plain `Historic` matches",
+                "Historical (A.5.5): Unique Fixed-block compatibility after parse rejected AID unscalable RawText on non-TOR sibling lines during Fixed TOR projection. " +
+                "Current (A.5.6): ParsedUniqueItemResolver tolerates AID `— Unscalable Value` for Fixed Unique mechanical match when cleaned SemanticText already matches.",
             DiagnosticTransition =
-                "Same three Unique ValueLines (seed, conquered-passive, Historic); real AID uses `Historic — Unscalable Value` → Core UNIQUE_BLOCK_VERSION_MISMATCH / UNIQUE_VERSION_NOT_FOUND; normalizing to plain `Historic` restores ExactIdentity without version-block mismatch",
+                "Historical: real AID `Historic — Unscalable Value` → UNIQUE_BLOCK_VERSION_MISMATCH; normalize to plain Historic restored Exact. " +
+                "Current: real AID input, normalized Historic, and restored unscalable annotation all remain ExactIdentity with resolved seed ModifierIds/StatIds.",
             FutureClassInvariant =
-                "Advanced Item Description unscalable-value annotations on otherwise Fixed Unique mechanical lines (especially Timeless Historic markers) must not cause Unique version/block incompatibility when the cleaned mechanical ValueLines match a catalog Fixed block.",
+                "Advanced Item Description unscalable-value annotations on otherwise Fixed Unique mechanical lines must not cause Unique version/block incompatibility when the cleaned mechanical ValueLines/SemanticText match a catalog Fixed block.",
             ProposedGenericRepairLayer =
-                "ParsedUniqueItemResolver Fixed Unique block compatibility / unscalable-annotation handling",
+                "ParsedUniqueItemResolver Fixed Unique block compatibility / unscalable-annotation handling (implemented in A.5.6)",
             ProposedGenericRepairBehavior =
-                "Treat AID `— Unscalable Value` as presentation/query-bound metadata orthogonal to Fixed Unique block line identity when cleaned ValueLines already match catalog Fixed lines; keep true mechanical line/version mismatches fail-closed.",
+                "Treat AID `— Unscalable Value` as presentation/query-bound metadata orthogonal to Fixed Unique block line identity when cleaned mechanical evidence already matches catalog Fixed lines; keep true mechanical line/version mismatches fail-closed.",
         };
     }
 
@@ -695,6 +702,34 @@ internal static class TimelessAblationExperiment
         }
 
         return result.Catalog;
+    }
+
+    private static PathOfExileTradeItemCatalog CreateTimelessCapableTradeItemCatalog()
+    {
+        static PathOfExileTradeItemEntry Unique(int order, string name, string type, string groupId) =>
+            new()
+            {
+                ProviderOrder = order,
+                GroupId = groupId,
+                GroupLabel = groupId,
+                Name = name,
+                Type = type,
+                IsUnique = true,
+            };
+
+        // Structural Timeless + working-control identities only (no production branching by name).
+        return new PathOfExileTradeItemCatalog(
+        [
+            Unique(0, "Lethal Pride", "Timeless Jewel", "jewel"),
+            Unique(1, "Brutal Restraint", "Timeless Jewel", "jewel"),
+            Unique(2, "Elegant Hubris", "Timeless Jewel", "jewel"),
+            Unique(3, "Glorious Vanity", "Timeless Jewel", "jewel"),
+            Unique(4, "Militant Faith", "Timeless Jewel", "jewel"),
+            Unique(5, "Thread of Hope", "Crimson Jewel", "jewel"),
+            Unique(6, "The Battle Within", "Oakbranch Tincture", "tincture"),
+            Unique(7, "Replica Bated Breath", "Chain Belt", "accessory"),
+            Unique(8, "Augyre", "Void Sceptre", "weapon"),
+        ]);
     }
 
     private static string FindRepoFile(params string[] relativeParts)
