@@ -1554,7 +1554,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
             var projected = value;
             foreach (var handler in handlers)
             {
-                if (!TryApplyNumericTranslationHandler(handler, projected, out projected))
+                if (!StatTranslationNumericProjector.TryProjectValue(handler, projected, out projected))
                 {
                     return false;
                 }
@@ -1570,29 +1570,8 @@ public sealed partial class ParsedItemModifierCandidateResolver
     private static bool TryApplyNumericTranslationHandler(
         string? handler,
         decimal value,
-        out decimal projected)
-    {
-        projected = value;
-        switch (handler?.Trim().ToLowerInvariant())
-        {
-            case null:
-            case "":
-                return true;
-            case "divide_by_one_hundred":
-            case "divide_by_one_hundred_2dp":
-            case "divide_by_one_hundred_2dp_if_required":
-                projected = decimal.Round(value / 100m, 2, MidpointRounding.AwayFromZero);
-                return true;
-            case "old_leech_percent":
-                projected = value / 5m;
-                return true;
-            case "old_leech_permyriad":
-                projected = value / 500m;
-                return true;
-            default:
-                return false;
-        }
-    }
+        out decimal projected) =>
+        StatTranslationNumericProjector.TryProjectValue(handler, value, out projected);
 
     private static IReadOnlyList<AdvancedStatRange> ExtractAdvancedStatRanges(
         IReadOnlyList<string> valueLines)

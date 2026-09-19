@@ -70,22 +70,34 @@ public sealed class CorruptedImplicitUniqueTextMatchReplayTests
         Assert.Equal(expectedModId, Assert.Single(result.Candidates).Id);
     }
 
-    [Theory]
-    [InlineData(
-        "20260919-194326-390-Innsbury Edge.json",
-        "Weapon Range")]
-    [InlineData(
-        "20260919-194458-274-Soul Taker.json",
-        "Bleeding on Hit")]
-    public async Task Resolve_A522ValueProjectionAndMultilineTargets_RemainNonExact(
-        string fileName,
-        string lineContains)
+    [Fact]
+    public async Task Resolve_A522WeaponRangeTransformedUnits_BecomesExact()
     {
         var catalog = await LoadActiveCatalogAsync();
-        var raw = await ReadCaptureClipboardAsync(fileName);
+        var raw = await ReadCaptureClipboardAsync("20260919-194326-390-Innsbury Edge.json");
         var parsed = parser.Parse(raw);
 
-        var result = FindCorruptedLine(resolver.Resolve(parsed, catalog), lineContains);
+        var result = FindCorruptedLine(resolver.Resolve(parsed, catalog), "Weapon Range");
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("V2LocalMeleeWeaponRangeCorrupted", Assert.Single(result.Candidates).Id);
+        Assert.Contains(
+            result.Candidates[0].Stats,
+            stat => string.Equals(stat.StatId, "local_weapon_range_+", StringComparison.Ordinal));
+        Assert.Equal(2m, result.Candidates[0].Stats.Single(stat =>
+            string.Equals(stat.StatId, "local_weapon_range_+", StringComparison.Ordinal)).MinValue);
+        Assert.Equal(4m, result.Candidates[0].Stats.Single(stat =>
+            string.Equals(stat.StatId, "local_weapon_range_+", StringComparison.Ordinal)).MaxValue);
+    }
+
+    [Fact]
+    public async Task Resolve_A522SoulBleedMultiline_RemainsNonExactUntilA527()
+    {
+        var catalog = await LoadActiveCatalogAsync();
+        var raw = await ReadCaptureClipboardAsync("20260919-194458-274-Soul Taker.json");
+        var parsed = parser.Parse(raw);
+
+        var result = FindCorruptedLine(resolver.Resolve(parsed, catalog), "Bleeding on Hit");
 
         Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
     }

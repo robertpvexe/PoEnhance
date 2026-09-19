@@ -322,6 +322,91 @@ Item Level: 85
     }
 
     [Fact]
+    public void Resolve_CorruptedImplicit_MatchesLocationsToMetresProjectedBounds()
+    {
+        const string statId = "local_weapon_range_+";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.weapon-range",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("sword", 1000),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 2m, 4m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.vaal-blade", "Vaal Blade", "One Hand Swords", "item", ["sword", "default"])],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0} metres to Weapon Range"],
+                        ["+#"],
+                        [["locations_to_metres"]])),
+            ],
+            eligible);
+        var item = parser.Parse("""
+Item Class: One Hand Swords
+Rarity: Unique
+Innsbury Edge
+Vaal Blade
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Corrupted }
++0.3(0.2-0.4) metres to Weapon Range
+Corrupted
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.vaal-blade")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.weapon-range", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
+    public void Resolve_CorruptedImplicit_MatchesMillisecondsToSecondsProjectedValue()
+    {
+        const string statId = "base_skill_effect_duration";
+        var eligible = ModifierWithStat(
+            "mod.corrupted.duration-ms",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            statId,
+            SpawnWeight("default", 1000)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef(statId, 1000m, 2000m)],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    [statId],
+                    Variant(
+                        ["{0} seconds"],
+                        ["#"],
+                        [["milliseconds_to_seconds"]])),
+            ],
+            eligible);
+        var item = ParseWithModifier("""
+{ Corruption Implicit Modifier }
+1.5(1-2) seconds
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.duration-ms", Assert.Single(result.Candidates).Id);
+    }
+
+    [Fact]
     public void Resolve_CorruptedImplicit_RejectsRawDomainFalsePositiveWhenTranslationProjects()
     {
         const string statId = "base_life_leech_from_cold_damage_permyriad";
