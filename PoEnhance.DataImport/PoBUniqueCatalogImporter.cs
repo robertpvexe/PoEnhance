@@ -1219,6 +1219,21 @@ public sealed partial class PoBUniqueCatalogImporter
                 candidates = inverseSurvivors;
                 currentRoleResolutionReason = "current-role-inverse-legacy-encoding-filter";
             }
+            else if (TryResolveCurrentLevelVsChanceExportOwnerCollapse(
+                    canonicalUniqueName,
+                    versionLabel,
+                    versionRole,
+                    sourceVariantIndex,
+                    lines,
+                    candidates,
+                    exportOwnership,
+                    out var levelVsChanceSurvivors,
+                    out var levelVsChanceReason,
+                    out _))
+            {
+                candidates = levelVsChanceSurvivors;
+                currentRoleResolutionReason = levelVsChanceReason;
+            }
 
             if (currentRoleResolutionReason is not null)
             {
@@ -1368,6 +1383,8 @@ public sealed partial class PoBUniqueCatalogImporter
                                 "Current-role ExactConflict of deprecated source-mechanic records vs current source-mechanic records collapsed to one surviving mechanical vector after removing only proven deprecated/legacy source-mechanic candidates; copied instance values remain authoritative.",
                             "current-role-inverse-legacy-encoding-filter" =>
                                 "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
+                            CurrentLevelVsChanceExportOwnerCollapseReason =>
+                                "Current-role LevelVsChanceOnHit ExactConflict collapsed to the single PoB Export typed owner ModifierId with a usable StatId vector; orphan/Synthesis/Mutated competitors remain non-authoritative; copied instance values remain authoritative.",
                             ExportUniqueOwnershipFilterReason =>
                                 "Pinned Path of Building Export Uniques typed ownership removed cross-item ModifierId candidates that are not owned by this Unique identity/variant; copied instance values remain authoritative.",
                             PassageOwnedStatIdsSupersetCollapseReason =>

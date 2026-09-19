@@ -828,12 +828,17 @@ internal static class PathOfExileTradeModifierVariantResolver
                     PathOfExileTradeModifierBoundProjector.CanApplyFixedQueryValue(
                         component,
                         candidate));
+            var hasExactOwnerChanceSiblingFallback = !hasFixedParametricQueryConstraint &&
+                candidates.All(candidate =>
+                    PathOfExileTradeModifierBoundProjector.CanApplyExactOwnerChancePercentSiblingFallback(
+                        component,
+                        candidate));
             return component with
             {
                 IsSearchable = component.IsSearchable,
                 NotSearchableReason = component.IsSearchable ? null : component.NotSearchableReason,
                 SupportsValueBounds = false,
-                ValueBoundShape = hasFixedParametricQueryConstraint
+                ValueBoundShape = hasFixedParametricQueryConstraint || hasExactOwnerChanceSiblingFallback
                     ? ModifierBoundShape.Scalar
                     : ModifierBoundShape.PresenceOnly,
                 RequestedMinimum = null,

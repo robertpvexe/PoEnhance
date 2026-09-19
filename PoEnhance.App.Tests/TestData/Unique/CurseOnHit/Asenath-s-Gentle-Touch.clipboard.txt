@@ -1,0 +1,32 @@
+Item Class: Gloves
+Rarity: Unique
+Asenath's Gentle Touch
+Silk Gloves
+--------
+Energy Shield: 21
+--------
+Requirements:
+Level: 25
+Int: 39
+--------
+Sockets: W 
+--------
+Item Level: 75
+--------
+{ Unique Modifier — Attribute }
++21(20-30) to Intelligence
+{ Unique Modifier — Mana }
++78(60-80) to maximum Mana
+{ Unique Modifier — Life }
++74(60-80) to maximum Life
+{ Unique Modifier — Caster, Curse }
+Curse Enemies with Temporal Chains on Hit — Unscalable Value
+(Temporal Chains is a Hex which reduces Action Speed by 15%, or 9% on Rare or Unique targets, and makes other effects on the target expire 40% slower. It has 50% less effect on Players and lasts 5 seconds)
+{ Unique Modifier — Caster, Curse }
+Non-Aura Curses you inflict are not removed from Dying Enemies — Unscalable Value
+{ Unique Modifier — Damage, Physical }
+Enemies near corpses affected by your Curses are Blinded
+Enemies Killed near corpses affected by your Curses explode, dealing
+3% of their Life as Physical Damage
+--------
+Cool the head and cool the blade.

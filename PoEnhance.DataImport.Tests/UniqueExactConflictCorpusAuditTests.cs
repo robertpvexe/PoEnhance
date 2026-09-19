@@ -287,12 +287,21 @@ public sealed class UniqueExactConflictCorpusAuditTests
             "Atziri's Promise",
             "local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing",
             "current-role-deprecated-source-mechanics-filter");
-        AssertExactConflictControl(
+        AssertResolvedCurrentEncodingControl(
             package,
             "Asenath's Gentle Touch",
-            UniqueMechanicalConflictKind.LevelVsChanceOnHit,
-            UniqueMechanicalConflictClassifier.MarkerLevel,
-            UniqueMechanicalConflictClassifier.MarkerChance);
+            "curse_on_hit_%_temporal_chains",
+            PoBUniqueCatalogImporter.CurrentLevelVsChanceExportOwnerCollapseReason);
+        AssertResolvedCurrentEncodingControl(
+            package,
+            "Dreadarc",
+            "curse_on_hit_%_flammability",
+            PoBUniqueCatalogImporter.CurrentLevelVsChanceExportOwnerCollapseReason);
+        AssertResolvedCurrentEncodingControl(
+            package,
+            "Uul-Netol's Kiss",
+            "curse_on_hit_level_10_vulnerability_%",
+            PoBUniqueCatalogImporter.CurrentLevelVsChanceExportOwnerCollapseReason);
 
         var atziris = Assert.Single(
             package.UniqueItems!.Items,

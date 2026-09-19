@@ -1,11 +1,11 @@
-{
+﻿{
     "schemaVersion":  1,
     "package":  {
                     "schemaVersion":  3,
-                    "dataVersion":  "3.29.1.2.5-export-owner-modtextmap-positive-exact",
-                    "createdAtUtc":  "2026-09-09T14:00:00+00:00",
-                    "sizeBytes":  189131100,
-                    "sha256":  "05d038a696dc095f656c27e20c411dd8cd0dfeafe333bf3c06491c647099e679",
+                    "dataVersion":  "3.29.1.2.5-export-owner-level-vs-chance-collapse",
+                    "createdAtUtc":  "2026-09-18T22:00:00+00:00",
+                    "sizeBytes":  189127336,
+                    "sha256":  "bd3a07788f15eaee27ec858d38874e10424369f9a16a1fb7cefe1eab8bb0f99a",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0

@@ -43,12 +43,21 @@ public sealed class GameDataPackageLoaderTests
         var activePackagePath = FindRepositoryFile(
             "artifacts",
             "poenhance-game-data.json");
+        using var sources = System.Text.Json.JsonDocument.Parse(
+            await File.ReadAllTextAsync(FindRepositoryFile("data", "game-data", "sources.json")));
+        var expectedVersion = sources.RootElement
+            .GetProperty("package")
+            .GetProperty("dataVersion")
+            .GetString();
 
         var result = await GameDataPackageLoader.LoadFromFileAsync(activePackagePath);
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Package);
-        Assert.Equal("3.29.1.2.5-export-owner-modtextmap-positive-exact", result.Package.Manifest.DataVersion);
+        Assert.Equal(expectedVersion, result.Package.Manifest.DataVersion);
+        Assert.Equal(
+            "3.29.1.2.5-export-owner-level-vs-chance-collapse",
+            result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
         Assert.Equal(3, result.Package.Manifest.SchemaVersion);
     }

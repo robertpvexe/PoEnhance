@@ -81,6 +81,14 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             };
         }
 
+        if (TryProjectExactOwnerChancePercentSiblingFallback(
+                component,
+                providerStat,
+                out var chanceSiblingProjection))
+        {
+            return chanceSiblingProjection;
+        }
+
         if (IsProvenFixedLiteralProviderCandidate(component, providerStat))
         {
             return new PathOfExileTradeProviderBoundProjection
@@ -176,6 +184,19 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 RequestedMaximum = null,
                 ValueBoundsUnsupportedReason =
                     "The source proves a fixed numeric query value, but it is not user-editable.",
+            };
+        }
+
+        if (TryProjectExactOwnerChancePercentSiblingFallback(component, providerStat, out _))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "Exact Unique chance mechanics project a fixed owner scalar onto the parametric Trade sibling.",
             };
         }
 
@@ -403,6 +424,113 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         component.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
         component.ProviderFallbackNumericValues.Count == 1 &&
         component.ProviderFallbackNumericValues[0] == 1m;
+
+    public static bool CanApplyExactOwnerChancePercentSiblingFallback(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat) =>
+        TryProjectExactOwnerChancePercentSiblingFallback(component, providerStat, out _);
+
+    private static bool TryProjectExactOwnerChancePercentSiblingFallback(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.ProviderFallbackNumericValues.Count != 1 ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 1 ||
+            providerStat.OptionMetadata.Count != 0 ||
+            !IndicatesChancePercentInternalMechanic(component.ResolvedStatIds) ||
+            !TryGetChancePercentPresenceRest(providerStat.Text, out var presenceRest) ||
+            !MatchesPresenceDisplaySemantics(component, presenceRest))
+        {
+            return false;
+        }
+
+        var scalar = component.ProviderFallbackNumericValues[0];
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            Minimum = scalar,
+            Maximum = scalar,
+            ProjectionKind = "ExactOwnerChancePercentSiblingFallback",
+        };
+        return true;
+    }
+
+    private static bool IndicatesChancePercentInternalMechanic(IReadOnlyList<string> resolvedStatIds)
+    {
+        foreach (var statId in resolvedStatIds)
+        {
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                continue;
+            }
+
+            var trimmed = statId.Trim();
+            if (trimmed.Contains("chance", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("_%", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetChancePercentPresenceRest(string providerText, out string presenceRest)
+    {
+        const string prefix = "#% chance to ";
+        presenceRest = string.Empty;
+        if (string.IsNullOrWhiteSpace(providerText) ||
+            !providerText.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        presenceRest = providerText[prefix.Length..];
+        return presenceRest.Length > 0 &&
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(presenceRest) == 0;
+    }
+
+    private static bool MatchesPresenceDisplaySemantics(
+        ResolvedSearchComponent component,
+        string presenceText)
+    {
+        var comparablePresence = PathOfExileTradeStatTemplateNormalizer.NormalizeComparableProviderText(
+            presenceText);
+        if (string.IsNullOrWhiteSpace(comparablePresence))
+        {
+            return false;
+        }
+
+        IEnumerable<string?> texts =
+        [
+            component.OriginalText,
+            component.CanonicalSignature,
+            component.ProviderCanonicalSignature,
+            .. component.ProviderSearchSignatures,
+        ];
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            if (string.Equals(
+                    PathOfExileTradeStatTemplateNormalizer.NormalizeComparableProviderText(text),
+                    comparablePresence,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static string Pluralize(string noun) =>
         noun.EndsWith('s') ? noun : $"{noun}s";

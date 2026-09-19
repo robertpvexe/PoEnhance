@@ -121,6 +121,8 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 .DistinctBy(group => group.Key)
                 .ToArray();
         }
+
+        // Preserve discovery-time candidates for diagnostics; remapping may replace groups below.
         var initialCandidates = groups
             .SelectMany(group => group.Candidates)
             .ToArray();
@@ -194,6 +196,44 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 return conjunctive;
             }
 
+            return Failure(
+                PathOfExileTradeStatMatchStatus.Ambiguous,
+                normalization,
+                expectedLocality,
+                initialCandidates,
+                compatibleCandidates,
+                kindRejections,
+                PathOfExileTradeStatMatchDiagnosticCodes.AmbiguousCandidates,
+                "Multiple Trade stat candidate groups matched the modifier text and kind.",
+                context,
+                providerCandidateGroupKey: null);
+        }
+
+        // After provider-kind narrowing, prefer the official #% chance sibling when eligible.
+        compatibleGroups = PreferExactOwnerChancePercentSiblingGroups(
+            source.Component,
+            catalog,
+            compatibleGroups);
+        compatibleCandidates = compatibleGroups
+            .SelectMany(group => group.Candidates)
+            .ToArray();
+        if (compatibleGroups.Length == 0)
+        {
+            return Failure(
+                PathOfExileTradeStatMatchStatus.NotFound,
+                normalization,
+                expectedLocality,
+                initialCandidates,
+                candidates: [],
+                kindRejections,
+                PathOfExileTradeStatMatchDiagnosticCodes.NoCandidate,
+                "Trade stat template candidates were incompatible with the parsed modifier kind.",
+                context,
+                providerCandidateGroupKey: null);
+        }
+
+        if (compatibleGroups.Length > 1)
+        {
             return Failure(
                 PathOfExileTradeStatMatchStatus.Ambiguous,
                 normalization,
@@ -486,6 +526,148 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
     private static bool HasExactUniqueEvidence(ResolvedSearchComponent? component) =>
         component?.HasExactUniqueSourceProvenance == true;
+
+    /// <summary>
+    /// Exact Unique chance/% mechanics whose copied display collapses to a presence Trade form
+    /// must prefer the official parametric sibling <c>#% chance to &lt;presence&gt;</c> when that
+    /// sibling is uniquely compatible and an authoritative owner scalar is available.
+    /// Fail closed on ambiguity; never probe live Trade result counts.
+    /// </summary>
+    private static PathOfExileTradeStatCandidateGroup[] PreferExactOwnerChancePercentSiblingGroups(
+        ResolvedSearchComponent? component,
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeStatCandidateGroup[] groups)
+    {
+        if (component is null ||
+            !HasExactUniqueEvidence(component) ||
+            !HasAuthoritativeExactOwnerChanceFallback(component) ||
+            !IndicatesChancePercentInternalMechanic(component.ResolvedStatIds) ||
+            groups.Length != 1)
+        {
+            return groups;
+        }
+
+        var presenceGroup = groups[0];
+        var presenceCandidates = presenceGroup.Candidates
+            .Where(candidate =>
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 0 &&
+                candidate.OptionMetadata.Count == 0)
+            .ToArray();
+        if (presenceCandidates.Length == 0 ||
+            presenceCandidates.Length != presenceGroup.Candidates.Count)
+        {
+            return groups;
+        }
+
+        var presenceTexts = presenceCandidates
+            .Select(candidate => candidate.Text)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (presenceTexts.Length != 1)
+        {
+            return groups;
+        }
+
+        var presenceKinds = presenceCandidates
+            .Select(PathOfExileTradeStatCandidateClassifier.GetProviderKind)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (presenceKinds.Length != 1)
+        {
+            return groups;
+        }
+
+        var presenceText = presenceTexts[0];
+        var presenceKind = presenceKinds[0];
+        var chanceLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            "#% chance to " + presenceText);
+        if (string.IsNullOrWhiteSpace(chanceLookup))
+        {
+            return groups;
+        }
+
+        var chanceGroups = catalog.FindCandidateGroupsByNormalizedTemplate(chanceLookup)
+            .Where(group => string.Equals(
+                group.Key.ProviderKind,
+                presenceKind,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (chanceGroups.Length != 1)
+        {
+            return groups;
+        }
+
+        var expectedChanceText = "#% chance to " + presenceText;
+        var chanceCandidates = chanceGroups[0].Candidates
+            .Where(candidate =>
+                string.Equals(candidate.Text, expectedChanceText, StringComparison.Ordinal) &&
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(candidate.Text) == 1 &&
+                candidate.OptionMetadata.Count == 0 &&
+                string.Equals(
+                    PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                    presenceKind,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (chanceCandidates.Length == 0)
+        {
+            return groups;
+        }
+
+        var distinctChanceTexts = chanceCandidates
+            .Select(candidate => candidate.Text)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (distinctChanceTexts.Length != 1)
+        {
+            return groups;
+        }
+
+        if (chanceCandidates.Length > 1 &&
+            !AreEquivalentProviderCandidates(chanceCandidates))
+        {
+            return groups;
+        }
+
+        return
+        [
+            chanceGroups[0] with
+            {
+                Candidates = chanceCandidates,
+            },
+        ];
+    }
+
+    private static bool HasAuthoritativeExactOwnerChanceFallback(ResolvedSearchComponent component) =>
+        component.ProviderFallbackNumericValues.Count == 1 &&
+        !component.FixedQueryValue.HasValue &&
+        (component.ValueBoundShape == ModifierBoundShape.PresenceOnly ||
+            component.ValueBoundShape == ModifierBoundShape.Scalar &&
+            !component.SupportsValueBounds);
+
+    private static bool IndicatesChancePercentInternalMechanic(IReadOnlyList<string> resolvedStatIds)
+    {
+        if (resolvedStatIds.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var statId in resolvedStatIds)
+        {
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                continue;
+            }
+
+            var trimmed = statId.Trim();
+            if (trimmed.Contains("chance", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("_%", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool RequiresExactConjunctiveComposition(ResolvedSearchComponent? component)
     {
