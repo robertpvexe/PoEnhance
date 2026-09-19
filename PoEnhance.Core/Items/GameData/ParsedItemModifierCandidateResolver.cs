@@ -339,6 +339,12 @@ public sealed partial class ParsedItemModifierCandidateResolver
             return null;
         }
 
+        var anointResult = TryResolveAnoint(index, modifier, catalog, generationType);
+        if (anointResult is not null)
+        {
+            return anointResult;
+        }
+
         var candidates = catalog.Modifiers
             .Where(IsEnchantmentSourceCandidate)
             .ToArray();
@@ -432,6 +438,105 @@ public sealed partial class ParsedItemModifierCandidateResolver
             generationKindCandidateCount: candidates.Length,
             retainedCandidates,
             excludedCandidates);
+    }
+
+    private static ModifierCandidateResolutionResult? TryResolveAnoint(
+        int index,
+        ParsedModifier modifier,
+        GameDataCatalog catalog,
+        ModifierGenerationType generationType)
+    {
+        if (modifier.Kind != ParsedModifierKind.Enchantment ||
+            modifier.ValueLines.Count != 1 ||
+            !modifier.ValueLines[0].StartsWith("Allocates ", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // Forbidden Flame/Flesh and similar Unique Allocates clauses are not anoint enchants.
+        if (modifier.ValueLines[0].Contains(" if you have the matching", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var passiveName = modifier.ValueLines[0]["Allocates ".Length..].Trim();
+        if (passiveName.Length == 0)
+        {
+            return null;
+        }
+
+        var identities = catalog.FindPassiveSkillsByExactName(passiveName);
+        if (identities.Count == 0)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                [],
+                ModifierCandidateResolutionDiagnosticCodes.AnointPassiveNotFound,
+                $"No current source-backed passive identity has canonical name '{passiveName}'.");
+        }
+
+        if (identities.Count != 1)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                [],
+                ModifierCandidateResolutionDiagnosticCodes.AnointPassiveAmbiguous,
+                $"Multiple current source-backed passive identities have canonical name '{passiveName}'.",
+                nameCandidateCount: identities.Count);
+        }
+
+        // Prefer the primary Allocates {0}/passive_hash family (mod_granted_passive_hash). Indexed
+        // multi-slot and local-weapon variants share the same format line and must not disqualify Exact.
+        var mechanicalStatIds = catalog.StatTranslations
+            .Where(translation =>
+                translation.StatIds.Count == 1 &&
+                string.Equals(
+                    translation.StatIds[0]?.Trim(),
+                    "mod_granted_passive_hash",
+                    StringComparison.OrdinalIgnoreCase) &&
+                translation.Variants.Any(variant =>
+                    variant.FormatLines.Count == 1 &&
+                    string.Equals(variant.FormatLines[0], "Allocates {0}", StringComparison.Ordinal) &&
+                    variant.IndexHandlers.Any(handler =>
+                        handler.Index == 0 &&
+                        handler.Handlers.Any(value =>
+                            string.Equals(value, "passive_hash", StringComparison.Ordinal)))))
+            .Select(translation => translation.StatIds[0]!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (mechanicalStatIds.Length != 1)
+        {
+            return Unknown(
+                index,
+                modifier,
+                generationType,
+                [],
+                ModifierCandidateResolutionDiagnosticCodes.ModifierTextNotEvaluated,
+                "The current GameData package does not expose the primary Allocates/passive_hash mechanical family.");
+        }
+
+        return new ModifierCandidateResolutionResult(
+            index,
+            modifier,
+            modifier.Name,
+            modifier.Kind,
+            generationType,
+            ModifierCandidateResolutionStatus.Exact,
+            Candidates: [],
+            Diagnostics: Diagnostics(
+                ModifierCandidateResolutionDiagnosticCodes.AnointPassiveExactMatch,
+                "The Allocates enchantment resolved to one current source-backed passive hash identity."),
+            NameCandidateCount: 1,
+            GenerationKindCandidateCount: 1,
+            EligibilityCandidateCount: 1)
+        {
+            AnointPassiveIdentity = identities[0],
+            MechanicalStatIds = mechanicalStatIds,
+        };
     }
 
     private static bool EnchantmentValuesMatchCandidate(

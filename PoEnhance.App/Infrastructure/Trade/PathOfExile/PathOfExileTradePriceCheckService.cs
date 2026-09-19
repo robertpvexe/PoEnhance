@@ -2081,12 +2081,19 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private static bool HasExactSourceModifierIdentity(ResolvedSearchComponent component)
     {
         return HasExactUniqueCatalogBlockProof(component) ||
+            HasExactAnointSourceProvenance(component) ||
             !string.IsNullOrWhiteSpace(component.ResolvedModifierId) ||
             component.Sources.Count > 0 &&
             component.Sources.All(source =>
                 !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
                 source.ResolvedStatIds.Count > 0);
     }
+
+    private static bool HasExactAnointSourceProvenance(ResolvedSearchComponent component) =>
+        component.AnointPassiveIdentity is not null &&
+        component.ResolvedSourceKind == ParsedModifierKind.Enchantment &&
+        component.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+        component.ResolvedStatIds.Count > 0;
 
     private static bool HasExactUniqueCatalogBlockProof(ResolvedSearchComponent component)
     {

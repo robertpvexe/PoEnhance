@@ -333,6 +333,32 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetProperty("filters")[0].GetProperty("id").GetString());
     }
 
+    [Fact]
+    public void Build_SelectedAnointSerializesPassiveHashOptionOnOneStatFilter()
+    {
+        var modifier = Modifier(
+            isSelected: true,
+            status: ModifierCandidateResolutionStatus.Exact) with
+        {
+            ParsedKind = ParsedModifierKind.Enchantment,
+            GenerationType = ModifierGenerationType.Enchantment,
+        };
+        var result = BuildSuccessful(
+            Draft(modifiers: [modifier]),
+            selectedModifierFilters:
+            [
+                ProviderFilter(0, "enchant.stat_from_fixture") with { Option = "41119" },
+            ]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters");
+        var filter = Assert.Single(filters.EnumerateArray());
+        Assert.Equal("enchant.stat_from_fixture", filter.GetProperty("id").GetString());
+        Assert.Equal("41119", filter.GetProperty("value").GetProperty("option").GetString());
+    }
+
     [Theory]
     [InlineData(ParsedModifierKind.Prefix, false)]
     [InlineData(ParsedModifierKind.Implicit, true)]

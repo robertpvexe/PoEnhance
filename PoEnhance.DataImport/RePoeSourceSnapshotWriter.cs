@@ -60,6 +60,7 @@ internal static class RePoeSourceSnapshotWriter
             {
                 var originalPath = Path.GetFullPath(input.OriginalPath);
                 var retainedPath = Path.Combine(stagingDirectory, input.PackageInputLabel);
+                Directory.CreateDirectory(Path.GetDirectoryName(retainedPath)!);
                 File.Copy(originalPath, retainedPath, overwrite: false);
 
                 var sizeBytes = new FileInfo(retainedPath).Length;

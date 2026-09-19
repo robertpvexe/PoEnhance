@@ -14,14 +14,14 @@ public sealed class GameDataDistributionWorkflowTests
         var root = document.RootElement;
         var package = root.GetProperty("package");
 
-        Assert.Equal(3, package.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, package.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(
-            "3.29.1.2.5-export-owner-level-vs-chance-collapse",
+            "3.29.1.2.6-passive-skill-identity",
             package.GetProperty("dataVersion").GetString());
         Assert.Equal("2026-09-18T22:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(189127336, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal(190079796, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "bd3a07788f15eaee27ec858d38874e10424369f9a16a1fb7cefe1eab8bb0f99a",
+            "1c0a0398d5a1db2c9b8a4a2f07beb3b7b4d777383ac87be6a9aa5c78788fda41",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());

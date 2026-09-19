@@ -12,6 +12,266 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     private readonly PathOfExileTradeSelectedModifierMapper mapper = new();
 
     [Fact]
+    public void Map_ExactAnoint_SelectsOfficialOptionByPassiveHash()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options =
+                [
+                    new PathOfExileTradeStatOption { Id = "41119", Text = "Lethality" },
+                ],
+            },
+        ]);
+
+        var result = mapper.Map(Draft([Anoint("Lethality", 41119)]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("enchant.stat_from_fixture", filter.StatId);
+        Assert.Equal("41119", filter.Option);
+    }
+
+    [Fact]
+    public void Map_TwoExactAnoints_SameStatDifferentOptions_SerializeAsTwoFilters()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options =
+                [
+                    new PathOfExileTradeStatOption { Id = "65502", Text = "Heartseeker" },
+                    new PathOfExileTradeStatOption { Id = "41119", Text = "Lethality" },
+                ],
+            },
+        ]);
+
+        var result = mapper.Map(Draft([
+            Anoint("Heartseeker", 65502) with { SourceModifierIndex = 0, SourceComponentIndex = 0 },
+            Anoint("Lethality", 41119) with { SourceModifierIndex = 1, SourceComponentIndex = 1 },
+        ]), catalog);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Filters.Count);
+        Assert.All(result.Filters, filter => Assert.Equal("enchant.stat_from_fixture", filter.StatId));
+        Assert.Equal(["65502", "41119"], result.Filters.Select(filter => filter.Option).ToArray());
+        Assert.Equal([0], result.Filters[0].SourceIndexes);
+        Assert.Equal([1], result.Filters[1].SourceIndexes);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(6)]
+    [InlineData(100)]
+    public void Map_ArbitraryExactAnointCardinality_PreservesDistinctOptions(int count)
+    {
+        var options = Enumerable.Range(0, count)
+            .Select(index => new PathOfExileTradeStatOption
+            {
+                Id = (20000 + index).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Text = $"Passive{index}",
+            })
+            .ToArray();
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options = options,
+            },
+        ]);
+        var components = options
+            .Select((option, index) => Anoint(option.Text, int.Parse(option.Id)) with
+            {
+                SourceModifierIndex = index,
+                SourceComponentIndex = index,
+            })
+            .ToArray();
+
+        var result = mapper.Map(Draft(components), catalog);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(count, result.Filters.Count);
+        Assert.Equal(
+            options.Select(option => option.Id).ToArray(),
+            result.Filters.Select(filter => filter.Option).ToArray());
+    }
+
+    [Fact]
+    public void Map_SameAnointOptionSelectedTwice_CollapsesToOneFilterWithBothSources()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options =
+                [
+                    new PathOfExileTradeStatOption { Id = "42804", Text = "Mind Drinker" },
+                ],
+            },
+        ]);
+
+        var result = mapper.Map(Draft([
+            Anoint("Mind Drinker", 42804) with { SourceModifierIndex = 0, SourceComponentIndex = 0 },
+            Anoint("Mind Drinker", 42804) with { SourceModifierIndex = 1, SourceComponentIndex = 1 },
+        ]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("42804", filter.Option);
+        Assert.Equal([0, 1], filter.SourceIndexes);
+    }
+
+    [Theory]
+    [InlineData("Rare")]
+    [InlineData("Unique")]
+    public void Map_MultiAnoint_IsIndependentOfItemRarity(string rarity)
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options =
+                [
+                    new PathOfExileTradeStatOption { Id = "65502", Text = "Heartseeker" },
+                    new PathOfExileTradeStatOption { Id = "41119", Text = "Lethality" },
+                    new PathOfExileTradeStatOption { Id = "42804", Text = "Mind Drinker" },
+                ],
+            },
+        ]);
+
+        var result = mapper.Map(
+            Draft([
+                Anoint("Heartseeker", 65502) with { SourceModifierIndex = 0, SourceComponentIndex = 0 },
+                Anoint("Lethality", 41119) with { SourceModifierIndex = 1, SourceComponentIndex = 1 },
+                Anoint("Mind Drinker", 42804) with { SourceModifierIndex = 2, SourceComponentIndex = 2 },
+            ], rarity: rarity),
+            catalog);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Filters.Count);
+    }
+
+    [Fact]
+    public void Map_ExactAnoint_SelectsFlattenedOfficialPipeOptionByPassiveHash()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture|65502",
+                Text = "Allocates Heartseeker",
+                Type = "enchant",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 1,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture|41119",
+                Text = "Allocates Lethality",
+                Type = "enchant",
+            },
+        ]);
+
+        var result = mapper.Map(Draft([Anoint("Lethality", 41119)]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("enchant.stat_from_fixture", filter.StatId);
+        Assert.Equal("41119", filter.Option);
+    }
+
+    [Fact]
+    public void Map_ExactAnointMissingOfficialOption_FailsClosed()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture",
+                Text = "Allocates #",
+                Type = "enchant",
+                Options =
+                [
+                    new PathOfExileTradeStatOption { Id = "65502", Text = "Heartseeker" },
+                ],
+            },
+        ]);
+
+        var result = mapper.Map(Draft([Anoint("Lethality", 41119)]), catalog);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Filters);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AnointOptionUnavailable,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Map_ExactAnointWrongHashSameDisplayName_FailsClosed()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "enchant",
+                GroupLabel = "Enchant",
+                Id = "enchant.stat_from_fixture|99999",
+                Text = "Allocates Lethality",
+                Type = "enchant",
+            },
+        ]);
+
+        var result = mapper.Map(Draft([Anoint("Lethality", 41119)]), catalog);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AnointOptionUnavailable,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Map_NoSelectedModifiersDoesNotRequireCatalog()
     {
         var result = mapper.Map(
@@ -1315,6 +1575,59 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
         ]);
     }
 
+    [Fact]
+    public void Map_ExactAnoint_UsesOfficialFlattenedCatalogFixtureWithoutHardcodedStatId()
+    {
+        var catalog = LoadOfficialTradeCatalog();
+        var result = mapper.Map(Draft([Anoint("Mind Drinker", 42804)]), catalog);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("42804", filter.Option);
+        Assert.StartsWith("enchant.", filter.StatId, StringComparison.Ordinal);
+        Assert.DoesNotContain('|', filter.StatId);
+        Assert.Equal(
+            1,
+            catalog.Entries.Count(entry =>
+                entry.Id.EndsWith("|42804", StringComparison.Ordinal) &&
+                string.Equals(entry.Text, "Allocates Mind Drinker", StringComparison.Ordinal)));
+    }
+
+    private static PathOfExileTradeStatCatalog LoadOfficialTradeCatalog()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "TestData",
+            "Trade",
+            "official-stats-2026-08-19.json");
+        var json = File.ReadAllText(path);
+        return new PathOfExileTradeStatsResponseParser().ParseStatsResponse(json).Catalog!;
+    }
+
+    private static ResolvedSearchComponent Anoint(string name, int hash) => new()
+    {
+        ComponentId = $"anoint:{hash}",
+        SourceModifierIndex = 0,
+        SourceLineIndex = 0,
+        OriginalText = $"Allocates {name}",
+        CanonicalSignature = "Allocates <passive>",
+        ParsedKind = ParsedModifierKind.Enchantment,
+        GenerationType = ModifierGenerationType.Enchantment,
+        ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+        ResolvedStatIds = ["mod_granted_passive_hash"],
+        AnointPassiveIdentity = new PassiveSkillIdentity
+        {
+            CanonicalName = name,
+            PassiveHash = hash,
+            Sources =
+            [
+                new GameDataSourceReference { SourceId = "repoe", ExternalId = hash.ToString() },
+            ],
+        },
+        IsSearchable = true,
+        IsSelected = true,
+    };
+
     private static SearchFilterVariant Variant(
         string statId,
         string label,
@@ -1363,12 +1676,13 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     private static TradeSearchDraft Draft(
         IReadOnlyList<ResolvedSearchComponent> modifiers,
         string itemClass = "Body Armours",
-        string parsedBaseType = "Titan Plate")
+        string parsedBaseType = "Titan Plate",
+        string rarity = "Rare")
     {
         return new TradeSearchDraft
         {
             ItemClass = itemClass,
-            Rarity = "Rare",
+            Rarity = rarity,
             DisplayName = "Test Item",
             ParsedBaseType = parsedBaseType,
             Base = new TradeSearchBaseDraft

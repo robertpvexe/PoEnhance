@@ -372,9 +372,10 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     .Select(filter => new PathOfExileTradeSearchStatFilter
                     {
                         Id = filter.StatId.Trim(),
-                        Value = filter.Minimum.HasValue || filter.Maximum.HasValue
+                        Value = filter.Option is not null || filter.Minimum.HasValue || filter.Maximum.HasValue
                             ? new PathOfExileTradeSearchStatValue
                             {
+                                Option = filter.Option,
                                 Min = filter.Minimum,
                                 Max = filter.Maximum,
                             }
@@ -394,9 +395,12 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     .Select(alternative => new PathOfExileTradeSearchStatFilter
                     {
                         Id = alternative.StatId.Trim(),
-                        Value = alternative.Minimum.HasValue || alternative.Maximum.HasValue
+                        Value = alternative.Option is not null ||
+                            alternative.Minimum.HasValue ||
+                            alternative.Maximum.HasValue
                             ? new PathOfExileTradeSearchStatValue
                             {
+                                Option = alternative.Option,
                                 Min = alternative.Minimum,
                                 Max = alternative.Maximum,
                             }

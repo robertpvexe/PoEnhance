@@ -56,10 +56,10 @@ public sealed class GameDataPackageLoaderTests
         Assert.NotNull(result.Package);
         Assert.Equal(expectedVersion, result.Package.Manifest.DataVersion);
         Assert.Equal(
-            "3.29.1.2.5-export-owner-level-vs-chance-collapse",
+            "3.29.1.2.6-passive-skill-identity",
             result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
-        Assert.Equal(3, result.Package.Manifest.SchemaVersion);
+        Assert.Equal(4, result.Package.Manifest.SchemaVersion);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class GameDataPackageLoaderTests
         {
             Manifest = GameDataPackageManifestFixtures.CreateDevelopmentManifest() with
             {
-                SchemaVersion = 4,
+                SchemaVersion = 5,
             },
         };
         using var stream = CreatePackageStream(package);

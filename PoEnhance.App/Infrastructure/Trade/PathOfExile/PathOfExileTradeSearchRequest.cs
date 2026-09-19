@@ -64,6 +64,9 @@ internal sealed record PathOfExileTradeSearchStatFilter
 internal sealed record PathOfExileTradeSearchStatValue
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Option { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? Min { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

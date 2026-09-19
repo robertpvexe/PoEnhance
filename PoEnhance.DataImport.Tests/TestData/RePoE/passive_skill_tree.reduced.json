@@ -1,0 +1,9 @@
+{
+  "passives": {
+    "19069": { "hash": 19069, "id": "thick_skin1157", "name": "Thick Skin" },
+    "41119": { "hash": 41119, "id": "heartpierce676", "name": "Lethality" },
+    "41476": { "hash": 41476, "id": "elder_power1469", "name": "Elder Power" },
+    "42804": { "hash": 42804, "id": "mind_drinker302", "name": "Mind Drinker" },
+    "65502": { "hash": 65502, "id": "heartseeker626", "name": "Heartseeker" }
+  }
+}

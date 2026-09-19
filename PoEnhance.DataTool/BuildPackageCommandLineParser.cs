@@ -14,6 +14,7 @@ public static class BuildPackageCommandLineParser
         "--translations",
         "--item-classes",
         "--tags",
+        "--passive-skills",
         "--mods-by-base",
         "--item-property-semantics",
         "--output",
@@ -108,6 +109,7 @@ public static class BuildPackageCommandLineParser
         AddMissingRequiredOption(values, "--translations", errors);
         AddMissingRequiredOption(values, "--item-classes", errors);
         AddMissingRequiredOption(values, "--tags", errors);
+        AddMissingRequiredOption(values, "--passive-skills", errors);
         AddMissingRequiredOption(values, "--mods-by-base", errors);
         AddMissingRequiredOption(values, "--item-property-semantics", errors);
         AddMissingRequiredOption(values, "--output", errors);
@@ -194,6 +196,7 @@ public static class BuildPackageCommandLineParser
                 TranslationsPath = values["--translations"],
                 ItemClassesPath = values["--item-classes"],
                 TagsPath = values["--tags"],
+                PassiveSkillsPath = values["--passive-skills"],
                 ModsByBasePath = values["--mods-by-base"],
                 ItemPropertySemanticsPath = values["--item-property-semantics"],
                 OutputPath = values["--output"],
@@ -240,7 +243,7 @@ public static class BuildPackageCommandLineParser
     {
         return """
             Usage:
-              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-classes <path> --tags <path> --mods-by-base <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--created-at-utc <ISO-8601>] [--historical-base-items <path> --historical-mods <path> --historical-stats <path> --historical-translations <path> --historical-source-root <git-checkout> --historical-source-data-root <data-root> --historical-source-uri <uri> --historical-source-branch <branch> --historical-source-version <sha> --historical-data-version <value>] [--pob-uniques <evaluated-json> --pob-source-root <git-checkout> --pob-source-uri <uri> --pob-source-tag <tag> --pob-source-version <sha> [--pob-foulborn-map <jsonc>]] [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
+              PoEnhance.DataTool build-package --base-items <path> --mods <path> --stats <path> --translations <path> --item-classes <path> --tags <path> --passive-skills <path> --mods-by-base <path> --item-property-semantics <path> --output <path> --source-root <git-checkout> --source-data-root <data-root> --source-uri <uri> --source-branch <branch> --source-version <sha> --data-version <value> [--created-at-utc <ISO-8601>] [--historical-base-items <path> --historical-mods <path> --historical-stats <path> --historical-translations <path> --historical-source-root <git-checkout> --historical-source-data-root <data-root> --historical-source-uri <uri> --historical-source-branch <branch> --historical-source-version <sha> --historical-data-version <value>] [--pob-uniques <evaluated-json> --pob-source-root <git-checkout> --pob-source-uri <uri> --pob-source-tag <tag> --pob-source-version <sha> [--pob-foulborn-map <jsonc>]] [--source-snapshot-dir <path>] [--league <value>] [--patch <value>] [--verbose-diagnostics]
 
             Example:
               dotnet run --project .\PoEnhance.DataTool -- build-package --base-items .\data\repoe\base_items.json --mods .\data\repoe\mods.json --stats .\data\repoe\stats.json --translations .\data\repoe\stat_translations.json --item-classes .\data\repoe\item_classes.json --tags .\data\repoe\tags.json --mods-by-base .\data\repoe\mods_by_base.json --item-property-semantics .\data\semantics\item-property-semantics.json --output .\artifacts\poenhance-game-data.json --source-snapshot-dir .\artifacts\source-snapshots\dev-001 --source-root .\local-data\repoe --source-data-root .\data\repoe --source-uri https://github.com/repoe-fork/repoe --source-branch master --source-version c50acab2ed660a70511e7f91ee09db4e632089e4 --data-version dev-001

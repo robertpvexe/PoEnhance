@@ -16,6 +16,8 @@ public sealed record GameDataPackageBuildRecordCounts
 
     public int Tags { get; init; }
 
+    public int PassiveSkills { get; init; }
+
     public int BaseModifierEvidenceGroups { get; init; }
 
     public int BaseModifierRelationships { get; init; }

@@ -1,11 +1,11 @@
 ﻿{
     "schemaVersion":  1,
     "package":  {
-                    "schemaVersion":  3,
-                    "dataVersion":  "3.29.1.2.5-export-owner-level-vs-chance-collapse",
+                    "schemaVersion":  4,
+                    "dataVersion":  "3.29.1.2.6-passive-skill-identity",
                     "createdAtUtc":  "2026-09-18T22:00:00+00:00",
-                    "sizeBytes":  189127336,
-                    "sha256":  "bd3a07788f15eaee27ec858d38874e10424369f9a16a1fb7cefe1eab8bb0f99a",
+                    "sizeBytes":  190079796,
+                    "sha256":  "1c0a0398d5a1db2c9b8a4a2f07beb3b7b4d777383ac87be6a9aa5c78788fda41",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0
@@ -24,6 +24,7 @@
                                        "stat_translations.json":  "10047b54f980e110828320d02b06042fa0099c70847213b7956937533fc7ddf9",
                                        "item_classes.json":  "3381bded5b0e0dab5617de0e83dbba85cb544336f44a1d90dce5f8ab1871aecc",
                                        "tags.json":  "25df913abd459bedd3dc1b649e344b353e271ed0a32162f116d66034a3269b50",
+                                       "passive_skill_trees/Default.json":  "0a0c261cd1b638b9a1fa5fe9949bd73dd453cc71b4722f07ae53054325b58dec",
                                        "mods_by_base.json":  "e7f39a88f87916b2305e0efe9ff28ff5b867a2a93ddf543a85af989f6a15d883"
                                    }
                      },

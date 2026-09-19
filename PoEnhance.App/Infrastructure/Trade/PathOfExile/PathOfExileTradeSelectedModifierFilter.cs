@@ -18,6 +18,8 @@ internal sealed record PathOfExileTradeSelectedModifierFilter
 
     public decimal? Maximum { get; init; }
 
+    public string? Option { get; init; }
+
     public IReadOnlyList<PathOfExileTradeSelectedModifierFilterAlternative> Alternatives { get; init; } = [];
 }
 
@@ -28,4 +30,6 @@ internal sealed record PathOfExileTradeSelectedModifierFilterAlternative
     public decimal? Minimum { get; init; }
 
     public decimal? Maximum { get; init; }
+
+    public string? Option { get; init; }
 }

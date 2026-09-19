@@ -16,4 +16,13 @@ internal sealed record PathOfExileTradeStatEntry
 
     public IReadOnlyDictionary<string, string> OptionMetadata { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    public IReadOnlyList<PathOfExileTradeStatOption> Options { get; init; } = [];
+}
+
+internal sealed record PathOfExileTradeStatOption
+{
+    public required string Id { get; init; }
+
+    public required string Text { get; init; }
 }

@@ -144,6 +144,9 @@ public static class GameDataValidationErrorCodes
 
     public const string PackageUniqueItemsRequired = "package.uniqueItems.required";
     public const string PackageFoulbornRelationshipsRequired = "package.foulbornRelationships.required";
+    public const string PackagePassiveSkillsRequired = "package.passiveSkills.required";
+    public const string PassiveSkillIdentityInvalid = "passiveSkills.identity.invalid";
+    public const string PassiveSkillHashDuplicate = "passiveSkills.hash.duplicate";
     public const string UniqueCatalogSourceInvalid = "uniqueItems.source.invalid";
     public const string UniqueCatalogIdentityInvalid = "uniqueItems.identity.invalid";
     public const string UniqueCatalogIdentityCollision = "uniqueItems.identity.canonicalKey.collision";

@@ -48,7 +48,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
     }
 
     [Fact]
-    public void Build_WithSourceSnapshot_CopiesExactlySevenInputsAndMatchesPackageFingerprints()
+    public void Build_WithSourceSnapshot_CopiesExactlyEightInputsAndMatchesPackageFingerprints()
     {
         using var workspace = TemporaryWorkspace.Create();
         var outputPath = workspace.PathFor("out", "poenhance-game-data.json");
@@ -90,7 +90,16 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal(request.DataVersion, manifest.PackageDataVersion);
         Assert.Equal(FixedCreatedAtUtc, manifest.BuildTimestampUtc);
         Assert.Equal(
-            ["baseItems", "modifiers", "stats", "statTranslations", "itemClasses", "tags", "baseModifierEvidence"],
+            [
+                "baseItems",
+                "modifiers",
+                "stats",
+                "statTranslations",
+                "itemClasses",
+                "tags",
+                "passiveSkills",
+                "baseModifierEvidence",
+            ],
             manifest.Files.Select(file => file.LogicalInputRole));
         Assert.All(manifest.Files, file =>
         {
@@ -102,7 +111,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
 
         var packageFingerprints = Assert.Single(result.Package!.Manifest.Sources).InputFiles
             .ToDictionary(input => input.Label!, StringComparer.Ordinal);
-        Assert.Equal(7, manifest.Files.Count);
+        Assert.Equal(8, manifest.Files.Count);
         foreach (var retainedFile in manifest.Files)
         {
             var fingerprint = packageFingerprints[retainedFile.RetainedFileName!];
@@ -265,7 +274,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.Equal("https://github.com/repoe-fork/repoe", source.SourceUri);
         Assert.Equal("master", source.SourceBranch);
         Assert.Equal(SharedTestSource.Value.SourceVersion, source.SourceVersion);
-        Assert.Equal(7, source.InputFiles.Count);
+        Assert.Equal(8, source.InputFiles.Count);
         Assert.All(source.InputFiles, input =>
         {
             Assert.False(string.IsNullOrWhiteSpace(input.RelativePath));
@@ -583,6 +592,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             translations => AssertSummary(translations, "StatTranslations", 6, 6, 0),
             itemClasses => AssertSummary(itemClasses, "ItemClasses", 6, 6, 0),
             tags => AssertSummary(tags, "Tags", 22, 22, 0),
+            passiveSkills => AssertSummary(passiveSkills, "PassiveSkills", 5, 5, 0),
             evidence => AssertSummary(evidence, "BaseModifierEvidence", 1, 1, 0),
             semantics => AssertSummary(semantics, "ItemPropertySemantics", 25, 25, 0));
     }
@@ -606,6 +616,12 @@ public sealed class RePoeGameDataPackageBuildServiceTests
         Assert.All(result.Package.StatTranslations.SelectMany(record => record.Sources), AssertRePoeSource);
         Assert.All(result.Package.ItemClasses!.SelectMany(record => record.Sources), AssertRePoeSource);
         Assert.All(result.Package.Tags!.SelectMany(record => record.Sources), AssertRePoeSource);
+        Assert.All(result.Package.PassiveSkills!.SelectMany(record => record.Sources), source =>
+        {
+            Assert.Equal("repoe", source.SourceId);
+            Assert.False(string.IsNullOrWhiteSpace(source.ExternalId));
+            Assert.Equal("data/passive_skill_trees/Default.json", source.ExternalUri);
+        });
         Assert.All(result.Package.BaseModifierEvidence!.Groups.SelectMany(record => record.Sources), AssertRePoeSource);
     }
 
@@ -620,6 +636,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             TranslationsPath = RePoeImportTestFixtures.ReducedStatTranslationsPath,
             ItemClassesPath = RePoeImportTestFixtures.ReducedItemClassesPath,
             TagsPath = RePoeImportTestFixtures.ReducedTagsPath,
+            PassiveSkillsPath = RePoeImportTestFixtures.ReducedPassiveSkillsPath,
             ModsByBasePath = RePoeImportTestFixtures.ReducedModsByBasePath,
             ItemPropertySemanticsPath = RePoeImportTestFixtures.ReviewedItemPropertySemanticsPath,
             OutputPath = outputPath,
@@ -651,6 +668,10 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             "stat_translations.json");
         var itemClassesPath = CopyFixture(RePoeImportTestFixtures.ReducedItemClassesPath, dataRoot, "item_classes.json");
         var tagsPath = CopyFixture(RePoeImportTestFixtures.ReducedTagsPath, dataRoot, "tags.json");
+        var passiveSkillsPath = CopyFixture(
+            RePoeImportTestFixtures.ReducedPassiveSkillsPath,
+            dataRoot,
+            "passive_skill_tree.json");
         var modsByBasePath = CopyFixture(RePoeImportTestFixtures.ReducedModsByBasePath, dataRoot, "mods_by_base.json");
 
         return CreateRequest(outputPath) with
@@ -661,6 +682,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             TranslationsPath = translationsPath,
             ItemClassesPath = itemClassesPath,
             TagsPath = tagsPath,
+            PassiveSkillsPath = passiveSkillsPath,
             ModsByBasePath = modsByBasePath,
             SourceDataRootPath = dataRoot,
         };
@@ -787,6 +809,7 @@ public sealed class RePoeGameDataPackageBuildServiceTests
             "stat_translations.json" => request.TranslationsPath!,
             "item_classes.json" => request.ItemClassesPath!,
             "tags.json" => request.TagsPath!,
+            "passive_skill_trees/Default.json" => request.PassiveSkillsPath!,
             "mods_by_base.json" => request.ModsByBasePath!,
             _ => throw new ArgumentOutOfRangeException(nameof(retainedFileName)),
         };

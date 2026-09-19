@@ -20,6 +20,8 @@ public sealed class BuildPackageCommandLineParserTests
             "item_classes.json",
             "--tags",
             "tags.json",
+            "--passive-skills",
+            "passive_skill_trees/Default.json",
             "--mods-by-base",
             "mods_by_base.json",
             "--item-property-semantics",
@@ -55,6 +57,7 @@ public sealed class BuildPackageCommandLineParserTests
         Assert.Equal("stat_translations.json", result.Request.TranslationsPath);
         Assert.Equal("item_classes.json", result.Request.ItemClassesPath);
         Assert.Equal("tags.json", result.Request.TagsPath);
+        Assert.Equal("passive_skill_trees/Default.json", result.Request.PassiveSkillsPath);
         Assert.Equal("mods_by_base.json", result.Request.ModsByBasePath);
         Assert.Equal("reviewed-semantics.json", result.Request.ItemPropertySemanticsPath);
         Assert.Equal("package.json", result.Request.OutputPath);
@@ -225,6 +228,7 @@ public sealed class BuildPackageCommandLineParserTests
             StringComparison.Ordinal);
         Assert.Contains("--item-classes <path>", usage, StringComparison.Ordinal);
         Assert.Contains("--tags <path>", usage, StringComparison.Ordinal);
+        Assert.Contains("--passive-skills <path>", usage, StringComparison.Ordinal);
         Assert.Contains("--mods-by-base <path>", usage, StringComparison.Ordinal);
     }
 
@@ -358,6 +362,8 @@ public sealed class BuildPackageCommandLineParserTests
             "item_classes.json",
             "--tags",
             "tags.json",
+            "--passive-skills",
+            "passive_skill_trees/Default.json",
             "--mods-by-base",
             "mods_by_base.json",
             "--item-property-semantics",

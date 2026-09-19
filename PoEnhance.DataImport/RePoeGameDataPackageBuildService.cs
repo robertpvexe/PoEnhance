@@ -9,6 +9,7 @@ public sealed class RePoeGameDataPackageBuildService
     private const int LegacySchemaVersion = 1;
     private const int UniqueCatalogSchemaVersion = 2;
     private const int FoulbornRelationshipSchemaVersion = 3;
+    private const int PassiveSkillIdentitySchemaVersion = 4;
     private const string RePoeSourceUri = "https://github.com/repoe-fork/repoe";
 
     private readonly RePoeBaseItemImporter _baseItemImporter = new();
@@ -17,6 +18,7 @@ public sealed class RePoeGameDataPackageBuildService
     private readonly RePoeStatTranslationsImporter _translationImporter = new();
     private readonly RePoeItemClassImporter _itemClassImporter = new();
     private readonly RePoeTagImporter _tagImporter = new();
+    private readonly RePoePassiveSkillImporter _passiveSkillImporter = new();
     private readonly RePoeModsByBaseImporter _modsByBaseImporter = new();
     private readonly ReviewedItemPropertySemanticImporter _itemPropertySemanticImporter = new();
     private readonly GameDataPackageBuilder _packageBuilder = new();
@@ -139,6 +141,7 @@ public sealed class RePoeGameDataPackageBuildService
         }
         var itemClasses = _itemClassImporter.Import(request.ItemClassesPath!);
         var tags = _tagImporter.Import(request.TagsPath!);
+        var passiveSkills = _passiveSkillImporter.Import(request.PassiveSkillsPath!);
         var modsByBase = _modsByBaseImporter.Import(
             request.ModsByBasePath!,
             request.BaseItemsPath!,
@@ -191,6 +194,7 @@ public sealed class RePoeGameDataPackageBuildService
         diagnostics.AddRange(translations.Diagnostics);
         diagnostics.AddRange(itemClasses.Diagnostics);
         diagnostics.AddRange(tags.Diagnostics);
+        diagnostics.AddRange(passiveSkills.Diagnostics);
         diagnostics.AddRange(modsByBase.Diagnostics);
         diagnostics.AddRange(itemPropertySemantics.Diagnostics);
         if (uniqueItems is not null)
@@ -210,6 +214,7 @@ public sealed class RePoeGameDataPackageBuildService
             Summary("StatTranslations", translations),
             Summary("ItemClasses", itemClasses),
             Summary("Tags", tags),
+            Summary("PassiveSkills", passiveSkills),
             new GameDataPackageBuildSourceSummary
             {
                 SourceName = "BaseModifierEvidence",
@@ -302,6 +307,7 @@ public sealed class RePoeGameDataPackageBuildService
             itemPropertySemantics.ImportedRecords,
             itemClasses.ImportedRecords,
             tags.ImportedRecords,
+            passiveSkills.ImportedRecords,
             modsByBase.Evidence!,
             baseImplicitHistory,
             statTranslationHistory,
@@ -433,6 +439,7 @@ public sealed class RePoeGameDataPackageBuildService
         AddRequiredArgumentDiagnostic(request.TranslationsPath, "--translations", diagnostics);
         AddRequiredArgumentDiagnostic(request.ItemClassesPath, "--item-classes", diagnostics);
         AddRequiredArgumentDiagnostic(request.TagsPath, "--tags", diagnostics);
+        AddRequiredArgumentDiagnostic(request.PassiveSkillsPath, "--passive-skills", diagnostics);
         AddRequiredArgumentDiagnostic(request.ModsByBasePath, "--mods-by-base", diagnostics);
         AddRequiredArgumentDiagnostic(request.ItemPropertySemanticsPath, "--item-property-semantics", diagnostics);
         AddRequiredArgumentDiagnostic(request.OutputPath, "--output", diagnostics);
@@ -526,6 +533,7 @@ public sealed class RePoeGameDataPackageBuildService
             ("statTranslations", "stat_translations.json", request.TranslationsPath!),
             ("itemClasses", "item_classes.json", request.ItemClassesPath!),
             ("tags", "tags.json", request.TagsPath!),
+            ("passiveSkills", "passive_skill_trees/Default.json", request.PassiveSkillsPath!),
             ("baseModifierEvidence", "mods_by_base.json", request.ModsByBasePath!),
         ];
     }
@@ -560,7 +568,7 @@ public sealed class RePoeGameDataPackageBuildService
         return new GameDataPackageManifest
         {
             SchemaVersion = HasPoBFoulbornInputs(request)
-                ? FoulbornRelationshipSchemaVersion
+                ? PassiveSkillIdentitySchemaVersion
                 : HasPoBUniqueInputs(request)
                     ? UniqueCatalogSchemaVersion
                     : LegacySchemaVersion,
@@ -1039,6 +1047,7 @@ public sealed class RePoeGameDataPackageBuildService
             ItemPropertySemantics = package?.ItemPropertySemantics?.Count ?? 0,
             ItemClasses = package?.ItemClasses?.Count ?? 0,
             Tags = package?.Tags?.Count ?? 0,
+            PassiveSkills = package?.PassiveSkills?.Count ?? 0,
             BaseModifierEvidenceGroups = package?.BaseModifierEvidence?.Groups.Count ?? 0,
             BaseModifierRelationships = package?.BaseModifierEvidence?.RelationshipsRepresented ?? 0,
             UniqueItems = package?.UniqueItems?.Items.Count ?? 0,

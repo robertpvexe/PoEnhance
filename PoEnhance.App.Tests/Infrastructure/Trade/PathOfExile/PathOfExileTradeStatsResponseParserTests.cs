@@ -87,7 +87,7 @@ public sealed class PathOfExileTradeStatsResponseParserTests
                       "type": "pseudo",
                       "option": {
                         "options": [
-                          { "id": "life", "text": "Life" }
+                          { "id": 41119, "text": "Lethality" }
                         ],
                         "label": "Life"
                       }
@@ -102,6 +102,9 @@ public sealed class PathOfExileTradeStatsResponseParserTests
         Assert.Equal("pseudo.stat", entry.Id);
         Assert.Equal("Life", entry.OptionMetadata["label"]);
         Assert.False(entry.OptionMetadata.ContainsKey("options"));
+        var option = Assert.Single(entry.Options);
+        Assert.Equal("41119", option.Id);
+        Assert.Equal("Lethality", option.Text);
     }
 
     [Fact]

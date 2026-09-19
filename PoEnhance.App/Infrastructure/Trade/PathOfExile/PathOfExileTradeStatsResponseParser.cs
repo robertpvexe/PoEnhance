@@ -159,8 +159,35 @@ internal sealed class PathOfExileTradeStatsResponseParser
             Text = text,
             Type = ReadOptionalString(entryElement, "type"),
             OptionMetadata = ReadOptionMetadata(entryElement),
+            Options = ReadOptions(entryElement),
         };
         return true;
+    }
+
+    private static IReadOnlyList<PathOfExileTradeStatOption> ReadOptions(JsonElement entryElement)
+    {
+        if (!entryElement.TryGetProperty("option", out var optionElement) ||
+            optionElement.ValueKind != JsonValueKind.Object ||
+            !optionElement.TryGetProperty("options", out var optionsElement) ||
+            optionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var options = new List<PathOfExileTradeStatOption>();
+        foreach (var value in optionsElement.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.Object ||
+                !TryReadRequiredScalar(value, "id", out var id) ||
+                !TryReadRequiredString(value, "text", out var text))
+            {
+                continue;
+            }
+
+            options.Add(new PathOfExileTradeStatOption { Id = id.Trim(), Text = text.Trim() });
+        }
+
+        return options;
     }
 
     private static IReadOnlyDictionary<string, string> ReadOptionMetadata(JsonElement entryElement)
@@ -190,6 +217,26 @@ internal sealed class PathOfExileTradeStatsResponseParser
         }
 
         return values;
+    }
+
+    private static bool TryReadRequiredScalar(
+        JsonElement parent,
+        string propertyName,
+        out string value)
+    {
+        if (parent.TryGetProperty(propertyName, out var element))
+        {
+            value = element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString() ?? string.Empty,
+                JsonValueKind.Number => element.GetRawText(),
+                _ => string.Empty,
+            };
+            return !string.IsNullOrWhiteSpace(value);
+        }
+
+        value = string.Empty;
+        return false;
     }
 
     private static string? ReadOptionalString(JsonElement parent, string propertyName)

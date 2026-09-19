@@ -74,6 +74,8 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<string> ResolvedStatIds { get; init; } = [];
 
+    public PassiveSkillIdentity? AnointPassiveIdentity { get; init; }
+
     public IReadOnlyList<ModifierLocality> ResolvedStatLocalities { get; init; } = [];
 
     /// <summary>

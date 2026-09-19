@@ -26,6 +26,24 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
         foreach (var selectedModifier in selectedModifiers)
         {
+            if (TryCreateAnointProviderFilter(
+                    selectedModifier.Index,
+                    selectedModifier.Modifier,
+                    catalog,
+                    out var anointFilter,
+                    out var anointDiagnostic))
+            {
+                if (anointFilter is not null)
+                {
+                    filters.Add(anointFilter);
+                }
+                if (anointDiagnostic is not null)
+                {
+                    diagnostics.Add(anointDiagnostic);
+                }
+                continue;
+            }
+
             AddActiveContributorFilters(
                 selectedModifier.Index,
                 selectedModifier.Modifier,
@@ -110,6 +128,106 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             : PathOfExileTradeSelectedModifierMappingResult.Failure(diagnostics);
         return result;
     }
+
+    private static bool TryCreateAnointProviderFilter(
+        int sourceIndex,
+        ResolvedSearchComponent modifier,
+        PathOfExileTradeStatCatalog? catalog,
+        out PathOfExileTradeSelectedModifierFilter? filter,
+        out PathOfExileTradeSelectedModifierMappingDiagnostic? diagnostic)
+    {
+        filter = null;
+        diagnostic = null;
+        if (modifier.AnointPassiveIdentity is null)
+        {
+            return false;
+        }
+
+        if (modifier.ResolvedSourceKind != ParsedModifierKind.Enchantment ||
+            modifier.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
+            !modifier.IsSearchable ||
+            catalog is null)
+        {
+            diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AnointOptionUnavailable,
+                "An anoint requires exact passive-hash GameData provenance and the current Trade stat catalog.",
+                sourceIndex);
+            return true;
+        }
+
+        var optionId = modifier.AnointPassiveIdentity.PassiveHash.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
+        var canonicalName = modifier.AnointPassiveIdentity.CanonicalName;
+        var expectedAllocatesText = "Allocates " + canonicalName;
+
+        // Official Trade catalogs expose Allocates as flattened pipe ids
+        // (enchant.<stat>|<passiveHash>) and/or as a parent Enchant entry with option metadata.
+        var nestedCandidates = catalog.Entries
+            .Where(entry =>
+                IsEnchantProviderEntry(entry) &&
+                entry.Options.Count > 0 &&
+                entry.Options.Count(option =>
+                    string.Equals(option.Id, optionId, StringComparison.Ordinal)) == 1 &&
+                string.Equals(
+                    entry.Options.Single(option =>
+                        string.Equals(option.Id, optionId, StringComparison.Ordinal)).Text,
+                    canonicalName,
+                    StringComparison.Ordinal))
+            .ToArray();
+        if (nestedCandidates.Length == 1)
+        {
+            filter = new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = sourceIndex,
+                SourceIndexes = [sourceIndex],
+                StatId = nestedCandidates[0].Id,
+                OriginalText = modifier.OriginalText,
+                NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
+                ExtractedNumericValues = [],
+                Option = optionId,
+            };
+            return true;
+        }
+
+        var optionSuffix = "|" + optionId;
+        var pipeCandidates = catalog.Entries
+            .Where(entry =>
+                IsEnchantProviderEntry(entry) &&
+                entry.Id.EndsWith(optionSuffix, StringComparison.Ordinal) &&
+                string.Equals(entry.Text, expectedAllocatesText, StringComparison.Ordinal))
+            .ToArray();
+        if (pipeCandidates.Length == 1)
+        {
+            var pipeId = pipeCandidates[0].Id;
+            var separator = pipeId.LastIndexOf('|');
+            filter = new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = sourceIndex,
+                SourceIndexes = [sourceIndex],
+                StatId = separator > 0 ? pipeId[..separator] : pipeId,
+                OriginalText = modifier.OriginalText,
+                NormalizedItemTemplate = ToProviderTemplate(modifier.CanonicalSignature),
+                ExtractedNumericValues = [],
+                Option = optionId,
+            };
+            return true;
+        }
+
+        diagnostic = new PathOfExileTradeSelectedModifierMappingDiagnostic(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AnointOptionUnavailable,
+            nestedCandidates.Length > 1 || pipeCandidates.Length > 1
+                ? "The official Trade catalog exposes multiple Enchantment Allocates options for the exact passive hash."
+                : "The official Trade catalog does not expose a compatible Enchantment Allocates option for the exact passive hash.",
+            sourceIndex);
+        return true;
+    }
+
+    private static bool IsEnchantProviderEntry(PathOfExileTradeStatEntry entry) =>
+        string.Equals(
+            PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+                PathOfExileTradeStatCandidateClassifier.ToCandidate(entry)),
+            "enchant",
+            StringComparison.OrdinalIgnoreCase);
 
     private static void AddActiveContributorFilters(
         int parentIndex,
@@ -584,19 +702,31 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var equivalentSets = filters
             .Where(filter => filter.Alternatives.Count > 1)
             .ToArray();
-        var collapsedSingles = filters
+        var singles = filters
             .Where(filter => filter.Alternatives.Count <= 1)
-            .GroupBy(filter => filter.StatId, StringComparer.Ordinal)
+            .ToArray();
+
+        // Same Trade stat + same option with conflicting numeric bounds remains fail-closed.
+        // Same Trade stat + different options are distinct semantic filters and must not collapse.
+        foreach (var optionFamily in singles.GroupBy(StatOptionFamilyKey, StringComparer.Ordinal))
+        {
+            var first = optionFamily.First();
+            if (optionFamily.Any(filter =>
+                    filter.Minimum != first.Minimum ||
+                    filter.Maximum != first.Maximum))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.IncompatibleBounds,
+                    "Selected modifiers resolve to one Trade stat option with incompatible value bounds.",
+                    first.SourceIndex));
+            }
+        }
+
+        var collapsedSingles = singles
+            .GroupBy(SemanticPresenceCollapseKey, StringComparer.Ordinal)
             .Select(group =>
             {
                 var first = group.First();
-                if (group.Any(filter => filter.Minimum != first.Minimum || filter.Maximum != first.Maximum))
-                {
-                    diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
-                        PathOfExileTradeSelectedModifierMappingDiagnosticCodes.IncompatibleBounds,
-                        "Selected modifiers resolve to one Trade stat with incompatible value bounds.",
-                        first.SourceIndex));
-                }
                 return first with
                 {
                     SourceIndexes = group
@@ -609,6 +739,20 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             .ToArray();
         return [.. collapsedSingles, .. equivalentSets];
     }
+
+    private static string StatOptionFamilyKey(PathOfExileTradeSelectedModifierFilter filter) =>
+        string.Join(
+            '\u001f',
+            filter.StatId ?? string.Empty,
+            filter.Option ?? string.Empty);
+
+    private static string SemanticPresenceCollapseKey(PathOfExileTradeSelectedModifierFilter filter) =>
+        string.Join(
+            '\u001f',
+            filter.StatId ?? string.Empty,
+            filter.Option ?? string.Empty,
+            filter.Minimum?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            filter.Maximum?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
 
     private static IEnumerable<int> SourceIndexes(PathOfExileTradeSelectedModifierFilter filter)
     {
@@ -653,7 +797,14 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                     !string.IsNullOrWhiteSpace(source.ResolvedModifierId) &&
                     source.ResolvedStatIds.Count > 0)) &&
             modifier.ResolvedStatIds.Count > 0;
+        var hasExactAnointProvenance =
+            modifier.AnointPassiveIdentity is not null &&
+            modifier.ResolvedSourceKind == ParsedModifierKind.Enchantment &&
+            modifier.ResolutionStatus == ModifierCandidateResolutionStatus.Exact &&
+            modifier.IsSearchable &&
+            modifier.ResolvedStatIds.Count > 0;
         return hasExactGameDataProvenance || hasExactProviderOwnedUniqueProvenance ||
+            hasExactAnointProvenance ||
             hasExactProviderOwnedVeiledPresence ||
             hasExactProviderOwnedAdvancedExplicit ||
             modifier.ParsedKind == ParsedModifierKind.Implicit &&

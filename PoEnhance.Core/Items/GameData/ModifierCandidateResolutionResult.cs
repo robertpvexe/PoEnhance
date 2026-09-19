@@ -29,4 +29,8 @@ public sealed record ModifierCandidateResolutionResult(
         Status == ModifierCandidateResolutionStatus.Exact && Candidates.Count > 1;
 
     public StatTranslationRecognitionEvidence? TranslationRecognition { get; init; }
+
+    public PassiveSkillIdentity? AnointPassiveIdentity { get; init; }
+
+    public IReadOnlyList<string> MechanicalStatIds { get; init; } = [];
 }

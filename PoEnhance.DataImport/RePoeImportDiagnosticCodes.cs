@@ -27,6 +27,7 @@ public static class RePoeImportDiagnosticCodes
     public const string ItemClassRecordDuplicate = "REPOE_ITEM_CLASS_RECORD_DUPLICATE";
     public const string TagRecordMalformed = "REPOE_TAG_RECORD_MALFORMED";
     public const string TagRecordDuplicate = "REPOE_TAG_RECORD_DUPLICATE";
+    public const string PassiveSkillRecordMalformed = "REPOE_PASSIVE_SKILL_RECORD_MALFORMED";
     public const string ModsByBaseRecordMalformed = "REPOE_MODS_BY_BASE_RECORD_MALFORMED";
     public const string ModsByBaseBaseUnavailable = "REPOE_MODS_BY_BASE_BASE_UNAVAILABLE";
     public const string ModsByBaseUnknownBase = "REPOE_MODS_BY_BASE_UNKNOWN_BASE";

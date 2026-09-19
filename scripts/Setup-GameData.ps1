@@ -228,6 +228,8 @@ function Export-PinnedData(
     {
         $sourcePath = Join-Path $extractRoot "data\$($fileProperty.Name)"
         $destinationPath = Join-Path $DestinationRoot $fileProperty.Name
+        [System.IO.Directory]::CreateDirectory(
+            [System.IO.Path]::GetDirectoryName($destinationPath)) | Out-Null
         if (-not [System.IO.Path]::GetFullPath($sourcePath).Equals(
                 [System.IO.Path]::GetFullPath($destinationPath),
                 [StringComparison]::OrdinalIgnoreCase))

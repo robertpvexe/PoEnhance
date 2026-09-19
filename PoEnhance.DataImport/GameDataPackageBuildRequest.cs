@@ -14,6 +14,8 @@ public sealed record GameDataPackageBuildRequest
 
     public string? TagsPath { get; init; }
 
+    public string? PassiveSkillsPath { get; init; }
+
     public string? ModsByBasePath { get; init; }
 
     public string? ItemPropertySemanticsPath { get; init; }

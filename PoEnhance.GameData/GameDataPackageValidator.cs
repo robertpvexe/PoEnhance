@@ -72,6 +72,14 @@ public static class GameDataPackageValidator
         errors.AddRange(GameDataPackageEligibilitySourceValidator.Validate(package, manifestSourceIds));
         ValidateBaseImplicitHistory(package.BaseImplicitHistory, manifestSourceIds, errors);
         ValidateStatTranslationHistory(package.StatTranslationHistory, manifestSourceIds, errors);
+        if (package.Manifest.SchemaVersion >= 4 && package.PassiveSkills is null)
+        {
+            errors.Add(Error(
+                GameDataValidationErrorCodes.PackagePassiveSkillsRequired,
+                "passiveSkills",
+                "Schema version 4 packages require passive skill identities."));
+        }
+        ValidatePassiveSkills(package.PassiveSkills, manifestSourceIds, errors);
         if (package.Manifest.SchemaVersion >= 2 && package.UniqueItems is null)
         {
             errors.Add(Error(
@@ -97,6 +105,46 @@ public static class GameDataPackageValidator
             errors);
 
         return new GameDataValidationResult(errors);
+    }
+
+    private static void ValidatePassiveSkills(
+        IReadOnlyList<PassiveSkillIdentity>? identities,
+        ISet<string> manifestSourceIds,
+        List<GameDataValidationError> errors)
+    {
+        if (identities is null)
+        {
+            return;
+        }
+
+        var hashes = new HashSet<int>();
+        foreach (var (identity, index) in identities.Select((value, index) => (value, index)))
+        {
+            var path = $"passiveSkills[{index}]";
+            if (identity is null ||
+                string.IsNullOrWhiteSpace(identity.CanonicalName) ||
+                identity.PassiveHash < 0 ||
+                identity.Sources.Count == 0 ||
+                identity.Sources.Any(source =>
+                    source is null ||
+                    string.IsNullOrWhiteSpace(source.SourceId) ||
+                    !manifestSourceIds.Contains(source.SourceId.Trim()) ||
+                    string.IsNullOrWhiteSpace(source.ExternalId)))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.PassiveSkillIdentityInvalid,
+                    path,
+                    "Passive identity requires canonical name, non-negative hash, and current source provenance."));
+            }
+
+            if (identity is not null && !hashes.Add(identity.PassiveHash))
+            {
+                errors.Add(Error(
+                    GameDataValidationErrorCodes.PassiveSkillHashDuplicate,
+                    path,
+                    $"Passive hash '{identity.PassiveHash}' is duplicated."));
+            }
+        }
     }
 
     private static void ValidateUniqueItems(

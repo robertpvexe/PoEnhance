@@ -16,4 +16,7 @@ public static class ModifierCandidateResolutionDiagnosticCodes
     public const string ModifierTextAmbiguous = "MODIFIER_TEXT_AMBIGUOUS";
     public const string ModifierTextNoMatch = "MODIFIER_TEXT_NO_MATCH";
     public const string ModifierTextNotEvaluated = "MODIFIER_TEXT_NOT_EVALUATED";
+    public const string AnointPassiveExactMatch = "ANOINT_PASSIVE_EXACT_MATCH";
+    public const string AnointPassiveNotFound = "ANOINT_PASSIVE_NOT_FOUND";
+    public const string AnointPassiveAmbiguous = "ANOINT_PASSIVE_AMBIGUOUS";
 }

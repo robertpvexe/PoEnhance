@@ -16,6 +16,8 @@ public sealed class GameDataCatalog
         Array.AsReadOnly(Array.Empty<ItemPropertySemanticDescriptor>());
     private static readonly IReadOnlyList<UniqueItemIdentity> EmptyUniqueItems =
         Array.AsReadOnly(Array.Empty<UniqueItemIdentity>());
+    private static readonly IReadOnlyList<PassiveSkillIdentity> EmptyPassiveSkills =
+        Array.AsReadOnly(Array.Empty<PassiveSkillIdentity>());
     private static readonly IReadOnlyList<UniqueFoulbornModifierRelationship> EmptyFoulbornRelationships =
         Array.AsReadOnly(Array.Empty<UniqueFoulbornModifierRelationship>());
 
@@ -38,6 +40,8 @@ public sealed class GameDataCatalog
     private readonly IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> _translationsByStatIdGroup;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
         _itemPropertySemanticsByOrderedStatVector;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<PassiveSkillIdentity>>
+        _passiveSkillsByExactName;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByExactName;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueItemIdentity>> _uniqueItemsByNormalizedName;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<UniqueFoulbornModifierRelationship>>
@@ -57,12 +61,15 @@ public sealed class GameDataCatalog
         IReadOnlyDictionary<ModifierGenerationType, IReadOnlyList<ModifierDefinition>> modifiersByGenerationType,
         IReadOnlyDictionary<string, IReadOnlyList<ModifierDefinition>> modifiersByStatId,
         IReadOnlyDictionary<string, IReadOnlyList<StatDefinition>> statsById,
+        IReadOnlyList<StatTranslationDefinition> statTranslations,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsById,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatId,
         IReadOnlyDictionary<string, IReadOnlyList<StatTranslationDefinition>> translationsByStatIdGroup,
         IReadOnlyList<ItemPropertySemanticDescriptor> itemPropertySemantics,
         IReadOnlyDictionary<string, IReadOnlyList<ItemPropertySemanticDescriptor>>
             itemPropertySemanticsByOrderedStatVector,
+        IReadOnlyList<PassiveSkillIdentity> passiveSkills,
+        IReadOnlyDictionary<string, IReadOnlyList<PassiveSkillIdentity>> passiveSkillsByExactName,
         BaseImplicitHistoryCatalog? baseImplicitHistory,
         StatTranslationHistoryCatalog? statTranslationHistory,
         UniqueItemCatalog? uniqueItems,
@@ -84,11 +91,14 @@ public sealed class GameDataCatalog
         _modifiersByGenerationType = modifiersByGenerationType;
         _modifiersByStatId = modifiersByStatId;
         _statsById = statsById;
+        StatTranslations = statTranslations;
         _translationsById = translationsById;
         _translationsByStatId = translationsByStatId;
         _translationsByStatIdGroup = translationsByStatIdGroup;
         ItemPropertySemantics = itemPropertySemantics;
         _itemPropertySemanticsByOrderedStatVector = itemPropertySemanticsByOrderedStatVector;
+        PassiveSkills = passiveSkills;
+        _passiveSkillsByExactName = passiveSkillsByExactName;
         BaseImplicitHistory = baseImplicitHistory;
         StatTranslationHistory = statTranslationHistory;
         UniqueItems = uniqueItems;
@@ -112,6 +122,7 @@ public sealed class GameDataCatalog
         var itemBases = ToReadOnly(package.ItemBases);
         var modifiers = ToReadOnly(package.Modifiers);
         var itemPropertySemantics = ToReadOnly(package.ItemPropertySemantics);
+        var passiveSkills = ToReadOnly(package.PassiveSkills ?? EmptyPassiveSkills);
         var uniqueIdentities = package.UniqueItems?.Items ?? EmptyUniqueItems;
 
         return new GameDataCatalog(
@@ -162,6 +173,7 @@ public sealed class GameDataCatalog
                 package.Stats,
                 stat => GameDataLookupNormalizer.NormalizeIdentifier(stat.Id),
                 StringComparer.OrdinalIgnoreCase),
+            ToReadOnly(package.StatTranslations),
             BuildIndex(
                 package.StatTranslations,
                 translation => GameDataLookupNormalizer.NormalizeIdentifier(translation.Id),
@@ -181,6 +193,11 @@ public sealed class GameDataCatalog
                 itemPropertySemantics,
                 descriptor => CreateOrderedStatVectorKey(descriptor.OrderedStatIds),
                 StringComparer.OrdinalIgnoreCase),
+            passiveSkills,
+            BuildIndex(
+                passiveSkills,
+                identity => identity.CanonicalName,
+                StringComparer.Ordinal),
             package.BaseImplicitHistory,
             package.StatTranslationHistory,
             package.UniqueItems,
@@ -204,11 +221,21 @@ public sealed class GameDataCatalog
 
     public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; }
 
+    public IReadOnlyList<StatTranslationDefinition> StatTranslations { get; }
+
+    public IReadOnlyList<PassiveSkillIdentity> PassiveSkills { get; }
+
     public BaseImplicitHistoryCatalog? BaseImplicitHistory { get; }
 
     public StatTranslationHistoryCatalog? StatTranslationHistory { get; }
 
     public UniqueItemCatalog? UniqueItems { get; }
+
+    public IReadOnlyList<PassiveSkillIdentity> FindPassiveSkillsByExactName(string? name)
+    {
+        var exactName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        return Find(_passiveSkillsByExactName, exactName, EmptyPassiveSkills);
+    }
 
     public IReadOnlyList<UniqueItemIdentity> FindUniqueItemsByExactName(string? name)
     {

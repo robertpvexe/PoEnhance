@@ -17,6 +17,9 @@ public sealed record GameDataPackage
     public IReadOnlyList<ItemPropertySemanticDescriptor> ItemPropertySemantics { get; init; } = [];
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<PassiveSkillIdentity>? PassiveSkills { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<ItemClassDefinition>? ItemClasses { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

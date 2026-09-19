@@ -1033,7 +1033,14 @@ public sealed partial class TradeSearchDraftMapper
                             StringComparer.OrdinalIgnoreCase)))
                 .OrderBy(stat => stat.Index)
                 .ToArray() ?? [];
-        var statIds = exactCandidate is null && uniqueBlockResolution?.IsResolved == true
+        var isExactAnoint = resolution is
+        {
+            Status: ModifierCandidateResolutionStatus.Exact,
+            AnointPassiveIdentity: not null,
+        };
+        var statIds = isExactAnoint
+            ? resolution!.MechanicalStatIds.ToArray()
+            : exactCandidate is null && uniqueBlockResolution?.IsResolved == true
             ? uniqueBlockResolution.StatIds.ToArray()
             : StatIds(stats).ToArray();
         var statLocalities = uniqueBlockResolution?.IsResolved == true
@@ -1045,7 +1052,7 @@ public sealed partial class TradeSearchDraftMapper
             componentLines,
             catalog);
         var providerSearchSignatures = providerSearchEvidence.Signatures;
-        var isSearchable = (exactCandidate is not null || uniqueBlockResolution?.IsResolved == true ||
+        var isSearchable = (isExactAnoint || exactCandidate is not null || uniqueBlockResolution?.IsResolved == true ||
                 uniqueBlockResolution?.CatalogBlocks.Count > 0) &&
             (statIds.Length > 0 || uniqueBlockResolution?.CatalogBlocks.Count > 0);
         var translationRecognition = resolution?.TranslationRecognition;
@@ -1260,6 +1267,7 @@ public sealed partial class TradeSearchDraftMapper
                 : isEquivalentSourceSet ? null : TrimToNull(exactCandidate?.Id),
             ResolvedModifierName = TrimToNull(exactCandidate?.Name) ?? CommonModifierName(uniqueModifierCandidates),
             ResolvedStatIds = statIds,
+            AnointPassiveIdentity = resolution?.AnointPassiveIdentity,
             ResolvedStatLocalities = statLocalities,
             ProviderSearchSignatures = providerSearchSignatures,
             UniqueCatalogBlockIds = uniqueBlockResolution?.CatalogBlocks
@@ -1298,7 +1306,7 @@ public sealed partial class TradeSearchDraftMapper
                 ? null
                 : usesUniqueSourceMechanics && uniqueBlockResolution is { IsResolved: false }
                     ? uniqueBlockResolution.Diagnostic
-                : exactCandidate is null
+                : exactCandidate is null && !isExactAnoint
                     ? "The source modifier did not resolve to one exact GameData modifier."
                     : "The resolved component has no retained stat ids.",
             SupportsValueBounds = supportsValueBounds,

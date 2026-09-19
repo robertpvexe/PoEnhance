@@ -140,6 +140,7 @@ $currentInputs = [ordered]@{
     translations = Require-InputFile $sourceDataRootPath 'stat_translations.json' 'current'
     itemClasses = Require-InputFile $sourceDataRootPath 'item_classes.json' 'current'
     tags = Require-InputFile $sourceDataRootPath 'tags.json' 'current'
+    passiveSkills = Require-InputFile $sourceDataRootPath 'passive_skill_trees\Default.json' 'current'
     modsByBase = Require-InputFile $sourceDataRootPath 'mods_by_base.json' 'current'
 }
 $historicalInputs = [ordered]@{
@@ -236,6 +237,7 @@ $dataToolArguments = @(
     '--translations', $currentInputs.translations,
     '--item-classes', $currentInputs.itemClasses,
     '--tags', $currentInputs.tags,
+    '--passive-skills', $currentInputs.passiveSkills,
     '--mods-by-base', $currentInputs.modsByBase,
     '--item-property-semantics', $semanticInput,
     '--output', $candidatePath,

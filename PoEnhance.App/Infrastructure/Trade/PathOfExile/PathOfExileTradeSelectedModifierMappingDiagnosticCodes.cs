@@ -36,4 +36,6 @@ internal static class PathOfExileTradeSelectedModifierMappingDiagnosticCodes
         "POE_TRADE_SELECTED_MODIFIER_CONTRIBUTOR_SOURCE_IDENTITY_AMBIGUOUS";
     public const string ContributorBoundsIncompatible =
         "POE_TRADE_SELECTED_MODIFIER_CONTRIBUTOR_BOUNDS_INCOMPATIBLE";
+    public const string AnointOptionUnavailable =
+        "POE_TRADE_SELECTED_MODIFIER_ANOINT_OPTION_UNAVAILABLE";
 }
