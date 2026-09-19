@@ -1110,7 +1110,7 @@ Item Level: 80
     }
 
     [Fact]
-    public void Resolve_UnknownTextCandidateIsRetainedWithMatchingCandidate()
+    public void Resolve_UniqueTextMatchWinsOverUnevaluableUnknownCandidates()
     {
         var catalog = CreateCatalogWithTranslations(
             [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
@@ -1137,16 +1137,262 @@ Item Level: 80
 
         var result = Assert.Single(resolver.Resolve(item, catalog, baseResolution));
 
-        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
-        Assert.Equal(["mod.prefix.hale.life", "mod.prefix.hale.unknown"], result.Candidates.Select(candidate => candidate.Id));
-        Assert.Equal(2, result.TextSignatureCandidateCount);
-        Assert.Equal(0, result.ExcludedByTextCandidateCount);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.life", Assert.Single(result.Candidates).Id);
+        Assert.Contains(result.ExcludedCandidates ?? [], candidate =>
+            candidate.Id == "mod.prefix.hale.unknown");
         Assert.Contains(result.TextSignatureMatches ?? [], match =>
             match.Outcome == ModifierTextSignatureMatchOutcome.Unknown);
+        Assert.Contains(result.TextSignatureMatches ?? [], match =>
+            match.Outcome == ModifierTextSignatureMatchOutcome.Match);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+        Assert.Contains(
+            "unevaluable text candidates were not treated as competing positive evidence",
+            Assert.Single(result.Diagnostics).Reason,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(100)]
+    public void Resolve_UniqueTextMatchWinsOverArbitraryUnknownCount(int unknownCount)
+    {
+        var unknownModifiers = Enumerable.Range(0, unknownCount)
+            .Select(i => ModifierWithStat(
+                $"mod.prefix.hale.unknown.{i}",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                $"unknown_stat_{i}",
+                SpawnWeight("ring", 1000)))
+            .ToArray();
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"]))],
+            new[]
+            {
+                ModifierWithStat(
+                    "mod.prefix.hale.life",
+                    "Hale",
+                    ModifierGenerationType.Prefix,
+                    "item",
+                    "life_stat",
+                    SpawnWeight("ring", 1000)),
+            }.Concat(unknownModifiers).ToArray());
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 9) - Life }
++999 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.life", Assert.Single(result.Candidates).Id);
+        Assert.Equal(unknownCount, (result.ExcludedCandidates ?? []).Count(candidate =>
+            candidate.Id?.StartsWith("mod.prefix.hale.unknown.", StringComparison.Ordinal) == true));
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void Resolve_MultipleDefinitiveTextMatchesRemainAmbiguousEvenWithUnknowns(int unknownCount)
+    {
+        var unknownModifiers = Enumerable.Range(0, unknownCount)
+            .Select(i => ModifierWithStat(
+                $"mod.prefix.hale.unknown.{i}",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                $"unknown_stat_{i}",
+                SpawnWeight("ring", 1000)))
+            .ToArray();
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"]))],
+            new[]
+            {
+                ModifierWithStat(
+                    "mod.prefix.hale.one",
+                    "Hale",
+                    ModifierGenerationType.Prefix,
+                    "item",
+                    "life_stat",
+                    SpawnWeight("ring", 1000)),
+                ModifierWithStat(
+                    "mod.prefix.hale.two",
+                    "Hale",
+                    ModifierGenerationType.Prefix,
+                    "item",
+                    "life_stat",
+                    SpawnWeight("ring", 1000)),
+            }.Concat(unknownModifiers).ToArray());
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 1) - Life }
++1 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Contains(result.Candidates, candidate => candidate.Id == "mod.prefix.hale.one");
+        Assert.Contains(result.Candidates, candidate => candidate.Id == "mod.prefix.hale.two");
         Assert.Equal(
             ModifierCandidateResolutionDiagnosticCodes.ModifierTextAmbiguous,
             Assert.Single(result.Diagnostics).Code);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void Resolve_UnknownOnlyTextCandidatesDoNotGuessWhenMultipleRemain(int unknownCount)
+    {
+        var unknownModifiers = Enumerable.Range(0, unknownCount)
+            .Select(i => ModifierWithStat(
+                $"mod.prefix.hale.unknown.{i}",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                $"unknown_stat_{i}",
+                SpawnWeight("ring", 1000)))
+            .ToArray();
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [],
+            unknownModifiers);
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 9) - Life }
++999 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.gold-ring")));
+
+        if (unknownCount == 1)
+        {
+            // Preserve existing single-retained-unknown Exact (NotEvaluated) behavior —
+            // this stage only prevents Unknown from outvoting a definitive Match.
+            Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+            Assert.Equal(
+                ModifierCandidateResolutionDiagnosticCodes.ModifierTextNotEvaluated,
+                Assert.Single(result.Diagnostics).Code);
+            return;
+        }
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Unknown, result.Status);
+        Assert.Equal(unknownCount, result.Candidates.Count);
+        Assert.All(result.TextSignatureMatches ?? [], match =>
+            Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, match.Outcome));
+    }
+
+    [Fact]
+    public void Resolve_UniqueTextMatchIgnoresIneligibleSameTextCandidates()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"]))],
+            ModifierWithStat(
+                "mod.prefix.hale.ring",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                "life_stat",
+                SpawnWeight("ring", 1000)),
+            ModifierWithStat(
+                "mod.prefix.hale.boots-only",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                "life_stat",
+                SpawnWeight("boots", 1000),
+                SpawnWeight("default", 0)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 9) - Life }
++999 to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.ring", Assert.Single(result.Candidates).Id);
+        Assert.Contains(result.ExcludedCandidates ?? [], candidate =>
+            candidate.Id == "mod.prefix.hale.boots-only");
+    }
+
+    [Fact]
+    public void Resolve_CorruptedPresenceUniqueMatchWinsOverUnknownUnevaluableCandidates()
+    {
+        var expected = ModifierWithStat(
+            "mod.corrupted.resolute",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            "resolute_technique",
+            SpawnWeight("sword", 1000),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef("resolute_technique", 1m, 1m)],
+        };
+        var unknown = ModifierWithStat(
+            "mod.corrupted.unknown-phys",
+            string.Empty,
+            ModifierGenerationType.Corrupted,
+            "item",
+            "missing_phys_stat",
+            SpawnWeight("sword", 1000),
+            SpawnWeight("default", 0)) with
+        {
+            SourceGenerationType = "corrupted",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats = [StatRef("missing_phys_stat", 10m, 15m)],
+        };
+        var disabled = expected with
+        {
+            Id = "mod.corrupted.resolute-disabled",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+            SpawnWeights =
+            [
+                SpawnWeight("sword", 0),
+                SpawnWeight("default", 0),
+            ],
+        };
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.vaal-blade", "Vaal Blade", "One Hand Swords", "item", ["sword", "default"])],
+            [Translation(
+                ["resolute_technique"],
+                Variant(["Resolute Technique"], ["ignore"]))],
+            expected,
+            unknown,
+            disabled);
+        var item = parser.Parse("""
+Item Class: One Hand Swords
+Rarity: Unique
+Dreamfeather
+Vaal Blade
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Corrupted }
+Resolute Technique
+Corrupted
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog, ExactBase(catalog, "base.vaal-blade")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.resolute", Assert.Single(result.Candidates).Id);
+        Assert.DoesNotContain(result.Candidates, candidate => candidate.Id == disabled.Id);
+        Assert.Contains(result.ExcludedCandidates ?? [], candidate =>
+            candidate.Id == "mod.corrupted.unknown-phys");
+    }
+
 
     [Fact]
     public void Resolve_AdvancedRangeAndExactTextSelectMatchingCandidateOverUnevaluableText()

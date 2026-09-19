@@ -1036,15 +1036,21 @@ public sealed partial class ParsedItemModifierCandidateResolver
             .Where(evaluation => evaluation.Result.Outcome == ModifierTextSignatureMatchOutcome.Match)
             .ToArray();
         var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
+        // Unique definitive text Match is positive evidence. Unknown outcomes are uncertainty,
+        // not competing Matches — they must not make a unique Match ambiguous. When Advanced
+        // Item Description source ranges are present, still require value compatibility.
         if (exactTextEvaluations.Length == 1 &&
-            advancedRanges.Count > 0 &&
-            CandidateAdvancedValuesMatch(
-                exactTextEvaluations[0].Candidate,
-                catalog,
-                modifier.ValueLines,
-                advancedRanges))
+            (advancedRanges.Count == 0 ||
+                CandidateAdvancedValuesMatch(
+                    exactTextEvaluations[0].Candidate,
+                    catalog,
+                    modifier.ValueLines,
+                    advancedRanges)))
         {
             var selectedCandidate = exactTextEvaluations[0].Candidate;
+            var reason = advancedRanges.Count > 0
+                ? "One candidate matched both the authentic Advanced Item Description source roll ranges and stat-text signature; unevaluable text candidates were excluded."
+                : "Exactly one candidate had a definitive stat-text signature Match; unevaluable text candidates were not treated as competing positive evidence.";
             return MatchedByStructuralEvidence(
                 index,
                 modifier,
@@ -1060,7 +1066,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 finalCandidates.Count,
                 textExcludedCandidates.Length,
                 textResults,
-                "One candidate matched both the authentic Advanced Item Description source roll ranges and stat-text signature; unevaluable text candidates were excluded.",
+                reason,
                 exactTextEvaluations[0].Result.TranslationRecognition);
         }
 
