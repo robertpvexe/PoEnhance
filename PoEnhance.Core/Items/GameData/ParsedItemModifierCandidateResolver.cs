@@ -738,6 +738,14 @@ public sealed partial class ParsedItemModifierCandidateResolver
         ModifierDefinition candidate,
         GameDataCatalog catalog)
     {
+        var nonEmptyLines = modifier.ValueLines
+            .Count(line => !string.IsNullOrWhiteSpace(line));
+        if (nonEmptyLines > 1 &&
+            SpecialImplicitMultiLineValueAligner.TryMatch(modifier, candidate, catalog))
+        {
+            return true;
+        }
+
         var advancedRanges = ExtractAdvancedStatRanges(modifier.ValueLines);
         if (advancedRanges.Count > 0)
         {
@@ -1039,8 +1047,13 @@ public sealed partial class ParsedItemModifierCandidateResolver
         // Unique definitive text Match is positive evidence. Unknown outcomes are uncertainty,
         // not competing Matches — they must not make a unique Match ambiguous. When Advanced
         // Item Description source ranges are present, still require value compatibility.
+        // Multi-line AID evidence uses component alignment when one source ModId renders as N lines.
         if (exactTextEvaluations.Length == 1 &&
-            (advancedRanges.Count == 0 ||
+            (SpecialImplicitMultiLineValueAligner.TryMatch(
+                    modifier,
+                    exactTextEvaluations[0].Candidate,
+                    catalog) ||
+                advancedRanges.Count == 0 ||
                 CandidateAdvancedValuesMatch(
                     exactTextEvaluations[0].Candidate,
                     catalog,
@@ -1330,17 +1343,23 @@ public sealed partial class ParsedItemModifierCandidateResolver
         selectedCandidate = default!;
         excludedCandidates = [];
         var ranges = ExtractAdvancedStatRanges(modifier.ValueLines);
-        if (ranges.Count == 0)
+        var nonEmptyLines = modifier.ValueLines
+            .Count(line => !string.IsNullOrWhiteSpace(line));
+        if (ranges.Count == 0 && nonEmptyLines < 2)
         {
             return false;
         }
 
         var retained = candidates
-            .Where(candidate => CandidateAdvancedValuesMatch(
-                candidate,
-                catalog,
-                modifier.ValueLines,
-                ranges))
+            .Where(candidate =>
+                (nonEmptyLines > 1 &&
+                    SpecialImplicitMultiLineValueAligner.TryMatch(modifier, candidate, catalog)) ||
+                (ranges.Count > 0 &&
+                    CandidateAdvancedValuesMatch(
+                        candidate,
+                        catalog,
+                        modifier.ValueLines,
+                        ranges)))
             .ToArray();
         if (retained.Length != 1)
         {

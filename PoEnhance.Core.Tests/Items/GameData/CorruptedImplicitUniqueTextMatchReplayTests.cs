@@ -91,7 +91,7 @@ public sealed class CorruptedImplicitUniqueTextMatchReplayTests
     }
 
     [Fact]
-    public async Task Resolve_A522SoulBleedMultiline_RemainsNonExactUntilA527()
+    public async Task Resolve_A527SoulBleedMultiline_BecomesExactWithPerComponentStatSubsets()
     {
         var catalog = await LoadActiveCatalogAsync();
         var raw = await ReadCaptureClipboardAsync("20260919-194458-274-Soul Taker.json");
@@ -99,7 +99,48 @@ public sealed class CorruptedImplicitUniqueTextMatchReplayTests
 
         var result = FindCorruptedLine(resolver.Resolve(parsed, catalog), "Bleeding on Hit");
 
-        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, result.ParsedModifier.ImplicitOrigin);
+        Assert.Equal(2, result.ParsedModifier.ValueLines.Count);
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(
+            "V2ChanceToBleedOnHitAndIncreasedDamageToBleedingTargetsCorrupted_",
+            candidate.Id);
+        Assert.Equal(
+            [
+                "local_chance_to_bleed_on_hit_%",
+                "attack_damage_vs_bleeding_enemies_+%",
+            ],
+            candidate.Stats.OrderBy(stat => stat.Index).Select(stat => stat.StatId!).ToArray());
+
+        Assert.True(
+            SpecialImplicitMultiLineValueAligner.TryAlignStatSubsets(
+                result.ParsedModifier,
+                candidate,
+                catalog,
+                out var lineStatSubsets));
+        Assert.Equal(2, lineStatSubsets.Count);
+
+        var bleedLineIndex = result.ParsedModifier.ValueLines
+            .Select((line, index) => (line, index))
+            .Single(pair => pair.line.Contains("Bleeding on Hit", StringComparison.OrdinalIgnoreCase))
+            .index;
+        var damageLineIndex = result.ParsedModifier.ValueLines
+            .Select((line, index) => (line, index))
+            .Single(pair => pair.line.Contains("Attack Damage against Bleeding", StringComparison.OrdinalIgnoreCase))
+            .index;
+
+        Assert.Equal(
+            ["local_chance_to_bleed_on_hit_%"],
+            lineStatSubsets[bleedLineIndex].Select(stat => stat.StatId!).ToArray());
+        Assert.Equal(20m, lineStatSubsets[bleedLineIndex][0].MinValue);
+        Assert.Equal(20m, lineStatSubsets[bleedLineIndex][0].MaxValue);
+
+        Assert.Equal(
+            ["attack_damage_vs_bleeding_enemies_+%"],
+            lineStatSubsets[damageLineIndex].Select(stat => stat.StatId!).ToArray());
+        Assert.Equal(30m, lineStatSubsets[damageLineIndex][0].MinValue);
+        Assert.Equal(40m, lineStatSubsets[damageLineIndex][0].MaxValue);
     }
 
     private static ModifierCandidateResolutionResult FindCorruptedLine(
