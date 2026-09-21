@@ -206,6 +206,8 @@ public sealed class RePoeModifierImporterTests
     [InlineData("eater_implicit", ModifierGenerationType.Implicit)]
     [InlineData("eater_of_worlds_implicit", ModifierGenerationType.Implicit)]
     [InlineData("fractured", ModifierGenerationType.Unknown)]
+    [InlineData("blight_tower", ModifierGenerationType.Unknown)]
+    [InlineData("flask_enchantment_instilling", ModifierGenerationType.Unknown)]
     public void Import_NonCorruptedGenerationMappings_RemainUnchanged(
         string sourceGenerationType,
         ModifierGenerationType expectedGenerationType)

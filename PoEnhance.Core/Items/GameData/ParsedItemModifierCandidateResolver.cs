@@ -1701,7 +1701,11 @@ public sealed partial class ParsedItemModifierCandidateResolver
         (candidate.GenerationType == ModifierGenerationType.Enchantment ||
             candidate.SourceGenerationType?.Contains(
                 "enchant",
-                StringComparison.OrdinalIgnoreCase) == true);
+                StringComparison.OrdinalIgnoreCase) == true ||
+            IsBlightTowerEnchantSourceGeneration(candidate.SourceGenerationType));
+
+    private static bool IsBlightTowerEnchantSourceGeneration(string? sourceGenerationType) =>
+        string.Equals(sourceGenerationType, "blight_tower", StringComparison.Ordinal);
 
     private static bool TryMapGenerationType(
         ParsedModifier modifier,
