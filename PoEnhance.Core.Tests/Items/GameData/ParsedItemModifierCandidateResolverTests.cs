@@ -1843,6 +1843,376 @@ Attacks have 21(15-25)% chance to Maim on Hit
     }
 
     [Fact]
+    public void Resolve_NamedAdvancedRange_ExactWhenTextIsMatch()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"]))],
+            ModifierWithStats(
+                "mod.prefix.hale.life",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("life_stat", 40m, 50m)],
+                SpawnWeight("ring", 1000)),
+            ModifierWithStats(
+                "mod.prefix.hale.other",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("life_stat", 10m, 20m)],
+                SpawnWeight("ring", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++45(40-50) to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.life", Assert.Single(result.Candidates).Id);
+        Assert.True(result.NameCandidateCount > 0);
+        Assert.Equal(
+            ModifierTextSignatureMatchOutcome.Match,
+            Assert.Single(result.TextSignatureMatches!).Outcome);
+        Assert.Equal(
+            ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactMatch,
+            Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Resolve_NamedAdvancedRange_ExactWhenTextIsNotEvaluated()
+    {
+        var catalog = CreateCatalog(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            ModifierWithStats(
+                "mod.suffix.haunting.proven",
+                "of Haunting",
+                ModifierGenerationType.Suffix,
+                "item",
+                [StatRef("test_stat", 15m, 25m)],
+                SpawnWeight("ring", 1000)),
+            ModifierWithStats(
+                "mod.suffix.haunting.other",
+                "of Haunting",
+                ModifierGenerationType.Suffix,
+                "item",
+                [StatRef("test_stat", 40m, 50m)],
+                SpawnWeight("ring", 1000)));
+        var item = ParseWithModifier("""
+{ Suffix Modifier "of Haunting" - Attack }
+Attacks have 21(15-25)% chance to Maim on Hit
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.suffix.haunting.proven", Assert.Single(result.Candidates).Id);
+        Assert.True(result.NameCandidateCount > 0);
+        var text = Assert.Single(result.TextSignatureMatches!);
+        Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, text.Outcome);
+        Assert.False(text.Evaluated);
+        Assert.Equal(
+            ModifierTextSignatureMatchReasonCodes.TranslationMissing,
+            text.ReasonCode);
+    }
+
+    [Fact]
+    public void Resolve_NamedAdvancedRange_ExactWhenTextIsTranslationMissingAndRangeProvesOne()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [],
+            ModifierWithStats(
+                "mod.prefix.hale.proven",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("missing_life_stat", 40m, 50m)],
+                SpawnWeight("ring", 1000)),
+            ModifierWithStats(
+                "mod.prefix.hale.peer",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("missing_other_stat", 10m, 20m)],
+                SpawnWeight("ring", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Life }
++45(40-50) to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.proven", Assert.Single(result.Candidates).Id);
+        Assert.True(result.NameCandidateCount > 0);
+        Assert.All(
+            result.TextSignatureMatches!,
+            match =>
+            {
+                Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, match.Outcome);
+                Assert.Equal(
+                    ModifierTextSignatureMatchReasonCodes.TranslationMissing,
+                    match.ReasonCode);
+            });
+    }
+
+    [Fact]
+    public void Resolve_NamedAdvancedRange_ExactWhenTextIsNoMatchButRangeProvesOne()
+    {
+        // Named AID range proof remains authoritative when display text NoMatch (e.g. mirrored
+        // sign transforms). Unnamed paths still require definitive Match.
+        var catalog = CreateCatalogWithTranslations(
+            [Base("base.gold-ring", "Gold Ring", "Ring", "item", ["default", "ring"])],
+            [
+                Translation(["life_stat"], Variant(["{0} to maximum Life"], ["+#"])),
+                Translation(["damage_stat"], Variant(["{0}% increased Damage"], ["#"])),
+            ],
+            ModifierWithStats(
+                "mod.prefix.hale.life",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("life_stat", 40m, 50m)],
+                SpawnWeight("ring", 1000)),
+            ModifierWithStats(
+                "mod.prefix.hale.damage",
+                "Hale",
+                ModifierGenerationType.Prefix,
+                "item",
+                [StatRef("damage_stat", 10m, 20m)],
+                SpawnWeight("ring", 1000)));
+        var item = ParseWithModifier("""
+{ Prefix Modifier "Hale" (Tier: 5) - Attack }
+45(40-50)% increased Accuracy Rating
+""");
+
+        var result = Assert.Single(resolver.Resolve(
+            item,
+            catalog,
+            ExactBase(catalog, "base.gold-ring")));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.prefix.hale.life", Assert.Single(result.Candidates).Id);
+        Assert.True(result.NameCandidateCount > 0);
+        Assert.Equal(
+            ModifierTextSignatureMatchOutcome.NoMatch,
+            Assert.Single(result.TextSignatureMatches!).Outcome);
+    }
+
+    [Fact]
+    public void Resolve_UnnamedAdvancedRange_ExactWhenTextIsMatch()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [Translation(["maximum_life"], Variant(["+{0} to maximum Life"], ["#"]))],
+            ModifierWithStats(
+                "mod.corrupted.life.proven",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("maximum_life", 8m, 12m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            },
+            ModifierWithStats(
+                "mod.corrupted.life.peer",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("maximum_life", 20m, 30m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            });
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
++10(8-12) to maximum Life
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal("mod.corrupted.life.proven", Assert.Single(result.Candidates).Id);
+        Assert.Equal(0, result.NameCandidateCount);
+        Assert.Equal(
+            ModifierTextSignatureMatchOutcome.Match,
+            Assert.Single(result.TextSignatureMatches!).Outcome);
+    }
+
+    [Fact]
+    public void Resolve_UnnamedAdvancedRange_DoesNotExactFromTranslationMissingAlone()
+    {
+        // Two unnamed same-bound TranslationMissing peers: numeric AdvancedRange alone must
+        // not Exact either candidate (Mjölner-class fail-closed without containing Match).
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [],
+            ModifierWithStats(
+                "mod.corrupted.same-bound.a",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("missing_onslaught_stat", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            },
+            ModifierWithStats(
+                "mod.corrupted.same-bound.b",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("missing_phys_stat", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            });
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
+13(10-15)% chance to gain Onslaught for 4 seconds on Kill
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(0, result.NameCandidateCount);
+        Assert.True(result.Candidates.Count >= 2);
+        Assert.All(
+            result.TextSignatureMatches!,
+            match =>
+            {
+                Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, match.Outcome);
+                Assert.Equal(
+                    ModifierTextSignatureMatchReasonCodes.TranslationMissing,
+                    match.ReasonCode);
+            });
+    }
+
+    [Fact]
+    public void Resolve_UnnamedAdvancedRange_DoesNotExactFromUnknownAlone()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [
+                Translation(
+                    ["render_fail_stat_a"],
+                    Variant(
+                        ["{0}% chance (unsupported)"],
+                        ["#"],
+                        [["unsupported_projection_handler"]])),
+                Translation(
+                    ["render_fail_stat_b"],
+                    Variant(
+                        ["{0}% chance (unsupported)"],
+                        ["#"],
+                        [["unsupported_projection_handler"]])),
+            ],
+            ModifierWithStats(
+                "mod.corrupted.render-fail.a",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("render_fail_stat_a", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            },
+            ModifierWithStats(
+                "mod.corrupted.render-fail.b",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("render_fail_stat_b", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            });
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
+13(10-15)% chance (unsupported)
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(0, result.NameCandidateCount);
+        Assert.True(result.Candidates.Count >= 2);
+        Assert.DoesNotContain(
+            result.TextSignatureMatches!,
+            match => match.Outcome == ModifierTextSignatureMatchOutcome.Match);
+        Assert.All(
+            result.TextSignatureMatches!,
+            match => Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, match.Outcome));
+    }
+
+    [Fact]
+    public void Resolve_UnnamedAdvancedRange_SameBoundTranslationMissingCollisionRemainsFailClosed()
+    {
+        var catalog = CreateCatalogWithTranslations(
+            [],
+            [],
+            ModifierWithStats(
+                "mod.corrupted.collision.a",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("missing_onslaught_stat", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            },
+            ModifierWithStats(
+                "mod.corrupted.collision.b",
+                string.Empty,
+                ModifierGenerationType.Corrupted,
+                "item",
+                [StatRef("missing_phys_stat", 10m, 15m)],
+                SpawnWeight("default", 1000)) with
+            {
+                SourceGenerationType = "corrupted",
+                SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            });
+        var item = ParseWithModifier("""
+{ Implicit Modifier — Corrupted }
+13(10-15)% chance to gain Onslaught for 4 seconds on Kill
+""");
+
+        var result = Assert.Single(resolver.Resolve(item, catalog));
+
+        Assert.NotEqual(ModifierCandidateResolutionStatus.Exact, result.Status);
+        Assert.Equal(0, result.NameCandidateCount);
+        Assert.True(result.Candidates.Count >= 2);
+        Assert.All(
+            result.TextSignatureMatches!,
+            match =>
+            {
+                Assert.Equal(ModifierTextSignatureMatchOutcome.Unknown, match.Outcome);
+                Assert.Equal(
+                    ModifierTextSignatureMatchReasonCodes.TranslationMissing,
+                    match.ReasonCode);
+            });
+    }
+
+    [Fact]
     public void Resolve_UnknownBasePreservesNameAndKindCandidates()
     {
         var catalog = CreateCatalog(

@@ -57,6 +57,16 @@ public sealed partial class ModifierTextSignatureMatcher
         var candidateBuild = TryCreateCandidateSignature(candidate, catalog);
         if (!candidateBuild.IsSuccess)
         {
+            if (candidateBuild.ReasonCode == ModifierTextSignatureMatchReasonCodes.TranslationMissing)
+            {
+                return MatchUsingContainingTranslations(
+                    candidate,
+                    catalog,
+                    parsedSignatureResult,
+                    parsedSignature,
+                    parsedSignatures);
+            }
+
             return Unknown(
                 evaluated: false,
                 candidateBuild.ReasonCode,
@@ -124,6 +134,317 @@ public sealed partial class ModifierTextSignatureMatcher
             "The current and eligible exact historical translation signatures differ from the parsed effect text signature.",
             candidateBuild.Signatures,
             parsedSignatures);
+    }
+
+    private static ModifierTextSignatureMatchResult MatchUsingContainingTranslations(
+        ModifierDefinition candidate,
+        GameDataCatalog catalog,
+        ModifierTextSignatureNormalizationResult parsedSignatureResult,
+        ModifierTextSignature parsedSignature,
+        IReadOnlyList<ModifierTextSignature> parsedSignatures)
+    {
+        var typedStats = candidate.Stats
+            .Where(stat => !string.IsNullOrWhiteSpace(stat.StatId))
+            .OrderBy(stat => stat.Index)
+            .ToArray();
+        if (typedStats.Length == 0)
+        {
+            return Unknown(
+                evaluated: false,
+                ModifierTextSignatureMatchReasonCodes.ModifierStatsMissing,
+                "The candidate modifier has no stat ids to translate.",
+                candidateSignatures: [],
+                parsedSignatures);
+        }
+
+        if (parsedSignatureResult.HasUnsupportedExplanatoryLine)
+        {
+            return Unknown(
+                evaluated: false,
+                ModifierTextSignatureMatchReasonCodes.ParsedSignatureUnsupported,
+                "The parsed modifier contains an unsupported parenthesized explanatory line.",
+                candidateSignatures: [],
+                parsedSignatures);
+        }
+
+        var matchingBuilds = new List<ModifierTextSignature>();
+        var renderedBuilds = new List<ModifierTextSignature>();
+        foreach (var translation in FindContainingTranslations(typedStats, catalog))
+        {
+            if (!TryExpandCandidateStatsWithFixedSecondaries(
+                    typedStats,
+                    translation,
+                    out var expandedStats))
+            {
+                continue;
+            }
+
+            var build = TryCreateGroupSignature(translation, expandedStats);
+            if (!build.IsSuccess)
+            {
+                continue;
+            }
+
+            var signature = build.Signatures[0];
+            renderedBuilds.Add(signature);
+            if (SignaturesEqual(signature, parsedSignature))
+            {
+                matchingBuilds.Add(signature);
+            }
+        }
+
+        if (matchingBuilds.Count == 1)
+        {
+            var candidateSignature = matchingBuilds[0];
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: true,
+                ModifierTextSignatureMatchOutcome.Match,
+                ModifierTextSignatureMatchReasonCodes.Match,
+                "A containing translation group with fixed secondary stats rendered a definitive text signature Match.",
+                ToReadOnly([candidateSignature]),
+                parsedSignatures)
+            {
+                TranslationRecognition = CurrentRecognition(candidate, catalog, candidateSignature),
+            };
+        }
+
+        if (matchingBuilds.Count > 1)
+        {
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: false,
+                ModifierTextSignatureMatchOutcome.Unknown,
+                ModifierTextSignatureMatchReasonCodes.ContainingTranslationAmbiguous,
+                "Multiple containing translation groups rendered definitive Matches; compatibility failed closed.",
+                ToReadOnly(matchingBuilds.Distinct(SignatureComparer.Instance)),
+                parsedSignatures);
+        }
+
+        if (renderedBuilds.Count > 0)
+        {
+            return new ModifierTextSignatureMatchResult(
+                Evaluated: true,
+                ModifierTextSignatureMatchOutcome.NoMatch,
+                ModifierTextSignatureMatchReasonCodes.NoMatch,
+                "Containing translation groups rendered, but none matched the parsed effect text signature.",
+                ToReadOnly(renderedBuilds.Distinct(SignatureComparer.Instance)),
+                parsedSignatures);
+        }
+
+        return Unknown(
+            evaluated: false,
+            ModifierTextSignatureMatchReasonCodes.TranslationMissing,
+            "No stat translation record matched the candidate modifier stat ids.",
+            candidateSignatures: [],
+            parsedSignatures);
+    }
+
+    private static IReadOnlyList<StatTranslationDefinition> FindContainingTranslations(
+        IReadOnlyList<ModifierStat> typedStats,
+        GameDataCatalog catalog)
+    {
+        var candidateIds = typedStats.Select(stat => stat.StatId!.Trim()).ToArray();
+        return catalog.FindStatTranslationsByStatId(candidateIds[0])
+            .Where(translation =>
+                translation.StatIds.Count > candidateIds.Length &&
+                IsOrderedStatIdSubset(candidateIds, translation.StatIds))
+            .DistinctBy(
+                translation => VectorKey(translation.StatIds),
+                StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool IsOrderedStatIdSubset(
+        IReadOnlyList<string> candidateIds,
+        IReadOnlyList<string> translationIds)
+    {
+        var translationIndex = 0;
+        foreach (var candidateId in candidateIds)
+        {
+            while (translationIndex < translationIds.Count &&
+                   !string.Equals(
+                       translationIds[translationIndex],
+                       candidateId,
+                       StringComparison.OrdinalIgnoreCase))
+            {
+                translationIndex++;
+            }
+
+            if (translationIndex >= translationIds.Count)
+            {
+                return false;
+            }
+
+            translationIndex++;
+        }
+
+        return true;
+    }
+
+    private static bool TryExpandCandidateStatsWithFixedSecondaries(
+        IReadOnlyList<ModifierStat> typedStats,
+        StatTranslationDefinition translation,
+        out ModifierStat[] expandedStats)
+    {
+        expandedStats = [];
+        var ownedByTranslationIndex = new Dictionary<int, ModifierStat>();
+        var candidateIndex = 0;
+        for (var translationIndex = 0; translationIndex < translation.StatIds.Count; translationIndex++)
+        {
+            if (candidateIndex < typedStats.Count &&
+                string.Equals(
+                    translation.StatIds[translationIndex],
+                    typedStats[candidateIndex].StatId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                ownedByTranslationIndex[translationIndex] = typedStats[candidateIndex];
+                candidateIndex++;
+            }
+        }
+
+        if (candidateIndex != typedStats.Count)
+        {
+            return false;
+        }
+
+        var expanded = new ModifierStat[translation.StatIds.Count];
+        for (var translationIndex = 0; translationIndex < translation.StatIds.Count; translationIndex++)
+        {
+            if (ownedByTranslationIndex.TryGetValue(translationIndex, out var owned))
+            {
+                expanded[translationIndex] = owned with { Index = translationIndex };
+                continue;
+            }
+
+            if (!TryResolveFixedSecondaryValue(
+                    translation,
+                    translationIndex,
+                    ownedByTranslationIndex,
+                    out var fixedValue))
+            {
+                return false;
+            }
+
+            expanded[translationIndex] = new ModifierStat
+            {
+                Index = translationIndex,
+                StatId = translation.StatIds[translationIndex],
+                MinValue = fixedValue,
+                MaxValue = fixedValue,
+            };
+        }
+
+        expandedStats = expanded;
+        return true;
+    }
+
+    private static bool TryResolveFixedSecondaryValue(
+        StatTranslationDefinition translation,
+        int secondaryIndex,
+        IReadOnlyDictionary<int, ModifierStat> ownedByTranslationIndex,
+        out decimal fixedValue)
+    {
+        fixedValue = default;
+        var fixedValues = new HashSet<decimal>();
+        foreach (var variant in translation.Variants)
+        {
+            if (!OwnedStatsMatchVariantConditions(variant, ownedByTranslationIndex))
+            {
+                continue;
+            }
+
+            if (variant.ValueFormats.Count <= secondaryIndex ||
+                variant.Conditions.Count != translation.StatIds.Count)
+            {
+                continue;
+            }
+
+            var format = variant.ValueFormats[secondaryIndex].Trim();
+            var condition = variant.Conditions.SingleOrDefault(entry => entry.Index == secondaryIndex);
+            if (condition is null || condition.IsNegated)
+            {
+                continue;
+            }
+
+            if (format is not ("#" or "+#" or "ignore"))
+            {
+                continue;
+            }
+
+            if (!condition.MinValue.HasValue ||
+                !condition.MaxValue.HasValue ||
+                condition.MinValue.Value != condition.MaxValue.Value)
+            {
+                // Owned-matching variant still needs this secondary, but it is not discrete.
+                continue;
+            }
+
+            fixedValues.Add(condition.MinValue.Value);
+        }
+
+        if (fixedValues.Count != 1)
+        {
+            return false;
+        }
+
+        fixedValue = fixedValues.First();
+        return true;
+    }
+
+    private static bool OwnedStatsMatchVariantConditions(
+        StatTranslationVariant variant,
+        IReadOnlyDictionary<int, ModifierStat> ownedByTranslationIndex)
+    {
+        if (variant.Conditions.Any(condition => condition.IsNegated))
+        {
+            return false;
+        }
+
+        if (variant.Conditions
+            .Select(condition => condition.Index)
+            .Distinct()
+            .Count() != variant.Conditions.Count)
+        {
+            return false;
+        }
+
+        var conditionsByIndex = variant.Conditions.ToDictionary(condition => condition.Index);
+        foreach (var (translationIndex, stat) in ownedByTranslationIndex)
+        {
+            if (!conditionsByIndex.TryGetValue(translationIndex, out var condition))
+            {
+                return false;
+            }
+
+            if (!stat.MinValue.HasValue || !stat.MaxValue.HasValue)
+            {
+                if (condition.MinValue.HasValue || condition.MaxValue.HasValue)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            var min = stat.MinValue.Value;
+            var max = stat.MaxValue.Value;
+            if (condition.MinValue.HasValue && max < condition.MinValue.Value)
+            {
+                return false;
+            }
+
+            if (condition.MaxValue.HasValue && min > condition.MaxValue.Value)
+            {
+                return false;
+            }
+
+            if (condition.MinValue.HasValue && min < condition.MinValue.Value ||
+                condition.MaxValue.HasValue && max > condition.MaxValue.Value)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static StatTranslationRecognitionEvidence CurrentRecognition(

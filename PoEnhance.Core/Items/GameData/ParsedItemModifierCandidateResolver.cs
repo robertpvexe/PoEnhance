@@ -986,20 +986,29 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 out var rangeSelectedCandidate,
                 out var rangeExcludedCandidates))
         {
-            return MatchedByStructuralEvidence(
-                index,
+            var rangeTextResult = ApplyHistoricalOriginRules(
                 modifier,
-                catalog,
-                generationType,
-                rangeSelectedCandidate,
-                nameCandidateCount,
-                generationKindCandidateCount,
-                eligibleCandidates.Count,
-                eligibilityExcludedCandidates.Concat(rangeExcludedCandidates).ToArray(),
-                textSignatureCandidateCount: eligibleCandidates.Count,
-                excludedByTextCandidateCount: 0,
-                textResults: [],
-                "Exactly one eligible candidate matched the authentic affix name, generation type, and Advanced Item Description source roll ranges.");
+                textSignatureMatcher.Match(rangeSelectedCandidate, catalog, modifier.ValueLines));
+            if (AdvancedRangeExactAllowed(nameCandidateCount, rangeTextResult))
+            {
+                var rangeReason = rangeTextResult.Outcome == ModifierTextSignatureMatchOutcome.Match
+                    ? "Exactly one eligible candidate matched the authentic Advanced Item Description source roll ranges and a definitive stat-text signature."
+                    : "Exactly one eligible named-affix candidate matched the authentic affix name, generation type, and Advanced Item Description source roll ranges.";
+                return MatchedByStructuralEvidence(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    rangeSelectedCandidate,
+                    nameCandidateCount,
+                    generationKindCandidateCount,
+                    eligibleCandidates.Count,
+                    eligibilityExcludedCandidates.Concat(rangeExcludedCandidates).ToArray(),
+                    textSignatureCandidateCount: eligibleCandidates.Count,
+                    excludedByTextCandidateCount: 0,
+                    textResults: [rangeTextResult],
+                    rangeReason);
+            }
         }
 
         var textEvaluations = eligibleCandidates
@@ -1123,20 +1132,29 @@ public sealed partial class ParsedItemModifierCandidateResolver
                 out var textRangeSelectedCandidate,
                 out var textRangeExcludedCandidates))
         {
-            return MatchedByStructuralEvidence(
-                index,
-                modifier,
-                catalog,
-                generationType,
-                textRangeSelectedCandidate,
-                nameCandidateCount,
-                generationKindCandidateCount,
-                eligibleCandidates.Count,
-                allExcludedCandidates.Concat(textRangeExcludedCandidates).ToArray(),
-                finalCandidates.Count,
-                textExcludedCandidates.Length,
-                textResults,
-                "Exactly one candidate remained after Advanced Item Description stat-range matching.");
+            var textRangeResult = retainedEvaluations
+                .First(evaluation => ReferenceEquals(evaluation.Candidate, textRangeSelectedCandidate))
+                .Result;
+            if (AdvancedRangeExactAllowed(nameCandidateCount, textRangeResult))
+            {
+                var lateRangeReason = textRangeResult.Outcome == ModifierTextSignatureMatchOutcome.Match
+                    ? "Exactly one candidate remained after Advanced Item Description stat-range matching with a definitive stat-text signature."
+                    : "Exactly one named-affix candidate remained after Advanced Item Description stat-range matching.";
+                return MatchedByStructuralEvidence(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    textRangeSelectedCandidate,
+                    nameCandidateCount,
+                    generationKindCandidateCount,
+                    eligibleCandidates.Count,
+                    allExcludedCandidates.Concat(textRangeExcludedCandidates).ToArray(),
+                    finalCandidates.Count,
+                    textExcludedCandidates.Length,
+                    textResults,
+                    lateRangeReason);
+            }
         }
 
         if (TrySelectOneByDisplayedTier(
@@ -1372,6 +1390,24 @@ public sealed partial class ParsedItemModifierCandidateResolver
             .Where(candidate => !ReferenceEquals(candidate, selected))
             .ToArray();
         return true;
+    }
+
+    /// <summary>
+    /// Named-affix AdvancedRange Exact may proceed from unique AID range proof regardless of
+    /// text outcome (including display NoMatch from mirrored/transformed values). Unnamed /
+    /// special-implicit paths (<c>nameCandidateCount == 0</c>) require a definitive text Match
+    /// so numeric range alone cannot Exact TranslationMissing/Unknown collisions.
+    /// </summary>
+    private static bool AdvancedRangeExactAllowed(
+        int nameCandidateCount,
+        ModifierTextSignatureMatchResult textResult)
+    {
+        if (nameCandidateCount > 0)
+        {
+            return true;
+        }
+
+        return textResult.Outcome == ModifierTextSignatureMatchOutcome.Match;
     }
 
     private static bool TrySelectOneByDisplayedTier(
