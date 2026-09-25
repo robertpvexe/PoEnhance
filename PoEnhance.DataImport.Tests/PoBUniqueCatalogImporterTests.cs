@@ -70,6 +70,192 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_BroadNormalizedSignature_UniqueGenerationExcludesPrefixAndEldritchCompetitors()
+    {
+        var unique = Modifier(
+            "FreezeProliferationUnique__1",
+            "amulet_freeze_proliferation_radius",
+            15,
+            15,
+            "unique");
+        var eldritch = Modifier(
+            "FreezeProliferationEldritchImplicit1",
+            "gloves_freeze_proliferation_radius",
+            12,
+            12,
+            "searing_exarch_implicit") with
+        {
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+        var sanctum = Modifier(
+            "SanctumSpecialFreezeProliferation",
+            "gloves_freeze_proliferation_radius",
+            16,
+            16,
+            "prefix") with
+        {
+            Domain = "sanctum_relic",
+        };
+
+        var result = ImportSingle(
+            """
+                The Halcyon
+                Jade Amulet
+                Implicits: 0
+                Freezes you inflict spread to other Enemies within 1.5 metres
+                """,
+            generated: false,
+            modifiers: [unique, eldritch, sanctum],
+            translations:
+            [
+                Translation(
+                    "amulet-freeze",
+                    "amulet_freeze_proliferation_radius",
+                    "Freezes you inflict spread to other Enemies within {0} metres",
+                    "#"),
+                Translation(
+                    "gloves-freeze",
+                    "gloves_freeze_proliferation_radius",
+                    "Freezes you inflict spread to other Enemies within {0} metres",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Jade Amulet", Domain = "item" },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["FreezeProliferationUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["amulet_freeze_proliferation_radius"], block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Import_BroadNormalizedSignature_OnslaughtUniqueExcludesPrefixAndSuffixCompetitors()
+    {
+        var unique = Modifier(
+            "OnslaugtOnKillPercentChanceUnique__1",
+            "chance_to_gain_onslaught_on_kill_for_10_seconds_%",
+            10,
+            10,
+            "unique");
+        var charm = Modifier(
+            "AnimalCharmOnslaughtOnKillChance1",
+            "chance_to_gain_onslaught_on_kill_for_4_seconds_%",
+            10,
+            15,
+            "prefix") with
+        {
+            Domain = "affliction_charm",
+        };
+        var influence = Modifier(
+            "OnslaugtOnKillWeaponInfluence1",
+            "chance_to_gain_onslaught_on_kill_for_4_seconds_%",
+            15,
+            18,
+            "suffix");
+
+        var result = ImportSingle(
+            """
+                Extractor Mentis
+                Agate Amulet
+                Implicits: 0
+                10% chance to gain Onslaught for 10 seconds on Kill
+                """,
+            generated: false,
+            modifiers: [unique, charm, influence],
+            translations:
+            [
+                Translation(
+                    "onslaught-10s",
+                    "chance_to_gain_onslaught_on_kill_for_10_seconds_%",
+                    "{0}% chance to gain Onslaught for 10 seconds on Kill",
+                    "#"),
+                Translation(
+                    "onslaught-4s",
+                    "chance_to_gain_onslaught_on_kill_for_4_seconds_%",
+                    "{0}% chance to gain Onslaught for 4 seconds on Kill",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Agate Amulet", Domain = "item" },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["OnslaugtOnKillPercentChanceUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["chance_to_gain_onslaught_on_kill_for_10_seconds_%"],
+            block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_BroadNormalizedSignature_MissingGenerationMetadata_DoesNotInventExclusion()
+    {
+        // Preferential Unique-generation filtering is authoritative only when at least one
+        // survivor proves compatible. Empty generation metadata is not proof of incompatibility.
+        var first = Modifier(
+            "missing.gen.first",
+            "shared_freeze_radius",
+            15,
+            15,
+            "prefix") with
+        {
+            SourceGenerationType = null,
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+        var second = Modifier(
+            "missing.gen.second",
+            "other_freeze_radius",
+            15,
+            15,
+            "suffix") with
+        {
+            SourceGenerationType = "   ",
+            GenerationType = ModifierGenerationType.Implicit,
+        };
+
+        var result = ImportSingle(
+            """
+                The Halcyon
+                Jade Amulet
+                Implicits: 0
+                Freezes you inflict spread to other Enemies within 1.5 metres
+                """,
+            generated: false,
+            modifiers: [first, second],
+            translations:
+            [
+                Translation(
+                    "shared-freeze",
+                    "shared_freeze_radius",
+                    "Freezes you inflict spread to other Enemies within {0} metres",
+                    "#"),
+                Translation(
+                    "other-freeze",
+                    "other_freeze_radius",
+                    "Freezes you inflict spread to other Enemies within {0} metres",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Jade Amulet", Domain = "item" },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Contains("missing.gen.first", block.MechanicalMapping.ModifierIds);
+        Assert.Contains("missing.gen.second", block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
     public void Import_MechanicallyDifferentExactUniqueSources_RemainAmbiguous()
     {
         var result = ImportSingle(

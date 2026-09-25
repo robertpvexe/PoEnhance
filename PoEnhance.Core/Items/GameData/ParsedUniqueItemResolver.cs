@@ -407,7 +407,8 @@ public sealed partial class ParsedUniqueItemResolver
             TryPreserveCurrentProofAcrossCompatibleHistoricalEncodingConflicts(
                 matchedByVersion,
                 out var currentProofMatchedBlocks,
-                out var compatibleHistoricalConflictEvidence);
+                out var compatibleHistoricalConflictEvidence,
+                out var preservedAggregationDiagnosticCode);
         var provisionalMatchedBlocks = canPreserveCurrentProofAcrossHistoricalEncodingConflicts
             ? currentProofMatchedBlocks
             : matchedBlocks;
@@ -468,6 +469,41 @@ public sealed partial class ParsedUniqueItemResolver
                 !textualOptionRangeCollision &&
                 !selectionLimitRejectsBlock &&
                 !optionSelectionLimitRejectsBlock;
+
+        // Packaged Ambiguous UNIQUE_MECHANICS_CONFLICT may still carry ModifierIds from
+        // pre-eligibility broad matching. Re-apply source-backed generation/domain filters
+        // against live GameData before remaining fail-closed.
+        if (!resolved &&
+            coversEveryLine &&
+            sourceSemanticsAreUnambiguous &&
+            candidatePoolProofIsComplete &&
+            !textualOptionRangeCollision &&
+            !selectionLimitRejectsBlock &&
+            !optionSelectionLimitRejectsBlock &&
+            TryNarrowUnresolvedMechanicsConflict(
+                resolutionMappings,
+                requiredBlockKind,
+                parsedItem,
+                catalog,
+                out var narrowedModifierIds,
+                out var narrowedStatIds))
+        {
+            resolved = true;
+            resolutionMappings =
+            [
+                new UniqueModifierMechanicalMapping
+                {
+                    Status = narrowedModifierIds.Count == 1
+                        ? UniqueModifierMechanicalMappingStatus.Exact
+                        : UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
+                    ModifierIds = narrowedModifierIds,
+                    StatIds = narrowedStatIds,
+                },
+            ];
+            effectiveStatIds = [narrowedStatIds];
+            statVectors = [string.Join('\u001f', narrowedStatIds)];
+        }
+
         var mappingDiagnosticCodes = mappings
             .Select(mapping => mapping.DiagnosticCode?.Trim())
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -483,9 +519,11 @@ public sealed partial class ParsedUniqueItemResolver
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
         var aggregationDiagnosticCode = preservedCurrentProofAcrossHistoricalEncodingConflicts
-            ? UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof
+            ? preservedAggregationDiagnosticCode
             : null;
-        var aggregationDiagnostic = aggregationDiagnosticCode is null
+        var aggregationDiagnostic = aggregationDiagnosticCode is null ||
+                effectiveStatIds.Length == 0 ||
+                effectiveStatIds[0].Count == 0
             ? null
             : FormatHistoricalEncodingCompatibilityDiagnostic(
                 resolutionBlocks,
@@ -1018,10 +1056,12 @@ public sealed partial class ParsedUniqueItemResolver
     private static bool TryPreserveCurrentProofAcrossCompatibleHistoricalEncodingConflicts(
         IReadOnlyList<VersionBlockMatches> matchedByVersion,
         out IReadOnlyList<MatchedBlock> currentProofMatches,
-        out UniqueMechanicalConflictEvidence? nonBlockingHistoricalConflictEvidence)
+        out UniqueMechanicalConflictEvidence? nonBlockingHistoricalConflictEvidence,
+        out string? aggregationDiagnosticCode)
     {
         currentProofMatches = [];
         nonBlockingHistoricalConflictEvidence = null;
+        aggregationDiagnosticCode = null;
 
         // Historical-only / explicitly Historical-compatible sets have no Current proof to preserve.
         if (matchedByVersion.Count == 0 ||
@@ -1068,6 +1108,7 @@ public sealed partial class ParsedUniqueItemResolver
         }
 
         var compatibleHistoricalConflicts = new List<UniqueMechanicalConflictEvidence>();
+        var hadNonBlockingUnresolvedMechanicsConflict = false;
         foreach (var historicalMatch in historicalMatches)
         {
             var mapping = historicalMatch.Block.MechanicalMapping;
@@ -1082,19 +1123,30 @@ public sealed partial class ParsedUniqueItemResolver
                 continue;
             }
 
-            if (!IsExactConflictMapping(mapping) ||
-                mapping.ConflictEvidence is null ||
-                !IsHistoricalEncodingConflictCompatibleWithCurrentVector(
+            if (IsExactConflictMapping(mapping) &&
+                mapping.ConflictEvidence is not null &&
+                IsHistoricalEncodingConflictCompatibleWithCurrentVector(
                     mapping.ConflictEvidence,
                     currentVector))
             {
-                return false;
+                compatibleHistoricalConflicts.Add(mapping.ConflictEvidence);
+                continue;
             }
 
-            compatibleHistoricalConflicts.Add(mapping.ConflictEvidence);
+            // Broad Historical UNIQUE_MECHANICS_CONFLICT (often empty StatIds, no structured
+            // ConflictEvidence) is discovery noise from older normalized-signature matching.
+            // It must not erase Current Exact / EquivalentSourceSet proof.
+            if (IsUnresolvedBroadMechanicsConflict(mapping))
+            {
+                hadNonBlockingUnresolvedMechanicsConflict = true;
+                continue;
+            }
+
+            return false;
         }
 
-        if (compatibleHistoricalConflicts.Count == 0)
+        if (compatibleHistoricalConflicts.Count == 0 &&
+            !hadNonBlockingUnresolvedMechanicsConflict)
         {
             return false;
         }
@@ -1109,7 +1161,147 @@ public sealed partial class ParsedUniqueItemResolver
                     DiagnosticCode = "UNIQUE_MECHANICS_EXACT_CONFLICT",
                 })
                 .ToArray());
+        aggregationDiagnosticCode = compatibleHistoricalConflicts.Count > 0
+            ? UniqueHistoricalEncodingAggregationCodes.HistoricalEncodingConflictDidNotOverrideCurrentProof
+            : UniqueHistoricalEncodingAggregationCodes.HistoricalMechanicsConflictDidNotOverrideCurrentProof;
         return true;
+    }
+
+    private static bool IsUnresolvedBroadMechanicsConflict(UniqueModifierMechanicalMapping mapping) =>
+        mapping.Status == UniqueModifierMechanicalMappingStatus.Ambiguous &&
+        string.Equals(
+            mapping.DiagnosticCode,
+            "UNIQUE_MECHANICS_CONFLICT",
+            StringComparison.Ordinal);
+
+    private static bool TryNarrowUnresolvedMechanicsConflict(
+        IReadOnlyList<UniqueModifierMechanicalMapping> mappings,
+        UniqueModifierBlockKind requiredBlockKind,
+        ParsedItem parsedItem,
+        GameDataCatalog catalog,
+        out IReadOnlyList<string> narrowedModifierIds,
+        out IReadOnlyList<string> narrowedStatIds)
+    {
+        narrowedModifierIds = [];
+        narrowedStatIds = [];
+        if (mappings.Count == 0 ||
+            !mappings.All(IsUnresolvedBroadMechanicsConflict))
+        {
+            return false;
+        }
+
+        var candidateIds = mappings
+            .SelectMany(mapping => mapping.ModifierIds)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (candidateIds.Length == 0)
+        {
+            return false;
+        }
+
+        var baseDomains = ResolveCopiedItemBaseDomains(parsedItem, catalog);
+        var eligible = new List<(string ModifierId, IReadOnlyList<string> StatIds)>();
+        foreach (var candidateId in candidateIds)
+        {
+            var modifiers = catalog.FindModifiersById(candidateId);
+            if (modifiers.Count != 1)
+            {
+                continue;
+            }
+
+            var modifier = modifiers[0];
+            if (modifier.SourceAvailability == ModifierSourceAvailability.Disabled)
+            {
+                continue;
+            }
+
+            if (!IsRuntimeSourceGenerationCompatible(
+                    requiredBlockKind,
+                    modifier.SourceGenerationType?.Trim() ?? string.Empty))
+            {
+                continue;
+            }
+
+            if (baseDomains.Count > 0 &&
+                !string.IsNullOrWhiteSpace(modifier.Domain) &&
+                !baseDomains.Contains(modifier.Domain.Trim()))
+            {
+                continue;
+            }
+
+            var statIds = modifier.Stats
+                .OrderBy(stat => stat.Index)
+                .Select(stat => stat.StatId?.Trim())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray();
+            if (statIds.Length == 0)
+            {
+                continue;
+            }
+
+            eligible.Add((modifier.Id!, statIds));
+        }
+
+        if (eligible.Count == 0)
+        {
+            return false;
+        }
+
+        var fingerprints = eligible
+            .Select(candidate => string.Join('\u001f', candidate.StatIds))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (fingerprints.Length != 1)
+        {
+            return false;
+        }
+
+        narrowedModifierIds = eligible
+            .Select(candidate => candidate.ModifierId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        narrowedStatIds = eligible[0].StatIds;
+        return narrowedModifierIds.Count > 0 && narrowedStatIds.Count > 0;
+    }
+
+    private static bool IsRuntimeSourceGenerationCompatible(
+        UniqueModifierBlockKind blockKind,
+        string sourceGeneration)
+    {
+        if (string.IsNullOrWhiteSpace(sourceGeneration))
+        {
+            return false;
+        }
+
+        return sourceGeneration.Equals("unique", StringComparison.OrdinalIgnoreCase) ||
+            (blockKind == UniqueModifierBlockKind.Implicit &&
+                sourceGeneration.Equals("implicit", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static HashSet<string> ResolveCopiedItemBaseDomains(
+        ParsedItem parsedItem,
+        GameDataCatalog catalog)
+    {
+        var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var baseName = parsedItem.BaseType?.Trim();
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            return domains;
+        }
+
+        foreach (var itemBase in catalog.FindItemBasesByExactName(baseName))
+        {
+            if (!string.IsNullOrWhiteSpace(itemBase.Domain))
+            {
+                domains.Add(itemBase.Domain.Trim());
+            }
+        }
+
+        return domains;
     }
 
     private static bool IsExactConflictMapping(UniqueModifierMechanicalMapping mapping) =>

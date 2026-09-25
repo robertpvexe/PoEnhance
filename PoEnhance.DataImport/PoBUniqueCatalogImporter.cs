@@ -1116,7 +1116,8 @@ public sealed partial class PoBUniqueCatalogImporter
             lines,
             baseType,
             hasGeneratedOptionEvidence,
-            sourceSemanticFingerprint);
+            sourceSemanticFingerprint,
+            kind);
         var candidates = resolution.Candidates;
         string? currentRoleResolutionReason = null;
         var semanticFingerprints = candidates
@@ -3607,7 +3608,8 @@ public sealed partial class PoBUniqueCatalogImporter
             var filtered = FilterCandidates(
                 [provisional],
                 baseType,
-                hasGeneratedOptionEvidence);
+                hasGeneratedOptionEvidence,
+                blockKind);
             if (filtered.Candidates.Count != 1)
             {
                 rejectReason = "domain-or-property-incompatible";
@@ -3691,7 +3693,8 @@ public sealed partial class PoBUniqueCatalogImporter
             IReadOnlyList<string> lines,
             string baseType,
             bool hasGeneratedOptionEvidence,
-            UniqueModifierSemanticFingerprint sourceSemanticFingerprint)
+            UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
+            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique)
         {
             var orderedExactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
             var exactText = UnorderedMultilineKey(orderedExactText);
@@ -3705,7 +3708,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 staticStrict = FilterCandidates(preferredStaticMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence);
+                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
                 staticStrict = staticStrict with
                 {
                     Candidates = RejectIncompleteCompositionMatches(
@@ -3721,7 +3724,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                .ToArray(), baseType, hasGeneratedOptionEvidence);
+                .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
             dynamicStrict = dynamicStrict with
             {
                 Candidates = RetainStrongestValueEvidence(
@@ -3747,12 +3750,23 @@ public sealed partial class PoBUniqueCatalogImporter
             var broadCandidates = broad.GetValueOrDefault(signature) ?? [];
             if (broadCandidates.Count > 0)
             {
+                // Broad normalized-signature matches previously skipped domain/property/
+                // generation eligibility and strongest-value retention, which let Eldritch/
+                // Sanctum/prefix/suffix competitors participate in UNIQUE_MECHANICS_CONFLICT.
+                var broadFiltered = FilterCandidates(
+                    broadCandidates
+                        .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
+                        .ToArray(),
+                    baseType,
+                    hasGeneratedOptionEvidence,
+                    blockKind);
+                broadFiltered = broadFiltered with
+                {
+                    Candidates = RetainStrongestValueEvidence(broadFiltered.Candidates),
+                };
                 return Resolution(
-                    ApplySemanticFingerprint(
-                        new CandidateFilterResult(
-                            broadCandidates,
-                            ExcludedByPropertyCapability: false),
-                        sourceSemanticFingerprint),
+                    ApplySemanticFingerprint(broadFiltered, sourceSemanticFingerprint),
                     usedStrictEvidence: false);
             }
 
@@ -3762,7 +3776,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 partialStatic = FilterCandidates(partialStaticMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence);
+                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
                 partialStatic = partialStatic with
                 {
                     Candidates = RejectIncompleteCompositionMatches(
@@ -3778,7 +3792,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                .ToArray(), baseType, hasGeneratedOptionEvidence);
+                .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
             partialDynamicMatches = partialDynamicMatches with
             {
                 Candidates = RetainStrongestValueEvidence(
@@ -3809,7 +3823,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 sourceTextMatches = FilterCandidates(sourceMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence);
+                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
                 sourceTextMatches = sourceTextMatches with
                 {
                     Candidates = RetainStrongestValueEvidence(sourceTextMatches.Candidates),
@@ -3925,9 +3939,14 @@ public sealed partial class PoBUniqueCatalogImporter
         private CandidateFilterResult FilterCandidates(
             IReadOnlyList<MechanicalCandidate> candidates,
             string baseType,
-            bool hasGeneratedOptionEvidence)
+            bool hasGeneratedOptionEvidence,
+            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique)
         {
-            var domainCompatible = candidates
+            var available = candidates
+                .Where(candidate =>
+                    candidate.SourceAvailability != ModifierSourceAvailability.Disabled)
+                .ToArray();
+            var domainCompatible = available
                 .Where(candidate => IsDomainCompatible(
                     candidate,
                     baseType,
@@ -3937,8 +3956,24 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Where(candidate => IsPropertyCapabilityCompatible(candidate, baseType))
                 .ToArray();
             var hasPropertyCompatibleCandidate = propertyCompatible.Length > 0;
+            var afterDomainProperty = hasPropertyCompatibleCandidate
+                ? propertyCompatible
+                : domainCompatible;
+
+            // Source-generation eligibility is authoritative only when at least one survivor
+            // proves compatible. Candidates without generation metadata (or all incompatible)
+            // remain fail-closed to the prior set rather than inventing Unsupported.
+            var generationCompatible = afterDomainProperty
+                .Where(candidate => IsSourceGenerationCompatible(
+                    blockKind,
+                    candidate.SourceGenerationType?.Trim() ?? string.Empty))
+                .ToArray();
+            var selected = generationCompatible.Length > 0
+                ? generationCompatible
+                : afterDomainProperty;
+
             return new CandidateFilterResult(
-                hasPropertyCompatibleCandidate ? propertyCompatible : domainCompatible,
+                selected,
                 ExcludedByPropertyCapability: hasPropertyCompatibleCandidate &&
                     propertyCompatible.Length < domainCompatible.Length);
         }

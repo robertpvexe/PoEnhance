@@ -584,6 +584,417 @@ public sealed class UniqueHistoricalEncodingAggregationTests
     }
 
     [Fact]
+    public void Resolve_CurrentExact_PlusHistoricalBroadMechanicsConflict_PreservesCurrentVector()
+    {
+        var catalog = CreateCatalog(
+            "Test Hymn",
+            "Sledgehammer",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                CurrentResolvedBlock(
+                    "current-leech",
+                    UniqueModifierMechanicalMappingStatus.Exact,
+                    ["modifier:current"],
+                    [CurrentPermyriadStat])),
+            Version("Pre 2.6.0", UniqueItemVersionRole.Historical,
+                new UniqueModifierBlock
+                {
+                    Id = "block:historical-broad",
+                    Kind = UniqueModifierBlockKind.Unique,
+                    Lines = [LeechLine],
+                    CanonicalSignatures = [LeechLine],
+                    MechanicalMapping = new UniqueModifierMechanicalMapping
+                    {
+                        Status = UniqueModifierMechanicalMappingStatus.Ambiguous,
+                        ModifierIds =
+                        [
+                            "modifier:historical-a",
+                            "modifier:historical-b",
+                            "modifier:current",
+                        ],
+                        StatIds = [],
+                        DiagnosticCode = "UNIQUE_MECHANICS_CONFLICT",
+                        Diagnostic = "The PoB Unique line matched conflicting RePoE mechanical stat vectors.",
+                    },
+                    SourceObservationIds = ["pob-observation:historical-broad"],
+                }));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.Null(block.DiagnosticCode);
+        Assert.Equal([CurrentPermyriadStat], block.StatIds);
+        Assert.Equal(["modifier:current"], block.ModifierIds);
+        Assert.Equal(
+            UniqueHistoricalEncodingAggregationCodes.HistoricalMechanicsConflictDidNotOverrideCurrentProof,
+            block.AggregationDiagnosticCode);
+        Assert.Null(block.NonBlockingHistoricalConflictEvidence);
+        Assert.DoesNotContain(block.ModifierIds, id => id.Contains("historical", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Resolve_HistoricalOnlyBroadMechanicsConflict_RemainsFailClosed()
+    {
+        var catalog = CreateCatalog(
+            "Test Hymn",
+            "Sledgehammer",
+            UniqueItemKind.Ordinary,
+            Version("Pre 2.6.0", UniqueItemVersionRole.Historical,
+                new UniqueModifierBlock
+                {
+                    Id = "block:historical-broad",
+                    Kind = UniqueModifierBlockKind.Unique,
+                    Lines = [LeechLine],
+                    CanonicalSignatures = [LeechLine],
+                    MechanicalMapping = new UniqueModifierMechanicalMapping
+                    {
+                        Status = UniqueModifierMechanicalMappingStatus.Ambiguous,
+                        ModifierIds = ["modifier:historical-a", "modifier:historical-b"],
+                        StatIds = [],
+                        DiagnosticCode = "UNIQUE_MECHANICS_CONFLICT",
+                        Diagnostic = "The PoB Unique line matched conflicting RePoE mechanical stat vectors.",
+                    },
+                    SourceObservationIds = ["pob-observation:historical-broad"],
+                }));
+
+        var block = ResolveLeech(catalog);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_CONFLICT", block.DiagnosticCode);
+        Assert.Null(block.AggregationDiagnosticCode);
+        Assert.Empty(block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_CurrentAmbiguousMechanicsConflict_NarrowsByUniqueGenerationAndDomain()
+    {
+        var line = "Freezes you inflict spread to other Enemies within 1.5 metres";
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 2,
+                DataVersion = "test",
+                CreatedAtUtc = new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero),
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "path-of-building",
+                        RetrievedAtUtc = new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero),
+                    },
+                ],
+            },
+            ItemBases =
+            [
+                new ItemBaseRecord { Id = "Metadata/Items/Amulets/Amulet2", Name = "Jade Amulet", ItemClass = "Amulets", Domain = "item" },
+            ],
+            Modifiers =
+            [
+                new ModifierDefinition
+                {
+                    Id = "FreezeProliferationUnique__1",
+                    GroupId = "freeze-unique",
+                    Name = "FreezeProliferationUnique__1",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "amulet_freeze_proliferation_radius",
+                            MinValue = 15,
+                            MaxValue = 15,
+                        },
+                    ],
+                },
+                new ModifierDefinition
+                {
+                    Id = "FreezeProliferationEldritchImplicit1",
+                    GroupId = "freeze-eldritch",
+                    Name = "FreezeProliferationEldritchImplicit1",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "searing_exarch_implicit",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "gloves_freeze_proliferation_radius",
+                            MinValue = 12,
+                            MaxValue = 12,
+                        },
+                    ],
+                },
+                new ModifierDefinition
+                {
+                    Id = "SanctumSpecialFreezeProliferation",
+                    GroupId = "freeze-sanctum",
+                    Name = "SanctumSpecialFreezeProliferation",
+                    GenerationType = ModifierGenerationType.Prefix,
+                    SourceGenerationType = "prefix",
+                    Domain = "sanctum_relic",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "gloves_freeze_proliferation_radius",
+                            MinValue = 16,
+                            MaxValue = 16,
+                        },
+                    ],
+                },
+            ],
+            Stats =
+            [
+                new StatDefinition { Id = "amulet_freeze_proliferation_radius" },
+                new StatDefinition { Id = "gloves_freeze_proliferation_radius" },
+            ],
+            UniqueItems = new UniqueItemCatalog
+            {
+                SourceObservations =
+                [
+                    new UniqueCatalogSourceObservation
+                    {
+                        Id = "pob-observation:halcyon",
+                        ManifestSourceId = "path-of-building",
+                        RepositoryUri = "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+                        Tag = "v2.67.2",
+                        CommitSha = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+                        SourcePath = "Data/Uniques/test.lua",
+                        ObservedKind = UniqueItemKind.Ordinary,
+                        RawEntrySha256 = new string('b', 64),
+                    },
+                ],
+                Items =
+                [
+                    new UniqueItemIdentity
+                    {
+                        Id = "unique:the-halcyon",
+                        CanonicalName = "The Halcyon",
+                        Kind = UniqueItemKind.Ordinary,
+                        BaseTypeEvidence = ["Jade Amulet"],
+                        SourceObservationIds = ["pob-observation:halcyon"],
+                        Versions =
+                        [
+                            new UniqueItemVersionObservation
+                            {
+                                Id = "version:current",
+                                Label = "Current",
+                                Role = UniqueItemVersionRole.Current,
+                                BaseType = "Jade Amulet",
+                                SourceObservationIds = ["pob-observation:halcyon"],
+                                ModifierBlocks =
+                                [
+                                    new UniqueModifierBlock
+                                    {
+                                        Id = "block:freeze",
+                                        Kind = UniqueModifierBlockKind.Unique,
+                                        Lines = [line],
+                                        CanonicalSignatures = [line],
+                                        MechanicalMapping = new UniqueModifierMechanicalMapping
+                                        {
+                                            Status = UniqueModifierMechanicalMappingStatus.Ambiguous,
+                                            ModifierIds =
+                                            [
+                                                "FreezeProliferationEldritchImplicit1",
+                                                "FreezeProliferationUnique__1",
+                                                "SanctumSpecialFreezeProliferation",
+                                            ],
+                                            StatIds = [],
+                                            DiagnosticCode = "UNIQUE_MECHANICS_CONFLICT",
+                                            Diagnostic =
+                                                "The PoB Unique line matched conflicting RePoE mechanical stat vectors.",
+                                        },
+                                        SourceObservationIds = ["pob-observation:halcyon"],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        });
+
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            The Halcyon
+            Jade Amulet
+            --------
+            Requires Level 64
+            --------
+            Item Level: 70
+            --------
+            { Unique Modifier }
+            Freezes you inflict spread to other Enemies within 1.5 metres
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+        Assert.Contains(parsed.Modifiers, modifier => modifier.Kind == ParsedModifierKind.Unique);
+        var block = Assert.Single(unique.ModifierBlocks);
+
+        Assert.True(block.IsResolved, block.Diagnostic);
+        Assert.Null(block.DiagnosticCode);
+        Assert.Equal(["FreezeProliferationUnique__1"], block.ModifierIds);
+        Assert.Equal(["amulet_freeze_proliferation_radius"], block.StatIds);
+    }
+
+    [Fact]
+    public void Resolve_TwoDisagreeingUniqueGenerationCandidates_RemainFailClosed()
+    {
+        var line = "10% chance to gain Onslaught for 10 seconds on Kill";
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 2,
+                DataVersion = "test",
+                CreatedAtUtc = new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero),
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "path-of-building",
+                        RetrievedAtUtc = new DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero),
+                    },
+                ],
+            },
+            ItemBases =
+            [
+                new ItemBaseRecord { Id = "Metadata/Items/Amulets/Amulet4", Name = "Agate Amulet", ItemClass = "Amulets", Domain = "item" },
+            ],
+            Modifiers =
+            [
+                new ModifierDefinition
+                {
+                    Id = "unique.onslaught.a",
+                    GroupId = "onslaught-a",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "chance_to_gain_onslaught_on_kill_for_10_seconds_%",
+                            MinValue = 10,
+                            MaxValue = 10,
+                        },
+                    ],
+                },
+                new ModifierDefinition
+                {
+                    Id = "unique.onslaught.b",
+                    GroupId = "onslaught-b",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "chance_to_gain_onslaught_on_kill_for_4_seconds_%",
+                            MinValue = 10,
+                            MaxValue = 10,
+                        },
+                    ],
+                },
+            ],
+            Stats =
+            [
+                new StatDefinition { Id = "chance_to_gain_onslaught_on_kill_for_10_seconds_%" },
+                new StatDefinition { Id = "chance_to_gain_onslaught_on_kill_for_4_seconds_%" },
+            ],
+            UniqueItems = new UniqueItemCatalog
+            {
+                SourceObservations =
+                [
+                    new UniqueCatalogSourceObservation
+                    {
+                        Id = "pob-observation:onslaught",
+                        ManifestSourceId = "path-of-building",
+                        RepositoryUri = "https://github.com/PathOfBuildingCommunity/PathOfBuilding",
+                        Tag = "v2.67.2",
+                        CommitSha = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478",
+                        SourcePath = "Data/Uniques/test.lua",
+                        ObservedKind = UniqueItemKind.Ordinary,
+                        RawEntrySha256 = new string('c', 64),
+                    },
+                ],
+                Items =
+                [
+                    new UniqueItemIdentity
+                    {
+                        Id = "unique:extractor",
+                        CanonicalName = "Extractor Mentis",
+                        Kind = UniqueItemKind.Ordinary,
+                        BaseTypeEvidence = ["Agate Amulet"],
+                        SourceObservationIds = ["pob-observation:onslaught"],
+                        Versions =
+                        [
+                            new UniqueItemVersionObservation
+                            {
+                                Id = "version:current",
+                                Label = "Current",
+                                Role = UniqueItemVersionRole.Current,
+                                BaseType = "Agate Amulet",
+                                SourceObservationIds = ["pob-observation:onslaught"],
+                                ModifierBlocks =
+                                [
+                                    new UniqueModifierBlock
+                                    {
+                                        Id = "block:onslaught",
+                                        Kind = UniqueModifierBlockKind.Unique,
+                                        Lines = [line],
+                                        CanonicalSignatures = [line],
+                                        MechanicalMapping = new UniqueModifierMechanicalMapping
+                                        {
+                                            Status = UniqueModifierMechanicalMappingStatus.Ambiguous,
+                                            ModifierIds = ["unique.onslaught.a", "unique.onslaught.b"],
+                                            StatIds = [],
+                                            DiagnosticCode = "UNIQUE_MECHANICS_CONFLICT",
+                                        },
+                                        SourceObservationIds = ["pob-observation:onslaught"],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        });
+
+        var parsed = parser.Parse("""
+            Item Class: Amulets
+            Rarity: Unique
+            Extractor Mentis
+            Agate Amulet
+            --------
+            Requires Level 16
+            --------
+            Item Level: 70
+            --------
+            { Unique Modifier }
+            10% chance to gain Onslaught for 10 seconds on Kill
+            """);
+        var unique = resolver.Resolve(parsed, catalog);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+        Assert.Contains(parsed.Modifiers, modifier => modifier.Kind == ParsedModifierKind.Unique);
+        var block = Assert.Single(unique.ModifierBlocks);
+
+        Assert.False(block.IsResolved);
+        Assert.Equal("UNIQUE_MECHANICS_CONFLICT", block.DiagnosticCode);
+        Assert.Empty(block.StatIds);
+    }
+
+    [Fact]
     public async Task ActivePackage_HrimnorLeech_PreservesCurrentPermyriadAcrossHistoricalConflict()
     {
         var package = await LoadActivePackageAsync();
