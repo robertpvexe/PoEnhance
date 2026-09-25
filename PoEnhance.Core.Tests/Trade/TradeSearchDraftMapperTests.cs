@@ -351,6 +351,164 @@ public sealed class TradeSearchDraftMapperTests
         Assert.Equal(["Has 1 Socket", "Has <number> Sockets"], signatures);
     }
 
+    [Fact]
+    public void FindTranslationFamilyCompanionProviderSignatures_DefaultedNumericCompanion_ProjectsIncreasedForm()
+    {
+        const string translationId = "repoe:stat-translation:phys-no-damage-family";
+        var translation = new StatTranslationDefinition
+        {
+            Id = translationId,
+            StatIds = ["local_physical_damage_+%", "local_weapon_no_physical_damage"],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0 },
+                        new StatTranslationCondition { Index = 1, MinValue = 1m },
+                    ],
+                    ValueFormats = ["ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                    ],
+                    FormatLines = ["No Physical Damage"],
+                },
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MinValue = 1m },
+                        new StatTranslationCondition { Index = 1, MaxValue = 0m },
+                    ],
+                    ValueFormats = ["#", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                    ],
+                    FormatLines = ["{0}% increased Physical Damage"],
+                },
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MaxValue = -1m },
+                        new StatTranslationCondition { Index = 1, MaxValue = 0m },
+                    ],
+                    ValueFormats = ["#", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = ["negate"] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                    ],
+                    FormatLines = ["{0}% reduced Physical Damage"],
+                },
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage(
+            ["local_physical_damage_+%", "local_weapon_no_physical_damage"],
+            translation));
+        var evidence = new UniqueModifierTranslationEvidence
+        {
+            TranslationId = translationId,
+            StatIds = ["local_physical_damage_+%", "local_weapon_no_physical_damage"],
+            DefaultedStatIds = ["local_physical_damage_+%"],
+            ValueFormats = ["ignore", "ignore"],
+            FormatLines = ["No Physical Damage"],
+        };
+
+        var signatures = ModifierBoundDefaults.FindTranslationFamilyCompanionProviderSignatures(
+            [evidence],
+            catalog);
+
+        Assert.Equal(["<number>% increased Physical Damage"], signatures);
+    }
+
+    [Fact]
+    public void FindTranslationFamilyCompanionProviderSignatures_ConflictingCompanions_FailClosed()
+    {
+        const string translationId = "repoe:stat-translation:conflict-family";
+        var translation = new StatTranslationDefinition
+        {
+            Id = translationId,
+            StatIds = ["stat_a", "stat_b", "flag"],
+            Variants =
+            [
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0 },
+                        new StatTranslationCondition { Index = 1 },
+                        new StatTranslationCondition { Index = 2, MinValue = 1m },
+                    ],
+                    ValueFormats = ["ignore", "ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 2, Handlers = [] },
+                    ],
+                    FormatLines = ["Special Phrase"],
+                },
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0, MinValue = 1m },
+                        new StatTranslationCondition { Index = 1 },
+                        new StatTranslationCondition { Index = 2, MaxValue = 0m },
+                    ],
+                    ValueFormats = ["#", "ignore", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 2, Handlers = [] },
+                    ],
+                    FormatLines = ["{0}% Form A"],
+                },
+                new StatTranslationVariant
+                {
+                    Conditions =
+                    [
+                        new StatTranslationCondition { Index = 0 },
+                        new StatTranslationCondition { Index = 1, MinValue = 1m },
+                        new StatTranslationCondition { Index = 2, MaxValue = 0m },
+                    ],
+                    ValueFormats = ["ignore", "#", "ignore"],
+                    IndexHandlers =
+                    [
+                        new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 1, Handlers = [] },
+                        new StatTranslationIndexHandler { Index = 2, Handlers = [] },
+                    ],
+                    FormatLines = ["{0}% Form B"],
+                },
+            ],
+        };
+        var catalog = GameDataCatalog.FromPackage(TestPackage(
+            ["stat_a", "stat_b", "flag"],
+            translation));
+        var evidence = new UniqueModifierTranslationEvidence
+        {
+            TranslationId = translationId,
+            StatIds = ["stat_a", "stat_b", "flag"],
+            DefaultedStatIds = ["stat_a", "stat_b"],
+            ValueFormats = ["ignore", "ignore", "ignore"],
+            FormatLines = ["Special Phrase"],
+        };
+
+        var signatures = ModifierBoundDefaults.FindTranslationFamilyCompanionProviderSignatures(
+            [evidence],
+            catalog);
+
+        Assert.Empty(signatures);
+    }
+
     [Theory]
     [InlineData("cold", "local_")]
     [InlineData("fire", "local_")]

@@ -143,4 +143,29 @@ public sealed class PathOfExileTradeStatTemplateNormalizerTests
     {
         Assert.Equal(providerText, PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(providerText));
     }
+
+    [Fact]
+    public void NormalizeLookupTemplate_DoesNotAliasNoPhysicalDamageToDealNoForm()
+    {
+        Assert.Equal(
+            "No Physical Damage",
+            PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate("No Physical Damage"));
+        Assert.Equal(
+            "Deal no Physical Damage",
+            PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate("Deal no Physical Damage"));
+    }
+
+    [Theory]
+    [InlineData("No Fire Damage")]
+    [InlineData("No Chaos Damage")]
+    [InlineData("No Strength Requirement")]
+    [InlineData("No Mana Cost")]
+    [InlineData("Adds no Physical Damage")]
+    [InlineData("Deal Physical Damage")]
+    [InlineData("No Physical Damage from Hits")]
+    [InlineData("Enemies take No Physical Damage")]
+    public void NormalizeLookupTemplate_LeavesNoPhrasesUnchanged(string source)
+    {
+        Assert.Equal(source, PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(source));
+    }
 }

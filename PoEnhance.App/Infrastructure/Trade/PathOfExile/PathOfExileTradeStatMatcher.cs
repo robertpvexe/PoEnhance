@@ -979,6 +979,33 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             }
         }
 
+        if (candidates.Count > 1)
+        {
+            var constantNarrowing = TryNarrowByEmbeddedConstantSignature(component, candidates);
+            if (constantNarrowing.Kind == EmbeddedConstantNarrowingKind.ExactSingle)
+            {
+                candidates = constantNarrowing.Candidates;
+            }
+            else if (constantNarrowing.Kind == EmbeddedConstantNarrowingKind.ReducedSet)
+            {
+                candidates = constantNarrowing.Candidates;
+            }
+            else if (constantNarrowing.Kind == EmbeddedConstantNarrowingKind.NoSurvivorWithProvenLiterals)
+            {
+                return Failure(
+                    PathOfExileTradeStatMatchStatus.NotFound,
+                    normalization,
+                    expectedLocality,
+                    initialCandidates,
+                    candidates: [],
+                    rejections,
+                    PathOfExileTradeStatMatchDiagnosticCodes.NoCandidate,
+                    "No Trade stat template matched the source embedded-constant signature.",
+                    context,
+                    providerCandidateGroupKey);
+            }
+        }
+
         if (candidates.Count == 1)
         {
             return Exact(
@@ -1021,6 +1048,121 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                 : "Multiple Trade stat templates matched the modifier text.",
             context,
             providerCandidateGroupKey);
+    }
+
+    private enum EmbeddedConstantNarrowingKind
+    {
+        NoChange,
+        ExactSingle,
+        ReducedSet,
+        NoSurvivorWithProvenLiterals,
+    }
+
+    private readonly record struct EmbeddedConstantNarrowing(
+        EmbeddedConstantNarrowingKind Kind,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> Candidates);
+
+    /// <summary>
+    /// TRADE.2 Track B — when Ambiguous siblings differ by FilterArity and/or embedded literal
+    /// constants, keep only candidates compatible with the source provider template signature.
+    /// Never picks closest; under-specified sources remain Ambiguous.
+    /// </summary>
+    private static EmbeddedConstantNarrowing TryNarrowByEmbeddedConstantSignature(
+        ResolvedSearchComponent? component,
+        IReadOnlyList<PathOfExileTradeStatMatchCandidate> candidates)
+    {
+        var sourceTemplate = TryGetSourceProviderTemplateForConstantSignature(component);
+        if (sourceTemplate is null || candidates.Count <= 1)
+        {
+            return new EmbeddedConstantNarrowing(EmbeddedConstantNarrowingKind.NoChange, candidates);
+        }
+
+        var sourceSignature = PathOfExileTradeStatEmbeddedConstantSignature.Derive(sourceTemplate);
+        var candidateSignatures = candidates
+            .Select(candidate => PathOfExileTradeStatEmbeddedConstantSignature.Derive(candidate.Text))
+            .ToArray();
+        var sourceProvesLiterals =
+            PathOfExileTradeStatEmbeddedConstantSignature.SourceProvesEmbeddedLiterals(sourceSignature);
+        var arityDistinguishes =
+            PathOfExileTradeStatEmbeddedConstantSignature.ArityDistinguishesCandidates(
+                sourceSignature,
+                candidateSignatures);
+        if (!sourceProvesLiterals && !arityDistinguishes)
+        {
+            return new EmbeddedConstantNarrowing(EmbeddedConstantNarrowingKind.NoChange, candidates);
+        }
+
+        var compatible = candidates
+            .Where(candidate => PathOfExileTradeStatEmbeddedConstantSignature.IsCompatible(
+                sourceSignature,
+                PathOfExileTradeStatEmbeddedConstantSignature.Derive(candidate.Text)))
+            .ToArray();
+        if (compatible.Length == 0)
+        {
+            return sourceProvesLiterals
+                ? new EmbeddedConstantNarrowing(
+                    EmbeddedConstantNarrowingKind.NoSurvivorWithProvenLiterals,
+                    candidates)
+                : new EmbeddedConstantNarrowing(EmbeddedConstantNarrowingKind.NoChange, candidates);
+        }
+
+        if (compatible.Length == candidates.Count)
+        {
+            return new EmbeddedConstantNarrowing(EmbeddedConstantNarrowingKind.NoChange, candidates);
+        }
+
+        return new EmbeddedConstantNarrowing(
+            compatible.Length == 1
+                ? EmbeddedConstantNarrowingKind.ExactSingle
+                : EmbeddedConstantNarrowingKind.ReducedSet,
+            compatible);
+    }
+
+    private static string? TryGetSourceProviderTemplateForConstantSignature(
+        ResolvedSearchComponent? component)
+    {
+        if (component is null)
+        {
+            return null;
+        }
+
+        foreach (var raw in EnumerateSourceProviderTemplates(component))
+        {
+            if (string.IsNullOrWhiteSpace(raw) || ContainsNewLine(raw))
+            {
+                continue;
+            }
+
+            var template = ToProviderTemplate(raw);
+            if (!string.IsNullOrWhiteSpace(template))
+            {
+                return template;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateSourceProviderTemplates(
+        ResolvedSearchComponent component)
+    {
+        if (!string.IsNullOrWhiteSpace(component.ProviderCanonicalSignature))
+        {
+            yield return component.ProviderCanonicalSignature;
+        }
+
+        if (!string.IsNullOrWhiteSpace(component.CanonicalSignature))
+        {
+            yield return component.CanonicalSignature;
+        }
+
+        foreach (var signature in component.ProviderSearchSignatures)
+        {
+            if (!string.IsNullOrWhiteSpace(signature))
+            {
+                yield return signature;
+            }
+        }
     }
 
     private static PathOfExileTradeStatMatchResult Exact(

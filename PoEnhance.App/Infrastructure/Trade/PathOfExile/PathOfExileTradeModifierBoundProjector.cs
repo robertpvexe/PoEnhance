@@ -89,6 +89,14 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             return chanceSiblingProjection;
         }
 
+        if (TryProjectTranslationFamilyCompanionPresence(
+                component,
+                providerStat,
+                out var companionPresenceProjection))
+        {
+            return companionPresenceProjection;
+        }
+
         if (IsProvenFixedLiteralProviderCandidate(component, providerStat))
         {
             return new PathOfExileTradeProviderBoundProjection
@@ -197,6 +205,19 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 RequestedMaximum = null,
                 ValueBoundsUnsupportedReason =
                     "Exact Unique chance mechanics project a fixed owner scalar onto the parametric Trade sibling.",
+            };
+        }
+
+        if (TryProjectTranslationFamilyCompanionPresence(component, providerStat, out _))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "Special phrase display projects onto a translation-family numeric Trade companion as presence-only.",
             };
         }
 
@@ -435,6 +456,70 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         ResolvedSearchComponent component,
         PathOfExileTradeStatMatchCandidate providerStat) =>
         TryProjectExactOwnerChancePercentSiblingFallback(component, providerStat, out _);
+
+    /// <summary>
+    /// TRADE.2.2 — special phrase display (0 placeholders) that discovered a translation-family
+    /// numeric companion Trade template must stay presence-only; the companion's fixed/extreme
+    /// translation value is not a user roll threshold.
+    /// </summary>
+    private static bool TryProjectTranslationFamilyCompanionPresence(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) == 0 ||
+            providerStat.OptionMetadata.Count != 0)
+        {
+            return false;
+        }
+
+        var sourceDisplay = GetProjectionSourceTemplate(component);
+        if (PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(sourceDisplay) != 0)
+        {
+            return false;
+        }
+
+        var providerLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            providerStat.Text);
+        var companionLookups = component.ProviderSearchSignatures
+            .Where(signature => !string.IsNullOrWhiteSpace(signature))
+            .Select(signature => PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                signature
+                    .Replace("+<number>", "+#", StringComparison.Ordinal)
+                    .Replace("-<number>", "-#", StringComparison.Ordinal)
+                    .Replace("<number>", "#", StringComparison.Ordinal)))
+            .Where(lookup =>
+                !string.IsNullOrWhiteSpace(lookup) &&
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(lookup) > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (companionLookups.Length == 0 ||
+            !companionLookups.Contains(providerLookup, StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        // Display itself must not already be the parametric companion form.
+        var displayLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            sourceDisplay);
+        if (string.Equals(displayLookup, providerLookup, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            Minimum = null,
+            Maximum = null,
+            ProjectionKind = "TranslationFamilyCompanionPresence",
+        };
+        return true;
+    }
 
     private static bool TryProjectExactOwnerChancePercentSiblingFallback(
         ResolvedSearchComponent component,

@@ -2700,6 +2700,21 @@ public sealed partial class TradeSearchDraftMapper
                     signatures.Add(string.Join("\n", match.CandidateSignatures[0].Lines));
                 }
             }
+
+            // TRADE.2.2 — phrase display branches with Defaulted numeric companions project the
+            // unique non-reversing companion template into provider discovery signatures.
+            if (HasExactUniqueProviderSearchProvenance(resolution))
+            {
+                var translationEvidence = resolution.CatalogBlocks
+                    .Select(block => block.MechanicalMapping.Provenance)
+                    .Where(provenance => provenance is not null)
+                    .SelectMany(provenance => provenance!.Translations)
+                    .ToArray();
+                signatures.AddRange(
+                    ModifierBoundDefaults.FindTranslationFamilyCompanionProviderSignatures(
+                        translationEvidence,
+                        catalog));
+            }
         }
 
         var retainedSignatures = signatures

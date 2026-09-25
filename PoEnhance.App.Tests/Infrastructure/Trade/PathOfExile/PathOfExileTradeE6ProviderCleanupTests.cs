@@ -163,8 +163,13 @@ public sealed class PathOfExileTradeE6ProviderCleanupTests
     }
 
     [Fact]
-    public void ResolveProviderComponents_WithoutFixedNumericEvidence_StaysAmbiguousAmongMixedCandidates()
+    public void ResolveProviderComponents_SourceProvenFilterArity_ResolvesParameterizedSpellEchoEquivalentSet()
     {
+        // TRADE.2.4 — formerly expected Ambiguous among mixed Level 10 / Level # candidates.
+        // Source CanonicalSignature proves FilterArity=1 (Level <number>), so Track B correctly
+        // rejects the fixed Level 10 sibling and retains equivalent Level # Trade candidates as
+        // ExactEquivalentSet. FixedQueryValue remains absent (CanonicalNumericValues alone is not
+        // fixed-query identity). Same arity path as accepted Hyrri-style disambiguation.
         var service = CreateService();
         var catalog = OfficialCatalog.Value;
         var draft = new TradeSearchDraft
@@ -208,8 +213,33 @@ public sealed class PathOfExileTradeE6ProviderCleanupTests
             });
 
         var component = Assert.Single(resolved.ModifierFilters);
-        Assert.Equal(SearchComponentProviderResolutionStatus.Ambiguous, component.ProviderResolutionStatus);
-        Assert.False(component.IsSearchable);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            component.ProviderResolutionStatus);
+        Assert.Null(component.FixedQueryValue);
+        Assert.Null(component.ProviderStatId);
+        Assert.True(component.ProviderStatAlternativeIds.Count > 1);
+        Assert.Equal(
+            "Socketed Gems are Supported by Level # Spell Echo",
+            component.ProviderStatText);
+        Assert.DoesNotContain(
+            "explicit.stat_725896422",
+            component.ProviderStatAlternativeIds,
+            StringComparer.Ordinal);
+        Assert.All(component.ProviderStatAlternativeIds, statId =>
+        {
+            Assert.True(catalog.TryGetById(statId, out var entry));
+            Assert.Equal(
+                "Socketed Gems are Supported by Level # Spell Echo",
+                entry.Text);
+            Assert.Contains('#', entry.Text);
+            Assert.DoesNotContain(
+                "Level 10 Spell Echo",
+                entry.Text,
+                StringComparison.Ordinal);
+        });
+        Assert.True(component.IsSearchable);
+        Assert.True(IsInteractionReady(component));
     }
 
     [Fact]

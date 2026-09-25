@@ -312,6 +312,116 @@ internal static partial class ModifierBoundDefaults
             .ToArray();
     }
 
+    /// <summary>
+    /// TRADE.2.2 — when Unique provenance selected a non-numeric (phrase) translation branch and
+    /// listed Defaulted companion StatIds, project the unique non-reversing numeric companion
+    /// format line as a provider search signature. Fail closed when companions conflict.
+    /// </summary>
+    internal static IReadOnlyList<string> FindTranslationFamilyCompanionProviderSignatures(
+        IReadOnlyList<UniqueModifierTranslationEvidence> translationEvidence,
+        GameDataCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(translationEvidence);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (translationEvidence.Count == 0)
+        {
+            return [];
+        }
+
+        var companionSignatures = new List<string>();
+        foreach (var evidence in translationEvidence)
+        {
+            if (evidence.DefaultedStatIds.Count == 0 ||
+                string.IsNullOrWhiteSpace(evidence.TranslationId) ||
+                !IsNonNumericPhraseTranslationEvidence(evidence))
+            {
+                continue;
+            }
+
+            var translation = catalog.FindStatTranslationsById(evidence.TranslationId).SingleOrDefault();
+            if (translation is null ||
+                translation.StatIds.Count == 0 ||
+                !evidence.StatIds.SequenceEqual(translation.StatIds, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (var defaultedStatId in evidence.DefaultedStatIds
+                .Where(statId => !string.IsNullOrWhiteSpace(statId))
+                .Select(statId => statId.Trim())
+                .Distinct(StringComparer.Ordinal))
+            {
+                var companionIndex = -1;
+                for (var index = 0; index < translation.StatIds.Count; index++)
+                {
+                    if (string.Equals(
+                            translation.StatIds[index],
+                            defaultedStatId,
+                            StringComparison.Ordinal))
+                    {
+                        companionIndex = index;
+                        break;
+                    }
+                }
+
+                if (companionIndex < 0)
+                {
+                    continue;
+                }
+
+                var signatures = translation.Variants
+                    .Where(variant =>
+                    {
+                        if (variant.ValueFormats.Count <= companionIndex ||
+                            variant.ValueFormats[companionIndex] is not ("#" or "+#"))
+                        {
+                            return false;
+                        }
+
+                        var handlers = HandlersFor(variant, companionIndex);
+                        return handlers is not null &&
+                            !handlers.Any(OrderReversingHandlers.Contains);
+                    })
+                    .Select(RenderCanonicalSignature)
+                    .Where(signature => !string.IsNullOrWhiteSpace(signature))
+                    .Select(signature => signature!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (signatures.Length != 1)
+                {
+                    // Conflicting numeric templates for one companion → fail closed for that evidence.
+                    return [];
+                }
+
+                companionSignatures.Add(signatures[0]);
+            }
+        }
+
+        var distinct = companionSignatures
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(signature => signature, StringComparer.Ordinal)
+            .ToArray();
+        // Multiple Defaulted companions projecting different Trade families is ambiguous.
+        return distinct.Length <= 1 ? distinct : [];
+    }
+
+    private static bool IsNonNumericPhraseTranslationEvidence(
+        UniqueModifierTranslationEvidence evidence)
+    {
+        if (evidence.FormatLines.Count != 1 ||
+            evidence.ValueFormats.Count == 0 ||
+            evidence.ValueFormats.Any(format => format is "#" or "+#"))
+        {
+            return false;
+        }
+
+        var line = evidence.FormatLines[0];
+        return !string.IsNullOrWhiteSpace(line) &&
+            !line.Contains("{", StringComparison.Ordinal) &&
+            !line.Contains("<number>", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static IReadOnlyList<decimal> ExtractObservedValues(string? source)
     {
         if (string.IsNullOrWhiteSpace(source))
