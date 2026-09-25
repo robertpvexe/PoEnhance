@@ -1,4 +1,3 @@
-using System.Text.Json;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
@@ -7,7 +6,10 @@ using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
-public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
+/// <summary>
+/// A.5.48 — Pure Talent Exact component-composite maps to ONE official Trade composite stat.
+/// </summary>
+public sealed class PureTalentComponentCompositeProviderValidationTests
 {
     private static readonly Lazy<GameDataCatalog> GameData = new(LoadGameData);
     private static readonly Lazy<PathOfExileTradeStatCatalog> OfficialTradeCatalog =
@@ -17,70 +19,54 @@ public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
         PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
     private static readonly PathOfExileTradeSelectedModifierMapper SelectedMapper = new();
 
-    [Fact]
-    public void FreshCircleThreeHeraldChoices_ProviderMapsExactTradeExplicitStats()
-    {
-        var capture = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.36-Unique-NoModId-Capture",
-            "20260924-093744-936-Circle of Ambition.json");
-        Assert.True(File.Exists(capture), $"Missing A.5.36 Circle capture: {capture}");
-        using var document = JsonDocument.Parse(File.ReadAllText(capture));
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
-        Assert.False(string.IsNullOrWhiteSpace(raw));
+    private const string PureTalentClipboard = """
+        Item Class: Jewels
+        Rarity: Unique
+        Pure Talent
+        Viridian Jewel
+        --------
+        Item Level: 84
+        --------
+        { Unique Modifier }
+        While your Passive Skill Tree connects to a class' starting location, you gain:
+        Marauder: Melee Skills have 25% increased Area of Effect
+        Duelist: 1% of Attack Damage Leeched as Life
+        Ranger: 7% increased Movement Speed
+        Shadow: +0.5% to Critical Strike Chance
+        Witch: 0.5% of Mana Regenerated per second
+        Templar: Damage Penetrates 5% Elemental Resistances
+        Scion: +25 to All Attributes
+        """;
 
-        var runtime = Resolve(raw!, OfficialTradeCatalog.Value);
+    [Fact]
+    public void PureTalentComposite_ProviderSelectsSingleOfficialTradeStat()
+    {
+        var runtime = Resolve(PureTalentClipboard, OfficialTradeCatalog.Value);
         Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, runtime.Unique.Status);
 
-        var expected = new (string Needle, string ModId, string StatId, string TradeId)[]
-        {
-            (
-                "Lightning Damage while affected by Herald of Thunder",
-                "HeraldBonusThunderLightningDamage",
-                "lightning_damage_+%_while_affected_by_herald_of_thunder",
-                "explicit.stat_536957"),
-            (
-                "Herald of Ash has",
-                "HeraldBonusAshReservationEfficiency__",
-                "herald_of_ash_mana_reservation_efficiency_+%",
-                "explicit.stat_2500442851"),
-            (
-                "Herald of Purity has",
-                "HeraldBonusPurityEffect",
-                "herald_of_light_buff_effect_+%",
-                "explicit.stat_2126027382"),
-        };
+        var component = Assert.Single(runtime.ProviderDraft.ModifierFilters);
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Null(component.ResolvedModifierId);
+        Assert.Equal(7, component.ResolvedStatIds.Count);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Exact,
+            component.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_769192511", component.ProviderStatId);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.NotEqual(
+            SearchComponentProviderResolutionStatus.ExactConjunctiveSet,
+            component.ProviderResolutionStatus);
+        Assert.Equal(1, runtime.ProviderDraft.ModifierFilters.Count);
 
-        foreach (var (needle, modId, statId, tradeId) in expected)
-        {
-            var component = Assert.Single(
-                runtime.ProviderDraft.ModifierFilters,
-                filter => filter.RawCopiedText.Contains(needle, StringComparison.OrdinalIgnoreCase));
-            Assert.True(component.HasExactUniqueSourceProvenance);
-            Assert.Equal(modId, component.ResolvedModifierId);
-            Assert.Equal([statId], component.ResolvedStatIds.ToArray());
-            Assert.True(
-                component.ProviderResolutionStatus is
-                    SearchComponentProviderResolutionStatus.Exact or
-                    SearchComponentProviderResolutionStatus.ExactEquivalentSet,
-                $"Unexpected provider status {component.ProviderResolutionStatus} for {needle}");
-            if (!string.IsNullOrWhiteSpace(component.ProviderStatId))
-            {
-                Assert.Equal(tradeId, component.ProviderStatId);
-            }
-            else
-            {
-                // ExactEquivalentSet may omit a single ProviderStatId while still carrying Exact
-                // Unique provenance and searchable Core StatIds for Trade mapping.
-                Assert.Equal(
-                    SearchComponentProviderResolutionStatus.ExactEquivalentSet,
-                    component.ProviderResolutionStatus);
-            }
-            Assert.True(component.IsSearchable, component.NotSearchableReason);
-        }
+        var matcherSource = File.ReadAllText(
+            FindRepoFile(
+                "PoEnhance.App",
+                "Infrastructure",
+                "Trade",
+                "PathOfExile",
+                "PathOfExileTradeStatMatcher.cs"));
+        Assert.DoesNotContain("769192511", matcherSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Pure Talent", matcherSource, StringComparison.Ordinal);
     }
 
     private static RuntimeResult Resolve(string rawText, PathOfExileTradeStatCatalog tradeCatalog)
@@ -130,10 +116,10 @@ public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
             new PathOfExileTradeItemEntry
             {
                 ProviderOrder = 0,
-                GroupId = "ring",
-                GroupLabel = "ring",
-                Name = "Circle of Ambition",
-                Type = "Prismatic Ring",
+                GroupId = "jewel",
+                GroupLabel = "jewel",
+                Name = "Pure Talent",
+                Type = "Viridian Jewel",
                 IsUnique = true,
             },
         ]);
@@ -145,7 +131,9 @@ public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", result.Package!.Manifest.DataVersion);
+        Assert.Equal(
+            "3.29.1.2.10-unique-component-composite-translation",
+            result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

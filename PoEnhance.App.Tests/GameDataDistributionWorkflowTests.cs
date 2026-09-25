@@ -16,12 +16,12 @@ public sealed class GameDataDistributionWorkflowTests
 
         Assert.Equal(4, package.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(
-            "3.29.1.2.9-unique-newline-translation-fidelity",
+            "3.29.1.2.10-unique-component-composite-translation",
             package.GetProperty("dataVersion").GetString());
         Assert.Equal("2026-09-18T22:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(187395550, package.GetProperty("sizeBytes").GetInt64());
+        Assert.Equal(187329930, package.GetProperty("sizeBytes").GetInt64());
         Assert.Equal(
-            "76cc46e12878eeca600e71c9814775e729e44142a8b9dfa7471c1df57bd5305f",
+            "0d3f997c5573031d2fd7cd6f672baaeacdea467f73f7ffab9c8d085c49d45565",
             package.GetProperty("sha256").GetString());
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());

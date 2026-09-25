@@ -2,10 +2,10 @@
     "schemaVersion":  1,
     "package":  {
                     "schemaVersion":  4,
-                    "dataVersion":  "3.29.1.2.9-unique-newline-translation-fidelity",
+                    "dataVersion":  "3.29.1.2.10-unique-component-composite-translation",
                     "createdAtUtc":  "2026-09-18T22:00:00+00:00",
-                    "sizeBytes":  187395550,
-                    "sha256":  "76cc46e12878eeca600e71c9814775e729e44142a8b9dfa7471c1df57bd5305f",
+                    "sizeBytes":  187329930,
+                    "sha256":  "0d3f997c5573031d2fd7cd6f672baaeacdea467f73f7ffab9c8d085c49d45565",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0

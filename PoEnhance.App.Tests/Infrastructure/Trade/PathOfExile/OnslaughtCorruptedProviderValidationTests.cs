@@ -123,7 +123,7 @@ public sealed class OnslaughtCorruptedProviderValidationTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.9-unique-newline-translation-fidelity", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

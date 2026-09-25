@@ -77,7 +77,7 @@ public sealed class ModifierPipelineReplayCorpusIntegrationTests
                 "05d038a696dc095f656c27e20c411dd8cd0dfeafe333bf3c06491c647099e679",
                 report.Summary.DistinctCapturedGameDataSha256Values);
             Assert.DoesNotContain(
-                "3.29.1.2.9-unique-newline-translation-fidelity",
+                "3.29.1.2.10-unique-component-composite-translation",
                 report.Summary.DistinctCapturedGameDataVersions);
         }
         finally

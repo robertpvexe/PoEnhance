@@ -56,7 +56,7 @@ public sealed class GameDataPackageLoaderTests
         Assert.NotNull(result.Package);
         Assert.Equal(expectedVersion, result.Package.Manifest.DataVersion);
         Assert.Equal(
-            "3.29.1.2.9-unique-newline-translation-fidelity",
+            "3.29.1.2.10-unique-component-composite-translation",
             result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
         Assert.Equal(4, result.Package.Manifest.SchemaVersion);

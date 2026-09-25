@@ -66,8 +66,10 @@ public sealed class FleshcrafterNewlineTranslationFidelityTests
     }
 
     [Fact]
-    public async Task PackagedPureTalent_ClassShortLines_RemainUnsupported()
+    public async Task PackagedPureTalent_ClassShortLines_AreNotStandaloneExactMechanics()
     {
+        // A.5.48: short Class: lines must not Exact as isolated long-form mechanics.
+        // Complete heading+payload may Exact via component-composite packaging instead.
         var package = await LoadPackageAsync();
         var item = Assert.Single(
             package.UniqueItems!.Items,
@@ -75,24 +77,21 @@ public sealed class FleshcrafterNewlineTranslationFidelityTests
 
         Assert.All(item.Versions, version =>
         {
-            var classLines = version.ModifierBlocks.Where(block =>
+            var standaloneClassLines = version.ModifierBlocks.Where(block =>
+                block.Lines.Count == 1 &&
                 block.Lines.Any(line =>
-                    line.Contains(':', StringComparison.Ordinal) &&
-                    (line.StartsWith("Marauder:", StringComparison.Ordinal) ||
-                     line.StartsWith("Duelist:", StringComparison.Ordinal) ||
-                     line.StartsWith("Ranger:", StringComparison.Ordinal) ||
-                     line.StartsWith("Shadow:", StringComparison.Ordinal) ||
-                     line.StartsWith("Witch:", StringComparison.Ordinal) ||
-                     line.StartsWith("Templar:", StringComparison.Ordinal) ||
-                     line.StartsWith("Scion:", StringComparison.Ordinal))));
-            Assert.NotEmpty(classLines);
-            Assert.All(classLines, block =>
+                    line.StartsWith("Marauder:", StringComparison.Ordinal) ||
+                    line.StartsWith("Duelist:", StringComparison.Ordinal) ||
+                    line.StartsWith("Ranger:", StringComparison.Ordinal) ||
+                    line.StartsWith("Shadow:", StringComparison.Ordinal) ||
+                    line.StartsWith("Witch:", StringComparison.Ordinal) ||
+                    line.StartsWith("Templar:", StringComparison.Ordinal) ||
+                    line.StartsWith("Scion:", StringComparison.Ordinal)));
+            Assert.All(standaloneClassLines, block =>
             {
-                Assert.Equal(
-                    UniqueModifierMechanicalMappingStatus.Unsupported,
+                Assert.NotEqual(
+                    UniqueModifierMechanicalMappingStatus.Exact,
                     block.MechanicalMapping.Status);
-                Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
-                Assert.Empty(block.MechanicalMapping.StatIds);
             });
         });
     }
@@ -139,7 +138,7 @@ public sealed class FleshcrafterNewlineTranslationFidelityTests
         Assert.True(load.IsSuccess, string.Join(", ", load.Diagnostics.Select(d => d.Code)));
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
         Assert.Equal(
-            "3.29.1.2.9-unique-newline-translation-fidelity",
+            "3.29.1.2.10-unique-component-composite-translation",
             load.Package.Manifest.DataVersion);
         return load.Package;
     }
