@@ -4060,6 +4060,311 @@ public sealed class PoBUniqueCatalogImporterTests
         Assert.Contains("evaluated generated PoB", block.MechanicalMapping.Diagnostic, StringComparison.Ordinal);
     }
 
+    // A.5.46 — formatting-only newline between translation FormatLines (Energy\nShield)
+    // must Exact-match the PoB single-line convert block without item/ModId hardcodes.
+    [Fact]
+    public void Import_ConvertLine_TranslationNewlineFold_ResolvesExactWithProvenance()
+    {
+        const string pobLine =
+            "Minions Convert 2% of their Maximum Life to Maximum Energy Shield per 1% Chaos Resistance they have";
+        var modifier = Modifier(
+            "MinionLifeConvertedToEnergyShieldUnique__1",
+            "minion_maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance",
+            2,
+            2,
+            "unique") with
+        {
+            // Real RePoE SourceText wraps "Energy\nShield"; must not be treated as composition.
+            SourceText =
+                "Minions Convert 2% of their Maximum Life to Maximum Energy\nShield per 1% Chaos Resistance they have",
+        };
+        var translation = TranslationLines(
+            "minion-life-convert-es",
+            "minion_maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance",
+            [
+                "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                "Shield per 1% Chaos Resistance they have",
+            ],
+            "#");
+
+        var result = ImportSingle(
+            $"""
+                Fleshcrafter
+                Carnal Armour
+                Implicits: 0
+                {pobLine}
+                """,
+            generated: false,
+            modifiers: [modifier],
+            translations: [translation],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["MinionLifeConvertedToEnergyShieldUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["minion_maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"],
+            block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.DiagnosticCode);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        // Ordinary exact-vector path: provenance is null when no non-trivial resolution reasons.
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
+    [Fact]
+    public void Import_NewlineFold_DifferentLineBoundarySemantics_RemainUnsupported()
+    {
+        // Same tokens, different clause boundaries: folding must not invent a match.
+        var result = ImportSingle(
+            """
+                Boundary Probe
+                Carnal Armour
+                Implicits: 0
+                Alpha Beta Gamma
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.boundary", "boundary_stat", 1, 1, "unique"),
+            ],
+            translations:
+            [
+                TranslationLines(
+                    "boundary-split",
+                    "boundary_stat",
+                    ["Alpha Gamma", "Beta"],
+                    "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_NewlineFold_MissingSemanticClause_RemainsUnsupported()
+    {
+        var result = ImportSingle(
+            """
+                Missing Clause Probe
+                Carnal Armour
+                Implicits: 0
+                Minions Convert 2% of their Maximum Life to Maximum Energy Shield per 1% Chaos Resistance they have
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.convert.partial", "convert_stat", 2, 2, "unique"),
+            ],
+            translations:
+            [
+                TranslationLines(
+                    "convert-partial",
+                    "convert_stat",
+                    [
+                        "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                        "Shield",
+                    ],
+                    "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_NewlineFold_ExtraSemanticClause_RemainsUnsupported()
+    {
+        var result = ImportSingle(
+            """
+                Extra Clause Probe
+                Carnal Armour
+                Implicits: 0
+                Minions Convert 2% of their Maximum Life to Maximum Energy Shield per 1% Chaos Resistance they have
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.convert.extra", "convert_stat", 2, 2, "unique"),
+            ],
+            translations:
+            [
+                TranslationLines(
+                    "convert-extra",
+                    "convert_stat",
+                    [
+                        "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                        "Shield per 1% Chaos Resistance they have",
+                        "Also grants Unholy Might",
+                    ],
+                    "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_NewlineFold_PlaceholderCountMismatch_RemainsUnsupported()
+    {
+        // Two dynamic placeholders across newline-split FormatLines must not Exact-match a
+        // single fixed PoB convert line (static fold applies only when rendered Exact keys match).
+        var result = ImportSingle(
+            """
+                Placeholder Probe
+                Carnal Armour
+                Implicits: 0
+                Minions Convert 2% of their Maximum Life to Maximum Energy Shield per 1% Chaos Resistance they have
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "unique.convert.placeholders",
+                    ("convert_a", 1m, 10m),
+                    ("convert_b", 1m, 10m)),
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "convert-two-placeholders",
+                    StatIds = ["convert_a", "convert_b"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0 },
+                                new StatTranslationCondition { Index = 1 },
+                            ],
+                            FormatLines =
+                            [
+                                "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                                "Shield per {1}% Chaos Resistance they have",
+                            ],
+                            ValueFormats = ["#", "#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_NewlineFold_DisagreeingCandidateFingerprints_RemainFailClosed()
+    {
+        var result = ImportSingle(
+            """
+                Conflict Probe
+                Carnal Armour
+                Implicits: 0
+                Minions Convert 2% of their Maximum Life to Maximum Energy Shield per 1% Chaos Resistance they have
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.convert.first", "convert_stat_one", 2, 2, "unique"),
+                Modifier("unique.convert.second", "convert_stat_two", 2, 2, "unique"),
+            ],
+            translations:
+            [
+                TranslationLines(
+                    "convert-first",
+                    "convert_stat_one",
+                    [
+                        "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                        "Shield per 1% Chaos Resistance they have",
+                    ],
+                    "#"),
+                TranslationLines(
+                    "convert-second",
+                    "convert_stat_two",
+                    [
+                        "Minions Convert {0}% of their Maximum Life to Maximum Energy",
+                        "Shield per 1% Chaos Resistance they have",
+                    ],
+                    "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Carnal Armour", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        var conflict = Assert.IsType<UniqueMechanicalConflictEvidence>(
+            block.MechanicalMapping.ConflictEvidence);
+        Assert.Equal(UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds, conflict.Kind);
+        Assert.Equal(2, conflict.Candidates.Count);
+    }
+
+    [Fact]
+    public void Import_PureTalentClassShortLine_CompositeLongForm_RemainsUnsupported()
+    {
+        // A.5.47 territory: short Class: lines must not become Exact via newline folding.
+        var result = ImportSingle(
+            """
+                Pure Talent
+                Viridian Jewel
+                Implicits: 0
+                Marauder: Melee Skills have 25% increased Area of Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier(
+                    "StarterPassiveTreeJewelUnique__1",
+                    "local_unique_jewel_melee_skills_area_of_effect_+%_with_passive_tree_connected_to_marauder_start",
+                    25,
+                    25,
+                    "unique") with
+                {
+                    Domain = "misc",
+                },
+            ],
+            translations:
+            [
+                Translation(
+                    "marauder-long-form",
+                    "local_unique_jewel_melee_skills_area_of_effect_+%_with_passive_tree_connected_to_marauder_start",
+                    "While your Passive Skill Tree connects to the Marauder starting location, you gain: Melee Skills have {0}% increased Area of Effect",
+                    "#"),
+            ],
+            baseItems: [new ItemBaseRecord { Name = "Viridian Jewel", Domain = "item" }]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_MECHANICS_NOT_FOUND", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.Provenance);
+    }
+
     [Fact]
     public void Import_EvaluatedVariantsAndGeneratedReplica_RetainsProvenanceAndMechanics()
     {
@@ -4271,6 +4576,26 @@ public sealed class PoBUniqueCatalogImporterTests
             {
                 Conditions = [new StatTranslationCondition { Index = 0 }],
                 FormatLines = [format],
+                ValueFormats = valueFormats,
+                IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+            },
+        ],
+    };
+
+    private static StatTranslationDefinition TranslationLines(
+        string id,
+        string statId,
+        IReadOnlyList<string> formatLines,
+        params string[] valueFormats) => new()
+    {
+        Id = id,
+        StatIds = [statId],
+        Variants =
+        [
+            new StatTranslationVariant
+            {
+                Conditions = [new StatTranslationCondition { Index = 0 }],
+                FormatLines = formatLines.ToArray(),
                 ValueFormats = valueFormats,
                 IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
             },

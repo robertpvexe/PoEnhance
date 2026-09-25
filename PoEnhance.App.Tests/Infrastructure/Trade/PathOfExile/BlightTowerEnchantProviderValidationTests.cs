@@ -130,7 +130,7 @@ public sealed class BlightTowerEnchantProviderValidationTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.8-timeless-unique-item-domain", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.1.2.9-unique-newline-translation-fidelity", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

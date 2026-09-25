@@ -1900,14 +1900,13 @@ public sealed partial class PoBUniqueCatalogImporter
                 partialCandidates.Add(evidencedCandidate);
             }
 
-            if (!string.IsNullOrWhiteSpace(modifier.SourceText) &&
-                SplitSourceTextLines(modifier.SourceText).Length >= 2)
-            {
-                compositionModifierIds.Add(modifier.Id!);
-            }
-
+            // Only treat SourceText as multi-line composition when lines align 1:1 with
+            // non-zero component stats. Formatting-only wraps (one stat, Energy\nShield)
+            // must not enter compositionModifierIds or RejectIncompleteCompositionMatches
+            // will drop a valid single-line PoB Exact after newline-folded signature match.
             if (TryCreateSourceTextCompositionKey(modifier, out var sourceTextKey))
             {
+                compositionModifierIds.Add(modifier.Id!);
                 if (!sourceTextExactIndex.TryGetValue(sourceTextKey, out var sourceTextCandidates))
                 {
                     sourceTextCandidates = [];
@@ -2676,9 +2675,14 @@ public sealed partial class PoBUniqueCatalogImporter
     private static string UnorderedMultilineKey(string value) =>
         UnorderedMultilineKey(value.Split('\n'));
 
-    private static string UnorderedMultilineKey(IEnumerable<string> lines) => string.Join(
-        "\n",
-        lines.Select(NormalizeExactEvidence).OrderBy(line => line, StringComparer.Ordinal));
+    // Fold formatting-only newlines between translation FormatLines (e.g. "Energy\nShield")
+    // into the same whitespace-canonical key already used for Exact evidence. Semantic
+    // clause identity is still distinguished by ordered content after per-line normalize
+    // + stable sort; only the inter-line newline vs space difference is erased.
+    private static string UnorderedMultilineKey(IEnumerable<string> lines) =>
+        NormalizeExactEvidence(string.Join(
+            "\n",
+            lines.Select(NormalizeExactEvidence).OrderBy(line => line, StringComparer.Ordinal)));
 
     private static bool MatchesDynamicPattern(Regex pattern, IReadOnlyList<string> lines)
     {
