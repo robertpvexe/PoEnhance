@@ -48,7 +48,153 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
 
         Assert.False(result.SupportsValueBounds);
         Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
-        Assert.Contains("presence-only", result.ValueBoundsUnsupportedReason);
+        Assert.Contains("FilterArity is 0", result.ValueBoundsUnsupportedReason);
+    }
+
+    [Fact]
+    public void Project_ZeroAritySuppressesDraftNumericBoundsWithoutHardcodes()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.Project(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [0.25m],
+                CanonicalNumericValues = [0.25m],
+                RequestedMinimum = 0.25m,
+                RequestedMaximum = 0.25m,
+                ProviderSearchSignatures =
+                [
+                    "Trigger a Socketed Lightning Spell on Hit, with a <number> second Cooldown",
+                ],
+            },
+            Candidate(
+                "Trigger a Socketed Lightning Spell on Hit, with a 0.25 second Cooldown\nSocketed Lightning Spells have no Cost if Triggered"));
+
+        Assert.Equal(0, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
+            "Trigger a Socketed Lightning Spell on Hit, with a 0.25 second Cooldown\nSocketed Lightning Spells have no Cost if Triggered"));
+        Assert.False(result.SupportsValueBounds);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, result.ValueBoundShape);
+        Assert.Null(result.RequestedMinimum);
+        Assert.Null(result.RequestedMaximum);
+        Assert.Contains("FilterArity is 0", result.ValueBoundsUnsupportedReason);
+    }
+
+    [Fact]
+    public void ProjectBounds_ZeroArityLiteralNumberOmitsMinMax()
+    {
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [3m],
+                CanonicalNumericValues = [3m],
+                RequestedMinimum = 3m,
+                RequestedMaximum = 3m,
+            },
+            Candidate("Can have up to 3 Crafted Modifiers"));
+
+        Assert.True(bounds.IsFaithful);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, bounds.ValueBoundShape);
+        Assert.Null(bounds.Minimum);
+        Assert.Null(bounds.Maximum);
+    }
+
+    [Theory]
+    [InlineData("Cannot be Frozen")]
+    [InlineData("Cannot be Chilled")]
+    public void ProjectBounds_ZeroArityPresenceOnlyStaysPresenceOnly(string providerText)
+    {
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                SupportsValueBounds = false,
+            },
+            Candidate(providerText));
+
+        Assert.True(bounds.IsFaithful);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, bounds.ValueBoundShape);
+        Assert.Null(bounds.Minimum);
+        Assert.Null(bounds.Maximum);
+        Assert.Equal(0, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerText));
+    }
+
+    [Theory]
+    [InlineData("+# to maximum Life", 86)]
+    [InlineData("+#% to Cold Resistance", 40)]
+    [InlineData("+# to maximum Mana", 55)]
+    public void ProjectBounds_OneArityOrdinaryNumericPreservesBounds(string providerText, int value)
+    {
+        Assert.Equal(1, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerText));
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [value],
+                CanonicalNumericValues = [value],
+                RequestedMinimum = value,
+            },
+            Candidate(providerText));
+
+        Assert.True(bounds.IsFaithful);
+        Assert.Equal(value, bounds.Minimum);
+        Assert.Null(bounds.Maximum);
+    }
+
+    [Theory]
+    [InlineData("#% chance to gain Phasing for 4 seconds on Kill", 20)]
+    [InlineData("Monsters have #% chance to inflict Withered for 2 seconds on Hit", 15)]
+    public void ProjectBounds_MixedLiteralAndDynamicUsesOnlyHashSlot(string providerText, int dynamicValue)
+    {
+        Assert.Equal(1, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerText));
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [dynamicValue],
+                CanonicalNumericValues = [dynamicValue],
+                RequestedMinimum = dynamicValue,
+            },
+            Candidate(providerText));
+
+        Assert.True(bounds.IsFaithful);
+        Assert.Equal(dynamicValue, bounds.Minimum);
+        Assert.Null(bounds.Maximum);
+    }
+
+    [Fact]
+    public void Project_MultiSlotArityTwoArithmeticMeanRemainsSupported()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.Project(
+            DamageRangeComponent([14m, 25m]),
+            Candidate("Adds # to # Physical Damage to Attacks"));
+
+        Assert.Equal(2, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
+            "Adds # to # Physical Damage to Attacks"));
+        Assert.True(result.SupportsValueBounds);
+        Assert.Equal(19.5m, result.RequestedMinimum);
+    }
+
+    [Fact]
+    public void Project_MultiSlotArityThreeRemainsFailClosed()
+    {
+        var result = PathOfExileTradeModifierBoundProjector.Project(
+            DamageRangeComponent([14m, 25m]),
+            Candidate("Adds # to # to # Physical Damage"));
+
+        Assert.False(result.SupportsValueBounds);
+        Assert.Null(result.RequestedMinimum);
+        Assert.Null(result.RequestedMaximum);
+        Assert.Contains("does not expose the same two-value range", result.ValueBoundsUnsupportedReason);
     }
 
     [Fact]

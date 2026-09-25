@@ -257,13 +257,19 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             };
         }
 
-        if (providerArity == 0 && !component.SupportsValueBounds)
+        // Official Trade filter arity is the count of '#' placeholders in the selected
+        // catalog entry text. Literal digits in that text are identity, not query slots.
+        // Arity 0 must suppress min/max even when Core/draft still carries parsed numbers.
+        if (providerArity == 0)
         {
             return component with
             {
+                SupportsValueBounds = false,
                 ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
                 ValueBoundsUnsupportedReason =
-                    "Official Trade exposes this stat as presence-only; numeric bounds are not meaningful.",
+                    "Official Trade FilterArity is 0 (no dynamic '#' placeholders); numeric Min/Max are suppressed.",
             };
         }
 

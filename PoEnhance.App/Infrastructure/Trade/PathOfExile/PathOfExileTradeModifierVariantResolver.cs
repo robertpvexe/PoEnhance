@@ -746,19 +746,31 @@ internal static class PathOfExileTradeModifierVariantResolver
         }
         var candidate = candidates[0];
         var kind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate);
-        var supportsBounds = candidates.All(current =>
-            PathOfExileTradeModifierBoundProjector.Project(component, current).SupportsValueBounds &&
+        var projections = candidates
+            .Select(current => (
+                Candidate: current,
+                Projected: PathOfExileTradeModifierBoundProjector.Project(component, current)))
+            .ToArray();
+        var supportsBounds = projections.All(entry =>
+            entry.Projected.SupportsValueBounds &&
             (
-                HasCompatibleNumericSemantics(source, current) ||
+                HasCompatibleNumericSemantics(source, entry.Candidate) ||
                 PathOfExileTradeModifierBoundProjector.CanProjectSemanticBridge(
                     component,
-                    current)));
+                    entry.Candidate)));
         var contributorShapes = candidates
             .Select(current => SupportsContributorComposition(component, current))
             .Distinct()
             .ToArray();
         var supportsContributorComposition = contributorShapes.Length == 1 && contributorShapes[0];
         var label = ConciseLabel(candidate, kind);
+        var zeroArityPresenceReason = projections
+            .Where(entry =>
+                PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(entry.Candidate.Text) == 0 &&
+                entry.Projected.ValueBoundShape == ModifierBoundShape.PresenceOnly &&
+                !entry.Projected.SupportsValueBounds)
+            .Select(entry => entry.Projected.ValueBoundsUnsupportedReason)
+            .FirstOrDefault(reason => !string.IsNullOrWhiteSpace(reason));
         return new SearchFilterVariant
         {
             Identity = IdentityFor(candidates),
@@ -773,7 +785,9 @@ internal static class PathOfExileTradeModifierVariantResolver
                 : SearchFilterVariantMode.Standalone,
             SupportsContributorComposition = supportsContributorComposition,
             SupportsValueBounds = supportsBounds,
-            ValueBoundsUnsupportedReason = supportsBounds ? null : UnsupportedBoundsMessage,
+            ValueBoundsUnsupportedReason = supportsBounds
+                ? null
+                : zeroArityPresenceReason ?? UnsupportedBoundsMessage,
         };
     }
 
