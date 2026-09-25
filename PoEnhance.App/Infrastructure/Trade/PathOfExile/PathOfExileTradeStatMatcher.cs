@@ -1351,10 +1351,11 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         var evidence = component.ProviderDomainEvidence
             .Select(entry => new
             {
-                Kind = entry.ProviderDomain.Trim().ToLowerInvariant(),
+                Kind = MapSourceProviderDomainToTradeKind(entry.ProviderDomain),
                 entry.EvidenceStrength,
             })
-            .Where(entry => supported.Contains(entry.Kind))
+            .Where(entry => entry.Kind is not null && supported.Contains(entry.Kind))
+            .Select(entry => new { Kind = entry.Kind!, entry.EvidenceStrength })
             .ToArray();
         if (evidence.Length == 0)
         {
@@ -1366,6 +1367,27 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             .Where(entry => entry.EvidenceStrength == strongest)
             .Select(entry => entry.Kind)
             .ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Maps packaged source provider-domain evidence onto Official Trade provider-kind labels.
+    /// Unique-owned mechanical modifiers are indexed under the Trade <c>explicit</c> adapter;
+    /// without this projection, Source-Exact Unique evidence is dropped and projected
+    /// Explicit/Scourge siblings can falsely tie.
+    /// </summary>
+    private static string? MapSourceProviderDomainToTradeKind(string? providerDomain)
+    {
+        if (string.IsNullOrWhiteSpace(providerDomain))
+        {
+            return null;
+        }
+
+        var domain = providerDomain.Trim().ToLowerInvariant();
+        return domain switch
+        {
+            "unique" => "explicit",
+            _ => domain,
+        };
     }
 
     private static string? RequiredKind(StatMatchSource source)
