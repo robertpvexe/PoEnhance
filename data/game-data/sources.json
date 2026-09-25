@@ -1,11 +1,11 @@
-﻿{
+{
     "schemaVersion":  1,
     "package":  {
                     "schemaVersion":  4,
-                    "dataVersion":  "3.29.1.2.6-passive-skill-identity",
+                    "dataVersion":  "3.29.1.2.8-timeless-unique-item-domain",
                     "createdAtUtc":  "2026-09-18T22:00:00+00:00",
-                    "sizeBytes":  190079796,
-                    "sha256":  "1c0a0398d5a1db2c9b8a4a2f07beb3b7b4d777383ac87be6a9aa5c78788fda41",
+                    "sizeBytes":  187395276,
+                    "sha256":  "9c457fdc8f86ca7533051267725044965ab146f23d1c0632a00460b6128065b5",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0

@@ -534,13 +534,24 @@ public sealed partial class PoBUniqueCatalogImporter
         var hasHistoricalVariant = classifiedVariants.Any(variant =>
             ClassifyVersionRole(variant.Label, hasExplicitCurrentLabel) ==
                 UniqueItemVersionRole.Historical);
+        // Non-generated pure-Current Alt Variant trees (e.g. Circle of Ambition) already carry
+        // evaluated optionAxes with selectionLimit>1, but historically failed the co-selectable
+        // gate when SourceKind was legacySharedVariantSelection and no Pre/Current labels or
+        // LimitedTo>1 existed. Without this branch those variants flatten into mutually exclusive
+        // Current versions and OptionAxes are dropped. Generated items keep the empty-primary path.
+        var hasPureCurrentAlternateCoSelectableAxis =
+            !item.IsGenerated &&
+            item.AlternateVariantSlotCount > 0 &&
+            !hasCurrentVariant &&
+            !hasHistoricalVariant;
         var hasCoSelectableSourceAxis = item.OptionAxes.Any(axis => axis.SelectionLimit > 1) &&
             (item.OptionAxes.Any(axis => !string.Equals(
                     axis.SourceKind,
                     "legacySharedVariantSelection",
                     StringComparison.OrdinalIgnoreCase)) ||
                 hasHistoricalVariant ||
-                item.LimitedToSelectionCount > 1);
+                item.LimitedToSelectionCount > 1 ||
+                hasPureCurrentAlternateCoSelectableAxis);
         if (hasCoSelectableSourceAxis)
         {
             return BuildCoSelectableVersionPlans(
@@ -4011,19 +4022,32 @@ public sealed partial class PoBUniqueCatalogImporter
             string baseType,
             bool hasGeneratedOptionEvidence)
         {
-            if (hasGeneratedOptionEvidence && string.Equals(
-                    candidate.Domain?.Trim(),
-                    "item",
-                    StringComparison.OrdinalIgnoreCase))
+            var domain = candidate.Domain?.Trim();
+            if (string.Equals(domain, "item", StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                // Generated Unique option pools already allow item-domain effects on any base.
+                // Unique-generation RePoE mods also use domain=item as Unique-ownership catalog
+                // domain (not ordinary crafting spawn affinity). Fixed option-axis Unique effects
+                // on misc-domain bases (e.g. Timeless Jewel devotion choices) must remain eligible
+                // when SourceGenerationType proves Unique ownership; prefix/suffix/Eldritch/etc.
+                // competitors stay excluded by this Unique-generation gate and later filters.
+                if (hasGeneratedOptionEvidence ||
+                    string.Equals(
+                        candidate.SourceGenerationType?.Trim(),
+                        "unique",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
             }
+
             if (!baseDomains.TryGetValue(baseType.Trim(), out var domains))
             {
                 return true;
             }
-            return !string.IsNullOrWhiteSpace(candidate.Domain) &&
-                domains.Contains(candidate.Domain.Trim());
+
+            return !string.IsNullOrWhiteSpace(domain) &&
+                domains.Contains(domain);
         }
 
         private bool IsPropertyCapabilityCompatible(

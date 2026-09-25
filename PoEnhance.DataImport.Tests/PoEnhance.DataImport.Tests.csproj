@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PoEnhance.DataImport\PoEnhance.DataImport.csproj" />
+    <ProjectReference Include="..\PoEnhance.Core\PoEnhance.Core.csproj" />
     <ProjectReference Include="..\PoEnhance.GameData\PoEnhance.GameData.csproj" />
   </ItemGroup>
 

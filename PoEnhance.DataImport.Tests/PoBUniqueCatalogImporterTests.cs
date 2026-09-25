@@ -256,6 +256,257 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_MiscBaseUniqueGenerationItemDomain_SurvivesBroadDomainFilter()
+    {
+        // Timeless Jewel bases are RePoE domain=misc, while Unique-owned devotion option
+        // effects are catalogued as generation_type=unique / domain=item. Broad filtering
+        // must treat Unique-generation item-domain as ownership class, not crafting affinity.
+        var uniqueDevotion = Modifier(
+            "BrandDamagePerDevotion",
+            "sigil_damage_+%_per_10_devotion",
+            4,
+            4,
+            "unique");
+        var prefixCompetitor = Modifier(
+            "BrandDamagePrefixCompetitor",
+            "sigil_damage_+%_per_10_devotion",
+            3,
+            5,
+            "prefix");
+
+        var result = ImportSingle(
+            """
+                Test Faith
+                Timeless Jewel
+                Limited to: 1 Historic
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Seed Keystone
+                Variant: Brand Damage
+                Radius: Large
+                Implicits: 0
+                {variant:1}Carved to glorify (2000-10000) new faithful converted by High Templar Avarius
+                {variant:1}Passives in radius are Conquered by the Templars
+                {variant:1}Historic
+                {variant:2}4% increased Brand Damage per 10 Devotion
+                """,
+            generated: false,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "UniqueJewelAlternateTreeInRadiusTemplar",
+                    GroupId = "Timeless",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "misc",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "local_unique_jewel_alternate_tree_version", MinValue = 1, MaxValue = 1 },
+                        new ModifierStat { Index = 1, StatId = "local_unique_jewel_alternate_tree_seed", MinValue = 2000, MaxValue = 10000 },
+                        new ModifierStat { Index = 2, StatId = "local_unique_jewel_alternate_tree_keystone", MinValue = 1, MaxValue = 1 },
+                        new ModifierStat { Index = 3, StatId = "local_jewel_effect_base_radius", MinValue = 1500, MaxValue = 1500 },
+                        new ModifierStat { Index = 4, StatId = "local_is_alternate_tree_jewel", MinValue = 1, MaxValue = 1 },
+                        new ModifierStat { Index = 5, StatId = "local_unique_jewel_alternate_tree_internal_revision", MinValue = 1, MaxValue = 1 },
+                    ],
+                },
+                uniqueDevotion,
+                prefixCompetitor,
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-seed",
+                    StatIds =
+                    [
+                        "local_unique_jewel_alternate_tree_version",
+                        "local_unique_jewel_alternate_tree_seed",
+                        "local_unique_jewel_alternate_tree_keystone",
+                        "local_unique_jewel_alternate_tree_internal_revision",
+                    ],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0 },
+                                new StatTranslationCondition { Index = 1 },
+                                new StatTranslationCondition { Index = 2 },
+                                new StatTranslationCondition { Index = 3 },
+                            ],
+                            ValueFormats = ["ignore", "#", "ignore", "ignore"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                                new StatTranslationIndexHandler { Index = 2 },
+                                new StatTranslationIndexHandler { Index = 3 },
+                            ],
+                            FormatLines =
+                            [
+                                "Carved to glorify {1} new faithful converted by High Templar Avarius",
+                                "Passives in radius are Conquered by the Templars",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-historic",
+                    StatIds = ["local_is_alternate_tree_jewel"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+                Translation(
+                    "brand-devotion",
+                    "sigil_damage_+%_per_10_devotion",
+                    "{0}% increased Brand Damage per 10 Devotion",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Timeless Jewel", Domain = "misc" },
+            ]);
+
+        var identity = Assert.Single(result.Catalog!.Items);
+        var version = Assert.Single(identity.Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        Assert.Single(version.SourceObservationIds);
+        Assert.NotEmpty(version.OptionAxes);
+
+        var seed = Assert.Single(
+            version.ModifierBlocks,
+            block => block.Lines.Any(line =>
+                line.Contains("Passives in radius are Conquered", StringComparison.Ordinal)));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, seed.MechanicalMapping.Status);
+        Assert.Equal(["UniqueJewelAlternateTreeInRadiusTemplar"], seed.MechanicalMapping.ModifierIds);
+
+        var brand = Assert.Single(
+            version.ModifierBlocks,
+            block => block.Lines.Contains("4% increased Brand Damage per 10 Devotion"));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, brand.MechanicalMapping.Status);
+        Assert.Equal(["BrandDamagePerDevotion"], brand.MechanicalMapping.ModifierIds);
+        Assert.Equal(["sigil_damage_+%_per_10_devotion"], brand.MechanicalMapping.StatIds);
+        Assert.Null(brand.MechanicalMapping.DiagnosticCode);
+        Assert.Single(brand.OptionChoiceMemberships);
+        Assert.Equal(version.SourceObservationIds[0], brand.SourceObservationIds[0]);
+        Assert.DoesNotContain(
+            "BrandDamagePrefixCompetitor",
+            brand.MechanicalMapping.ModifierIds,
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void Import_MiscBaseUniqueGenerationItemDomain_ElementalDevotionAlsoExact()
+    {
+        var result = ImportSingle(
+            """
+                Test Faith Elemental
+                Timeless Jewel
+                Limited to: 1 Historic
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Seed Keystone
+                Variant: Elemental Damage
+                Radius: Large
+                Implicits: 0
+                {variant:1}Carved to glorify (2000-10000) new faithful converted by High Templar Avarius
+                {variant:1}Passives in radius are Conquered by the Templars
+                {variant:1}Historic
+                {variant:2}4% increased Elemental Damage per 10 Devotion
+                """,
+            generated: false,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "UniqueJewelAlternateTreeInRadiusTemplar",
+                    GroupId = "Timeless",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "misc",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "local_unique_jewel_alternate_tree_seed", MinValue = 2000, MaxValue = 10000 },
+                        new ModifierStat { Index = 1, StatId = "local_is_alternate_tree_jewel", MinValue = 1, MaxValue = 1 },
+                    ],
+                },
+                Modifier(
+                    "ElementalDamagePerDevotion_",
+                    "elemental_damage_+%_per_10_devotion",
+                    4,
+                    4,
+                    "unique"),
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-seed",
+                    StatIds = ["local_unique_jewel_alternate_tree_seed"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Carved to glorify {0} new faithful converted by High Templar Avarius",
+                                "Passives in radius are Conquered by the Templars",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "timeless-historic",
+                    StatIds = ["local_is_alternate_tree_jewel"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+                Translation(
+                    "elem-devotion",
+                    "elemental_damage_+%_per_10_devotion",
+                    "{0}% increased Elemental Damage per 10 Devotion",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord { Name = "Timeless Jewel", Domain = "misc" },
+            ]);
+
+        var elemental = Assert.Single(
+            Assert.Single(Assert.Single(result.Catalog!.Items).Versions).ModifierBlocks,
+            block => block.Lines.Contains("4% increased Elemental Damage per 10 Devotion"));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, elemental.MechanicalMapping.Status);
+        Assert.Equal(["ElementalDamagePerDevotion_"], elemental.MechanicalMapping.ModifierIds);
+        Assert.Equal(["elemental_damage_+%_per_10_devotion"], elemental.MechanicalMapping.StatIds);
+        Assert.Null(elemental.MechanicalMapping.DiagnosticCode);
+    }
+
+    [Fact]
     public void Import_MechanicallyDifferentExactUniqueSources_RemainAmbiguous()
     {
         var result = ImportSingle(
@@ -3336,6 +3587,161 @@ public sealed class PoBUniqueCatalogImporterTests
             energyShield.OptionChoiceMemberships[0].OptionChoiceId);
         Assert.Equal(axis.Id, intelligence.OptionChoiceMemberships[0].OptionAxisId);
         Assert.Equal(axis.Id, energyShield.OptionChoiceMemberships[0].OptionAxisId);
+    }
+
+    [Fact]
+    public void Import_NonGeneratedPureCurrentAltVariants_PackageSharedCoSelectableOptionAxis()
+    {
+        var result = ImportSingle(
+            """
+                Test Ambition Pool
+                Prismatic Ring
+                Has Alt Variant: true
+                Has Alt Variant Two: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Selected Alt Variant Two: 3
+                Variant: Choice Alpha
+                Variant: Choice Beta
+                Variant: Choice Gamma
+                Variant: Choice Delta
+                Variant: Choice Epsilon
+                Implicits: 0
+                {variant:1}(40-60)% increased Alpha Damage
+                {variant:2}(30-40)% increased Beta Efficiency
+                {variant:3}(40-60)% increased Gamma Effect
+                {variant:4}(40-60)% increased Delta Damage
+                {variant:5}(40-60)% increased Epsilon Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.alpha", "alpha_damage", 40, 60, "unique"),
+                Modifier("unique.beta", "beta_efficiency", 30, 40, "unique"),
+                Modifier("unique.gamma", "gamma_effect", 40, 60, "unique"),
+                Modifier("unique.delta", "delta_damage", 40, 60, "unique"),
+                Modifier("unique.epsilon", "epsilon_effect", 40, 60, "unique"),
+            ],
+            translations:
+            [
+                Translation("alpha", "alpha_damage", "{0}% increased Alpha Damage", "#"),
+                Translation("beta", "beta_efficiency", "{0}% increased Beta Efficiency", "#"),
+                Translation("gamma", "gamma_effect", "{0}% increased Gamma Effect", "#"),
+                Translation("delta", "delta_damage", "{0}% increased Delta Damage", "#"),
+                Translation("epsilon", "epsilon_effect", "{0}% increased Epsilon Effect", "#"),
+            ]);
+
+        var identity = Assert.Single(result.Catalog!.Items);
+        var version = Assert.Single(identity.Versions);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        Assert.Single(version.SourceObservationIds);
+        var axis = Assert.Single(version.OptionAxes);
+        Assert.Equal(3, axis.SelectionLimit);
+        Assert.Equal(5, axis.Choices.Count);
+        Assert.Equal(5, version.ModifierBlocks.Count(block => block.OptionChoiceMemberships.Count > 0));
+        Assert.All(version.ModifierBlocks, block =>
+        {
+            var membership = Assert.Single(block.OptionChoiceMemberships);
+            Assert.Equal(axis.Id, membership.OptionAxisId);
+            Assert.Contains(axis.Choices, choice => choice.Id == membership.OptionChoiceId);
+            Assert.Equal(version.SourceObservationIds[0], membership.SourceObservationIds[0]);
+        });
+        Assert.Equal(
+            5,
+            version.ModifierBlocks
+                .SelectMany(block => block.OptionChoiceMemberships)
+                .Select(membership => membership.OptionChoiceId)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public void Import_GeneratedAltVariants_RemainEmptyPrimaryObservedOptionAxisPath()
+    {
+        var result = ImportSingle(
+            """
+                Test Generated Pool
+                Onyx Amulet
+                Has Alt Variant: true
+                Has Alt Variant Two: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Selected Alt Variant Two: 3
+                Variant: Alpha
+                Variant: Beta
+                Variant: Gamma
+                Implicits: 0
+                {variant:1}+1 to Level of all Alpha Gems
+                {variant:2}+1 to Level of all Beta Gems
+                {variant:3}+1 to Level of all Gamma Gems
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier("unique.alpha", "alpha_level", 1, 1, "unique"),
+                Modifier("unique.beta", "beta_level", 1, 1, "unique"),
+                Modifier("unique.gamma", "gamma_level", 1, 1, "unique"),
+            ],
+            translations:
+            [
+                Translation("alpha", "alpha_level", "{0} to Level of all Alpha Gems", "+#"),
+                Translation("beta", "beta_level", "{0} to Level of all Beta Gems", "+#"),
+                Translation("gamma", "gamma_level", "{0} to Level of all Gamma Gems", "+#"),
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal("Observed", version.Label);
+        Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+        var axis = Assert.Single(version.OptionAxes);
+        Assert.Equal(3, axis.SelectionLimit);
+        Assert.Equal(3, axis.Choices.Count);
+    }
+
+    [Fact]
+    public void Import_TrueCompleteVersionsWithoutAltSlots_DoNotInventOptionAxes()
+    {
+        var result = ImportSingle(
+            """
+                Test Complete Versions
+                Titanium Spirit Shield
+                Variant: Chaos
+                Variant: Fire
+                Variant: Cold
+                Variant: Lightning
+                Variant: Physical
+                Implicits: 0
+                {variant:1}(40-60)% increased Chaos Damage
+                {variant:2}(40-60)% increased Fire Damage
+                {variant:3}(40-60)% increased Cold Damage
+                {variant:4}(40-60)% increased Lightning Damage
+                {variant:5}(40-60)% increased Physical Damage
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("unique.chaos", "chaos_damage", 40, 60, "unique"),
+                Modifier("unique.fire", "fire_damage", 40, 60, "unique"),
+                Modifier("unique.cold", "cold_damage", 40, 60, "unique"),
+                Modifier("unique.lightning", "lightning_damage", 40, 60, "unique"),
+                Modifier("unique.physical", "physical_damage", 40, 60, "unique"),
+            ],
+            translations:
+            [
+                Translation("chaos", "chaos_damage", "{0}% increased Chaos Damage", "#"),
+                Translation("fire", "fire_damage", "{0}% increased Fire Damage", "#"),
+                Translation("cold", "cold_damage", "{0}% increased Cold Damage", "#"),
+                Translation("lightning", "lightning_damage", "{0}% increased Lightning Damage", "#"),
+                Translation("physical", "physical_damage", "{0}% increased Physical Damage", "#"),
+            ]);
+
+        var identity = Assert.Single(result.Catalog!.Items);
+        Assert.Equal(5, identity.Versions.Count);
+        Assert.All(identity.Versions, version =>
+        {
+            Assert.Equal(UniqueItemVersionRole.Current, version.Role);
+            Assert.Empty(version.OptionAxes);
+            Assert.All(version.ModifierBlocks, block => Assert.Empty(block.OptionChoiceMemberships));
+        });
     }
 
     [Fact]

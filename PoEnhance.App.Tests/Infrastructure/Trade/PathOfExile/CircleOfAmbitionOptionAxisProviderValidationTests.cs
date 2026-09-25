@@ -7,7 +7,7 @@ using PoEnhance.GameData;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
-public sealed class OnslaughtCorruptedProviderValidationTests
+public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
 {
     private static readonly Lazy<GameDataCatalog> GameData = new(LoadGameData);
     private static readonly Lazy<PathOfExileTradeStatCatalog> OfficialTradeCatalog =
@@ -18,46 +18,69 @@ public sealed class OnslaughtCorruptedProviderValidationTests
     private static readonly PathOfExileTradeSelectedModifierMapper SelectedMapper = new();
 
     [Fact]
-    public async Task RealMjolnerOnslaught_ProviderMapsExactTradeImplicitWithoutPhysDamageLeakage()
+    public void FreshCircleThreeHeraldChoices_ProviderMapsExactTradeExplicitStats()
     {
-        var raw = await ReadCaptureClipboardAsync();
-        var runtime = Resolve(raw, OfficialTradeCatalog.Value);
-        var component = Assert.Single(
-            runtime.ProviderDraft.ModifierFilters,
-            filter => filter.RawCopiedText.Contains("Onslaught", StringComparison.OrdinalIgnoreCase));
+        var capture = Path.Combine(
+            Path.GetTempPath(),
+            "PoEnhance-A.5.36-Unique-NoModId-Capture",
+            "20260924-093744-936-Circle of Ambition.json");
+        Assert.True(File.Exists(capture), $"Missing A.5.36 Circle capture: {capture}");
+        using var document = JsonDocument.Parse(File.ReadAllText(capture));
+        var raw = document.RootElement
+            .GetProperty("replayContext")
+            .GetProperty("rawClipboardText")
+            .GetString();
+        Assert.False(string.IsNullOrWhiteSpace(raw));
 
-        Assert.Equal(ParsedModifierKind.Implicit, component.ParsedKind);
-        Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, component.ImplicitOrigin);
-        Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
-        Assert.Equal("V2ChanceToGainOnslaughtOnKillCorrupted_", component.ResolvedModifierId);
-        Assert.Equal(["chance_to_gain_onslaught_on_kill_%"], component.ResolvedStatIds.ToArray());
-        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
-        Assert.Equal("implicit.stat_3023957681", component.ProviderStatId);
-        Assert.True(component.IsSearchable, component.NotSearchableReason);
-        Assert.Equal(13m, component.RequestedMinimum);
-        Assert.Null(component.RequestedMaximum);
-        Assert.DoesNotContain(
-            runtime.ProviderDraft.ModifierFilters,
-            filter => filter.ResolvedModifierId == "V2LocalIncreasedPhysicalDamageCorrupted1");
+        var runtime = Resolve(raw!, OfficialTradeCatalog.Value);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, runtime.Unique.Status);
 
-        var selectedDraft = runtime.ProviderDraft with
+        var expected = new (string Needle, string ModId, string StatId, string TradeId)[]
         {
-            ModifierFilters = runtime.ProviderDraft.ModifierFilters
-                .Select(candidate => candidate with
-                {
-                    IsSelected = string.Equals(
-                        candidate.ComponentId,
-                        component.ComponentId,
-                        StringComparison.Ordinal),
-                })
-                .ToArray(),
+            (
+                "Lightning Damage while affected by Herald of Thunder",
+                "HeraldBonusThunderLightningDamage",
+                "lightning_damage_+%_while_affected_by_herald_of_thunder",
+                "explicit.stat_536957"),
+            (
+                "Herald of Ash has",
+                "HeraldBonusAshReservationEfficiency__",
+                "herald_of_ash_mana_reservation_efficiency_+%",
+                "explicit.stat_2500442851"),
+            (
+                "Herald of Purity has",
+                "HeraldBonusPurityEffect",
+                "herald_of_light_buff_effect_+%",
+                "explicit.stat_2126027382"),
         };
-        var mapping = SelectedMapper.Map(selectedDraft, OfficialTradeCatalog.Value);
-        Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(d => d.Message)));
-        var filter = Assert.Single(mapping.Filters);
-        Assert.Equal(component.ProviderStatId, filter.StatId);
-        Assert.Equal(13m, filter.Minimum);
-        Assert.Null(filter.Maximum);
+
+        foreach (var (needle, modId, statId, tradeId) in expected)
+        {
+            var component = Assert.Single(
+                runtime.ProviderDraft.ModifierFilters,
+                filter => filter.RawCopiedText.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            Assert.True(component.HasExactUniqueSourceProvenance);
+            Assert.Equal(modId, component.ResolvedModifierId);
+            Assert.Equal([statId], component.ResolvedStatIds.ToArray());
+            Assert.True(
+                component.ProviderResolutionStatus is
+                    SearchComponentProviderResolutionStatus.Exact or
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+                $"Unexpected provider status {component.ProviderResolutionStatus} for {needle}");
+            if (!string.IsNullOrWhiteSpace(component.ProviderStatId))
+            {
+                Assert.Equal(tradeId, component.ProviderStatId);
+            }
+            else
+            {
+                // ExactEquivalentSet may omit a single ProviderStatId while still carrying Exact
+                // Unique provenance and searchable Core StatIds for Trade mapping.
+                Assert.Equal(
+                    SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+                    component.ProviderResolutionStatus);
+            }
+            Assert.True(component.IsSearchable, component.NotSearchableReason);
+        }
     }
 
     private static RuntimeResult Resolve(string rawText, PathOfExileTradeStatCatalog tradeCatalog)
@@ -68,6 +91,7 @@ public sealed class OnslaughtCorruptedProviderValidationTests
             parsed,
             GameData.Value,
             baseResolution);
+        var unique = new ParsedUniqueItemResolver().Resolve(parsed, GameData.Value, baseResolution);
         var draftResult = new TradeSearchDraftMapper().CreateDraft(
             parsed,
             baseResolution,
@@ -83,7 +107,7 @@ public sealed class OnslaughtCorruptedProviderValidationTests
             tradeCatalog,
             uniqueIdentity,
             FilterCatalog);
-        return new RuntimeResult(providerDraft);
+        return new RuntimeResult(providerDraft, unique);
     }
 
     private static PathOfExileTradePriceCheckService CreatePriceCheckService(
@@ -100,21 +124,19 @@ public sealed class OnslaughtCorruptedProviderValidationTests
             new NoFetchClient());
     }
 
-    private static PathOfExileTradeItemCatalog CreateTradeItemCatalog()
-    {
-        return new PathOfExileTradeItemCatalog(
+    private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
+        new(
         [
             new PathOfExileTradeItemEntry
             {
                 ProviderOrder = 0,
-                GroupId = "weapon",
-                GroupLabel = "weapon",
-                Name = "Mjölner",
-                Type = "Gavel",
+                GroupId = "ring",
+                GroupLabel = "ring",
+                Name = "Circle of Ambition",
+                Type = "Prismatic Ring",
                 IsUnique = true,
             },
         ]);
-    }
 
     private static GameDataCatalog LoadGameData()
     {
@@ -155,27 +177,9 @@ public sealed class OnslaughtCorruptedProviderValidationTests
         throw new FileNotFoundException($"Could not find repository file: {Path.Combine(relativeParts)}");
     }
 
-    private static async Task<string> ReadCaptureClipboardAsync()
-    {
-        var directory = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.32-Corrupted-Onslaught-Capture");
-        var path = Directory.EnumerateFiles(directory, "*.json")
-            .First(file =>
-                Path.GetFileName(file).Contains("103002", StringComparison.Ordinal) &&
-                !Path.GetFileName(file).Contains("search", StringComparison.OrdinalIgnoreCase) &&
-                !Path.GetFileName(file).Contains("request", StringComparison.OrdinalIgnoreCase));
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
-        Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
-    }
-
-    private sealed record RuntimeResult(TradeSearchDraft ProviderDraft);
+    private sealed record RuntimeResult(
+        TradeSearchDraft ProviderDraft,
+        UniqueItemResolutionResult Unique);
 
     private sealed class StaticStatProvider(PathOfExileTradeStatCatalog catalog) :
         IPathOfExileTradeStatCatalogProvider

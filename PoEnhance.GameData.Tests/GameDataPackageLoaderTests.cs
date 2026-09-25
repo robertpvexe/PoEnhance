@@ -56,7 +56,7 @@ public sealed class GameDataPackageLoaderTests
         Assert.NotNull(result.Package);
         Assert.Equal(expectedVersion, result.Package.Manifest.DataVersion);
         Assert.Equal(
-            "3.29.1.2.6-passive-skill-identity",
+            "3.29.1.2.8-timeless-unique-item-domain",
             result.Package.Manifest.DataVersion);
         Assert.Null(result.Package.Manifest.Patch);
         Assert.Equal(4, result.Package.Manifest.SchemaVersion);
