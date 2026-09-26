@@ -464,6 +464,46 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
                     return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
                 }
             }
+
+            // TRADE.4e Track A — same-family helper-word condition branch (e.g. omitted "additional").
+            foreach (var lookup in PathOfExileTradeTranslationGrammarLookupExpander
+                .ExpandHelperWordBranchLookups(
+                    source.Component!,
+                    lookups,
+                    context?.GameDataCatalog))
+            {
+                var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                if (direct.Length > 0)
+                {
+                    return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
+                }
+
+                var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                if (qualified.Length > 0)
+                {
+                    return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
+                }
+            }
+
+            // TRADE.4e Track B — signed display -# vs unsigned translation/Trade #.
+            foreach (var lookup in PathOfExileTradeTranslationGrammarLookupExpander
+                .ExpandSignedSourceToUnsignedFormatLookups(
+                    source.Component!,
+                    lookups,
+                    context?.GameDataCatalog))
+            {
+                var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                if (direct.Length > 0)
+                {
+                    return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
+                }
+
+                var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                if (qualified.Length > 0)
+                {
+                    return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
+                }
+            }
         }
 
         if (hasExactAtomicMultiLineUnique)

@@ -5,8 +5,9 @@ using PoEnhance.GameData;
 namespace PoEnhance.App.Infrastructure.Trade.PathOfExile;
 
 /// <summary>
-/// TRADE.4c — two independent translation-grammar lookup expansions for Exact Unique provider
-/// discovery. Both require packaged StatTranslationVariant evidence for the resolved StatId(s).
+/// Translation-grammar lookup expansions for Exact Unique provider discovery.
+/// TRADE.4c — article-count + singular/plural. TRADE.4e — helper-word branch + signed→unsigned.
+/// Each rule requires packaged StatTranslationVariant evidence for the resolved StatId(s).
 /// </summary>
 internal static partial class PathOfExileTradeTranslationGrammarLookupExpander
 {
@@ -102,6 +103,173 @@ internal static partial class PathOfExileTradeTranslationGrammarLookupExpander
         }
 
         return expanded.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// TRADE.4e Track A — same translation-family condition branch that inserts a helper word
+    /// (e.g. source without <c>additional</c> + companion state line vs Trade with <c>additional</c>).
+    /// </summary>
+    public static IReadOnlyList<string> ExpandHelperWordBranchLookups(
+        ResolvedSearchComponent component,
+        IReadOnlyList<string> lookups,
+        GameDataCatalog? gameData)
+    {
+        if (!component.HasExactUniqueSourceProvenance ||
+            lookups.Count == 0)
+        {
+            return [];
+        }
+
+        var expanded = new List<string>();
+        foreach (var translation in EnumerateExactStatTranslations(component, gameData))
+        {
+            foreach (var (sourceBranchLines, tradeBranchLines) in EnumerateHelperWordBranchSiblingPairs(translation))
+            {
+                var sourceLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                    string.Join('\n', sourceBranchLines.Select(ToProviderFormatLine)));
+                var tradeLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                    string.Join('\n', tradeBranchLines.Select(ToProviderFormatLine)));
+                if (string.IsNullOrWhiteSpace(sourceLookup) ||
+                    string.IsNullOrWhiteSpace(tradeLookup) ||
+                    string.Equals(sourceLookup, tradeLookup, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var sourceArity = PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(sourceLookup);
+                var tradeArity = PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(tradeLookup);
+                if (sourceArity == 0 ||
+                    tradeArity == 0 ||
+                    sourceArity != tradeArity)
+                {
+                    continue;
+                }
+
+                // Source must match the no-helper branch (allow trailing companion lines already in sourceLookup).
+                if (!lookups.Any(lookup =>
+                        LookupsCompatibleIgnoringEmbeddedLiterals(lookup, sourceLookup) ||
+                        IsSourceLookupWithOptionalTrailingCompanions(lookup, sourceLookup)))
+                {
+                    continue;
+                }
+
+                expanded.Add(tradeLookup);
+            }
+        }
+
+        return expanded.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// TRADE.4e Track B — signed display placeholder (<c>-#</c>) vs unsigned translation/Trade
+    /// format (<c>{0}</c>/<c>#</c>) within the same mechanical family. Does not apply negate /
+    /// more-less polarity bridges.
+    /// </summary>
+    public static IReadOnlyList<string> ExpandSignedSourceToUnsignedFormatLookups(
+        ResolvedSearchComponent component,
+        IReadOnlyList<string> lookups,
+        GameDataCatalog? gameData)
+    {
+        if (!component.HasExactUniqueSourceProvenance ||
+            lookups.Count == 0)
+        {
+            return [];
+        }
+
+        var expanded = new List<string>();
+        foreach (var translation in EnumerateExactStatTranslations(component, gameData))
+        {
+            if (TranslationHasNegateHandler(translation))
+            {
+                continue;
+            }
+
+            foreach (var variant in translation.Variants)
+            {
+                if (variant.FormatLines.Count == 0 ||
+                    !HasUnsignedHashFormat(variant) ||
+                    VariantHasNegateHandler(variant))
+                {
+                    continue;
+                }
+
+                var unsignedLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                    string.Join('\n', variant.FormatLines.Select(ToProviderFormatLine)));
+                if (string.IsNullOrWhiteSpace(unsignedLookup) ||
+                    PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(unsignedLookup) == 0)
+                {
+                    continue;
+                }
+
+                if (!lookups.Any(lookup => IsSignedPlaceholderFormOfUnsigned(lookup, unsignedLookup)))
+                {
+                    continue;
+                }
+
+                expanded.Add(unsignedLookup);
+            }
+        }
+
+        return expanded.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// Proves the Exact Unique signed-display → unsigned Trade magnitude class for bound projection.
+    /// </summary>
+    public static bool IsSignedSourceUnsignedTradeMagnitudeProjection(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        GameDataCatalog? gameData)
+    {
+        if (!component.HasExactUniqueSourceProvenance ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 1 ||
+            providerStat.OptionMetadata.Count != 0 ||
+            gameData is null)
+        {
+            return false;
+        }
+
+        var providerLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            providerStat.Text);
+        if (providerLookup.Contains("-#", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var sourceLookup = GetBestSourceLookup(component);
+        if (sourceLookup is null ||
+            !sourceLookup.Contains("-#", StringComparison.Ordinal) ||
+            !IsSignedPlaceholderFormOfUnsigned(sourceLookup, providerLookup))
+        {
+            return false;
+        }
+
+        foreach (var translation in EnumerateExactStatTranslations(component, gameData))
+        {
+            if (TranslationHasNegateHandler(translation))
+            {
+                continue;
+            }
+
+            foreach (var variant in translation.Variants)
+            {
+                if (!HasUnsignedHashFormat(variant) ||
+                    VariantHasNegateHandler(variant))
+                {
+                    continue;
+                }
+
+                var unsignedLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                    string.Join('\n', variant.FormatLines.Select(ToProviderFormatLine)));
+                if (string.Equals(unsignedLookup, providerLookup, StringComparison.Ordinal) ||
+                    LookupsCompatibleIgnoringEmbeddedLiterals(unsignedLookup, providerLookup))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public static bool IsNumericCountArticlePresenceProjection(
@@ -241,20 +409,24 @@ internal static partial class PathOfExileTradeTranslationGrammarLookupExpander
             yield break;
         }
 
-        // Prefer exact StatId-vector translations; fall back to per-StatId families.
+        // Prefer exact StatId-vector translations; also walk per-StatId families so multi-stat
+        // components (e.g. jewel attribute + radius companion) still see the attribute family.
+        var yieldedIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var translation in gameData.FindStatTranslationsByStatIdGroup(resolved))
         {
-            if (translation.Variants.Count > 0)
+            if (translation.Variants.Count > 0 &&
+                yieldedIds.Add(translation.Id ?? $"group:{string.Join('|', translation.StatIds)}"))
             {
                 yield return translation;
             }
         }
 
-        if (resolved.Length == 1)
+        foreach (var statId in resolved)
         {
-            foreach (var translation in gameData.FindStatTranslationsByStatId(resolved[0]))
+            foreach (var translation in gameData.FindStatTranslationsByStatId(statId))
             {
-                if (translation.Variants.Count > 0)
+                if (translation.Variants.Count > 0 &&
+                    yieldedIds.Add(translation.Id ?? $"stat:{statId}:{string.Join('|', translation.StatIds)}"))
                 {
                     yield return translation;
                 }
@@ -466,6 +638,256 @@ internal static partial class PathOfExileTradeTranslationGrammarLookupExpander
         return false;
     }
 
+    private static IEnumerable<(IReadOnlyList<string> SourceBranchLines, IReadOnlyList<string> TradeBranchLines)>
+        EnumerateHelperWordBranchSiblingPairs(StatTranslationDefinition translation)
+    {
+        var variants = translation.Variants
+            .Where(variant => variant.FormatLines.Count > 0 &&
+                variant.ValueFormats.Any(format => format is "#" or "+#"))
+            .ToArray();
+        for (var i = 0; i < variants.Length; i++)
+        {
+            for (var j = 0; j < variants.Length; j++)
+            {
+                if (i == j)
+                {
+                    continue;
+                }
+
+                var sourceVariant = variants[i];
+                var tradeVariant = variants[j];
+                if (!HaveCompatibleQueryFormats(sourceVariant, tradeVariant))
+                {
+                    continue;
+                }
+
+                var sourceLines = sourceVariant.FormatLines
+                    .Select(ToProviderFormatLine)
+                    .ToArray();
+                var tradeLines = tradeVariant.FormatLines
+                    .Select(ToProviderFormatLine)
+                    .ToArray();
+                if (!TryProveHelperWordBranchPair(sourceLines, tradeLines))
+                {
+                    continue;
+                }
+
+                yield return (sourceVariant.FormatLines, tradeVariant.FormatLines);
+            }
+        }
+    }
+
+    private static bool HaveCompatibleQueryFormats(
+        StatTranslationVariant left,
+        StatTranslationVariant right)
+    {
+        static int QueryFormatCount(StatTranslationVariant variant) =>
+            variant.ValueFormats.Count(format => format is "#" or "+#");
+
+        return QueryFormatCount(left) > 0 &&
+            QueryFormatCount(left) == QueryFormatCount(right);
+    }
+
+    private static bool TryProveHelperWordBranchPair(
+        IReadOnlyList<string> sourceLines,
+        IReadOnlyList<string> tradeLines)
+    {
+        if (tradeLines.Count == 0 ||
+            sourceLines.Count < tradeLines.Count)
+        {
+            return false;
+        }
+
+        var sourceIdx = 0;
+        var insertions = 0;
+        for (var tradeIdx = 0; tradeIdx < tradeLines.Count; tradeIdx++)
+        {
+            if (sourceIdx >= sourceLines.Count)
+            {
+                return false;
+            }
+
+            if (string.Equals(sourceLines[sourceIdx], tradeLines[tradeIdx], StringComparison.Ordinal))
+            {
+                sourceIdx++;
+                continue;
+            }
+
+            if (IsSingleTokenInsertion(sourceLines[sourceIdx], tradeLines[tradeIdx], out _))
+            {
+                insertions++;
+                sourceIdx++;
+                continue;
+            }
+
+            return false;
+        }
+
+        while (sourceIdx < sourceLines.Count)
+        {
+            if (PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(sourceLines[sourceIdx]) != 0)
+            {
+                return false;
+            }
+
+            sourceIdx++;
+        }
+
+        return insertions == 1;
+    }
+
+    private static bool IsSingleTokenInsertion(string shorter, string longer, out string insertedToken)
+    {
+        insertedToken = string.Empty;
+        var shortTokens = shorter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var longTokens = longer.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (longTokens.Length != shortTokens.Length + 1)
+        {
+            return false;
+        }
+
+        var shortIdx = 0;
+        var longIdx = 0;
+        var inserted = false;
+        while (shortIdx < shortTokens.Length && longIdx < longTokens.Length)
+        {
+            if (string.Equals(shortTokens[shortIdx], longTokens[longIdx], StringComparison.Ordinal))
+            {
+                shortIdx++;
+                longIdx++;
+                continue;
+            }
+
+            if (inserted)
+            {
+                return false;
+            }
+
+            insertedToken = longTokens[longIdx];
+            inserted = true;
+            longIdx++;
+        }
+
+        if (longIdx < longTokens.Length)
+        {
+            if (inserted)
+            {
+                return false;
+            }
+
+            insertedToken = longTokens[longIdx];
+            inserted = true;
+            longIdx++;
+        }
+
+        return inserted &&
+            shortIdx == shortTokens.Length &&
+            longIdx == longTokens.Length &&
+            !string.IsNullOrWhiteSpace(insertedToken);
+    }
+
+    private static bool IsSourceLookupWithOptionalTrailingCompanions(
+        string actualLookup,
+        string sourceBranchLookup)
+    {
+        if (LookupsCompatibleIgnoringEmbeddedLiterals(actualLookup, sourceBranchLookup))
+        {
+            return true;
+        }
+
+        // Actual may omit trailing zero-slot companion lines that the source branch includes,
+        // or include them — compare query-bearing prefixes.
+        var actualLines = actualLookup.Split('\n');
+        var sourceLines = sourceBranchLookup.Split('\n');
+        var actualCore = actualLines
+            .Where(line => PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(line) > 0)
+            .ToArray();
+        var sourceCore = sourceLines
+            .Where(line => PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(line) > 0)
+            .ToArray();
+        if (actualCore.Length == 0 ||
+            actualCore.Length != sourceCore.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < actualCore.Length; i++)
+        {
+            if (!string.Equals(actualCore[i], sourceCore[i], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        // Shared non-query prefix lines (e.g. "Consumes Socketed...") must agree when present.
+        var actualPrefix = actualLines
+            .TakeWhile(line => PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(line) == 0)
+            .ToArray();
+        var sourcePrefix = sourceLines
+            .TakeWhile(line => PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(line) == 0)
+            .ToArray();
+        if (actualPrefix.Length != sourcePrefix.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < actualPrefix.Length; i++)
+        {
+            if (!string.Equals(actualPrefix[i], sourcePrefix[i], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasUnsignedHashFormat(StatTranslationVariant variant)
+    {
+        if (!variant.ValueFormats.Any(format => format is "#" or "+#"))
+        {
+            return false;
+        }
+
+        var joined = string.Join('\n', variant.FormatLines);
+        // Signed format templates encode the minus in the format string itself.
+        if (joined.Contains("-{0}", StringComparison.Ordinal) ||
+            joined.Contains("-#", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return joined.Contains("{0}", StringComparison.Ordinal) ||
+            joined.Contains("#", StringComparison.Ordinal);
+    }
+
+    private static bool IsSignedPlaceholderFormOfUnsigned(string signedLookup, string unsignedLookup)
+    {
+        if (string.IsNullOrWhiteSpace(signedLookup) ||
+            string.IsNullOrWhiteSpace(unsignedLookup) ||
+            !signedLookup.Contains("-#", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (unsignedLookup.Contains("-#", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Strip signed placeholders only — do not touch literal negatives in free text.
+        var stripped = SignedPlaceholderRegex().Replace(signedLookup, "#");
+        return LookupsCompatibleIgnoringEmbeddedLiterals(stripped, unsignedLookup);
+    }
+
+    private static bool TranslationHasNegateHandler(StatTranslationDefinition translation) =>
+        translation.Variants.Any(VariantHasNegateHandler);
+
+    private static bool VariantHasNegateHandler(StatTranslationVariant variant) =>
+        variant.IndexHandlers.Any(handler =>
+            handler.Handlers.Any(id =>
+                string.Equals(id, "negate", StringComparison.OrdinalIgnoreCase)));
+
     private static bool LookupsCompatibleIgnoringEmbeddedLiterals(string left, string right)
     {
         var leftNorm = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(left);
@@ -521,4 +943,8 @@ internal static partial class PathOfExileTradeTranslationGrammarLookupExpander
 
     [GeneratedRegex(@"^(An|A)\s+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex ArticlePrefixRegex();
+
+    /// <summary>Matches signed numeric placeholders (<c>-#</c>), not free-text hyphens.</summary>
+    [GeneratedRegex(@"-#", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedPlaceholderRegex();
 }

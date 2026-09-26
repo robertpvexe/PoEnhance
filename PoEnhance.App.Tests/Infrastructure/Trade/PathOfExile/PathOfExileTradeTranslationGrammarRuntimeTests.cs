@@ -7,8 +7,8 @@ using PoEnhance.GameData;
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 /// <summary>
-/// TRADE.4c — real StatId + official Trade catalog regressions (Writhing / Steelworm)
-/// and residual preservation (Hungry Loop / Tempered Spirit).
+/// TRADE.4c/4e — real StatId + official Trade catalog regressions (Writhing / Steelworm /
+/// Hungry Loop / Tempered Spirit).
 /// </summary>
 public sealed class PathOfExileTradeTranslationGrammarRuntimeTests
 {
@@ -68,38 +68,63 @@ public sealed class PathOfExileTradeTranslationGrammarRuntimeTests
     }
 
     [Fact]
-    public void Match_HungryLoop_OfficialCatalog_RemainsNotFound()
+    public void Match_HungryLoop_OfficialCatalog_ExactAdditionalHelperBranch()
     {
-        var result = matcher.Match(
-            ExactUnique(
-                "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume 4 Uncorrupted Support Gems\nHas not Consumed any Gems",
-                "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume <number> Uncorrupted Support Gems\nHas not Consumed any Gems",
-                "ConsumesSupportGemsUnique",
-                ["local_unique_hungry_loop_number_of_gems_to_consume"],
-                [4m]),
-            OfficialTradeCatalog.Value,
-            Context());
+        var component = ExactUnique(
+            "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume 4 Uncorrupted Support Gems\nHas not Consumed any Gems",
+            "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume <number> Uncorrupted Support Gems\nHas not Consumed any Gems",
+            "ConsumesSupportGemsUnique",
+            ["local_unique_hungry_loop_number_of_gems_to_consume"],
+            [4m]);
+        var result = matcher.Match(component, OfficialTradeCatalog.Value, Context());
 
-        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.stat_3221550523", result.ExactCandidate?.StatId);
+        Assert.Equal(
+            "Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level\nCan Consume # additional Uncorrupted Support Gems",
+            result.ExactCandidate!.Text);
+        Assert.DoesNotContain("Has not Consumed", result.ExactCandidate.Text, StringComparison.Ordinal);
+        Assert.Equal(1, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
+            result.ExactCandidate.Text));
+
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            component,
+            result.ExactCandidate);
+        Assert.Equal(ModifierBoundShape.Scalar, bounds.ValueBoundShape);
+        Assert.Equal(4m, bounds.Minimum);
+        Assert.Equal(4m, bounds.Maximum);
     }
 
     [Fact]
-    public void Match_TemperedSpirit_OfficialCatalog_RemainsNotFound()
+    public void Match_TemperedSpirit_OfficialCatalog_ExactUnsignedSignedScalar()
     {
-        var result = matcher.Match(
-            ExactUnique(
-                "-1 Dexterity per 1 Dexterity on Allocated Passives in Radius",
-                "-<number> Dexterity per <number> Dexterity on Allocated Passives in Radius",
-                "AdditionalDexterityPerAllocatedDexterityJewelUnique__1",
-                [
-                    "local_unique_jewel_X_dexterity_per_1_dexterity_allocated_in_radius",
-                    "local_jewel_effect_base_radius",
-                ],
-                [1m, 1m]),
-            OfficialTradeCatalog.Value,
-            Context());
+        var component = ExactUnique(
+            "-1 Dexterity per 1 Dexterity on Allocated Passives in Radius",
+            "-<number> Dexterity per <number> Dexterity on Allocated Passives in Radius",
+            "AdditionalDexterityPerAllocatedDexterityJewelUnique__1",
+            [
+                "local_unique_jewel_X_dexterity_per_1_dexterity_allocated_in_radius",
+                "local_jewel_effect_base_radius",
+            ],
+            [-1m, 1m]);
+        var result = matcher.Match(component, OfficialTradeCatalog.Value, Context());
 
-        Assert.Equal(PathOfExileTradeStatMatchStatus.NotFound, result.Status);
+        Assert.Equal(PathOfExileTradeStatMatchStatus.Exact, result.Status);
+        Assert.Equal("explicit.stat_172076472", result.ExactCandidate?.StatId);
+        Assert.Equal(
+            "# Dexterity per 1 Dexterity on Allocated Passives in Radius",
+            result.ExactCandidate!.Text);
+        Assert.Contains(" per 1 ", result.ExactCandidate.Text, StringComparison.Ordinal);
+        Assert.Equal(1, PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(
+            result.ExactCandidate.Text));
+
+        var bounds = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            component,
+            result.ExactCandidate);
+        Assert.Equal(ModifierBoundShape.Scalar, bounds.ValueBoundShape);
+        Assert.Equal(-1m, bounds.Minimum);
+        Assert.Equal(-1m, bounds.Maximum);
+        Assert.Equal("SignedSourceUnsignedTradeMagnitude", bounds.ProjectionKind);
     }
 
     private PathOfExileTradeStatMatchContext Context() =>

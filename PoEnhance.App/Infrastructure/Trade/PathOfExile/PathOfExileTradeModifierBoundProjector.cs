@@ -123,6 +123,15 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             return inflectionScalarProjection;
         }
 
+        // TRADE.4e.3 — signed source display vs unsigned Trade #; retain signed query scalar.
+        if (TryProjectSignedSourceUnsignedTradeMagnitude(
+                component,
+                providerStat,
+                out var signedUnsignedMagnitudeProjection))
+        {
+            return signedUnsignedMagnitudeProjection;
+        }
+
         if (TryProjectExactOwnerChancePercentSiblingFallback(
                 component,
                 providerStat,
@@ -284,6 +293,26 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 ValueBoundShape = ModifierBoundShape.Scalar,
                 RequestedMinimum = inflectionProjection.Minimum,
                 RequestedMaximum = inflectionProjection.Maximum,
+                ValueBoundsUnsupportedReason = null,
+            };
+        }
+
+        if (TryProjectSignedSourceUnsignedTradeMagnitude(component, providerStat, out var signedUnsignedProjection))
+        {
+            // Core leaves CanonicalNumericValues empty for this multi-value Unsupported-shaped Unique
+            // until Trade proves the query slot. Interaction-ready requires CanonicalNumericValues when
+            // SupportsValueBounds is true — project the signed Trade query scalar into that contract.
+            var queryScalar = signedUnsignedProjection.Minimum ??
+                signedUnsignedProjection.Maximum ??
+                0m;
+            return component with
+            {
+                SupportsValueBounds = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                CanonicalNumericValues = [queryScalar],
+                DefaultBoundDirection = ModifierBoundDirection.Minimum,
+                RequestedMinimum = signedUnsignedProjection.Minimum,
+                RequestedMaximum = signedUnsignedProjection.Maximum,
                 ValueBoundsUnsupportedReason = null,
             };
         }
@@ -817,6 +846,113 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             ProjectionKind = "SingularPluralInflectionUnresolvedPresence",
         };
         return true;
+    }
+
+    /// <summary>
+    /// TRADE.4e.3 — signed source display (<c>-#</c>) matched an unsigned Trade <c>#</c>
+    /// template. Retain the signed source scalar as the Trade query value (do not Abs). Official
+    /// Trade indexes the signed scalar for this structural class. Gated by signed↔unsigned template
+    /// structure (not by <c>value &lt; 0</c> alone). Does not apply when Trade itself is signed, or
+    /// when more/less/increased/reduced negate polarity owns the projection.
+    /// </summary>
+    private static bool TryProjectSignedSourceUnsignedTradeMagnitude(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 1 ||
+            providerStat.OptionMetadata.Count != 0 ||
+            HasSingleNegateProjection(component))
+        {
+            return false;
+        }
+
+        var providerLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            providerStat.Text);
+        var sourceLookup = GetPrimarySourceLookup(component);
+        if (sourceLookup is null ||
+            string.IsNullOrWhiteSpace(providerLookup) ||
+            !sourceLookup.Contains("-#", StringComparison.Ordinal) ||
+            providerLookup.Contains("-#", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (TryClassifyNegatePolarity(sourceLookup, out _) ||
+            TryClassifyNegatePolarity(providerLookup, out _))
+        {
+            return false;
+        }
+
+        // Structural: unsigned Trade template equals signed source after stripping -# placeholders.
+        var strippedSource = sourceLookup.Replace("-#", "#", StringComparison.Ordinal);
+        var strippedNorm = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(strippedSource);
+        var providerNorm = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(providerLookup);
+        if (!string.Equals(strippedNorm, providerNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var embedded = PathOfExileTradeStatTemplateNormalizer
+            .NormalizeModifierText(providerStat.Text)
+            .ExtractedNumericValues;
+        if (!TryResolveSignedUnsignedQueryScalar(component, embedded, out var signedScalar) ||
+            signedScalar >= 0m)
+        {
+            return false;
+        }
+
+        // TRADE.4e.2 live matrix: Trade indexes the signed source scalar (-1), not Abs(+1).
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            Minimum = signedScalar,
+            Maximum = signedScalar,
+            ProjectionKind = "SignedSourceUnsignedTradeMagnitude",
+        };
+        return true;
+    }
+
+    private static bool TryResolveSignedUnsignedQueryScalar(
+        ResolvedSearchComponent component,
+        IReadOnlyList<decimal> embedded,
+        out decimal scalar)
+    {
+        scalar = 0m;
+        foreach (var observed in EnumerateInflectionSourceNumericCandidates(component))
+        {
+            var queryValues = observed
+                .Where(value => !embedded.Contains(value))
+                .Distinct()
+                .ToArray();
+            if (queryValues.Length == 1)
+            {
+                scalar = queryValues[0];
+                return true;
+            }
+
+            // Prefer the first observed when it is the signed attribute and later values are
+            // embedded Trade literals (e.g. -1 then per-1).
+            if (observed.Count >= 1 &&
+                (embedded.Count == 0 || !embedded.Contains(observed[0])))
+            {
+                scalar = observed[0];
+                return true;
+            }
+        }
+
+        if (component.RequestedMinimum.HasValue &&
+            component.RequestedMinimum == component.RequestedMaximum)
+        {
+            scalar = component.RequestedMinimum.Value;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
