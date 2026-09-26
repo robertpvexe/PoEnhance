@@ -401,6 +401,28 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             }
         }
 
+        // TRADE.4a — Exact Unique chance mechanics whose rendered source omits Trade's generic
+        // "#% chance to" wrapper can still discover the official chance template when StatIds
+        // structurally prove a chance mechanic. Fail closed without that evidence.
+        if (HasExactUniqueEvidence(source.Component) &&
+            IndicatesChanceWrapperInternalMechanic(source.Component!.ResolvedStatIds))
+        {
+            foreach (var lookup in ExpandOmittedChanceWrapperLookups(lookups))
+            {
+                var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                if (direct.Length > 0)
+                {
+                    return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
+                }
+
+                var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                if (qualified.Length > 0)
+                {
+                    return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
+                }
+            }
+        }
+
         if (hasExactAtomicMultiLineUnique)
         {
             var perLineLookups = source.Component!.ProviderSearchSignatures
@@ -667,6 +689,54 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Narrow chance-token evidence for TRADE.4a omitted-wrapper discovery. Unlike
+    /// <see cref="IndicatesChancePercentInternalMechanic"/>, this does not treat bare
+    /// <c>_%</c> magnitude stats as chance wrappers.
+    /// </summary>
+    private static bool IndicatesChanceWrapperInternalMechanic(IReadOnlyList<string> resolvedStatIds)
+    {
+        foreach (var statId in resolvedStatIds)
+        {
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                continue;
+            }
+
+            var trimmed = statId.Trim();
+            if (trimmed.Contains("%_chance", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("_chance_", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.EndsWith("_chance", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<string> ExpandOmittedChanceWrapperLookups(IReadOnlyList<string> lookups)
+    {
+        const string chancePrefix = "#% chance to ";
+        var expanded = new List<string>();
+        foreach (var lookup in lookups)
+        {
+            if (string.IsNullOrWhiteSpace(lookup) ||
+                lookup.StartsWith(chancePrefix, StringComparison.OrdinalIgnoreCase) ||
+                lookup.StartsWith("% chance to ", StringComparison.OrdinalIgnoreCase) ||
+                lookup.StartsWith("#% chance ", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            expanded.Add(chancePrefix + lookup);
+        }
+
+        return expanded
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static bool RequiresExactConjunctiveComposition(ResolvedSearchComponent? component)

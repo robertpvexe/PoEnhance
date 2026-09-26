@@ -81,6 +81,17 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             };
         }
 
+        // Omitted chance-wrapper presence must win over ExactOwnerChancePercentSiblingFallback:
+        // when the only observed numeric is an identity literal inside the wrapped action
+        // (e.g. Level 20), that scalar is not a chance percent.
+        if (TryProjectOmittedChanceWrapperPresence(
+                component,
+                providerStat,
+                out var omittedChanceProjection))
+        {
+            return omittedChanceProjection;
+        }
+
         if (TryProjectExactOwnerChancePercentSiblingFallback(
                 component,
                 providerStat,
@@ -192,6 +203,19 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 RequestedMaximum = null,
                 ValueBoundsUnsupportedReason =
                     "The source proves a fixed numeric query value, but it is not user-editable.",
+            };
+        }
+
+        if (TryProjectOmittedChanceWrapperPresence(component, providerStat, out _))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "Exact Unique chance StatId matched an omitted Trade chance-wrapper template without a proven chance percent value.",
             };
         }
 
@@ -534,7 +558,10 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             providerStat.OptionMetadata.Count != 0 ||
             !IndicatesChancePercentInternalMechanic(component.ResolvedStatIds) ||
             !TryGetChancePercentPresenceRest(providerStat.Text, out var presenceRest) ||
-            !MatchesPresenceDisplaySemantics(component, presenceRest))
+            !MatchesPresenceDisplaySemantics(component, presenceRest) ||
+            FallbackNumericsAreEmbeddedInPresenceRest(
+                presenceRest,
+                component.ProviderFallbackNumericValues))
         {
             return false;
         }
@@ -549,6 +576,122 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             ProjectionKind = "ExactOwnerChancePercentSiblingFallback",
         };
         return true;
+    }
+
+    /// <summary>
+    /// TRADE.4a — when Exact Unique chance StatIds discover Trade's "#% chance to …" template
+    /// but the copied display omitted that wrapper (so no chance percent was observed), project
+    /// presence-only. Prevents identity literals (e.g. Level 20) from filling the chance slot.
+    /// Activates only when any fallback numerics are embedded identity literals inside the
+    /// wrapped action text — not when they are an authoritative owner chance percent.
+    /// </summary>
+    private static bool TryProjectOmittedChanceWrapperPresence(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 1 ||
+            providerStat.OptionMetadata.Count != 0 ||
+            !IndicatesChanceWrapperInternalMechanic(component.ResolvedStatIds) ||
+            !TryGetChancePercentPresenceRest(providerStat.Text, out var presenceRest) ||
+            !MatchesPresenceDisplaySemantics(component, presenceRest) ||
+            SourceAlreadyIncludesChanceWrapper(component) ||
+            !FallbackNumericsAreEmbeddedInPresenceRest(
+                presenceRest,
+                EffectiveFallbackNumerics(component)))
+        {
+            return false;
+        }
+
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            Minimum = null,
+            Maximum = null,
+            ProjectionKind = "OmittedChanceWrapperPresence",
+        };
+        return true;
+    }
+
+    private static IReadOnlyList<decimal> EffectiveFallbackNumerics(ResolvedSearchComponent component) =>
+        component.ProviderFallbackNumericValues.Count > 0
+            ? component.ProviderFallbackNumericValues
+            : component.ObservedNumericValues;
+
+    private static bool FallbackNumericsAreEmbeddedInPresenceRest(
+        string presenceRest,
+        IReadOnlyList<decimal> fallbackValues)
+    {
+        // No separate chance scalar — presence-only is safe.
+        if (fallbackValues.Count == 0)
+        {
+            return true;
+        }
+
+        var embedded = PathOfExileTradeStatTemplateNormalizer
+            .NormalizeModifierText(presenceRest)
+            .ExtractedNumericValues;
+        if (embedded.Count == 0)
+        {
+            // Presence rest has no literals; fallback is an owner chance % (sibling path).
+            return false;
+        }
+
+        return embedded.Count == fallbackValues.Count &&
+            embedded.Zip(fallbackValues, (left, right) => left == right).All(equal => equal);
+    }
+
+    private static bool IndicatesChanceWrapperInternalMechanic(IReadOnlyList<string> resolvedStatIds)
+    {
+        foreach (var statId in resolvedStatIds)
+        {
+            if (string.IsNullOrWhiteSpace(statId))
+            {
+                continue;
+            }
+
+            var trimmed = statId.Trim();
+            if (trimmed.Contains("%_chance", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("_chance_", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.EndsWith("_chance", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SourceAlreadyIncludesChanceWrapper(ResolvedSearchComponent component)
+    {
+        IEnumerable<string?> texts =
+        [
+            component.OriginalText,
+            component.CanonicalSignature,
+            component.ProviderCanonicalSignature,
+            .. component.ProviderSearchSignatures,
+        ];
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var normalized = PathOfExileTradeStatTemplateNormalizer.NormalizeComparableProviderText(text);
+            if (normalized.StartsWith("#% chance to ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("% chance to ", StringComparison.OrdinalIgnoreCase) ||
+                normalized.StartsWith("#% chance ", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IndicatesChancePercentInternalMechanic(IReadOnlyList<string> resolvedStatIds)
