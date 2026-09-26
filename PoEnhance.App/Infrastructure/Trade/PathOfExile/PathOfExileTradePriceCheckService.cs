@@ -20,6 +20,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
     private readonly PathOfExileTradeItemStateFilterResolver itemStateFilterResolver;
+    private readonly Func<GameDataCatalog?>? gameDataCatalogProvider;
 
     public PathOfExileTradePriceCheckService(
         IPathOfExileTradeQueryBuilder queryBuilder,
@@ -33,7 +34,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         IPathOfExileTradeFilterCatalogProvider? filterCatalogProvider = null,
         PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null,
         PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null,
-        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null)
+        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null,
+        Func<GameDataCatalog?>? gameDataCatalogProvider = null)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
         this.statMatcher = statMatcher ?? throw new ArgumentNullException(nameof(statMatcher));
@@ -49,6 +51,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             new PathOfExileTradeRequestedItemFilterResolver();
         this.itemStateFilterResolver = itemStateFilterResolver ??
             new PathOfExileTradeItemStateFilterResolver();
+        this.gameDataCatalogProvider = gameDataCatalogProvider;
     }
 
     public async Task<PathOfExileTradeFilterCatalogProviderResult> InitializeFilterCatalogAsync(
@@ -2201,7 +2204,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return string.Equals(draft.Rarity?.Trim(), "Unique", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static PathOfExileTradeStatMatchContext CreateMatchContext(
+    private PathOfExileTradeStatMatchContext CreateMatchContext(
         TradeSearchDraft draft,
         ResolvedSearchComponent component)
     {
@@ -2215,6 +2218,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             ResolvedModifierName = component.ResolvedModifierName,
             InternalStatIds = component.ResolvedStatIds,
             InternalStatLocalities = component.ResolvedStatLocalities,
+            GameDataCatalog = gameDataCatalogProvider?.Invoke(),
         };
     }
 

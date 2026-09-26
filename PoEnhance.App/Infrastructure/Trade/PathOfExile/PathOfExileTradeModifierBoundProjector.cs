@@ -17,11 +17,24 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         var templates = new List<string>();
         if (HasSingleNegateProjection(component))
         {
-            var projected = IncreasedRegex().IsMatch(source)
-                ? IncreasedRegex().Replace(source, "reduced", 1)
-                : ReducedRegex().IsMatch(source)
-                    ? ReducedRegex().Replace(source, "increased", 1)
-                    : null;
+            string? projected = null;
+            if (IncreasedRegex().IsMatch(source))
+            {
+                projected = IncreasedRegex().Replace(source, "reduced", 1);
+            }
+            else if (ReducedRegex().IsMatch(source))
+            {
+                projected = ReducedRegex().Replace(source, "increased", 1);
+            }
+            else if (MoreRegex().IsMatch(source))
+            {
+                projected = MoreRegex().Replace(source, "less", 1);
+            }
+            else if (LessRegex().IsMatch(source))
+            {
+                projected = LessRegex().Replace(source, "more", 1);
+            }
+
             if (projected is not null)
             {
                 templates.Add(PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(projected));
@@ -90,6 +103,24 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 out var omittedChanceProjection))
         {
             return omittedChanceProjection;
+        }
+
+        // TRADE.4c Track A — numeric-count display vs Trade article FilterArity-0 template.
+        if (TryProjectNumericCountArticlePresence(
+                component,
+                providerStat,
+                out var articlePresenceProjection))
+        {
+            return articlePresenceProjection;
+        }
+
+        // TRADE.4c Track B — plural source vs singular Trade # template; project non-embedded query scalar.
+        if (TryProjectSingularPluralInflectionScalar(
+                component,
+                providerStat,
+                out var inflectionScalarProjection))
+        {
+            return inflectionScalarProjection;
         }
 
         if (TryProjectExactOwnerChancePercentSiblingFallback(
@@ -216,6 +247,44 @@ internal static partial class PathOfExileTradeModifierBoundProjector
                 RequestedMaximum = null,
                 ValueBoundsUnsupportedReason =
                     "Exact Unique chance StatId matched an omitted Trade chance-wrapper template without a proven chance percent value.",
+            };
+        }
+
+        if (TryProjectNumericCountArticlePresence(component, providerStat, out _))
+        {
+            return component with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                ValueBoundsUnsupportedReason =
+                    "Exact Unique numeric-count translation branch mapped to a Trade article FilterArity-0 template; source count is not a filter value.",
+            };
+        }
+
+        if (TryProjectSingularPluralInflectionScalar(component, providerStat, out var inflectionProjection))
+        {
+            if (inflectionProjection.ValueBoundShape == ModifierBoundShape.PresenceOnly)
+            {
+                return component with
+                {
+                    SupportsValueBounds = false,
+                    ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                    RequestedMinimum = null,
+                    RequestedMaximum = null,
+                    ValueBoundsUnsupportedReason =
+                        "Exact Unique singular/plural inflection matched Trade FilterArity-1 with embedded literals, but the Trade # query slot could not be uniquely recovered from source-minus-embedded evidence.",
+                };
+            }
+
+            return component with
+            {
+                SupportsValueBounds = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                RequestedMinimum = inflectionProjection.Minimum,
+                RequestedMaximum = inflectionProjection.Maximum,
+                ValueBoundsUnsupportedReason = null,
             };
         }
 
@@ -356,8 +425,8 @@ internal static partial class PathOfExileTradeModifierBoundProjector
     }
 
     /// <summary>
-    /// Proves whether the selected Trade provider is the reversing (typically reduced) or
-    /// non-reversing (typically increased) side of a negate-handler polarity pair.
+    /// Proves whether the selected Trade provider is the reversing (typically reduced/less) or
+    /// non-reversing (typically increased/more) side of a negate-handler polarity pair.
     /// Fail-closed when polarity cannot be proven from the component signature and provider template.
     /// </summary>
     private static bool TryGetNegateProviderPolarity(
@@ -372,9 +441,7 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         }
 
         var source = GetProjectionSourceTemplate(component);
-        var sourceIsIncreased = IncreasedRegex().IsMatch(source);
-        var sourceIsReduced = ReducedRegex().IsMatch(source);
-        if (sourceIsIncreased == sourceIsReduced)
+        if (!TryClassifyNegatePolarity(source, out var sourceIsReversing))
         {
             return false;
         }
@@ -382,7 +449,7 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         var normalizedSource = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(source);
         if (string.Equals(providerStat.LookupTemplate, normalizedSource, StringComparison.Ordinal))
         {
-            providerIsReversingForm = sourceIsReduced;
+            providerIsReversingForm = sourceIsReversing;
             return true;
         }
 
@@ -392,7 +459,25 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         }
 
         // Bridge always targets the opposite polarity of the component signature source.
-        providerIsReversingForm = sourceIsIncreased;
+        providerIsReversingForm = !sourceIsReversing;
+        return true;
+    }
+
+    /// <summary>
+    /// Classifies a negate-handler signature as reversing (<c>reduced</c>/<c>less</c>) or
+    /// non-reversing (<c>increased</c>/<c>more</c>). Fail-closed on mixed or absent polarity words.
+    /// </summary>
+    private static bool TryClassifyNegatePolarity(string source, out bool isReversingForm)
+    {
+        isReversingForm = false;
+        var isNonReversing = IncreasedRegex().IsMatch(source) || MoreRegex().IsMatch(source);
+        var isReversing = ReducedRegex().IsMatch(source) || LessRegex().IsMatch(source);
+        if (isNonReversing == isReversing)
+        {
+            return false;
+        }
+
+        isReversingForm = isReversing;
         return true;
     }
 
@@ -576,6 +661,283 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             ProjectionKind = "ExactOwnerChancePercentSiblingFallback",
         };
         return true;
+    }
+
+    /// <summary>
+    /// TRADE.4c Track A — Trade article FilterArity-0 template discovered from a numeric-count
+    /// source branch projects presence-only (source count is a translation selector, not Min/Max).
+    /// </summary>
+    private static bool TryProjectNumericCountArticlePresence(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 0 ||
+            providerStat.OptionMetadata.Count != 0)
+        {
+            return false;
+        }
+
+        var providerLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            providerStat.Text);
+        if (string.IsNullOrWhiteSpace(providerLookup) ||
+            !(providerLookup.StartsWith("An ", StringComparison.Ordinal) ||
+                providerLookup.StartsWith("A ", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        var articleRest = providerLookup.StartsWith("An ", StringComparison.Ordinal)
+            ? providerLookup[3..]
+            : providerLookup[2..];
+        var expectedNumeric = "# " + articleRest;
+        IEnumerable<string?> texts =
+        [
+            component.OriginalText,
+            component.CanonicalSignature,
+            component.ProviderCanonicalSignature,
+            .. component.ProviderSearchSignatures,
+        ];
+        var matchedNumericSibling = false;
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var lookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                text
+                    .Replace("+<number>", "+#", StringComparison.Ordinal)
+                    .Replace("-<number>", "-#", StringComparison.Ordinal)
+                    .Replace("<number>", "#", StringComparison.Ordinal));
+            if (string.Equals(lookup, expectedNumeric, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(lookup, providerLookup, StringComparison.OrdinalIgnoreCase))
+            {
+                matchedNumericSibling = string.Equals(
+                    lookup,
+                    expectedNumeric,
+                    StringComparison.OrdinalIgnoreCase);
+                if (matchedNumericSibling ||
+                    string.Equals(lookup, providerLookup, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Require the source to be the numeric-count sibling, not already the article form.
+                    if (matchedNumericSibling)
+                    {
+                        projection = new PathOfExileTradeProviderBoundProjection
+                        {
+                            IsFaithful = true,
+                            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+                            Minimum = null,
+                            Maximum = null,
+                            ProjectionKind = "NumericCountArticlePresence",
+                        };
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// TRADE.4c / TRADE.4c.1 Track B — singular Trade <c>#</c> template with embedded literals;
+    /// project the non-embedded source scalar that fills the Trade query slot.
+    /// </summary>
+    /// <remarks>
+    /// Real Ctrl+D drafts may initialize <see cref="ResolvedSearchComponent.RequestedMinimum"/> from a
+    /// multiline per-line single-placeholder catalog signature that is an embedded Trade literal
+    /// (e.g. source <c>8</c> on a line whose Trade form keeps <c>8</c> as identity). Once the
+    /// singular/plural inflection + FilterArity-1 + embedded-literal shape is proven, never fall
+    /// through to DisplayIdentity with that corrupted Core scalar — recover the query slot as
+    /// source numbers minus Trade embedded literals, or fail closed to presence-only.
+    /// </remarks>
+    private static bool TryProjectSingularPluralInflectionScalar(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatMatchCandidate providerStat,
+        out PathOfExileTradeProviderBoundProjection projection)
+    {
+        projection = null!;
+        if (!component.HasExactUniqueSourceProvenance ||
+            component.FixedQueryValue.HasValue ||
+            PathOfExileTradeStatTemplateNormalizer.CountNumericPlaceholders(providerStat.Text) != 1 ||
+            providerStat.OptionMetadata.Count != 0)
+        {
+            return false;
+        }
+
+        var providerLookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+            providerStat.Text);
+        var sourceLookup = GetPrimarySourceLookup(component);
+        if (sourceLookup is null ||
+            string.Equals(sourceLookup, providerLookup, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!HasSingleRegularSingularPluralTokenDiff(sourceLookup, providerLookup))
+        {
+            return false;
+        }
+
+        var embedded = PathOfExileTradeStatTemplateNormalizer
+            .NormalizeModifierText(providerStat.Text)
+            .ExtractedNumericValues;
+        if (embedded.Count == 0)
+        {
+            // Inflection-only siblings without Trade embedded literals keep normal scalar paths.
+            return false;
+        }
+
+        if (TryResolveSingularPluralInflectionQueryScalar(component, embedded, out var scalar))
+        {
+            projection = new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                Minimum = scalar,
+                Maximum = scalar,
+                ProjectionKind = "SingularPluralInflectionScalar",
+            };
+            return true;
+        }
+
+        // Structure proven but the Trade # slot value is not uniquely recoverable from
+        // source-minus-embedded evidence. Do not trust Core ExactInitializedEditableQueryValue.
+        projection = new PathOfExileTradeProviderBoundProjection
+        {
+            IsFaithful = true,
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            Minimum = null,
+            Maximum = null,
+            ProjectionKind = "SingularPluralInflectionUnresolvedPresence",
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the Trade <c>#</c> query scalar as the unique source number that is not an
+    /// embedded literal in the selected Trade template.
+    /// </summary>
+    private static bool TryResolveSingularPluralInflectionQueryScalar(
+        ResolvedSearchComponent component,
+        IReadOnlyList<decimal> embedded,
+        out decimal scalar)
+    {
+        scalar = 0m;
+        foreach (var observed in EnumerateInflectionSourceNumericCandidates(component))
+        {
+            var queryValues = observed
+                .Where(value => !embedded.Contains(value))
+                .Distinct()
+                .ToArray();
+            if (queryValues.Length == 1)
+            {
+                scalar = queryValues[0];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<IReadOnlyList<decimal>> EnumerateInflectionSourceNumericCandidates(
+        ResolvedSearchComponent component)
+    {
+        if (component.ObservedNumericValues.Count > 0)
+        {
+            yield return component.ObservedNumericValues;
+        }
+
+        if (component.ProviderFallbackNumericValues.Count > 0)
+        {
+            yield return component.ProviderFallbackNumericValues;
+        }
+
+        // TRADE.4c.1 — real multiline Unique drafts may carry only the embedded-literal line's
+        // ExactInitializedEditableQueryValue (e.g. [8]). Recover full source numerics from text.
+        foreach (var text in new[] { component.OriginalText, component.RawCopiedText })
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var extracted = PathOfExileTradeStatTemplateNormalizer
+                .NormalizeModifierText(text)
+                .ExtractedNumericValues;
+            if (extracted.Count > 0)
+            {
+                yield return extracted;
+            }
+        }
+    }
+
+    private static string? GetPrimarySourceLookup(ResolvedSearchComponent component)
+    {
+        IEnumerable<string?> texts =
+        [
+            component.ProviderCanonicalSignature,
+            component.CanonicalSignature,
+            .. component.ProviderSearchSignatures,
+            component.OriginalText,
+        ];
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            var lookup = PathOfExileTradeStatTemplateNormalizer.NormalizeLookupTemplate(
+                text
+                    .Replace("+<number>", "+#", StringComparison.Ordinal)
+                    .Replace("-<number>", "-#", StringComparison.Ordinal)
+                    .Replace("<number>", "#", StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(lookup))
+            {
+                return lookup;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasSingleRegularSingularPluralTokenDiff(string left, string right)
+    {
+        var leftTokens = left.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var rightTokens = right.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (leftTokens.Length != rightTokens.Length)
+        {
+            return false;
+        }
+
+        var diffs = 0;
+        string? a = null;
+        string? b = null;
+        for (var i = 0; i < leftTokens.Length; i++)
+        {
+            if (string.Equals(leftTokens[i], rightTokens[i], StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            diffs++;
+            a = leftTokens[i];
+            b = rightTokens[i];
+        }
+
+        if (diffs != 1 || a is null || b is null)
+        {
+            return false;
+        }
+
+        return string.Equals(a + "s", b, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(b + "s", a, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -774,6 +1136,12 @@ internal static partial class PathOfExileTradeModifierBoundProjector
 
     [GeneratedRegex(@"\breduced\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex ReducedRegex();
+
+    [GeneratedRegex(@"\bmore\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex MoreRegex();
+
+    [GeneratedRegex(@"\bless\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex LessRegex();
 
     [GeneratedRegex(
         @"\ban additional (?<noun>[A-Za-z]+)\b",

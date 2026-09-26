@@ -109,6 +109,7 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
         var leagueResolver = new PathOfExileTradeLeagueResolver(leagueCatalogProvider);
         var selectedModifierMapper = new PathOfExileTradeSelectedModifierMapper();
         var itemIdentityMapper = new PathOfExileTradeItemIdentityMapper();
+        var runtimeGameDataService = new RuntimeGameDataService();
         var priceCheckService = new PathOfExileTradePriceCheckService(
             new PathOfExileTradeQueryBuilder(),
             statMatcher,
@@ -118,7 +119,8 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
             itemIdentityMapper,
             searchClient,
             fetchClient,
-            filterCatalogProvider);
+            filterCatalogProvider,
+            gameDataCatalogProvider: () => runtimeGameDataService.Current.Catalog);
         var leagueSetting = ApplicationLeagueSetting.CreateDefault();
         var priceCheckerWindowController = new PriceCheckerWindowController(
             new PriceCheckerWindowFactory(),
@@ -128,7 +130,7 @@ internal sealed class PoEnhanceApplicationComposition : IDisposable
 
         return new PoEnhanceApplicationComposition(
             tradeHttpClient,
-            new RuntimeGameDataService(),
+            runtimeGameDataService,
             new ProvisionalGameDataRecordingService(
                 new JsonProvisionalGameDataStore(
                     new ProvisionalGameDataStorePathResolver().ResolveDefaultPath())),

@@ -423,6 +423,49 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
             }
         }
 
+        // TRADE.4c Track A — numeric-count translation branch vs Trade article branch.
+        if (HasExactUniqueEvidence(source.Component))
+        {
+            foreach (var lookup in PathOfExileTradeTranslationGrammarLookupExpander
+                .ExpandNumericCountToArticleLookups(
+                    source.Component!,
+                    lookups,
+                    context?.GameDataCatalog))
+            {
+                var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                if (direct.Length > 0)
+                {
+                    return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
+                }
+
+                var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                if (qualified.Length > 0)
+                {
+                    return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
+                }
+            }
+
+            // TRADE.4c Track B — same-StatId singular/plural noun inflection → Trade singular.
+            foreach (var lookup in PathOfExileTradeTranslationGrammarLookupExpander
+                .ExpandPluralToSingularInflectionLookups(
+                    source.Component!,
+                    lookups,
+                    context?.GameDataCatalog))
+            {
+                var direct = catalog.FindCandidateGroupsByNormalizedTemplate(lookup).ToArray();
+                if (direct.Length > 0)
+                {
+                    return (lookup, direct, CandidateDiscoveryMode.WholeComposition);
+                }
+
+                var qualified = FindItemClassQualifiedGroups(catalog, lookup, context?.ItemClass);
+                if (qualified.Length > 0)
+                {
+                    return (lookup, qualified, CandidateDiscoveryMode.WholeComposition);
+                }
+            }
+        }
+
         if (hasExactAtomicMultiLineUnique)
         {
             var perLineLookups = source.Component!.ProviderSearchSignatures

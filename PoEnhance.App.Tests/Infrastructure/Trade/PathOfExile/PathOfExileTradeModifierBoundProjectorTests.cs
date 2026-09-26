@@ -1,4 +1,6 @@
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.Core.Items.GameData;
+using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
@@ -292,6 +294,45 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
 
         Assert.True(result.IsFaithful);
         Assert.Equal(75m, result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("ReversingProviderMagnitudeScalar", result.ProjectionKind);
+    }
+
+    [Fact]
+    public void ProjectBounds_MoreLessNegatePair_ReversingLessProviderUsesPositiveMagnitude()
+    {
+        // TRADE.4c.2 — Chains splash: Core ProviderCanonical is "more" (non-reversing),
+        // Trade publishes "#% less", display was "50% less". Official Trade expects +50 Min.
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:4:0",
+                OriginalText =
+                    "Animated and Manifested Minions' Melee Strikes deal 50% less Splash Damage",
+                CanonicalSignature =
+                    "Animated and Manifested Minions' Melee Strikes deal <number>% less Splash Damage",
+                ProviderCanonicalSignature =
+                    "Animated and Manifested Minions' Melee Strikes deal <number>% more Splash Damage",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [50m],
+                CanonicalNumericValues = [-50m],
+                ValueBoundTranslationHandlers = [["negate"]],
+                DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                RequestedMaximum = -50m,
+                ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+                ResolvedModifierId = "unique-mod:more-less-test",
+                ResolvedStatIds = ["grant_animated_minion_melee_splash_damage_+%_final_for_splash"],
+                UniqueCatalogBlockIds = ["unique-block:test"],
+                UniqueSourceObservationIds = ["pob-observation:test"],
+                ParsedKind = ParsedModifierKind.Unique,
+                UniqueOrigin = ParsedUniqueModifierOrigin.Ordinary,
+            },
+            Candidate(
+                "Animated and Manifested Minions' Melee Strikes deal #% less Splash Damage"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(50m, result.Minimum);
         Assert.Null(result.Maximum);
         Assert.Equal("ReversingProviderMagnitudeScalar", result.ProjectionKind);
     }
