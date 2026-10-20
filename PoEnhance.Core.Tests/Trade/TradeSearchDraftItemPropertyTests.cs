@@ -79,7 +79,11 @@ public sealed class TradeSearchDraftItemPropertyTests
         Assert.All(draft.ItemProperties, property =>
         {
             Assert.False(property.IsSelected);
-            Assert.Equal(property.ObservedValue, property.RequestedMinimum);
+            Assert.Equal(
+                TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimumIfDps(
+                    property.Kind,
+                    property.ObservedValue),
+                property.RequestedMinimum);
             Assert.Null(property.RequestedMaximum);
             Assert.False(property.IsSearchable);
             Assert.Equal(
@@ -92,11 +96,23 @@ public sealed class TradeSearchDraftItemPropertyTests
         Assert.All(
             draft.ItemProperties.Where(property => property.Kind is
                 TradeSearchItemPropertyKind.TotalDps or TradeSearchItemPropertyKind.PhysicalDps),
-            property => Assert.Equal("Q20", property.CalculationBasisLabel));
+            property =>
+            {
+                Assert.Equal("Q20", property.CalculationBasisLabel);
+                Assert.Equal(
+                    TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+                    property.QualityNormalizationStatus);
+            });
         Assert.All(
             draft.ItemProperties.Where(property => property.Kind is not
                 (TradeSearchItemPropertyKind.TotalDps or TradeSearchItemPropertyKind.PhysicalDps)),
-            property => Assert.Null(property.CalculationBasisLabel));
+            property =>
+            {
+                Assert.Null(property.CalculationBasisLabel);
+                Assert.Equal(
+                    TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+                    property.QualityNormalizationStatus);
+            });
         Assert.Empty(draft.ItemPropertyDiagnostics);
         Assert.DoesNotContain(draft.ItemProperties, property => property.Kind == TradeSearchItemPropertyKind.ChaosDps);
         Assert.False(typeof(ResolvedSearchComponent).IsAssignableFrom(typeof(TradeSearchItemProperty)));
@@ -129,9 +145,79 @@ public sealed class TradeSearchDraftItemPropertyTests
         Assert.Equal(
             [TradeSearchItemPropertyKind.EnergyShield, TradeSearchItemPropertyKind.EvasionRating],
             draft.ItemProperties.Select(property => property.Kind));
-        Assert.All(draft.ItemProperties, property => Assert.NotNull(property.DerivationUnsupportedReason));
+        Assert.All(draft.ItemProperties, property =>
+        {
+            Assert.NotNull(property.DerivationUnsupportedReason);
+            Assert.Equal(
+                TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+                property.QualityNormalizationStatus);
+            Assert.Null(property.RequestedMinimum);
+            Assert.Null(property.RequestedMaximum);
+            Assert.True(property.ObservedValue > 0m);
+        });
         Assert.Empty(draft.ItemPropertyDiagnostics);
         Assert.Equal(item.Modifiers.Count, draft.ModifierFilters.Count);
+    }
+
+    [Fact]
+    public void CreateDraft_MalformedQualityKeepsObservedPhysTotalButClearsTradeDefaultMin()
+    {
+        var item = parser.Parse("""
+Item Class: One Hand Axes
+Rarity: Rare
+Broken Edge
+Reaver Axe
+--------
+Quality: unknown
+Physical Damage: 38-114
+Elemental Damage: 10-20 (augmented)
+Attacks per Second: 1.20
+Critical Strike Chance: 5.00%
+--------
+Item Level: 85
+--------
+{ Suffix Modifier "of Strength" (Tier: 8) - Attribute }
++10(8-12) to Strength
+""");
+
+        var draft = CreateDraft(item);
+
+        var physical = Property(draft, TradeSearchItemPropertyKind.PhysicalDps);
+        var total = Property(draft, TradeSearchItemPropertyKind.TotalDps);
+        var elemental = Property(draft, TradeSearchItemPropertyKind.ElementalDps);
+        var aps = Property(draft, TradeSearchItemPropertyKind.AttacksPerSecond);
+        var crit = Property(draft, TradeSearchItemPropertyKind.CriticalStrikeChance);
+
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            physical.QualityNormalizationStatus);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            total.QualityNormalizationStatus);
+        Assert.True(physical.ObservedValue > 0m);
+        Assert.True(total.ObservedValue > 0m);
+        Assert.Null(physical.RequestedMinimum);
+        Assert.Null(total.RequestedMinimum);
+        Assert.Null(physical.CalculationBasisLabel);
+        Assert.Null(total.CalculationBasisLabel);
+        Assert.Contains("Quality", physical.NotSearchableReason, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            elemental.QualityNormalizationStatus);
+        Assert.Equal(
+            TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimumIfDps(
+                elemental.Kind,
+                elemental.ObservedValue),
+            elemental.RequestedMinimum);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            aps.QualityNormalizationStatus);
+        Assert.Equal(aps.ObservedValue, aps.RequestedMinimum);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            crit.QualityNormalizationStatus);
+        Assert.Equal(crit.ObservedValue, crit.RequestedMinimum);
     }
 
     [Theory]
@@ -344,10 +430,54 @@ Attacks per Second: 1.20
 
         Assert.NotNull(effect.CanonicalizationUnsupportedReason);
         Assert.Equal(DerivedWeaponQ20Status.Unsupported, result.Q20Status);
-        Assert.Null(result.PhysicalDps);
+        Assert.NotNull(result.PhysicalDps);
         Assert.Equal(
             effect.CanonicalizationUnsupportedReason,
             Assert.IsType<DerivedWeaponQ20Provenance>(result.Q20Provenance).UnsupportedReason);
+    }
+
+    [Fact]
+    public void CreateDraft_DpsAutoMinimumFloorsToTwoDecimalsWithoutChangingObserved()
+    {
+        var draft = CreateDraft(ParseFixture(3));
+        var total = Property(draft, TradeSearchItemPropertyKind.TotalDps);
+        var physical = Property(draft, TradeSearchItemPropertyKind.PhysicalDps);
+
+        Assert.Equal(202.725m, total.ObservedValue);
+        Assert.Equal(202.725m, physical.ObservedValue);
+        Assert.Equal(202.72m, total.RequestedMinimum);
+        Assert.Equal(202.72m, physical.RequestedMinimum);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            total.QualityNormalizationStatus);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            physical.QualityNormalizationStatus);
+    }
+
+    [Fact]
+    public void CreateDraft_NyctaStyleDpsValuesFloorAutoMinimumExactly()
+    {
+        // Synthetic values matching the manual Nycta Q20 display row precision targets.
+        var total = TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimum(335.625m);
+        var physical = TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimum(168.125m);
+        var elemental = TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimum(167.5m);
+        Assert.Equal(335.62m, total);
+        Assert.Equal(168.12m, physical);
+        Assert.Equal(167.5m, elemental);
+    }
+
+    [Fact]
+    public void UserEditedDpsMinimumIsNotRewrittenByAutoDefaultPolicy()
+    {
+        var draft = CreateDraft(ParseFixture(3));
+        var physical = Property(draft, TradeSearchItemPropertyKind.PhysicalDps);
+        Assert.Equal(202.72m, physical.RequestedMinimum);
+
+        var edited = physical with { RequestedMinimum = 202.725m };
+        Assert.Equal(202.725m, edited.RequestedMinimum);
+        Assert.Equal(202.725m, edited.ObservedValue);
+        Assert.NotEqual(edited.RequestedMinimum, physical.RequestedMinimum);
     }
 
     [Fact]

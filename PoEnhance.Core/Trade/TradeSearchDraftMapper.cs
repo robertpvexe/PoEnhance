@@ -330,13 +330,28 @@ public sealed partial class TradeSearchDraftMapper
         DerivedDefensiveProperties defensive)
     {
         var properties = ImmutableArray.CreateBuilder<TradeSearchItemProperty>();
+        var physicalQ20 =
+            derived.Q20Status == DerivedWeaponQ20Status.Success &&
+            derived.PhysicalDamage is not null;
+        var hasPhysicalComponent = derived.PhysicalDamage is not null;
+
         if (derived.Status == DerivedWeaponPropertyStatus.Success && derived.TotalDps.HasValue)
         {
+            // Total DPS is quality-sensitive only when a Physical component participates.
+            var totalQuality = hasPhysicalComponent
+                ? (physicalQ20
+                    ? TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty
+                    : TradeSearchItemPropertyQualityNormalizationStatus.Unavailable)
+                : TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable;
             properties.Add(CreateItemProperty(
                 TradeSearchItemPropertyKind.TotalDps,
                 "Total DPS",
                 derived.TotalDps.Value,
-                derived.Q20Status == DerivedWeaponQ20Status.Success ? "Q20" : null,
+                physicalQ20 ? "Q20" : null,
+                totalQuality,
+                derived.Q20Status == DerivedWeaponQ20Status.Unsupported
+                    ? derived.Q20Provenance?.UnsupportedReason
+                    : null,
                 derived.PhysicalDamage?.SourceProperty,
                 derived.ElementalDamage?.SourceProperty,
                 derived.ChaosDamage?.SourceProperty,
@@ -349,7 +364,13 @@ public sealed partial class TradeSearchDraftMapper
                 TradeSearchItemPropertyKind.PhysicalDps,
                 "Physical DPS",
                 derived.PhysicalDps.Value,
-                derived.Q20Status == DerivedWeaponQ20Status.Success ? "Q20" : null,
+                physicalQ20 ? "Q20" : null,
+                physicalQ20
+                    ? TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty
+                    : TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+                derived.Q20Status == DerivedWeaponQ20Status.Unsupported
+                    ? derived.Q20Provenance?.UnsupportedReason
+                    : null,
                 derived.PhysicalDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -361,6 +382,8 @@ public sealed partial class TradeSearchDraftMapper
                 "Elemental DPS",
                 derived.ElementalDps.Value,
                 calculationBasisLabel: null,
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+                derivationUnsupportedReason: null,
                 derived.ElementalDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -372,6 +395,8 @@ public sealed partial class TradeSearchDraftMapper
                 "Chaos DPS",
                 derived.ChaosDps.Value,
                 calculationBasisLabel: null,
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+                derivationUnsupportedReason: null,
                 derived.ChaosDamage?.SourceProperty,
                 derived.AttacksPerSecondSourceProperty));
         }
@@ -383,6 +408,8 @@ public sealed partial class TradeSearchDraftMapper
                 "Attacks per Second",
                 derived.AttacksPerSecond.Value,
                 calculationBasisLabel: null,
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+                derivationUnsupportedReason: null,
                 derived.AttacksPerSecondSourceProperty));
         }
 
@@ -393,19 +420,28 @@ public sealed partial class TradeSearchDraftMapper
                 "Critical Strike Chance",
                 derived.CriticalStrikeChance.Value,
                 calculationBasisLabel: null,
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+                derivationUnsupportedReason: null,
                 derived.CriticalStrikeChanceSourceProperty));
         }
 
         foreach (var property in defensive.Properties)
         {
+            var kind = DefensiveKind(property.Target);
+            var qualityStatus = IsQualitySensitiveDefence(kind)
+                ? (property.IsQ20
+                    ? TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty
+                    : TradeSearchItemPropertyQualityNormalizationStatus.Unavailable)
+                : TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable;
             properties.Add(CreateItemProperty(
-                    DefensiveKind(property.Target),
+                    kind,
                     DefensiveLabel(property.Target),
                     property.Value,
                     property.IsQ20 ? "Q20" : null,
+                    qualityStatus,
+                    property.UnsupportedReason,
                     property.SourceProperty) with
             {
-                DerivationUnsupportedReason = property.UnsupportedReason,
                 NotSearchableReason = property.UnsupportedReason ??
                     "Provider mapping for derived item properties is not available.",
             });
@@ -413,6 +449,11 @@ public sealed partial class TradeSearchDraftMapper
 
         return properties.ToImmutable();
     }
+
+    private static bool IsQualitySensitiveDefence(TradeSearchItemPropertyKind kind) =>
+        kind is TradeSearchItemPropertyKind.Armour or
+            TradeSearchItemPropertyKind.EvasionRating or
+            TradeSearchItemPropertyKind.EnergyShield;
 
     private static TradeSearchItemPropertyKind DefensiveKind(ItemPropertyTarget target) => target switch
     {
@@ -439,20 +480,32 @@ public sealed partial class TradeSearchDraftMapper
         string label,
         decimal value,
         string? calculationBasisLabel,
+        TradeSearchItemPropertyQualityNormalizationStatus qualityNormalizationStatus,
+        string? derivationUnsupportedReason,
         params ParsedItemProperty?[] sourceProperties)
     {
+        var tradeSafe =
+            qualityNormalizationStatus !=
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable;
         return new TradeSearchItemProperty
         {
             Kind = kind,
             Label = label,
             CalculationBasisLabel = calculationBasisLabel,
             ObservedValue = value,
-            RequestedMinimum = value,
+            RequestedMinimum = tradeSafe
+                ? TradeSearchDpsDefaultMinimumPrecision.FloorAutoMinimumIfDps(kind, value)
+                : null,
             RequestedMaximum = null,
             IsSelected = false,
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
             IsSearchable = false,
-            NotSearchableReason = "Provider mapping for derived item properties is not available.",
+            NotSearchableReason = tradeSafe
+                ? "Provider mapping for derived item properties is not available."
+                : derivationUnsupportedReason ??
+                    "Exact Q20 normalization is required before this property can be used as a Trade filter.",
+            DerivationUnsupportedReason = derivationUnsupportedReason,
+            QualityNormalizationStatus = qualityNormalizationStatus,
             SourceProperties = sourceProperties
                 .Where(property => property is not null)
                 .Cast<ParsedItemProperty>()

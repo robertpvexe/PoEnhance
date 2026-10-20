@@ -121,6 +121,21 @@ internal sealed class PathOfExileTradeItemPropertyResolver
         bool isWeaponDraft,
         bool isArmourDraft)
     {
+        if (property.QualityNormalizationStatus ==
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable)
+        {
+            return property with
+            {
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+                IsSearchable = false,
+                IsSelected = false,
+                RequestedMinimum = null,
+                RequestedMaximum = null,
+                NotSearchableReason = property.DerivationUnsupportedReason ??
+                    "Exact Q20 normalization is required before this property can be used as a Trade filter.",
+            };
+        }
+
         if (!mappingCatalog.TryGet(property.Kind, out var mapping))
         {
             return Unresolved(property, "No reviewed provider mapping exists for this item property.");

@@ -1,0 +1,33 @@
+Item Class: Wands
+Rarity: Unique
+Lifesprig
+Driftwood Wand
+--------
+Wand
+Physical Damage: 5-9
+Critical Strike Chance: 8.30%
+Attacks per Second: 1.50
+--------
+Sockets: W 
+--------
+Item Level: 75
+--------
+{ Implicit Modifier — Damage, Caster }
+9(8-12)% increased Spell Damage
+--------
+{ Unique Modifier — Caster, Gem }
++1 to Level of Socketed Spell Gems
+{ Unique Modifier — Life }
++19(15-20) to maximum Life
+{ Unique Modifier — Damage, Caster }
+20(20-28)% increased Spell Damage
+{ Unique Modifier — Caster, Speed }
+8(5-8)% increased Cast Speed
+{ Unique Modifier — Mana }
++20(15-20) to maximum Mana
+{ Unique Modifier — Life }
+Regenerate 6(6-8) Life over 1 second when you Cast a Spell
+--------
+From the smallest seeds
+To the tallest redwoods,
+Life endures in Wraeclast.

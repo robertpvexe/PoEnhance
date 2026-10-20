@@ -19,6 +19,15 @@ public sealed record PriceCheckerItemPropertyViewModel : INotifyPropertyChanged
 
     public bool HasCalculationBasisLabel => !string.IsNullOrWhiteSpace(CalculationBasisLabel);
 
+    /// <summary>
+    /// Informational observed value for non-searchable rows (e.g. Q20 unavailable).
+    /// Never used as a Trade Min/Max bound.
+    /// </summary>
+    public string? InformationalObservedValueText { get; init; }
+
+    public bool HasInformationalObservedValue =>
+        !string.IsNullOrWhiteSpace(InformationalObservedValueText);
+
     public bool IsSelected { get; init; }
 
     public bool IsAvailable { get; init; }

@@ -113,6 +113,37 @@ public sealed class TradeSearchBaseRollTests
         Assert.Equal(qualityTwenty.BaseRollPercentile, requestedQuality.BaseRollPercentile);
     }
 
+    [Fact]
+    public void CreateDraft_ArmourQ20SuccessMarksNormalizedAndKeepsTradeDefaultMin()
+    {
+        var draft = CreateArmourDraft(220, quality: 20, Defence(armour: (100, 200)));
+        var armour = Assert.Single(
+            draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Armour);
+
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            armour.QualityNormalizationStatus);
+        Assert.Equal("Q20", armour.CalculationBasisLabel);
+        Assert.Equal(armour.ObservedValue, armour.RequestedMinimum);
+        Assert.True(armour.ObservedValue > 0m);
+    }
+
+    [Fact]
+    public void CreateDraft_ArmourWithoutSourcedBaseIsUnavailableForTradeDefaultMin()
+    {
+        var draft = CreateArmourDraft(150, quality: 20, Defence(armour: (100, 200), sourced: false));
+        var armour = Assert.Single(
+            draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Armour);
+
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            armour.QualityNormalizationStatus);
+        Assert.Null(armour.RequestedMinimum);
+        Assert.Equal(150m, armour.ObservedValue);
+    }
+
     private TradeSearchDraft CreateArmourDraft(
         int displayedArmour,
         int quality,

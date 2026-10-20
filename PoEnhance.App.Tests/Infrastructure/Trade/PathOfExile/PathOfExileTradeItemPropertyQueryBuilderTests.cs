@@ -291,6 +291,43 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
     }
 
     [Fact]
+    public void Build_FlooredDpsAutoMinimumSerializesExactlyTwoDecimals()
+    {
+        var (draft, filters) = ResolvedSelection(
+            TradeSearchItemPropertyKind.TotalDps,
+            335.62m);
+        var (physicalDraft, physicalFilters) = ResolvedSelection(
+            TradeSearchItemPropertyKind.PhysicalDps,
+            168.12m);
+        var (elementalDraft, elementalFilters) = ResolvedSelection(
+            TradeSearchItemPropertyKind.ElementalDps,
+            167.5m);
+
+        Assert.Equal(
+            "335.62",
+            WeaponFilter(Build(draft, filters), "dps").GetProperty("min").GetRawText());
+        Assert.Equal(
+            "168.12",
+            WeaponFilter(Build(physicalDraft, physicalFilters), "pdps").GetProperty("min").GetRawText());
+        Assert.Equal(
+            "167.5",
+            WeaponFilter(Build(elementalDraft, elementalFilters), "edps").GetProperty("min").GetRawText());
+    }
+
+    [Fact]
+    public void Build_UserOwnedFullPrecisionDpsMinimumIsNotSilentlyRefloored()
+    {
+        // Auto-default policy floors at draft creation only; an explicit user Min must serialize as-is.
+        var (draft, filters) = ResolvedSelection(
+            TradeSearchItemPropertyKind.PhysicalDps,
+            168.125m);
+
+        Assert.Equal(
+            "168.125",
+            WeaponFilter(Build(draft, filters), "pdps").GetProperty("min").GetRawText());
+    }
+
+    [Fact]
     public void Build_RequestedMaximumIsSerializedAndNullMaximumIsOmitted()
     {
         var (boundedDraft, boundedFilters) = ResolvedSelection(

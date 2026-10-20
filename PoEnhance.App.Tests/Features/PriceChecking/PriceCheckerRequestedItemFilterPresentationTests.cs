@@ -80,6 +80,31 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
     }
 
     [Fact]
+    public void WindowXaml_FailClosedItemPropertyProjectsInformationalObservedValueBinding()
+    {
+        var xaml = LoadWindowXaml();
+        var stats = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        var propertyRow = ExtractElement(stats, "<Grid x:Name=\"StatsTopLevelPropertyRow\"", "</Grid>");
+
+        Assert.Contains("HasInformationalObservedValue", propertyRow);
+        Assert.Contains("Text=\"{Binding InformationalObservedValueText}\"", propertyRow);
+        Assert.DoesNotContain("Observed:", propertyRow);
+    }
+
+    [Fact]
+    public void WindowXaml_ModifierRowsDoNotBindPropertyInformationalObservedValue()
+    {
+        var xaml = LoadWindowXaml();
+        var stats = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+
+        Assert.DoesNotContain(
+            "InformationalObservedValueText",
+            stats.Replace(
+                ExtractElement(stats, "<Grid x:Name=\"StatsTopLevelPropertyRow\"", "</Grid>"),
+                string.Empty));
+    }
+
+    [Fact]
     public void WindowRuntime_ActiveStateControlsWholeBorderWhileFocusAloneDoesNot()
     {
         RunOnSta(() =>

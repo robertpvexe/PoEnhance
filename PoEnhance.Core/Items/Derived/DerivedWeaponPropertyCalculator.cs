@@ -436,10 +436,10 @@ public sealed partial class DerivedWeaponPropertyCalculator
         string reason,
         ParsedItemProperty? sourceProperty)
     {
+        // PROPERTIES.2 — keep displayed Physical/Total DPS for UI visibility; Trade searchability
+        // is gated separately via QualityNormalizationStatus.Unavailable.
         return displayed with
         {
-            PhysicalDamage = null,
-            TotalDps = null,
             Q20Status = DerivedWeaponQ20Status.Unsupported,
             Q20Provenance = provenance with { UnsupportedReason = reason },
             Diagnostics = displayed.Diagnostics.Concat(

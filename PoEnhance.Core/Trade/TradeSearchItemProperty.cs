@@ -28,5 +28,11 @@ public sealed record TradeSearchItemProperty
 
     public string? DerivationUnsupportedReason { get; init; }
 
+    /// <summary>
+    /// Structured Q20 / quality-independent basis. Do not infer Trade safety from
+    /// <see cref="CalculationBasisLabel"/> text.
+    /// </summary>
+    public TradeSearchItemPropertyQualityNormalizationStatus QualityNormalizationStatus { get; init; }
+
     public ImmutableArray<ParsedItemProperty> SourceProperties { get; init; } = [];
 }

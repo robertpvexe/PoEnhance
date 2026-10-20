@@ -238,9 +238,20 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
             IsSearchable = false,
             NotSearchableReason = "Not resolved for test yet.",
+            QualityNormalizationStatus = DefaultQualityStatus(kind),
             SourceProperties = Sources(kind),
         };
     }
+
+    private static TradeSearchItemPropertyQualityNormalizationStatus DefaultQualityStatus(
+        TradeSearchItemPropertyKind kind) =>
+        kind is TradeSearchItemPropertyKind.PhysicalDps or
+            TradeSearchItemPropertyKind.TotalDps or
+            TradeSearchItemPropertyKind.Armour or
+            TradeSearchItemPropertyKind.EvasionRating or
+            TradeSearchItemPropertyKind.EnergyShield
+            ? TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty
+            : TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable;
 
     public static PathOfExileTradeNumericFilterDefinition NumericDefinition(
         string id,

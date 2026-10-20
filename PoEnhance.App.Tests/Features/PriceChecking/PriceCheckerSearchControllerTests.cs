@@ -4206,11 +4206,154 @@ public sealed class PriceCheckerSearchControllerTests
         var propertyRow = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
         Assert.Equal("Q20", propertyRow.CalculationBasisLabel);
         Assert.True(propertyRow.HasCalculationBasisLabel);
+        Assert.False(propertyRow.HasInformationalObservedValue);
+        Assert.Null(propertyRow.InformationalObservedValueText);
         Assert.True(current.ModifierFilters[0].IsSelected);
         Assert.True(propertyRow.IsExpanded);
         Assert.Equal(28, RequestedHeader(current, TradeSearchRequestedItemFilterKind.Quality).RequestedMinimum);
         Assert.Empty(fixture.PriceCheckService.Calls);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
+    }
+
+    [Fact]
+    public void Q20SuccessItemProperty_DoesNotProjectInformationalObservedText()
+    {
+        var fixture = SearchFixture.Create();
+        var total = ItemProperty(TradeSearchItemPropertyKind.TotalDps, 335.62m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            CalculationBasisLabel = "Q20",
+        };
+        var physical = ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 168.12m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            CalculationBasisLabel = "Q20",
+        };
+        var elemental = ItemProperty(TradeSearchItemPropertyKind.ElementalDps, 167.5m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            CalculationBasisLabel = null,
+        };
+        var draft = Draft("Nycta Q20 control") with { ItemProperties = [total, physical, elemental] };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var rows = fixture.Window.CurrentSearchState!.ItemProperties;
+        var totalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.TotalDps);
+        var physicalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var elementalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.ElementalDps);
+
+        Assert.True(totalRow.IsAvailable);
+        Assert.True(physicalRow.IsAvailable);
+        Assert.True(elementalRow.IsAvailable);
+        Assert.Equal("335.62", totalRow.MinimumText);
+        Assert.Equal("168.12", physicalRow.MinimumText);
+        Assert.Equal("167.5", elementalRow.MinimumText);
+        Assert.Equal("Q20", totalRow.CalculationBasisLabel);
+        Assert.Equal("Q20", physicalRow.CalculationBasisLabel);
+        Assert.False(totalRow.HasInformationalObservedValue);
+        Assert.False(physicalRow.HasInformationalObservedValue);
+        Assert.False(elementalRow.HasInformationalObservedValue);
+        Assert.Null(totalRow.InformationalObservedValueText);
+        Assert.Null(physicalRow.InformationalObservedValueText);
+        Assert.Null(elementalRow.InformationalObservedValueText);
+    }
+
+    [Fact]
+    public void FailClosedQ20UnavailableItemProperty_ProjectsInformationalObservedWithoutMin()
+    {
+        var fixture = SearchFixture.Create();
+        var physical = ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 10.5m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            IsSearchable = false,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+            NotSearchableReason =
+                "The resolved item base does not retain an exact sourced Physical Damage minimum and maximum.",
+            DerivationUnsupportedReason =
+                "The resolved item base does not retain an exact sourced Physical Damage minimum and maximum.",
+        };
+        var total = ItemProperty(TradeSearchItemPropertyKind.TotalDps, 10.5m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
+            IsSearchable = false,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+            NotSearchableReason = physical.NotSearchableReason,
+            DerivationUnsupportedReason = physical.DerivationUnsupportedReason,
+        };
+        var elemental = ItemProperty(TradeSearchItemPropertyKind.ElementalDps, 167.5m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            CalculationBasisLabel = null,
+        };
+        var aps = ItemProperty(TradeSearchItemPropertyKind.AttacksPerSecond, 1.5m);
+        var crit = ItemProperty(TradeSearchItemPropertyKind.CriticalStrikeChance, 8.3m);
+        var draft = Draft("Lifesprig fail-closed projection") with
+        {
+            ItemProperties = [total, physical, elemental, aps, crit],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var rows = fixture.Window.CurrentSearchState!.ItemProperties;
+        var totalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.TotalDps);
+        var physicalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var elementalRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        var apsRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.AttacksPerSecond);
+        var critRow = Assert.Single(rows, row => row.Kind == TradeSearchItemPropertyKind.CriticalStrikeChance);
+
+        Assert.False(totalRow.IsAvailable);
+        Assert.False(physicalRow.IsAvailable);
+        Assert.Equal("Observed: 10.5", totalRow.InformationalObservedValueText);
+        Assert.Equal("Observed: 10.5", physicalRow.InformationalObservedValueText);
+        Assert.True(totalRow.HasInformationalObservedValue);
+        Assert.True(physicalRow.HasInformationalObservedValue);
+        Assert.Equal(string.Empty, totalRow.MinimumText);
+        Assert.Equal(string.Empty, physicalRow.MinimumText);
+        Assert.Equal(string.Empty, totalRow.MaximumText);
+        Assert.Equal(string.Empty, physicalRow.MaximumText);
+        Assert.Contains("Physical Damage", physicalRow.AvailabilityReason, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(elementalRow.IsAvailable);
+        Assert.False(elementalRow.HasInformationalObservedValue);
+        Assert.Null(elementalRow.InformationalObservedValueText);
+        Assert.True(apsRow.IsAvailable);
+        Assert.False(apsRow.HasInformationalObservedValue);
+        Assert.True(critRow.IsAvailable);
+        Assert.False(critRow.HasInformationalObservedValue);
+    }
+
+    [Fact]
+    public void DefenceQ20UnavailableItemProperty_ProjectsInformationalObservedWithoutFilterBounds()
+    {
+        var fixture = SearchFixture.Create();
+        var armour = ItemProperty(TradeSearchItemPropertyKind.Armour, 772m) with
+        {
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            RequestedMinimum = null,
+            IsSearchable = false,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+            NotSearchableReason = "Ambiguous sourced base roll.",
+            DerivationUnsupportedReason = "Ambiguous sourced base roll.",
+        };
+        var draft = Draft("Defence Q20 unavailable") with { ItemProperties = [armour] };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.False(row.IsAvailable);
+        Assert.Equal("Observed: 772", row.InformationalObservedValueText);
+        Assert.Equal(string.Empty, row.MinimumText);
+        Assert.Equal(string.Empty, row.MaximumText);
+        Assert.Equal("Ambiguous sourced base roll.", row.AvailabilityReason);
     }
 
     [Fact]

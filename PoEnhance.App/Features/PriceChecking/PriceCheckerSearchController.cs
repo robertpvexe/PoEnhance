@@ -1666,6 +1666,7 @@ internal sealed class PriceCheckerSearchController
                     Kind = property.Kind,
                     Label = property.Label,
                     CalculationBasisLabel = property.CalculationBasisLabel,
+                    InformationalObservedValueText = InformationalObservedValueText(property),
                     IsSelected = property.IsSelected,
                     IsAvailable = IsItemPropertyAvailable(property),
                     AvailabilityReason = ItemPropertyAvailabilityReason(property),
@@ -1676,6 +1677,16 @@ internal sealed class PriceCheckerSearchController
                 };
             })
             .ToArray();
+    }
+
+    private static string? InformationalObservedValueText(TradeSearchItemProperty property)
+    {
+        if (IsItemPropertyAvailable(property))
+        {
+            return null;
+        }
+
+        return $"Observed: {FormatBound(property.ObservedValue)}";
     }
 
     private IReadOnlyList<PriceCheckerModifierViewModel> CreateModifierRows(TradeSearchDraft? draft = null)

@@ -1005,6 +1005,26 @@
                                         </StackPanel>
                                         <TextBlock Margin="0,2,0,0"
                                                    FontSize="11"
+                                                   Foreground="#CFCFCF"
+                                                   Text="{Binding InformationalObservedValueText}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="NoWrap">
+                                            <TextBlock.Style>
+                                                <Style TargetType="{x:Type TextBlock}">
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasInformationalObservedValue}"
+                                                                     Value="False">
+                                                            <Setter Property="Visibility"
+                                                                    Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Margin="0,2,0,0"
+                                                   FontSize="11"
                                                    Foreground="#AFAFAF"
                                                    Text="{Binding AvailabilityReason}"
                                                    TextTrimming="CharacterEllipsis"

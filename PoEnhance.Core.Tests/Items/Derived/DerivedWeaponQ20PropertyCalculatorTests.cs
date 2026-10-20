@@ -413,8 +413,9 @@ public sealed class DerivedWeaponQ20PropertyCalculatorTests
     private static void AssertUnsupported(DerivedWeaponProperties result, string reasonFragment)
     {
         Assert.Equal(DerivedWeaponQ20Status.Unsupported, result.Q20Status);
-        Assert.Null(result.PhysicalDps);
-        Assert.Null(result.TotalDps);
+        // PROPERTIES.2 — displayed Physical/Total DPS remain for UI; Trade gate uses Q20Status.
+        Assert.NotNull(result.PhysicalDps);
+        Assert.NotNull(result.TotalDps);
         Assert.Contains(reasonFragment, result.Q20Provenance!.UnsupportedReason, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Code == DerivedWeaponPropertyDiagnosticCodes.Q20NormalizationUnsupported);

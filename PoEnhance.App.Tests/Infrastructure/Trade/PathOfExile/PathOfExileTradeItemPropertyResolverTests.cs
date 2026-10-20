@@ -50,12 +50,16 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
     }
 
     [Fact]
-    public void Resolve_DefensiveQ20UnavailableUsesAuthoritativeDisplayedValue()
+    public void Resolve_DefensiveQ20Unavailable_IsDisplayOnlyNotSearchable()
     {
         var source = PathOfExileTradeItemPropertyTestFixtures.Property(
             TradeSearchItemPropertyKind.Armour, 100m) with
         {
             DerivationUnsupportedReason = "Ambiguous sourced base roll.",
+            QualityNormalizationStatus =
+                TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            RequestedMinimum = null,
+            RequestedMaximum = null,
         };
 
         var result = new PathOfExileTradeItemPropertyResolver().Resolve(
@@ -63,10 +67,79 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
             PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
 
         var property = Assert.Single(result.ItemProperties);
+        Assert.Equal(100m, property.ObservedValue);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            property.QualityNormalizationStatus);
+        Assert.Equal(
+            TradeSearchItemPropertyProviderResolutionStatus.Unsupported,
+            property.ProviderResolutionStatus);
+        Assert.False(property.IsSearchable);
+        Assert.Null(property.RequestedMinimum);
+        Assert.Null(property.RequestedMaximum);
+        Assert.False(property.IsSelected);
+        Assert.Equal(source.DerivationUnsupportedReason, property.DerivationUnsupportedReason);
+        Assert.False(string.IsNullOrWhiteSpace(property.NotSearchableReason));
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.PhysicalDps)]
+    [InlineData(TradeSearchItemPropertyKind.TotalDps)]
+    [InlineData(TradeSearchItemPropertyKind.Armour)]
+    [InlineData(TradeSearchItemPropertyKind.EvasionRating)]
+    [InlineData(TradeSearchItemPropertyKind.EnergyShield)]
+    public void Resolve_QualitySensitiveUnavailable_EmitsNoSelectedFilter(
+        TradeSearchItemPropertyKind kind)
+    {
+        var draftKind = kind is TradeSearchItemPropertyKind.Armour or
+            TradeSearchItemPropertyKind.EvasionRating or
+            TradeSearchItemPropertyKind.EnergyShield
+            ? PathOfExileTradeItemPropertyTestFixtures.ArmourDraft(
+                PathOfExileTradeItemPropertyTestFixtures.Property(kind, 100m, selected: true) with
+                {
+                    QualityNormalizationStatus =
+                        TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+                    RequestedMinimum = 100m,
+                })
+            : PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(
+                [PathOfExileTradeItemPropertyTestFixtures.Property(kind, 100m, selected: true) with
+                {
+                    QualityNormalizationStatus =
+                        TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+                    RequestedMinimum = 100m,
+                }]);
+
+        var resolver = new PathOfExileTradeItemPropertyResolver();
+        var catalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        var resolved = resolver.Resolve(draftKind, catalog);
+        var mapping = resolver.MapSelected(resolved, catalog);
+
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+        var property = Assert.Single(resolved.ItemProperties, entry => entry.Kind == kind);
+        Assert.Equal(100m, property.ObservedValue);
+        Assert.False(property.IsSearchable);
+        Assert.Null(property.RequestedMinimum);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchItemPropertyKind.ElementalDps)]
+    [InlineData(TradeSearchItemPropertyKind.AttacksPerSecond)]
+    [InlineData(TradeSearchItemPropertyKind.CriticalStrikeChance)]
+    public void Resolve_QualityIndependentKinds_RemainSearchable(
+        TradeSearchItemPropertyKind kind)
+    {
+        var draft = PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(
+            [PathOfExileTradeItemPropertyTestFixtures.Property(kind, 12.5m)]);
+        var property = Assert.Single(
+            new PathOfExileTradeItemPropertyResolver().Resolve(
+                draft,
+                PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog()).ItemProperties);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable,
+            property.QualityNormalizationStatus);
         Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Exact, property.ProviderResolutionStatus);
         Assert.True(property.IsSearchable);
-        Assert.Null(property.NotSearchableReason);
-        Assert.Equal(source.DerivationUnsupportedReason, property.DerivationUnsupportedReason);
     }
 
     [Fact]
