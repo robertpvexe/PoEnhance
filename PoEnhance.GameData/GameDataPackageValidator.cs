@@ -660,6 +660,12 @@ public static class GameDataPackageValidator
             UniqueModifierMechanicalMappingStatus.Unsupported =>
                 !string.IsNullOrWhiteSpace(mapping.DiagnosticCode) &&
                 mapping.ConflictEvidence is null,
+            UniqueModifierMechanicalMappingStatus.NonSearchable =>
+                mapping.ModifierIds.Count == 0 &&
+                mapping.StatIds.Count == 0 &&
+                mapping.Provenance is null &&
+                mapping.ConflictEvidence is null &&
+                !string.IsNullOrWhiteSpace(mapping.DiagnosticCode),
             _ => false,
         };
     }

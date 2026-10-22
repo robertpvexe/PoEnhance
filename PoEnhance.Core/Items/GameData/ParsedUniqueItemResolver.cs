@@ -828,7 +828,11 @@ public sealed partial class ParsedUniqueItemResolver
             return false;
         }
 
-        var copiedCandidateMembershipIds = modifiers
+        // Count selectable generated units. One matched block is one unit even when it carries
+        // multiple CandidatePoolMembershipIds (Impossible Escape Keystone rows). Blocks that share
+        // an identical membership fingerprint still collapse to one unit. Non-searchable
+        // requirements (Requires Class) are display provenance and do not consume the limit.
+        var selectedGeneratedUnits = modifiers
             .Where(modifier =>
                 modifier.Kind == ParsedModifierKind.Unique &&
                 !(isFoulborn && modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn))
@@ -836,12 +840,20 @@ public sealed partial class ParsedUniqueItemResolver
                     version,
                     modifier,
                     modifiers)
-                .Where(match => match.Block.SourceSemantics ==
-                    UniqueModifierSourceSemantics.GeneratedCandidate)
-                .SelectMany(match => match.Block.CandidatePoolMembershipIds))
+                .Where(match =>
+                    match.Block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate &&
+                    match.Block.MechanicalMapping.Status !=
+                        UniqueModifierMechanicalMappingStatus.NonSearchable)
+                .Select(match => string.Join(
+                    '\u001f',
+                    match.Block.CandidatePoolMembershipIds
+                        .Where(id => !string.IsNullOrWhiteSpace(id))
+                        .Select(id => id.Trim())
+                        .OrderBy(id => id, StringComparer.Ordinal))))
+            .Where(unit => unit.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        return copiedCandidateMembershipIds.Length > version.GeneratedCandidateSelectionLimit;
+        return selectedGeneratedUnits.Length > version.GeneratedCandidateSelectionLimit;
     }
 
     private static UniqueItemVersionObservation[] SelectBestPartialVersions(
@@ -1485,11 +1497,31 @@ public sealed partial class ParsedUniqueItemResolver
         ParsedModifier modifier,
         UniqueItemVersionRole versionRole = UniqueItemVersionRole.Current)
     {
-        if (modifier.ValueLines.Count == 0 || block.Lines.Count != modifier.ValueLines.Count)
+        if (modifier.ValueLines.Count == 0)
         {
             return UniqueBlockTextMatch.NoMatch;
         }
 
+        if (block.Lines.Count == modifier.ValueLines.Count)
+        {
+            var equalCountMatch = MatchParsedModifierEqualLineCount(block, modifier, versionRole);
+            if (equalCountMatch.IsMatch)
+            {
+                return equalCountMatch;
+            }
+        }
+
+        // AID/Trade present Impossible Escape Keystones as multiline text ending in Passage
+        // display chrome while PoB/GameData stores one normalized line. Fold only that chrome
+        // for GeneratedCandidate blocks — never join arbitrary multiline modifiers.
+        return TryMatchPassageChromeFoldedGeneratedCandidate(block, modifier);
+    }
+
+    private static UniqueBlockTextMatch MatchParsedModifierEqualLineCount(
+        UniqueModifierBlock block,
+        ParsedModifier modifier,
+        UniqueItemVersionRole versionRole)
+    {
         var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
         if (!HasCompatibleAnnotatedRollEvidence(rawLines, block.Lines))
         {
@@ -1546,6 +1578,97 @@ public sealed partial class ParsedUniqueItemResolver
                 textualOptionRangeAnnotations,
                 UniqueBlockTextMatchKind.TextualOptionRangeProjection)
             : UniqueBlockTextMatch.NoMatch;
+    }
+
+    /// <summary>
+    /// Matches a single-line GeneratedCandidate catalog block against AID/Trade multiline
+    /// presentation that ends with trailing Passage chrome (optionally with
+    /// <c>— Unscalable Value</c>). Preserves raw clipboard lines on the parsed modifier;
+    /// only the mechanical comparison is folded. Fail-closed without a trailing Passage line.
+    /// </summary>
+    private static UniqueBlockTextMatch TryMatchPassageChromeFoldedGeneratedCandidate(
+        UniqueModifierBlock block,
+        ParsedModifier modifier)
+    {
+        if (block.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate ||
+            block.Lines.Count != 1 ||
+            modifier.ValueLines.Count <= 1 ||
+            !TryGetMechanicalEffectLines(modifier, out var mechanicalLines) ||
+            !TryStripTrailingPassageDisplayChrome(mechanicalLines, out var withoutPassage))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var foldedLines = withoutPassage.Length == 1
+            ? withoutPassage
+            : [string.Join(' ', withoutPassage)];
+        if (!HasCompatibleAnnotatedRollEvidence(foldedLines, block.Lines) ||
+            !HasCompatibleGeneratedCandidateRollEvidence(foldedLines, block.Lines))
+        {
+            return UniqueBlockTextMatch.NoMatch;
+        }
+
+        var projectedLines = ProjectCanonicalRollAnnotations(foldedLines);
+        return LinesMatch(block, foldedLines, allowPolarityInversion: false) ||
+            LinesMatch(
+                block,
+                projectedLines,
+                HasSignedCanonicalRollAnnotation(foldedLines))
+            ? UniqueBlockTextMatch.DirectMatch
+            : UniqueBlockTextMatch.NoMatch;
+    }
+
+    private static bool TryGetMechanicalEffectLines(
+        ParsedModifier modifier,
+        out string[] mechanicalLines)
+    {
+        mechanicalLines = [];
+        if (modifier.Effects.Count == modifier.ValueLines.Count && modifier.Effects.Count > 0)
+        {
+            mechanicalLines = modifier.Effects
+                .Select(effect => effect.SemanticText.Trim())
+                .Where(line => line.Length > 0)
+                .ToArray();
+            return mechanicalLines.Length == modifier.ValueLines.Count;
+        }
+
+        mechanicalLines = modifier.ValueLines
+            .Select(line => StripTerminalUnscalableValueAnnotation(line.Trim()))
+            .Where(line => line.Length > 0)
+            .ToArray();
+        return mechanicalLines.Length > 0;
+    }
+
+    private static bool TryStripTrailingPassageDisplayChrome(
+        IReadOnlyList<string> lines,
+        out string[] withoutPassage)
+    {
+        withoutPassage = [];
+        if (lines.Count < 2 || !IsPassageDisplayChromeLine(lines[^1]))
+        {
+            return false;
+        }
+
+        withoutPassage = lines
+            .Take(lines.Count - 1)
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToArray();
+        return withoutPassage.Length > 0;
+    }
+
+    private static bool IsPassageDisplayChromeLine(string line)
+    {
+        var mechanical = StripTerminalUnscalableValueAnnotation(line.Trim());
+        return string.Equals(mechanical, "Passage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string StripTerminalUnscalableValueAnnotation(string line)
+    {
+        const string unscalableSuffix = " — Unscalable Value";
+        return line.EndsWith(unscalableSuffix, StringComparison.Ordinal)
+            ? line[..^unscalableSuffix.Length].TrimEnd()
+            : line;
     }
 
     /// <summary>
@@ -1651,21 +1774,29 @@ public sealed partial class ParsedUniqueItemResolver
         UniqueModifierBlock block,
         ParsedModifier modifier)
     {
-        if (modifier.ValueLines.Count == 0 || block.Lines.Count != modifier.ValueLines.Count ||
-            block.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate ||
-            !TryProjectTextualOptionRange(modifier, out var semanticLines, out _))
+        if (modifier.ValueLines.Count == 0 ||
+            block.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate)
         {
             return [];
         }
 
-        var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
-        var projectedPresentationLines = ProjectCanonicalRollAnnotations(semanticLines);
-        return LinesMatch(block, semanticLines, allowPolarityInversion: false) ||
-            LinesMatch(
-                block,
-                projectedPresentationLines,
-                HasSignedCanonicalRollAnnotation(rawLines))
-            ? semanticLines
+        if (block.Lines.Count == modifier.ValueLines.Count &&
+            TryProjectTextualOptionRange(modifier, out var semanticLines, out _))
+        {
+            var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
+            var projectedPresentationLines = ProjectCanonicalRollAnnotations(semanticLines);
+            if (LinesMatch(block, semanticLines, allowPolarityInversion: false) ||
+                LinesMatch(
+                    block,
+                    projectedPresentationLines,
+                    HasSignedCanonicalRollAnnotation(rawLines)))
+            {
+                return semanticLines;
+            }
+        }
+
+        return TryMatchPassageChromeFoldedGeneratedCandidate(block, modifier).IsMatch
+            ? block.Lines
             : [];
     }
 

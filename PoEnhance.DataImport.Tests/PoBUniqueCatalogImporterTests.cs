@@ -3366,6 +3366,125 @@ public sealed class PoBUniqueCatalogImporterTests
     }
 
     [Fact]
+    public void Import_ImpossibleEscape_PoBSingleLine_MatchesPassageMultilinePassiveHashExact()
+    {
+        // U.2.3 — PoB Generated.lua emits one lowercase line; RePoE uses 3 FormatLines + Passage chrome.
+        var result = ImportSingle(
+            """
+                Impossible Escape
+                Viridian Jewel
+                Variant: Chaos Inoculation
+                Implicits: 0
+                {variant:1}Passive Skills in radius of Chaos Inoculation can be allocated without being connected to your tree
+                """,
+            generated: true,
+            modifiers:
+            [
+                Modifier(
+                    "JewelUniqueAllocateDisconnectedPassivesAroundKeystone",
+                    ("local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash", 0m, 0m),
+                    ("local_jewel_effect_base_radius", 800m, 800m)) with
+                {
+                    Domain = "misc",
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "ie-keystone",
+                    StatIds = ["local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["passive_hash"],
+                                },
+                            ],
+                            FormatLines =
+                            [
+                                "Passive Skills in Radius of {0} can be Allocated",
+                                "without being connected to your tree",
+                                "Passage",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelDex",
+                    Name = "Viridian Jewel",
+                    Domain = "misc",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["JewelUniqueAllocateDisconnectedPassivesAroundKeystone"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Contains(
+            "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash",
+            block.MechanicalMapping.StatIds);
+        Assert.Contains(
+            block.MechanicalMapping.Provenance!.Translations.SelectMany(evidence => evidence.IndexHandlers),
+            handler => handler.Handlers.Contains("passive_hash"));
+    }
+
+    [Fact]
+    public void Import_RequiresClass_IsNonSearchableRequirement_NotExactOrTradeStat()
+    {
+        var result = ImportSingle(
+            """
+                Forbidden Flame
+                Crimson Jewel
+                Variant: Shadow
+                Implicits: 0
+                {variant:1}Requires Class Shadow
+                """,
+            generated: true,
+            modifiers: [],
+            translations: [],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelStr",
+                    Name = "Crimson Jewel",
+                    Domain = "misc",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.NonSearchable, block.MechanicalMapping.Status);
+        Assert.Equal("UNIQUE_REQUIREMENT_NON_SEARCHABLE", block.MechanicalMapping.DiagnosticCode);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+        Assert.Empty(block.MechanicalMapping.StatIds);
+        Assert.Contains("Shadow", block.MechanicalMapping.Diagnostic, StringComparison.Ordinal);
+        Assert.True(PoBUniqueCatalogImporter.TryClassifySourceClassRequirement(
+            ["Requires Class Shadow"],
+            out var className));
+        Assert.Equal("Shadow", className);
+        Assert.False(PoBUniqueCatalogImporter.TryClassifySourceClassRequirement(
+            ["Allocates Unnatural Strength if you have the matching modifier on Forbidden Flesh"],
+            out _));
+    }
+
+    [Fact]
     public void Import_GeneratedCandidatePool_PreservesFixedBlocksAndDistinctRollCandidates()
     {
         var result = ImportSingle(

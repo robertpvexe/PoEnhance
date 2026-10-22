@@ -1295,6 +1295,17 @@ public sealed partial class PoBUniqueCatalogImporter
                 ResolutionReasons: [ExportOwnerModTextMapPositiveExactReason]);
         }
 
+        // Source-authored class requirements are display/requirement provenance, not Trade stats.
+        // Classify only after every mechanical path failed so a future real Trade match stays Exact.
+        string? nonSearchableClassRequirement = null;
+        if (status == UniqueModifierMechanicalMappingStatus.Unsupported &&
+            TryClassifySourceClassRequirement(lines, out nonSearchableClassRequirement))
+        {
+            status = UniqueModifierMechanicalMappingStatus.NonSearchable;
+            candidates = [];
+            semanticFingerprints = [];
+        }
+
         var resolved = status is UniqueModifierMechanicalMappingStatus.Exact or
             UniqueModifierMechanicalMappingStatus.EquivalentSourceSet;
         var isComponentComposite = status == UniqueModifierMechanicalMappingStatus.Exact &&
@@ -1432,6 +1443,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 ConflictEvidence = conflictEvidence,
                 DiagnosticCode = status switch
                 {
+                    UniqueModifierMechanicalMappingStatus.NonSearchable =>
+                        "UNIQUE_REQUIREMENT_NON_SEARCHABLE",
                     UniqueModifierMechanicalMappingStatus.Unsupported when
                         resolution.RejectedBySemanticFingerprint =>
                         "UNIQUE_MECHANICS_SEMANTIC_MISMATCH",
@@ -1445,6 +1458,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 },
                 Diagnostic = status switch
                 {
+                    UniqueModifierMechanicalMappingStatus.NonSearchable =>
+                        $"Source class requirement '{nonSearchableClassRequirement}' is preserved for display only; official Trade exposes no searchable stat filter for it.",
                     UniqueModifierMechanicalMappingStatus.Unsupported when
                         resolution.RejectedBySemanticFingerprint =>
                         "Exact PoB text/value evidence matched RePoE candidates, but every candidate contradicted the available source semantic fingerprint.",
@@ -2882,7 +2897,15 @@ public sealed partial class PoBUniqueCatalogImporter
             return true;
         }
 
-        return TryMatchesUnorderedMultilineDynamicPattern(pattern, lines);
+        if (TryMatchesUnorderedMultilineDynamicPattern(pattern, lines))
+        {
+            return true;
+        }
+
+        // Formatting-only multiline translations (optional Passage display chrome) may collapse
+        // to one PoB source line; fold like Exact UnorderedMultilineKey without inventing slots.
+        // IgnoreCase stays local to this fold path — PoB Generated.lua lowercases Radius/Allocated.
+        return TryMatchesNewlineFoldedDynamicPattern(pattern, lines);
     }
 
     private static bool TryMatchesUnorderedMultilineDynamicPattern(
@@ -2897,6 +2920,114 @@ public sealed partial class PoBUniqueCatalogImporter
 
         var normalizedLines = lines.Select(NormalizeExactEvidence).ToArray();
         return TryMatchLinePatternsBijectively(normalizedLines, linePatterns);
+    }
+
+    private static bool TryMatchesNewlineFoldedDynamicPattern(
+        Regex pattern,
+        IReadOnlyList<string> lines)
+    {
+        // Only collapse a single PoB source line against a multiline translation that ends with
+        // Passage display chrome. Do not Split on "\n" — dynamic patterns embed [^\r\n] slots.
+        if (lines.Count != 1)
+        {
+            return false;
+        }
+
+        var source = pattern.ToString();
+        if (!source.StartsWith("\\A", StringComparison.Ordinal) ||
+            !source.EndsWith("\\z", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var inner = source[2..^2];
+        const string escapedPassageSuffix = "\\nPassage";
+        const string realPassageSuffix = "\nPassage";
+        if (inner.EndsWith(escapedPassageSuffix, StringComparison.Ordinal))
+        {
+            inner = inner[..^escapedPassageSuffix.Length];
+        }
+        else if (inner.EndsWith(realPassageSuffix, StringComparison.Ordinal))
+        {
+            inner = inner[..^realPassageSuffix.Length];
+        }
+        else
+        {
+            return false;
+        }
+
+        if (inner.Length == 0 ||
+            (!inner.Contains("\\n", StringComparison.Ordinal) && !inner.Contains('\n')))
+        {
+            return false;
+        }
+
+        // Protect passive_hash slot classes so line-join "\n" folding cannot rewrite [^\r\n].
+        const string slotGuard = "\u001fDYNAMIC_SLOT\u001f";
+        var protectedInner = inner.Replace(@"[^\r\n]", slotGuard, StringComparison.Ordinal);
+        var foldedInner = Regex.Replace(
+            protectedInner,
+            @"\\n|\n",
+            @"\s+",
+            RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+        foldedInner = foldedInner.Replace(slotGuard, @"[^\r\n]", StringComparison.Ordinal);
+        var foldedPattern = $"\\A{foldedInner}\\z";
+        var foldedText = NormalizeExactEvidence(lines[0]);
+        return Regex.IsMatch(
+            foldedText,
+            foldedPattern,
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// Classifies a source-authored <c>Requires Class …</c> Unique line as non-searchable
+    /// requirement display. Does not invent a class from Ascendancy/notable names — only the
+    /// explicit source line shape is accepted, and only after mechanical matching failed.
+    /// </summary>
+    internal static bool TryClassifySourceClassRequirement(
+        IReadOnlyList<string> lines,
+        out string className)
+    {
+        className = string.Empty;
+        if (lines.Count != 1)
+        {
+            return false;
+        }
+
+        var line = NormalizeExactEvidence(lines[0]);
+        const string prefix = "Requires Class ";
+        if (!line.StartsWith(prefix, StringComparison.Ordinal) ||
+            line.Length <= prefix.Length)
+        {
+            return false;
+        }
+
+        var remainder = line[prefix.Length..].Trim();
+        if (remainder.Length == 0 ||
+            remainder.Contains(':', StringComparison.Ordinal) ||
+            remainder.Contains('{', StringComparison.Ordinal) ||
+            RemainderContainsDigit(remainder))
+        {
+            return false;
+        }
+
+        className = remainder;
+        return true;
+    }
+
+    private static bool RemainderContainsDigit(string value)
+    {
+        foreach (var character in value)
+        {
+            if (char.IsDigit(character))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TrySplitAnchoredMultilinePattern(

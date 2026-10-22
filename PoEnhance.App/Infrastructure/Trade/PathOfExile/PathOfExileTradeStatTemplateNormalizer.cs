@@ -23,6 +23,8 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
 
     public static string NormalizeLookupTemplate(string? text)
     {
+        // Passage display chrome is stripped in NormalizeText so Impossible Escape lookups do
+        // not require a trailing "Passage" token. Public lookup output remains case-preserving.
         return StripProviderLocalityAnnotation(NormalizeTemplate(text));
     }
 
@@ -173,7 +175,21 @@ internal static partial class PathOfExileTradeStatTemplateNormalizer
             }
         }
 
-        return builder.ToString();
+        return StripTrailingPassageDisplayChrome(builder.ToString());
+    }
+
+    /// <summary>
+    /// Passage is RePoE/Trade display chrome for jewel radius presentation, not a distinct
+    /// searchable Trade family. Strip only a final standalone token.
+    /// </summary>
+    private static string StripTrailingPassageDisplayChrome(string text)
+    {
+        const string chrome = " Passage";
+        return text.EndsWith(chrome, StringComparison.Ordinal)
+            ? text[..^chrome.Length]
+            : string.Equals(text, "Passage", StringComparison.Ordinal)
+                ? string.Empty
+                : text;
     }
 
     [GeneratedRegex(@"(?<![\w#])[\+\-]?\d+(?:\.\d+)?(?![\w#])", RegexOptions.CultureInvariant)]

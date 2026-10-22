@@ -728,6 +728,13 @@ public sealed partial class TradeSearchDraftMapper
         if (modifier.Kind == ParsedModifierKind.Unique ||
             uniqueBlockResolution?.HasRecoveredUniqueSourceSemantics == true)
         {
+            // PoB-generated "Requires Class …" candidates stay NonSearchable in GameData for
+            // scanner provenance, but must not appear as Price Checker rows or Trade filters.
+            if (IsNonSearchableUniqueRequirement(uniqueBlockResolution))
+            {
+                yield break;
+            }
+
             if (TryExpandUniqueBlockIntoIndependentComponents(
                     modifierIndex,
                     modifier,
@@ -1105,7 +1112,9 @@ public sealed partial class TradeSearchDraftMapper
             componentLines,
             catalog);
         var providerSearchSignatures = providerSearchEvidence.Signatures;
-        var isSearchable = (isExactAnoint || exactCandidate is not null || uniqueBlockResolution?.IsResolved == true ||
+        var isNonSearchableUniqueRequirement = IsNonSearchableUniqueRequirement(uniqueBlockResolution);
+        var isSearchable = !isNonSearchableUniqueRequirement &&
+            (isExactAnoint || exactCandidate is not null || uniqueBlockResolution?.IsResolved == true ||
                 uniqueBlockResolution?.CatalogBlocks.Count > 0) &&
             (statIds.Length > 0 || uniqueBlockResolution?.CatalogBlocks.Count > 0);
         var translationRecognition = resolution?.TranslationRecognition;
@@ -1357,6 +1366,9 @@ public sealed partial class TradeSearchDraftMapper
             IsSearchable = isSearchable,
             NotSearchableReason = isSearchable
                 ? null
+                : isNonSearchableUniqueRequirement
+                    ? uniqueBlockResolution?.Diagnostic ??
+                        "This source class requirement is display-only; official Trade has no searchable filter."
                 : usesUniqueSourceMechanics && uniqueBlockResolution is { IsResolved: false }
                     ? uniqueBlockResolution.Diagnostic
                 : exactCandidate is null && !isExactAnoint
@@ -2839,6 +2851,15 @@ public sealed partial class TradeSearchDraftMapper
 
         return boundDefault.NumericQueryRole;
     }
+
+    private static bool IsNonSearchableUniqueRequirement(
+        UniqueModifierBlockResolution? uniqueBlockResolution) =>
+        string.Equals(
+            uniqueBlockResolution?.DiagnosticCode,
+            "UNIQUE_REQUIREMENT_NON_SEARCHABLE",
+            StringComparison.Ordinal) ||
+        uniqueBlockResolution?.CatalogBlocks.Any(block =>
+            block.MechanicalMapping.Status == UniqueModifierMechanicalMappingStatus.NonSearchable) == true;
 
     private static bool IsFixedLiteralUniqueCatalogLine(string? line)
     {

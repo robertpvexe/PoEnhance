@@ -1,0 +1,3 @@
+# Package fingerprint embeds exact on-disk bytes of reviewed semantics.
+# Keep LF so Setup-GameData.ps1 hash pins reproduce on Windows (core.autocrlf=true).
+data/semantics/item-property-semantics.json text eol=lf

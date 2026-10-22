@@ -1,0 +1,23 @@
+﻿Item Class: Jewels
+Rarity: Unique
+Impossible Escape
+Viridian Jewel
+--------
+Limited to: 1
+Radius: Small
+--------
+Item Level: 87
+--------
+{ Unique Modifier }
+Passive Skills in Radius of Hex Master can be Allocated
+without being connected to your tree
+Passage — Unscalable Value
+--------
+She was the last of countless progeny bred to test the limits of limitless power.
+In the cosmic prison of her birth, her siblings fought each other to the death
+for supremacy. She alone reached her limit... and broke through.
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
+--------
+Corrupted
+
