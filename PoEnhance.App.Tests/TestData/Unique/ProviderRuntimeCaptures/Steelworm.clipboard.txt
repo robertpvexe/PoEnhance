@@ -1,0 +1,26 @@
+Item Class: Quivers
+Rarity: Unique
+Steelworm
+Broadhead Arrow Quiver
+--------
+Requirements:
+Level: 52
+--------
+Item Level: 55
+--------
+{ Implicit Modifier — Attack, Speed }
+8(8-10)% increased Attack Speed
+--------
+{ Unique Modifier }
+Grants Call of Steel — Unscalable Value
+{ Unique Modifier — Defences, Armour, Evasion }
+35(30-60)% increased Evasion Rating and Armour
+{ Unique Modifier — Damage }
+Deal no Non-Physical Damage — Unscalable Value
+{ Unique Modifier — Attack }
+Attacks that Fire Projectiles Consume up to 1 additional Steel Shard
+{ Unique Modifier — Attack }
+Skills Fire 3 additional Projectiles for 4 seconds after
+you consume a total of 8 Steel Shards
+--------
+The dance of metal and flesh never ends.

@@ -130,7 +130,7 @@ public sealed class BlightTowerEnchantProviderValidationTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.3.3", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 
@@ -162,21 +162,10 @@ public sealed class BlightTowerEnchantProviderValidationTests
         throw new FileNotFoundException($"Could not find repository file: {Path.Combine(relativeParts)}");
     }
 
-    private static async Task<string> ReadCaptureClipboardAsync(string fileName)
+    private static Task<string> ReadCaptureClipboardAsync(string fileName)
     {
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.20-ManualValidation",
-            fileName);
-        Assert.True(File.Exists(path), $"Missing ReplayReady capture: {path}");
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
-        Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
+        var path = PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCaptureFileName(fileName);
+        return Task.FromResult(PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(path));
     }
 
     private sealed record RuntimeResult(TradeSearchDraft ProviderDraft);

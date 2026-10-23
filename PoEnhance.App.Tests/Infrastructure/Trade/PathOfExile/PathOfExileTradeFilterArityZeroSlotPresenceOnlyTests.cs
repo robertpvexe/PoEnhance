@@ -269,7 +269,7 @@ public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.3.3", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 
@@ -301,24 +301,11 @@ public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
         throw new FileNotFoundException($"Could not find repository file: {Path.Combine(relativeParts)}");
     }
 
-    private static async Task<string> ReadMjolnerCaptureClipboardAsync()
+    private static Task<string> ReadMjolnerCaptureClipboardAsync()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.42-ManualValidation");
-        Assert.True(Directory.Exists(directory), $"Missing Mjölner capture directory: {directory}");
-        var path = Directory.EnumerateFiles(directory, "*.json")
-            .First(file =>
-                Path.GetFileName(file).Contains("104408", StringComparison.Ordinal) &&
-                !Path.GetFileName(file).Contains("search", StringComparison.OrdinalIgnoreCase) &&
-                !Path.GetFileName(file).Contains("request", StringComparison.OrdinalIgnoreCase));
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
+        var raw = PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferMjolnerA542Capture());
         Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
+        return Task.FromResult(raw);
     }
 }

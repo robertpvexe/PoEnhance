@@ -1,0 +1,37 @@
+Item Class: Body Armours
+Rarity: Unique
+Chains of Command
+Saintly Chainmail
+--------
+Armour: 1035 (augmented)
+Energy Shield: 248 (augmented)
+--------
+Requirements:
+Level: 70
+Str: 99
+Int: 115
+--------
+Sockets: W W R 
+--------
+Item Level: 84
+--------
+{ Unique Modifier }
+Trigger Level 20 Animate Guardian's Weapon when Animated Guardian Kills an Enemy — Unscalable Value
+{ Unique Modifier — Minion }
+You cannot have Non-Animated, Non-Manifested Minions — Unscalable Value
+{ Unique Modifier — Minion }
+Animated Guardian deals 5% increased Damage per Animated Weapon
+{ Unique Modifier — Minion }
+Animated and Manifested Minions' Melee Strikes deal Splash
+Damage to surrounding targets — Unscalable Value
+{ Unique Modifier — Minion }
+Animated and Manifested Minions' Melee Strikes deal 50% less Splash Damage
+{ Unique Modifier — Defences, Armour, Energy Shield }
+158(150-190)% increased Armour and Energy Shield
+{ Unique Modifier — Life }
++80(60-90) to maximum Life
+{ Unique Modifier }
+10% chance to Trigger Level 18 Animate Guardian's Weapon when Animated Weapon Kills an Enemy — Unscalable Value
+--------
+A general may carry his men to greatness, 
+or be dragged beneath the mire by their burden.

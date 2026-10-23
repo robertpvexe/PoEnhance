@@ -58,42 +58,8 @@ public sealed class PathOfExileTradeSingularPluralInflectionRuntimeTests
 
     private static string LoadSteelwormClipboard()
     {
-        var capturePath = PreferManualCapture("Steelworm");
-        if (File.Exists(capturePath))
-        {
-            return ReadClipboard(capturePath);
-        }
-
-        // Embedded real Ctrl+D clipboard from TRADE.4c manual validation capture
-        // 20260926-124431-943-Steelworm.json (kept when TEMP capture is absent).
-        return """
-            Item Class: Quivers
-            Rarity: Unique
-            Steelworm
-            Broadhead Arrow Quiver
-            --------
-            Requirements:
-            Level: 52
-            --------
-            Item Level: 55
-            --------
-            { Implicit Modifier — Attack, Speed }
-            8(8-10)% increased Attack Speed
-            --------
-            { Unique Modifier }
-            Grants Call of Steel — Unscalable Value
-            { Unique Modifier — Defences, Armour, Evasion }
-            35(30-60)% increased Evasion Rating and Armour
-            { Unique Modifier — Damage }
-            Deal no Non-Physical Damage — Unscalable Value
-            { Unique Modifier — Attack }
-            Attacks that Fire Projectiles Consume up to 1 additional Steel Shard
-            { Unique Modifier — Attack }
-            Skills Fire 3 additional Projectiles for 4 seconds after
-            you consume a total of 8 Steel Shards
-            --------
-            The dance of metal and flesh never ends.
-            """;
+        return PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Steelworm"));
     }
 
     private static RuntimeResult Resolve(string rawText, PathOfExileTradeStatCatalog tradeCatalog)
@@ -162,34 +128,6 @@ public sealed class PathOfExileTradeSingularPluralInflectionRuntimeTests
             new NoSearchClient(),
             new NoFetchClient(),
             gameDataCatalogProvider: static () => GameData.Value);
-
-    private static string PreferManualCapture(string itemName)
-    {
-        var root = Path.Combine(Path.GetTempPath(), "PoEnhance-TRADE.4c-ManualValidation");
-        if (!Directory.Exists(root))
-        {
-            return Path.Combine(root, $"missing-{itemName}.json");
-        }
-
-        return Directory.EnumerateFiles(root, $"*{itemName}*.json", SearchOption.TopDirectoryOnly)
-            .Where(path => !path.Contains("-search-", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault()
-            ?? Path.Combine(root, $"missing-{itemName}.json");
-    }
-
-    private static string ReadClipboard(string capturePath)
-    {
-        using var document = JsonDocument.Parse(File.ReadAllText(capturePath));
-        var root = document.RootElement;
-        if (root.TryGetProperty("replayContext", out var replay) &&
-            replay.TryGetProperty("rawClipboardText", out var clipboard))
-        {
-            return clipboard.GetString() ?? string.Empty;
-        }
-
-        throw new InvalidOperationException($"Capture missing clipboard text: {capturePath}");
-    }
 
     private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
         new(

@@ -34,9 +34,9 @@ public sealed class PathOfExileTradeTranslationFamilyCompanionRuntimeTests
     [MemberData(nameof(TrackAItemNames))]
     public void Resolve_NoPhysicalDamage_MapsIncreasedPhysicalDamagePresenceOnly(string itemName)
     {
-        var capturePath = PreferCapture(itemName);
+        var capturePath = PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture(itemName);
         Assert.True(File.Exists(capturePath), $"Missing capture for {itemName}: {capturePath}");
-        var rawText = ReadClipboard(capturePath);
+        var rawText = PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(capturePath);
         Assert.Contains("No Physical Damage", rawText, StringComparison.Ordinal);
 
         var runtime = Resolve(rawText, OfficialTradeCatalog.Value);
@@ -129,92 +129,6 @@ public sealed class PathOfExileTradeTranslationFamilyCompanionRuntimeTests
             new PathOfExileTradeItemIdentityMapper(),
             new NoSearchClient(),
             new NoFetchClient());
-
-    private static string PreferCapture(string itemName)
-    {
-        string[] roots =
-        [
-            Path.Combine(Path.GetTempPath(), "PoEnhance-TRADE.2-ManualValidation"),
-            Path.Combine(Path.GetTempPath(), "PoEnhance-GATE-A-UNIQUE-BigManual"),
-        ];
-        foreach (var root in roots)
-        {
-            if (!Directory.Exists(root))
-            {
-                continue;
-            }
-
-            var match = Directory.EnumerateFiles(root, $"*{itemName}*.json", SearchOption.TopDirectoryOnly)
-                .Where(path => !path.Contains("-search-", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-            if (match is not null)
-            {
-                return match;
-            }
-        }
-
-        return Path.Combine(roots[^1], $"missing-{itemName}.json");
-    }
-
-    private static string ReadClipboard(string capturePath)
-    {
-        using var document = JsonDocument.Parse(File.ReadAllText(capturePath));
-        var root = document.RootElement;
-        if (root.TryGetProperty("replayContext", out var replay) &&
-            replay.TryGetProperty("rawClipboardText", out var clipboard))
-        {
-            return clipboard.GetString() ?? string.Empty;
-        }
-
-        if (root.TryGetProperty("rawClipboardText", out var rootClipboard))
-        {
-            return rootClipboard.GetString() ?? string.Empty;
-        }
-
-        // Older BigManual captures omit raw clipboard; rebuild a parser-compatible Unique text.
-        if (root.TryGetProperty("item", out var item) &&
-            root.TryGetProperty("initialModifiers", out var modifiers))
-        {
-            var builder = new System.Text.StringBuilder();
-            builder.AppendLine($"Item Class: {item.GetProperty("itemClass").GetString()}");
-            builder.AppendLine($"Rarity: {item.GetProperty("rarity").GetString()}");
-            builder.AppendLine(item.GetProperty("displayName").GetString());
-            builder.AppendLine(item.GetProperty("parsedBaseType").GetString());
-            builder.AppendLine("--------");
-            builder.AppendLine("Item Level: 80");
-            builder.AppendLine("--------");
-            foreach (var modifier in modifiers.EnumerateArray())
-            {
-                if (!modifier.TryGetProperty("raw", out var raw))
-                {
-                    continue;
-                }
-
-                if (raw.TryGetProperty("rawMetadataLine", out var meta) &&
-                    !string.IsNullOrWhiteSpace(meta.GetString()))
-                {
-                    builder.AppendLine(meta.GetString());
-                }
-
-                if (raw.TryGetProperty("valueLines", out var lines))
-                {
-                    foreach (var line in lines.EnumerateArray())
-                    {
-                        builder.AppendLine(line.GetString());
-                    }
-                }
-                else if (raw.TryGetProperty("originalText", out var original))
-                {
-                    builder.AppendLine(original.GetString());
-                }
-            }
-
-            return builder.ToString();
-        }
-
-        throw new InvalidOperationException($"Capture missing clipboard text: {capturePath}");
-    }
 
     private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
         new(

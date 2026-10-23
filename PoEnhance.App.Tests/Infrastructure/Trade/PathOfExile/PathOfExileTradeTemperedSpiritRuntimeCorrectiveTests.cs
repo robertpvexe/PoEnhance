@@ -96,63 +96,14 @@ public sealed class PathOfExileTradeTemperedSpiritRuntimeCorrectiveTests
 
     private static string LoadTemperedClipboard()
     {
-        var capturePath = PreferManualCapture(
-            "Tempered Spirit",
-            "PoEnhance-TRADE.4e-ManualValidation");
-        if (File.Exists(capturePath))
-        {
-            return ReadClipboard(capturePath);
-        }
-
-        return """
-            Item Class: Jewels
-            Rarity: Unique
-            Tempered Spirit
-            Viridian Jewel
-            --------
-            Radius: Medium
-            --------
-            Item Level: 86
-            --------
-            { Unique Modifier — Speed }
-            2% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius
-            { Unique Modifier — Attribute }
-            -1 Dexterity per 1 Dexterity on Allocated Passives in Radius
-            --------
-            Though the body rots, the spirit lives on.
-
-            This item can be transformed on the Altar of Sacrifice along with Vial of Transcendence
-            --------
-            Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
-            """;
+        return PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Tempered Spirit"));
     }
 
     private static string LoadHungryClipboard()
     {
-        var capturePath = PreferManualCapture(
-            "The Hungry Loop",
-            "PoEnhance-TRADE.4e-ManualValidation");
-        if (File.Exists(capturePath))
-        {
-            return ReadClipboard(capturePath);
-        }
-
-        return """
-            Item Class: Rings
-            Rarity: Unique
-            The Hungry Loop
-            Unset Ring
-            --------
-            Item Level: 80
-            --------
-            { Implicit Modifier }
-            Has 1 Socket — Unscalable Value
-            --------
-            { Unique Modifier }
-            Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level
-            Can Consume 4 Uncorrupted Support Gems
-            Has not Consumed any Gems
-            """;
+        return PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("The Hungry Loop"));
     }
 
     private static RuntimeResult Resolve(string rawText, PathOfExileTradeStatCatalog tradeCatalog)
@@ -219,34 +170,6 @@ public sealed class PathOfExileTradeTemperedSpiritRuntimeCorrectiveTests
             new NoSearchClient(),
             new NoFetchClient(),
             gameDataCatalogProvider: static () => GameData.Value);
-
-    private static string PreferManualCapture(string itemName, string folder)
-    {
-        var root = Path.Combine(Path.GetTempPath(), folder);
-        if (!Directory.Exists(root))
-        {
-            return Path.Combine(root, $"missing-{itemName}.json");
-        }
-
-        return Directory.EnumerateFiles(root, $"*{itemName}*.json", SearchOption.TopDirectoryOnly)
-            .Where(path => !path.Contains("-search-", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault()
-            ?? Path.Combine(root, $"missing-{itemName}.json");
-    }
-
-    private static string ReadClipboard(string capturePath)
-    {
-        using var document = JsonDocument.Parse(File.ReadAllText(capturePath));
-        var root = document.RootElement;
-        if (root.TryGetProperty("replayContext", out var replay) &&
-            replay.TryGetProperty("rawClipboardText", out var clipboard))
-        {
-            return clipboard.GetString() ?? string.Empty;
-        }
-
-        throw new InvalidOperationException($"Capture missing clipboard text: {capturePath}");
-    }
 
     private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
         new(

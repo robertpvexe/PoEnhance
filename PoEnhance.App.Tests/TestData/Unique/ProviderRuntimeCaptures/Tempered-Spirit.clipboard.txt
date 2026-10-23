@@ -1,0 +1,19 @@
+Item Class: Jewels
+Rarity: Unique
+Tempered Spirit
+Viridian Jewel
+--------
+Radius: Medium
+--------
+Item Level: 86
+--------
+{ Unique Modifier — Speed }
+2% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius
+{ Unique Modifier — Attribute }
+-1 Dexterity per 1 Dexterity on Allocated Passives in Radius
+--------
+Though the body rots, the spirit lives on.
+
+This item can be transformed on the Altar of Sacrifice along with Vial of Transcendence
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.

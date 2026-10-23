@@ -105,54 +105,9 @@ public sealed class PathOfExileTradeChainsSplashBoundAlignmentRuntimeTests
             reverse.Select(filter => (filter.StatId, filter.Minimum, filter.Maximum)).OrderBy(x => x.StatId));
     }
 
-    private static string LoadChainsClipboard()
-    {
-        var capturePath = PreferManualCapture("Chains of Command");
-        if (File.Exists(capturePath))
-        {
-            return ReadClipboard(capturePath);
-        }
-
-        return """
-            Item Class: Body Armours
-            Rarity: Unique
-            Chains of Command
-            Saintly Chainmail
-            --------
-            Armour: 1035 (augmented)
-            Energy Shield: 248 (augmented)
-            --------
-            Requirements:
-            Level: 70
-            Str: 99
-            Int: 115
-            --------
-            Sockets: W W R 
-            --------
-            Item Level: 84
-            --------
-            { Unique Modifier }
-            Trigger Level 20 Animate Guardian's Weapon when Animated Guardian Kills an Enemy — Unscalable Value
-            { Unique Modifier — Minion }
-            You cannot have Non-Animated, Non-Manifested Minions — Unscalable Value
-            { Unique Modifier — Minion }
-            Animated Guardian deals 5% increased Damage per Animated Weapon
-            { Unique Modifier — Minion }
-            Animated and Manifested Minions' Melee Strikes deal Splash
-            Damage to surrounding targets — Unscalable Value
-            { Unique Modifier — Minion }
-            Animated and Manifested Minions' Melee Strikes deal 50% less Splash Damage
-            { Unique Modifier — Defences, Armour, Energy Shield }
-            158(150-190)% increased Armour and Energy Shield
-            { Unique Modifier — Life }
-            +80(60-90) to maximum Life
-            { Unique Modifier }
-            10% chance to Trigger Level 18 Animate Guardian's Weapon when Animated Weapon Kills an Enemy — Unscalable Value
-            --------
-            A general may carry his men to greatness, 
-            or be dragged beneath the mire by their burden.
-            """;
-    }
+    private static string LoadChainsClipboard() =>
+        PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Chains of Command"));
 
     private static RuntimeResult Resolve(string rawText, PathOfExileTradeStatCatalog tradeCatalog)
     {
@@ -227,47 +182,6 @@ public sealed class PathOfExileTradeChainsSplashBoundAlignmentRuntimeTests
             new NoSearchClient(),
             new NoFetchClient(),
             gameDataCatalogProvider: static () => GameData.Value);
-
-    private static string PreferManualCapture(string itemName)
-    {
-        foreach (var rootName in new[]
-                 {
-                     "PoEnhance-TRADE.4c.1-ManualValidation",
-                     "PoEnhance-TRADE.4c-ManualValidation",
-                     "PoEnhance-TRADE.4a-ManualValidation",
-                 })
-        {
-            var root = Path.Combine(Path.GetTempPath(), rootName);
-            if (!Directory.Exists(root))
-            {
-                continue;
-            }
-
-            var match = Directory.EnumerateFiles(root, $"*{itemName}*.json", SearchOption.TopDirectoryOnly)
-                .Where(path => !path.Contains("-search-", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-            if (match is not null)
-            {
-                return match;
-            }
-        }
-
-        return Path.Combine(Path.GetTempPath(), "missing-Chains of Command.json");
-    }
-
-    private static string ReadClipboard(string capturePath)
-    {
-        using var document = JsonDocument.Parse(File.ReadAllText(capturePath));
-        var root = document.RootElement;
-        if (root.TryGetProperty("replayContext", out var replay) &&
-            replay.TryGetProperty("rawClipboardText", out var clipboard))
-        {
-            return clipboard.GetString() ?? string.Empty;
-        }
-
-        throw new InvalidOperationException($"Capture missing clipboard text: {capturePath}");
-    }
 
     private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
         new(

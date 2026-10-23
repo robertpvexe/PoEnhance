@@ -1,0 +1,35 @@
+Item Class: Rings
+Rarity: Unique
+Circle of Ambition
+Synthesised Prismatic Ring
+--------
+Requirements:
+Level: 64
+--------
+Item Level: 87
+--------
+{ Implicit Modifier — Damage, Chaos, Ailment }
+14(14-15)% increased Damage with Poison
+{ Implicit Modifier — Defences, Energy Shield }
+12(12-15)% increased Energy Shield Recharge Rate
+{ Implicit Modifier — Damage }
+14(13-16)% increased Damage while Leeching Mana
+--------
+{ Unique Modifier — Attribute }
++12(10-20) to all Attributes
+(Attributes are Strength, Dexterity, and Intelligence)
+{ Unique Modifier — Elemental, Resistance }
++19(10-20)% to all Elemental Resistances
+{ Unique Modifier }
+10% increased Mana Reservation Efficiency of Herald Skills
+{ Unique Modifier — Damage, Elemental, Lightning }
+44(40-60)% increased Lightning Damage while affected by Herald of Thunder
+{ Unique Modifier — Mana }
+Herald of Ash has 33(30-40)% increased Mana Reservation Efficiency
+{ Unique Modifier }
+Herald of Purity has 40(40-60)% increased Buff Effect
+--------
+I will build the wall that stands against the tide.
+The day is coming... I have seen it.
+--------
+Synthesised Item

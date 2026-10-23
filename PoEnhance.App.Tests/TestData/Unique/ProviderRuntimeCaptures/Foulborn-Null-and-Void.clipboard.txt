@@ -1,0 +1,36 @@
+Item Class: Gloves
+Rarity: Unique
+Foulborn Null and Void
+Legion Gloves
+--------
+Armour: 301 (augmented)
+Energy Shield: 61 (augmented)
+--------
+Requirements:
+Level: 57
+Str: 44
+Int: 44
+--------
+Sockets: R-B-W W 
+--------
+Item Level: 83
+--------
+{ Unique Modifier — Elemental, Ailment }
+Removes Elemental Ailments on Rampage — Unscalable Value
+(Elemental Ailments are Ignited, Scorched, Chilled, Frozen, Brittle, Shocked, and Sapped)
+{ Unique Modifier }
+Gain Immunity to Physical Damage for 1.5 seconds on Rampage
+{ Unique Modifier — Defences, Armour, Energy Shield }
+176(150-180)% increased Armour and Energy Shield
+{ Unique Modifier — Attribute }
++28(20-30) to Strength
+{ Unique Modifier — Life }
++67(50-70) to maximum Life
+{ Unique Modifier }
+Rampage — Unscalable Value
+(You gain Rampage bonuses for Killing multiple Enemies in quick succession)
+{ Foulborn Unique Modifier — Life }
+17(15-25)% increased Life Regeneration rate
+--------
+What is freedom but a clean slate
+in an unclean world?

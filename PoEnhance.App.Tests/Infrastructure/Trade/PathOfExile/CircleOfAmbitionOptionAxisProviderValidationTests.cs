@@ -20,16 +20,8 @@ public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
     [Fact]
     public void FreshCircleThreeHeraldChoices_ProviderMapsExactTradeExplicitStats()
     {
-        var capture = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.36-Unique-NoModId-Capture",
-            "20260924-093744-936-Circle of Ambition.json");
-        Assert.True(File.Exists(capture), $"Missing A.5.36 Circle capture: {capture}");
-        using var document = JsonDocument.Parse(File.ReadAllText(capture));
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
+        var raw = PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Circle of Ambition"));
         Assert.False(string.IsNullOrWhiteSpace(raw));
 
         var runtime = Resolve(raw!, OfficialTradeCatalog.Value);
@@ -145,7 +137,7 @@ public sealed class CircleOfAmbitionOptionAxisProviderValidationTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.3.3", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

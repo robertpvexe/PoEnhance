@@ -24,9 +24,9 @@ public sealed class PathOfExileTradeOmittedChanceWrapperRuntimeTests
     [Fact]
     public void Resolve_ChainsOfCommand_OmittedChanceWrapper_MapsExactOfficialTradeStat()
     {
-        var capturePath = PreferCapture("Chains of Command");
+        var capturePath = PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Chains of Command");
         Assert.True(File.Exists(capturePath), $"Missing capture: {capturePath}");
-        var rawText = ReadClipboard(capturePath);
+        var rawText = PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(capturePath);
         Assert.Contains(
             "Trigger Level 20 Animate Guardian's Weapon when Animated Guardian Kills an Enemy",
             rawText,
@@ -134,74 +134,6 @@ public sealed class PathOfExileTradeOmittedChanceWrapperRuntimeTests
             new PathOfExileTradeItemIdentityMapper(),
             new NoSearchClient(),
             new NoFetchClient());
-
-    private static string PreferCapture(string itemName)
-    {
-        var root = Path.Combine(Path.GetTempPath(), "PoEnhance-GATE-A-UNIQUE-BigManual");
-        if (!Directory.Exists(root))
-        {
-            return Path.Combine(root, $"missing-{itemName}.json");
-        }
-
-        return Directory.EnumerateFiles(root, $"*{itemName}*.json", SearchOption.TopDirectoryOnly)
-            .Where(path => !path.Contains("-search-", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault()
-            ?? Path.Combine(root, $"missing-{itemName}.json");
-    }
-
-    private static string ReadClipboard(string capturePath)
-    {
-        using var document = JsonDocument.Parse(File.ReadAllText(capturePath));
-        var root = document.RootElement;
-        if (root.TryGetProperty("replayContext", out var replay) &&
-            replay.TryGetProperty("rawClipboardText", out var clipboard))
-        {
-            return clipboard.GetString() ?? string.Empty;
-        }
-
-        if (root.TryGetProperty("item", out var item) &&
-            root.TryGetProperty("initialModifiers", out var modifiers))
-        {
-            var builder = new StringBuilder();
-            builder.AppendLine($"Item Class: {item.GetProperty("itemClass").GetString()}");
-            builder.AppendLine($"Rarity: {item.GetProperty("rarity").GetString()}");
-            builder.AppendLine(item.GetProperty("displayName").GetString());
-            builder.AppendLine(item.GetProperty("parsedBaseType").GetString());
-            builder.AppendLine("--------");
-            builder.AppendLine("Item Level: 80");
-            builder.AppendLine("--------");
-            foreach (var modifier in modifiers.EnumerateArray())
-            {
-                if (!modifier.TryGetProperty("raw", out var raw))
-                {
-                    continue;
-                }
-
-                if (raw.TryGetProperty("rawMetadataLine", out var meta) &&
-                    !string.IsNullOrWhiteSpace(meta.GetString()))
-                {
-                    builder.AppendLine(meta.GetString());
-                }
-
-                if (raw.TryGetProperty("valueLines", out var lines))
-                {
-                    foreach (var line in lines.EnumerateArray())
-                    {
-                        builder.AppendLine(line.GetString());
-                    }
-                }
-                else if (raw.TryGetProperty("originalText", out var original))
-                {
-                    builder.AppendLine(original.GetString());
-                }
-            }
-
-            return builder.ToString();
-        }
-
-        throw new InvalidOperationException($"Capture missing clipboard text: {capturePath}");
-    }
 
     private static PathOfExileTradeItemCatalog CreateTradeItemCatalog() =>
         new(

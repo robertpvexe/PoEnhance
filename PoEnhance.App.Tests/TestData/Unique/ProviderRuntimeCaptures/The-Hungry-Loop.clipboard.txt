@@ -1,0 +1,21 @@
+Item Class: Rings
+Rarity: Unique
+The Hungry Loop
+Unset Ring
+--------
+Requirements:
+Level: 70
+--------
+Sockets: G 
+--------
+Item Level: 80
+--------
+{ Implicit Modifier }
+Has 1 Socket — Unscalable Value
+--------
+{ Unique Modifier }
+Consumes Socketed Uncorrupted Support Gems when they reach Maximum Level
+Can Consume 4 Uncorrupted Support Gems
+Has not Consumed any Gems
+--------
+Be careful where you put your finger.

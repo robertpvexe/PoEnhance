@@ -1,0 +1,43 @@
+Item Class: One Hand Maces
+Rarity: Unique
+Mjölner
+Gavel
+--------
+One Handed Mace
+Physical Damage: 100-188 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.15
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 60
+Str: 412 (augmented) (unmet)
+Int: 300 (augmented) (unmet)
+--------
+Sockets: W-W 
+--------
+Item Level: 83
+--------
+{ Corruption Implicit Modifier }
+12(10-15)% chance to gain Onslaught for 4 seconds on Kill
+(Onslaught grants 20% increased Attack, Cast, and Movement Speed)
+{ Corruption Implicit Modifier }
+6(5-7)% chance to gain an Endurance Charge when you Stun an Enemy
+--------
+{ Unique Modifier — Elemental, Lightning, Caster }
+Trigger a Socketed Lightning Spell on Hit, with a 0.25 second Cooldown
+Socketed Lightning Spells have no Cost if Triggered — Unscalable Value
+{ Unique Modifier — Damage, Physical, Attack }
+86(80-120)% increased Physical Damage
+{ Unique Modifier }
+Skills Chain +1 times
+{ Unique Modifier }
++300 Intelligence Requirement
+{ Unique Modifier }
++200 Strength Requirement
+{ Unique Modifier — Damage, Elemental, Lightning }
+83(80-100)% increased Lightning Damage
+--------
+Look the storm in the eye and you will have its respect.
+--------
+Corrupted

@@ -1,0 +1,34 @@
+Item Class: Rings
+Rarity: Unique
+Berek's Grip
+Two-Stone Ring
+--------
+Requirements:
+Level: 20
+--------
+Item Level: 83
+--------
+Your Shock Nova Towers deal 25% increased Damage (enchant)
+--------
+{ Implicit Modifier — Elemental, Cold, Lightning, Resistance }
++15(12-16)% to Cold and Lightning Resistances
+--------
+{ Unique Modifier — Defences, Energy Shield }
+1% of Damage Leeched as Energy Shield against Frozen Enemies
+(Leeched Energy Shield is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+{ Unique Modifier — Life }
+1% of Damage Leeched as Life against Shocked Enemies
+(Leeched Life is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+{ Unique Modifier — Damage, Elemental, Lightning, Attack, Caster }
+Adds 1 to 54(50-70) Lightning Damage to Spells and Attacks
+{ Unique Modifier — Damage, Elemental, Cold }
+29(25-30)% increased Cold Damage
+{ Unique Modifier — Life }
++40(30-40) to maximum Life
+--------
+"Berek hid from Storm's lightning wrath
+In the embrace of oblivious Frost
+Repelled by ice, blinded by blizzards
+Storm raged in vain
+While Berek slept."
+- Berek and the Untamed
