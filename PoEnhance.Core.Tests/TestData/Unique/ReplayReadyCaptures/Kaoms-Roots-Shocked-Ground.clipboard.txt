@@ -1,0 +1,11 @@
+Item Class: Boots
+Rarity: Unique
+Kaom's Roots
+Titan Greaves
+--------
+Item Level: 70
+--------
+{ Corruption Implicit Modifier }
+Unaffected by Shocked Ground
+--------
+Corrupted

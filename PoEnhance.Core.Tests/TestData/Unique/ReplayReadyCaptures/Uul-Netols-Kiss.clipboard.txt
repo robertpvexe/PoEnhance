@@ -1,0 +1,40 @@
+Item Class: Two Hand Axes
+Rarity: Unique
+Uul-Netol's Kiss
+Vaal Axe
+--------
+Two Handed Axe
+Physical Damage: 375-628 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 0.98 (augmented)
+Weapon Range: 1.3 metres
+--------
+Requirements:
+Level: 64
+Str: 158
+Dex: 76
+--------
+Sockets: R-W-W-W W-W 
+--------
+Item Level: 83
+--------
+{ Corruption Implicit Modifier — Gem }
+Socketed Gems are Supported by Level 10 Fortify — Unscalable Value
+--------
+{ Unique Modifier — Damage, Physical, Attack }
+261(230-270)% increased Physical Damage
+{ Unique Modifier — Attack, Speed }
+15% reduced Attack Speed
+{ Unique Modifier — Caster, Curse }
+Curse Enemies with Vulnerability on Hit
+(Vulnerability is a Hex which increases Physical Damage taken by 15% and causes Hits to have +25% chance to inflict Bleeding on the target. It lasts 8 seconds)
+{ Unique Modifier — Damage, Attack }
+Exerted Attacks deal 200% increased Damage
+{ Unique Modifier }
+Exerted Attacks Knock Enemies Back on Hit
+(Vaal Attacks, Channelling Attacks, Retaliation Attacks, and Attacks which Repeat cannot be Exerted)
+--------
+We feel the Mother's love
+and beg to return to her womb.
+--------
+Corrupted

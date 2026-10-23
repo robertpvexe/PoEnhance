@@ -1,0 +1,11 @@
+Item Class: One Hand Swords
+Rarity: Unique
+Dreamfeather
+Vaal Blade
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Corrupted }
+Resolute Technique
+--------
+Corrupted

@@ -25,6 +25,7 @@
   <ItemGroup>
     <None Include="TestData\Items\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Unique\ReplayReadyCaptures\*.clipboard.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="TestData\Unique\ReplayReadyCaptures\PROVENANCE.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

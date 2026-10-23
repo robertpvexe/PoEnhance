@@ -155,21 +155,12 @@ public sealed class CorruptedImplicitUniqueTextMatchReplayTests
                     line.Contains(lineContains, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static async Task<string> ReadCaptureClipboardAsync(string fileName)
+    private static Task<string> ReadCaptureClipboardAsync(string fileName)
     {
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.22-Corrupted-Implicit-Provenance",
-            fileName);
-        Assert.True(File.Exists(path), $"Missing ReplayReady capture: {path}");
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
+        var path = ReplayReadyCaptureFixtures.PreferCaptureFileName(fileName);
+        var raw = ReplayReadyCaptureFixtures.ReadClipboard(path);
         Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
+        return Task.FromResult(raw);
     }
 
     private static async Task<GameDataCatalog> LoadActiveCatalogAsync()
@@ -181,7 +172,7 @@ public sealed class CorruptedImplicitUniqueTextMatchReplayTests
         var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
         Assert.True(load.IsSuccess);
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", load.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.3.3", load.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(load.Package);
     }
 }

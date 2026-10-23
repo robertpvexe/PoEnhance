@@ -1,0 +1,28 @@
+Item Class: Rings
+Rarity: Unique
+Mokou's Embrace
+Ruby Ring
+--------
+Requirements:
+Level: 16
+--------
+Item Level: 80
+--------
+Your Shock Nova Towers deal 25% increased Damage (enchant)
+--------
+{ Implicit Modifier — Elemental, Fire, Resistance }
++22(20-30)% to Fire Resistance
+--------
+{ Unique Modifier — Attack, Speed }
+35(25-40)% increased Attack Speed while Ignited
+{ Unique Modifier — Caster, Speed }
+33(25-40)% increased Cast Speed while Ignited
+{ Unique Modifier — Elemental, Cold, Resistance }
++31(25-40)% to Cold Resistance
+{ Unique Modifier — Elemental, Fire, Ailment }
++25% chance to be Ignited
+(Ignite deals Fire Damage over time, based on the base Fire Damage of the Skill, for 4 seconds)
+{ Unique Modifier }
+All Damage Taken from Hits can Ignite you — Unscalable Value
+--------
+Fire makes the perfect blossom in the endless night.

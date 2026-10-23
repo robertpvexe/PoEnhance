@@ -1,0 +1,46 @@
+Item Class: One Hand Swords
+Rarity: Unique
+Innsbury Edge
+Elder Sword
+--------
+One Handed Sword
+Quality: +18% (augmented)
+Physical Damage: 100-183 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.57 (augmented)
+Weapon Range: 1.4 (augmented) metres
+--------
+Requirements:
+Level: 47
+Str: 81
+Dex: 81
+--------
+Sockets: W-W 
+--------
+Item Level: 83
+--------
+{ Corruption Implicit Modifier — Attack }
++0.3(0.2-0.4) metres to Weapon Range
+(Affects Melee Strikes, including the Default Attack. Does not apply to Areas of Effect)
+{ Corruption Implicit Modifier — Gem }
++9(5-10)% to Quality of Socketed Gems
+--------
+{ Unique Modifier — Damage, Physical, Chaos }
+25% of Physical Damage Converted to Chaos Damage
+{ Unique Modifier — Damage, Physical, Attack }
+135(100-140)% increased Physical Damage
+{ Unique Modifier — Attack, Speed }
+21(17-25)% increased Attack Speed
+{ Unique Modifier — Life, Chaos }
+0.2% of Chaos Damage Leeched as Life
+(Leeched Life is recovered over time. Multiple Leeches can occur simultaneously, up to a maximum rate)
+{ Unique Modifier — Attack }
+Attacks with this Weapon Maim on hit — Unscalable Value
+(Maimed enemies have 30% reduced Movement Speed)
+--------
+A sword he brought, his foes to maim and rend,
+from places dark behind forbidden doors,
+but night by night he woke with frighten'd roars
+from ghoulish dreams, too strange to comprehend.
+--------
+Corrupted

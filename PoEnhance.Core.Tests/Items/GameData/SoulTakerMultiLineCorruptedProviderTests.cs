@@ -64,21 +64,12 @@ public sealed class SoulTakerMultiLineCorruptedProviderTests
         Assert.NotEqual(bleed.SourceComponentIndex, damage.SourceComponentIndex);
     }
 
-    private static async Task<string> ReadCaptureClipboardAsync(string fileName)
+    private static Task<string> ReadCaptureClipboardAsync(string fileName)
     {
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            "PoEnhance-A.5.22-Corrupted-Implicit-Provenance",
-            fileName);
-        Assert.True(File.Exists(path), $"Missing ReplayReady capture: {path}");
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
+        var path = ReplayReadyCaptureFixtures.PreferCaptureFileName(fileName);
+        var raw = ReplayReadyCaptureFixtures.ReadClipboard(path);
         Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
+        return Task.FromResult(raw);
     }
 
     private static async Task<GameDataCatalog> LoadActiveCatalogAsync()

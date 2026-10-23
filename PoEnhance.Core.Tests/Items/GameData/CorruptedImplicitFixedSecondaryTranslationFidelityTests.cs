@@ -55,11 +55,8 @@ public sealed class CorruptedImplicitFixedSecondaryTranslationFidelityTests
     public async Task Resolve_RealMjolnerCapture_OnslaughtIsExactWithProviderProvenance()
     {
         var catalog = await LoadActiveCatalogAsync();
-        var raw = await ReadCaptureClipboardAsync(
-            Path.Combine(
-                Path.GetTempPath(),
-                "PoEnhance-A.5.32-Corrupted-Onslaught-Capture"),
-            fileNameContains: "103002");
+        var raw = ReplayReadyCaptureFixtures.ReadClipboard(
+            ReplayReadyCaptureFixtures.PreferMjolnerOnslaughtCapture());
         var parsed = parser.Parse(raw);
         var baseResolution = baseResolver.Resolve(parsed, catalog);
         var resolutions = resolver.Resolve(parsed, catalog, baseResolution);
@@ -439,23 +436,6 @@ Corrupted
         "--------\n" +
         "Corrupted\n";
 
-    private static async Task<string> ReadCaptureClipboardAsync(string directory, string fileNameContains)
-    {
-        var path = Directory.EnumerateFiles(directory, "*.json")
-            .First(file =>
-                Path.GetFileName(file).Contains(fileNameContains, StringComparison.Ordinal) &&
-                !Path.GetFileName(file).Contains("search", StringComparison.OrdinalIgnoreCase) &&
-                !Path.GetFileName(file).Contains("request", StringComparison.OrdinalIgnoreCase));
-        await using var stream = File.OpenRead(path);
-        using var document = await JsonDocument.ParseAsync(stream);
-        var raw = document.RootElement
-            .GetProperty("replayContext")
-            .GetProperty("rawClipboardText")
-            .GetString();
-        Assert.False(string.IsNullOrWhiteSpace(raw));
-        return raw!;
-    }
-
     private static async Task<GameDataCatalog> LoadActiveCatalogAsync()
     {
         var packagePath = Path.GetFullPath(Path.Combine(
@@ -465,7 +445,7 @@ Corrupted
         var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
         Assert.True(load.IsSuccess);
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal("3.29.1.2.10-unique-component-composite-translation", load.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.3.3", load.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(load.Package);
     }
 

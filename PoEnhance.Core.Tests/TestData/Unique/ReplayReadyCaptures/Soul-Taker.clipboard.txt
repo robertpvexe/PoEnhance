@@ -1,0 +1,50 @@
+Item Class: One Hand Axes
+Rarity: Unique
+Soul Taker
+Siege Axe
+--------
+One Handed Axe
+Quality: +19% (augmented)
+Physical Damage: 219-361 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.98 (augmented)
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 59
+Str: 119
+Dex: 82
+--------
+Sockets: R-R W 
+--------
+Item Level: 83
+--------
+{ Corruption Implicit Modifier — Damage, Physical, Attack, Ailment }
+20% chance to cause Bleeding on Hit
+(Bleeding deals Physical Damage over time, based on the base Physical Damage of the Skill. Damage is 200% higher while moving)
+36(30-40)% increased Attack Damage against Bleeding Enemies
+{ Corruption Implicit Modifier — Damage, Physical, Attack }
+Adds 3(3-4) to 7(5-7) Physical Damage
+--------
+{ Unique Modifier — Mana, Attack }
+Insufficient Mana doesn't prevent your Melee Attacks — Unscalable Value
+{ Unique Modifier — Damage, Physical, Attack }
+159(140-180)% increased Physical Damage
+{ Unique Modifier — Attack, Speed }
+32(25-35)% increased Attack Speed
+{ Unique Modifier — Damage, Physical, Attack }
+Adds 30 to 40 Physical Damage
+{ Unique Modifier — Elemental, Cold, Resistance }
++20(20-25)% to Cold Resistance
+{ Unique Modifier — Elemental, Cold, Ailment }
+Your Physical Damage can Chill — Unscalable Value
+(Chill reduces Enemy Action Speed by up to 30%, depending on the amount of Cold Damage in the hit, for 2 seconds)
+{ Unique Modifier }
+Eat 3(2-4) Souls when you Kill a Rare or Unique Enemy with this Weapon
+(Each soul grants 5% increased Attack and Cast speed. You lose 1 soul every 0.5 seconds if you have not eaten any souls Recently. Maximum of 45 souls consumed)
+--------
+It is too easy for the soul to escape from an open heart.
+--------
+Corrupted
+--------
+Note: ~b/o 15 divine
