@@ -3,6 +3,7 @@ using System.Globalization;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
+using PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
@@ -4354,6 +4355,92 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal(string.Empty, row.MinimumText);
         Assert.Equal(string.Empty, row.MaximumText);
         Assert.Equal("Ambiguous sourced base roll.", row.AvailabilityReason);
+    }
+
+    [Fact]
+    public async Task LifesprigPreferCapture_ProjectsInformationalObservedOnFailClosedDpsRows()
+    {
+        var catalog = await LoadActiveCatalogAsync();
+        var raw = PathOfExileTradeProviderRuntimeCaptureFixtures.ReadClipboard(
+            PathOfExileTradeProviderRuntimeCaptureFixtures.PreferCapture("Lifesprig"));
+        var item = new ItemTextParser().Parse(raw);
+        Assert.Equal("Lifesprig", item.DisplayName, ignoreCase: true);
+
+        var baseResolution = new ParsedItemBaseResolver().Resolve(item, catalog);
+        var resolutions = new ParsedItemModifierCandidateResolver().Resolve(
+            item,
+            catalog,
+            baseResolution);
+        var draftResult = new TradeSearchDraftMapper().CreateDraft(
+            item,
+            baseResolution,
+            resolutions,
+            catalog);
+        Assert.True(
+            draftResult.IsSuccess,
+            string.Join("; ", draftResult.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        var draft = Assert.IsType<TradeSearchDraft>(draftResult.Draft);
+
+        var filterCatalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        var resolver = new PathOfExileTradeItemPropertyResolver();
+        var resolved = resolver.Resolve(draft, filterCatalog);
+        var mapping = resolver.MapSelected(resolved, filterCatalog);
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+
+        var physical = Assert.Single(
+            resolved.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var total = Assert.Single(
+            resolved.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.TotalDps);
+        Assert.Equal(10.5m, physical.ObservedValue);
+        Assert.Equal(10.5m, total.ObservedValue);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            physical.QualityNormalizationStatus);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.Unavailable,
+            total.QualityNormalizationStatus);
+        Assert.False(physical.IsSearchable);
+        Assert.False(total.IsSearchable);
+        Assert.Null(physical.RequestedMinimum);
+        Assert.Null(total.RequestedMinimum);
+
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            resolved,
+            new TradeSearchDraftValidator().Validate(resolved));
+
+        var rows = fixture.Window.CurrentSearchState!.ItemProperties;
+        var physicalRow = Assert.Single(
+            rows,
+            row => row.Kind == TradeSearchItemPropertyKind.PhysicalDps);
+        var totalRow = Assert.Single(
+            rows,
+            row => row.Kind == TradeSearchItemPropertyKind.TotalDps);
+
+        Assert.False(physicalRow.IsAvailable);
+        Assert.False(totalRow.IsAvailable);
+        Assert.Equal("Observed: 10.5", physicalRow.InformationalObservedValueText);
+        Assert.Equal("Observed: 10.5", totalRow.InformationalObservedValueText);
+        Assert.Equal(string.Empty, physicalRow.MinimumText);
+        Assert.Equal(string.Empty, totalRow.MinimumText);
+        Assert.Contains(
+            "Physical Damage",
+            physicalRow.AvailabilityReason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<GameDataCatalog> LoadActiveCatalogAsync()
+    {
+        var packagePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "artifacts", "poenhance-game-data.json"));
+        Assert.True(File.Exists(packagePath), packagePath);
+        var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
+        Assert.True(load.IsSuccess);
+        return GameDataCatalog.FromPackage(load.Package!);
     }
 
     [Fact]
