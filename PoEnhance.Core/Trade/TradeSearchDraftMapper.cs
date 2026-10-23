@@ -1274,9 +1274,9 @@ public sealed partial class TradeSearchDraftMapper
                 ? modifier.Effects.ElementAtOrDefault(sourceLineIndex)?.RawText ??
                     string.Join(Environment.NewLine, componentLines)
                 : string.Join(Environment.NewLine, modifier.Effects.Select(effect => effect.RawText)),
-            PresentationText = uniqueBlockResolution?.PresentationLines.Count > 0
-                ? string.Join(Environment.NewLine, uniqueBlockResolution.PresentationLines)
-                : null,
+            PresentationText = CreatePresentationText(
+                uniqueBlockResolution,
+                componentLines),
             CanonicalSignature = translationRecognition?.CanonicalSignature.Lines.Count > 0
                 ? string.Join("\n", translationRecognition.CanonicalSignature.Lines)
                 : NormalizeComponentSignature(componentLines),
@@ -2986,6 +2986,25 @@ public sealed partial class TradeSearchDraftMapper
             (0, > 0) => ModifierLocality.Global,
             _ => ModifierLocality.Unknown,
         };
+    }
+
+    private static string? CreatePresentationText(
+        UniqueModifierBlockResolution? uniqueBlockResolution,
+        IReadOnlyList<string> componentLines)
+    {
+        var hasUniquePresentation = uniqueBlockResolution?.PresentationLines.Count > 0;
+        var sourceLines = hasUniquePresentation
+            ? uniqueBlockResolution!.PresentationLines
+            : componentLines;
+        var formattedLines = ModifierSignedRollDisplay.FormatLines(sourceLines);
+        var formattingChanged = !formattedLines.SequenceEqual(sourceLines, StringComparer.Ordinal);
+        if (!hasUniquePresentation && !formattingChanged)
+        {
+            // Keep PresentationText unset so aggregate/UI paths continue to use OriginalText.
+            return null;
+        }
+
+        return string.Join(Environment.NewLine, formattedLines);
     }
 
     private static string NormalizeComponentSignature(IReadOnlyList<string> lines)

@@ -2564,39 +2564,93 @@ public sealed partial class PoBUniqueCatalogImporter
         }
 
         var renderings = translation.Variants
-            .Select(variant => TryConstrainStats(
-                    variant,
-                    stats,
-                    allowNegatedConditions: defaultedStatIds.Count > 0,
-                    out var constrained)
-                ? TryCreateStrictRendering(variant, constrained) is { } rendering
-                    ? rendering with
-                    {
-                        TranslationEvidence =
-                        [
-                            new UniqueModifierTranslationEvidence
-                            {
-                                TranslationId = translation.Id,
-                                StatIds = translation.StatIds.ToArray(),
-                                ModifierStatIndices = indices.ToArray(),
-                                DefaultedStatIds = defaultedStatIds.ToArray(),
-                                Conditions = variant.Conditions.ToArray(),
-                                ValueFormats = variant.ValueFormats.ToArray(),
-                                FormatLines = variant.FormatLines.ToArray(),
-                                IndexHandlers = variant.IndexHandlers.ToArray(),
-                            },
-                        ],
-                    }
-                    : null
-                : null)
-            .Where(rendering => rendering is not null)
-            .Select(rendering => rendering!)
+            .SelectMany(variant => EnumerateConstrainedAndPoBZeroStraddleRenderings(
+                translation,
+                variant,
+                stats,
+                indices,
+                defaultedStatIds))
             .DistinctBy(rendering => rendering.Key, StringComparer.Ordinal)
             .ToArray();
         return renderings.Length == 0
             ? null
             : new StrictRenderingGroup(translation.Id!, indices, renderings);
     }
+
+    /// <summary>
+    /// Emits the ordinary condition-constrained Exact rendering, and when PoB authors a
+    /// zero-straddling Unique roll under a sign-flipping (reduced/less) template, also emits
+    /// the unclamped signed range that matches lines such as
+    /// <c>(-16-16)% reduced Attack Speed</c>. Constrained rendering alone only indexes the
+    /// negative half (<c>(1-16)% reduced</c>) and cannot Exact-match those authored lines.
+    /// </summary>
+    private static IEnumerable<StrictRendering> EnumerateConstrainedAndPoBZeroStraddleRenderings(
+        StatTranslationDefinition translation,
+        StatTranslationVariant variant,
+        IReadOnlyList<ModifierStat> stats,
+        IReadOnlyList<int> indices,
+        IReadOnlyList<string> defaultedStatIds)
+    {
+        if (!TryConstrainStats(
+                variant,
+                stats,
+                allowNegatedConditions: defaultedStatIds.Count > 0,
+                out var constrained))
+        {
+            yield break;
+        }
+
+        var evidence = new UniqueModifierTranslationEvidence
+        {
+            TranslationId = translation.Id,
+            StatIds = translation.StatIds.ToArray(),
+            ModifierStatIndices = indices.ToArray(),
+            DefaultedStatIds = defaultedStatIds.ToArray(),
+            Conditions = variant.Conditions.ToArray(),
+            ValueFormats = variant.ValueFormats.ToArray(),
+            FormatLines = variant.FormatLines.ToArray(),
+            IndexHandlers = variant.IndexHandlers.ToArray(),
+        };
+
+        StrictRendering? constrainedRendering = TryCreateStrictRendering(variant, constrained);
+        if (constrainedRendering is not null)
+        {
+            yield return constrainedRendering with { TranslationEvidence = [evidence] };
+        }
+
+        if (!StatsStrictlyStraddleZero(stats) ||
+            !VariantUsesSignFlippingHandler(variant) ||
+            TryCreateStrictRendering(variant, stats) is not { } straddleRendering)
+        {
+            yield break;
+        }
+
+        if (constrainedRendering is not null &&
+            string.Equals(
+                constrainedRendering.Key,
+                straddleRendering.Key,
+                StringComparison.Ordinal))
+        {
+            yield break;
+        }
+
+        yield return straddleRendering with { TranslationEvidence = [evidence] };
+    }
+
+    private static bool StatsStrictlyStraddleZero(IReadOnlyList<ModifierStat> stats) =>
+        stats.Any(stat =>
+            stat.MinValue is { } minimum &&
+            stat.MaxValue is { } maximum &&
+            minimum < 0m &&
+            maximum > 0m);
+
+    private static bool VariantUsesSignFlippingHandler(StatTranslationVariant variant) =>
+        variant.IndexHandlers.Any(handler =>
+            handler.Handlers.Any(raw =>
+            {
+                var handlerName = raw.Trim().ToLowerInvariant();
+                return handlerName is "negate" or "negate_and_double";
+            }));
 
     private static void SelectCompatibleRenderingGroups(
         IReadOnlyList<StrictRenderingGroup> groups,

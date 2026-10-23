@@ -186,6 +186,27 @@ internal static partial class ModifierBoundDefaults
             var canonical = direction == ModifierBoundDirection.Maximum
                 ? -decimal.Abs(observed)
                 : observed;
+            var providerCanonicalSignature = CreateProviderCanonicalSignature(
+                canonicalTranslation,
+                canonicalVariant,
+                numericIndexes);
+            // Sign-flipped display (negate) on a non-reversing Trade axis: when the sourced
+            // GameData roll strictly straddles zero, higher signed provider values are better
+            // (e.g. local increased Attack Speed, mana reservation efficiency). Same-or-better
+            // is therefore Minimum on the signed threshold. Non-straddle reversing cases
+            // (e.g. reduced Charges per use) keep Maximum — do not globally flip.
+            if (TryApplyBipolarSignedProviderMinimum(
+                    retainedHandlers[0],
+                    providerCanonicalSignature,
+                    stats,
+                    numericIndexes[0],
+                    observed,
+                    ref direction,
+                    ref canonical))
+            {
+                // Direction/canonical already updated for same-or-better Minimum.
+            }
+
             var role = NumericQueryRoleClassifier.Classify(
                 statIds,
                 numericIndexes,
@@ -203,10 +224,7 @@ internal static partial class ModifierBoundDefaults
                 role)
             {
                 TranslationIdentity = translationIdentity,
-                ProviderCanonicalSignature = CreateProviderCanonicalSignature(
-                    canonicalTranslation,
-                    canonicalVariant,
-                    numericIndexes),
+                ProviderCanonicalSignature = providerCanonicalSignature,
             };
         }
 
@@ -846,6 +864,59 @@ internal static partial class ModifierBoundDefaults
         return true;
     }
 
+    /// <summary>
+    /// When a reversing translation maps onto a non-reversing provider signature and the
+    /// retained GameData stat roll strictly straddles zero, same-or-better on that signed
+    /// axis is a Minimum bound at the signed canonical threshold.
+    /// </summary>
+    private static bool TryApplyBipolarSignedProviderMinimum(
+        IReadOnlyList<string> handlers,
+        string? providerCanonicalSignature,
+        IReadOnlyList<ModifierStat> stats,
+        int numericIndex,
+        decimal observedDisplayMagnitude,
+        ref ModifierBoundDirection direction,
+        ref decimal canonical)
+    {
+        if (handlers.Count == 0 ||
+            !handlers.Any(OrderReversingHandlers.Contains) ||
+            !IsNonReversingProviderPolarity(providerCanonicalSignature) ||
+            numericIndex < 0 ||
+            numericIndex >= stats.Count)
+        {
+            return false;
+        }
+
+        var stat = stats[numericIndex];
+        if (stat.MinValue is not { } minimum ||
+            stat.MaxValue is not { } maximum ||
+            minimum >= 0m ||
+            maximum <= 0m)
+        {
+            return false;
+        }
+
+        direction = ModifierBoundDirection.Minimum;
+        canonical = -decimal.Abs(observedDisplayMagnitude);
+        return true;
+    }
+
+    private static bool IsNonReversingProviderPolarity(string? providerCanonicalSignature)
+    {
+        if (string.IsNullOrWhiteSpace(providerCanonicalSignature))
+        {
+            return false;
+        }
+
+        var isNonReversing =
+            IncreasedPolarityRegex().IsMatch(providerCanonicalSignature) ||
+            MorePolarityRegex().IsMatch(providerCanonicalSignature);
+        var isReversing =
+            ReducedPolarityRegex().IsMatch(providerCanonicalSignature) ||
+            LessPolarityRegex().IsMatch(providerCanonicalSignature);
+        return isNonReversing && !isReversing;
+    }
+
     private static bool VariantConditionMatches(
         StatTranslationCondition candidate,
         decimal? minimum,
@@ -895,6 +966,18 @@ internal static partial class ModifierBoundDefaults
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRegex();
+
+    [GeneratedRegex(@"\bincreased\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex IncreasedPolarityRegex();
+
+    [GeneratedRegex(@"\bmore\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex MorePolarityRegex();
+
+    [GeneratedRegex(@"\breduced\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ReducedPolarityRegex();
+
+    [GeneratedRegex(@"\bless\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex LessPolarityRegex();
 }
 
 internal readonly record struct ModifierBoundDefaultResult(

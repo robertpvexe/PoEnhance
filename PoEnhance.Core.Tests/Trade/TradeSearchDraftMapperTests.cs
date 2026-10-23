@@ -45,6 +45,51 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
+    public void ScalarBoundDefault_BipolarNegatedProviderAxisUsesSignedMinimum()
+    {
+        // Echoforge / Ventor's shape: negate display on increased Trade axis, GameData roll
+        // strictly straddles zero → same-or-better is Minimum at the signed threshold.
+        var result = BipolarNegatedBoundDefault(
+            "2% reduced Attack Speed",
+            statMinimum: -16m,
+            statMaximum: 16m);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-2m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+        Assert.Equal("<number>% increased Attack Speed", result.ProviderCanonicalSignature);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_NonStraddleNegatedProviderAxisKeepsMaximum()
+    {
+        // Progenesis Charges shape: entire roll stays negative → retain Maximum (lower-is-better).
+        var result = BipolarNegatedBoundDefault(
+            "14% reduced Charges per use",
+            statMinimum: -20m,
+            statMaximum: -10m,
+            effectStem: "Charges per use");
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-14m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+    }
+
+    [Theory]
+    [InlineData("2(-16-16)% reduced Attack Speed", "2(-16 to +16)% reduced Attack Speed")]
+    [InlineData("2(16--16)% reduced Attack Speed", "2(-16 to +16)% reduced Attack Speed")]
+    [InlineData("13(-15-15)% reduced Mana Reservation Efficiency of Skills", "13(-15 to +15)% reduced Mana Reservation Efficiency of Skills")]
+    [InlineData("52(-25--28)% reduced Rarity of Items found", "52(-28 to -25)% reduced Rarity of Items found")]
+    [InlineData("20(10-16)% increased Attack Speed", "20(10-16)% increased Attack Speed")]
+    [InlineData("2% reduced Attack Speed", "2% reduced Attack Speed")]
+    public void SignedRollDisplay_FormatsAmbiguousSignedRangesOnly(
+        string source,
+        string expected)
+    {
+        Assert.Equal(expected, ModifierSignedRollDisplay.FormatLine(source));
+    }
+
+    [Fact]
     public void ScalarBoundDefault_NormalNegativeValueUsesRestrictiveMaximum()
     {
         var result = BoundDefault("-15 Test Value", -15m, handlers: []);
@@ -1308,6 +1353,87 @@ Item Level: 84
                 })
                 .ToArray(),
         };
+    }
+
+    private static ModifierBoundDefaultResult BipolarNegatedBoundDefault(
+        string source,
+        decimal statMinimum,
+        decimal statMaximum,
+        string effectStem = "Attack Speed")
+    {
+        const string statId = "test_bipolar_stat";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = statMinimum,
+            MaxValue = statMaximum,
+        };
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = [new StatDefinition { Id = statId }],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "test-bipolar-translation",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 1m },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                            FormatLines = [$"{{0}}% increased {effectStem}"],
+                        },
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1m },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = ["negate"] },
+                            ],
+                            FormatLines = [$"{{0}}% reduced {effectStem}"],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-bipolar-modifier", Stats = [stat] },
+            [stat],
+            [source],
+            catalog);
     }
 
     private static ModifierBoundDefaultResult BoundDefault(

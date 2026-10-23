@@ -113,7 +113,7 @@ building or publishing the application:
 Set-Location D:\Projects\PoEnhance
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-GameData.ps1
 dotnet build .\PoEnhance.slnx --configuration Release --no-restore
-$expected = '703D140A6B7058120804678C859818C8EA34C946FAC6573CA49DF6FCA9999B85'
+$expected = 'E4018DC50CF273C3FB259DFA16BEE75001EA551C48D9EAFF1621DFA4665A7571'
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath '.\PoEnhance.App\bin\Release\net10.0-windows\poenhance-game-data.json').Hash
 if ($actual -ne $expected) { throw "Unexpected packaged GameData hash: $actual" }
 ```
@@ -124,7 +124,7 @@ content-addressed RePoE hosted-export commits, and Path of Building tag `v2.67.2
 every input hash; evaluates the PoB Unique catalog; and calls the existing source-guarded
 `Refresh-GameData.ps1` pipeline twice with the fixed package timestamp. Both packages must be
 byte-identical to validated SHA-256
-`703D140A6B7058120804678C859818C8EA34C946FAC6573CA49DF6FCA9999B85` before the script
+`E4018DC50CF273C3FB259DFA16BEE75001EA551C48D9EAFF1621DFA4665A7571` before the script
 atomically activates one at `artifacts/poenhance-game-data.json`.
 
 The validated E5 package retains legacy absolute extraction-directory names in its serialized

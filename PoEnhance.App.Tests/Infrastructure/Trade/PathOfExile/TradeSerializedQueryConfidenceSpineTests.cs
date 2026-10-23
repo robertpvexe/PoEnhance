@@ -198,6 +198,300 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
         }
     }
 
+    [Fact]
+    public void Echoforge_DefaultUnchecked_SerializesUniqueIdentityOnly()
+    {
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Echoforge.clipboard.txt");
+        Assert.Contains("Echoforge", raw, StringComparison.Ordinal);
+        Assert.Contains("2% reduced Attack Speed", raw, StringComparison.Ordinal);
+
+        var runtime = Resolve(raw);
+        Assert.Equal("Echoforge", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+        Assert.All(runtime.ProviderDraft.ModifierFilters, filter => Assert.False(filter.IsSelected));
+
+        var attackSpeed = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "reduced Attack Speed",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal([2m], attackSpeed.ObservedNumericValues);
+        Assert.Equal([-2m], attackSpeed.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Minimum, attackSpeed.DefaultBoundDirection);
+        Assert.Equal(-2m, attackSpeed.RequestedMinimum);
+        Assert.Null(attackSpeed.RequestedMaximum);
+
+        var json = Serialize(runtime, selectedComponent: null);
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("Echoforge", query.GetProperty("name").GetString());
+        Assert.Equal("Infernal Sword", query.GetProperty("type").GetString());
+        AssertNoActiveOptionalStatFilters(query);
+    }
+
+    [Fact]
+    public void Echoforge_SelectingReducedAttackSpeed_SerializesLocalIncreasedMinOnly()
+    {
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Echoforge.clipboard.txt");
+        var runtime = Resolve(raw);
+        var attackSpeed = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "reduced Attack Speed",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, attackSpeed.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_210067635", attackSpeed.ProviderStatId);
+        Assert.Contains(
+            "increased Attack Speed",
+            attackSpeed.ProviderStatText ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal([2m], attackSpeed.ObservedNumericValues);
+        Assert.Equal([-2m], attackSpeed.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Minimum, attackSpeed.DefaultBoundDirection);
+        Assert.Equal(-2m, attackSpeed.RequestedMinimum);
+        Assert.Null(attackSpeed.RequestedMaximum);
+
+        var json = Serialize(runtime, attackSpeed);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_210067635", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-2m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+        Assert.False(value.TryGetProperty("option", out _));
+    }
+
+    [Fact]
+    public void VentorsGamble_SelectingReducedReservation_SerializesIncreasedMinFromObserved13()
+    {
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Ventors-Gamble.clipboard.txt");
+        Assert.Contains("13% reduced Mana Reservation Efficiency of Skills", raw, StringComparison.Ordinal);
+
+        var runtime = Resolve(raw);
+        Assert.Equal("Ventor's Gamble", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+        var reservation = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Mana Reservation Efficiency of Skills",
+                StringComparison.OrdinalIgnoreCase));
+
+        // Observed roll stays 13; prepared signed threshold defaults to -13 (not a silent -2).
+        Assert.Equal([13m], reservation.ObservedNumericValues);
+        Assert.Equal([-13m], reservation.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Minimum, reservation.DefaultBoundDirection);
+        Assert.Equal(-13m, reservation.RequestedMinimum);
+        Assert.Null(reservation.RequestedMaximum);
+        Assert.True(
+            reservation.ProviderResolutionStatus is
+                SearchComponentProviderResolutionStatus.Exact or
+                SearchComponentProviderResolutionStatus.ExactEquivalentSet,
+            reservation.ProviderResolutionStatus.ToString());
+        Assert.True(reservation.IsSearchable, reservation.NotSearchableReason);
+        var resolvedStatIds = ResolvedProviderStatIds(reservation);
+        Assert.NotEmpty(resolvedStatIds);
+        Assert.Contains(
+            "increased Mana Reservation Efficiency of Skills",
+            reservation.ProviderStatText ??
+                OfficialTradeCatalog.Value.Entries.First(entry =>
+                    resolvedStatIds.Contains(entry.Id, StringComparer.Ordinal)).Text,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.All(
+            resolvedStatIds,
+            statId => Assert.Contains(
+                OfficialTradeCatalog.Value.Entries,
+                entry => string.Equals(entry.Id, statId, StringComparison.Ordinal)));
+
+        var uncheckedJson = Serialize(runtime, selectedComponent: null);
+        AssertNoActiveOptionalStatFilters(JsonDocument.Parse(uncheckedJson).RootElement.GetProperty("query"));
+
+        var json = Serialize(runtime, reservation);
+        AssertSerializedSignedMinimumOnly(json, expectedMinimum: -13m, reservation);
+    }
+
+    [Fact]
+    public void VentorsGamble_UserEditedPreparedThreshold_PreservesDeliberateMinNegativeTwo()
+    {
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Ventors-Gamble.clipboard.txt");
+        var runtime = Resolve(raw);
+        var reservation = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Mana Reservation Efficiency of Skills",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal([13m], reservation.ObservedNumericValues);
+        Assert.Equal(-13m, reservation.RequestedMinimum);
+
+        // Deliberate user edit of the prepared threshold must not rewrite ObservedNumericValues.
+        var edited = reservation with
+        {
+            RequestedMinimum = -2m,
+            RequestedMaximum = null,
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+        };
+        Assert.Equal([13m], edited.ObservedNumericValues);
+        Assert.Equal([-13m], edited.CanonicalNumericValues);
+        Assert.Equal(-2m, edited.RequestedMinimum);
+
+        var json = Serialize(runtime, edited);
+        AssertSerializedSignedMinimumOnly(json, expectedMinimum: -2m, edited);
+    }
+
+    private static void AssertSerializedSignedMinimumOnly(
+        string json,
+        decimal expectedMinimum,
+        ResolvedSearchComponent selected)
+    {
+        using var document = JsonDocument.Parse(json);
+        var filters = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")[0]
+            .GetProperty("filters")
+            .EnumerateArray()
+            .ToArray();
+        Assert.NotEmpty(filters);
+
+        var allowedIds = new HashSet<string>(ResolvedProviderStatIds(selected), StringComparer.Ordinal);
+        Assert.NotEmpty(allowedIds);
+
+        Assert.All(filters, filter =>
+        {
+            var id = filter.GetProperty("id").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(id));
+            Assert.Contains(id!, allowedIds);
+            var catalogEntry = Assert.Single(
+                OfficialTradeCatalog.Value.Entries,
+                entry => string.Equals(entry.Id, id, StringComparison.Ordinal));
+            Assert.Contains(
+                "increased Mana Reservation Efficiency of Skills",
+                catalogEntry.Text,
+                StringComparison.OrdinalIgnoreCase);
+            var value = filter.GetProperty("value");
+            Assert.Equal(expectedMinimum, value.GetProperty("min").GetDecimal());
+            Assert.False(value.TryGetProperty("max", out _));
+            Assert.False(value.TryGetProperty("option", out _));
+        });
+    }
+
+    [Fact]
+    public void VentorsGamble_AdvancedSignedRange_FormatsPresentationWithoutAmbiguousHyphen()
+    {
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Ventors-Gamble-AdvancedReservation.clipboard.txt");
+        var runtime = Resolve(raw);
+        var reservation = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Mana Reservation Efficiency of Skills",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal([13m], reservation.ObservedNumericValues);
+        Assert.Equal(-13m, reservation.RequestedMinimum);
+        Assert.Contains("(-15-15)", reservation.OriginalText, StringComparison.Ordinal);
+        Assert.DoesNotContain("15--15", reservation.PresentationText ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain("16--16", reservation.PresentationText ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains(
+            "(-15 to +15)",
+            reservation.PresentationText ?? string.Empty,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "reduced Mana Reservation Efficiency of Skills",
+            reservation.PresentationText ?? string.Empty,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Progenesis_ReducedCharges_KeepsLowerIsBetterMaximumGuard()
+    {
+        // Opposite polarity / lower-is-better guard: do not globally flip negate → Minimum.
+        // Production-shaped capture (same body as PathOfExileTradeRawRuntimeRegressionTests.ProgenesisText).
+        const string raw = """
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Progenesis
+            Amethyst Flask
+            --------
+            Quality: +20% (augmented)
+            Lasts 10,50 (augmented) Seconds
+            Consumes 30 (augmented) of 65 Charges on use
+            Currently has 65 Charges
+            Intangibility: 8%
+            +35% to Chaos Resistance
+            --------
+            Requirements:
+            Level: 60
+            --------
+            Item Level: 84
+            --------
+            Used when Charges reach full (enchant)
+            --------
+            { Unique Modifier }
+            14(20-10)% reduced Charges per use
+            { Unique Modifier }
+            34(-35-35)% increased Duration
+            { Unique Modifier }
+            When Hit during effect, 25% of Life loss from Damage taken occurs over 4 seconds instead
+            --------
+            They were bred in a cosmic ocean of raw creation.
+            """;
+        var runtime = Resolve(raw);
+        var charges = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "reduced Charges per use",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ModifierBoundDirection.Maximum, charges.DefaultBoundDirection);
+        Assert.Null(charges.RequestedMinimum);
+        Assert.Equal(-14m, charges.RequestedMaximum);
+
+        var json = Serialize(runtime, charges);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_388617051", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-14m, value.GetProperty("max").GetDecimal());
+        Assert.False(value.TryGetProperty("min", out _));
+    }
+
+    private static IReadOnlyList<string> ResolvedProviderStatIds(ResolvedSearchComponent component)
+    {
+        var ids = component.ProviderStatAlternativeIds
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Select(statId => statId.Trim())
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(component.ProviderStatId))
+        {
+            ids.Insert(0, component.ProviderStatId.Trim());
+        }
+
+        return ids.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
     private static void AssertNoActiveOptionalStatFilters(JsonElement query)
     {
         if (!query.TryGetProperty("stats", out var stats) ||
@@ -224,13 +518,19 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
         var selectedDraft = runtime.ProviderDraft with
         {
             ModifierFilters = runtime.ProviderDraft.ModifierFilters
-                .Select(component => component with
+                .Select(component =>
                 {
-                    IsSelected = selectedComponent is not null &&
+                    if (selectedComponent is not null &&
                         string.Equals(
                             component.ComponentId,
                             selectedComponent.ComponentId,
-                            StringComparison.Ordinal),
+                            StringComparison.Ordinal))
+                    {
+                        // Use the caller-provided instance so deliberate Min/Max edits serialize.
+                        return selectedComponent with { IsSelected = true };
+                    }
+
+                    return component with { IsSelected = false };
                 })
                 .ToArray(),
             ItemProperties = runtime.ProviderDraft.ItemProperties
@@ -323,6 +623,9 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
         [
             UniqueItem(0, "Lifesprig", "Driftwood Wand", "weapon"),
             UniqueItem(1, "Asenath's Gentle Touch", "Silk Gloves", "armour"),
+            UniqueItem(2, "Echoforge", "Infernal Sword", "weapon"),
+            UniqueItem(3, "Ventor's Gamble", "Gold Ring", "accessory"),
+            UniqueItem(4, "Progenesis", "Amethyst Flask", "flask"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(
