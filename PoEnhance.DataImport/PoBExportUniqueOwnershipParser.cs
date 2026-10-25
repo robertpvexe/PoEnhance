@@ -294,8 +294,8 @@ public static partial class PoBExportUniqueOwnershipParser
             return false;
         }
 
-        // Strip trailing legacy numeric range markers: ModId[1,2][3,4]
-        var withoutRanges = RangeSuffixPattern().Replace(clean, string.Empty);
+        // Trailing PoB instance roll markers: ModId[1,2] or ModId[1,2][3,4] …
+        var rangeOverrides = ParseTrailingRangeOverrides(clean, out var withoutRanges);
         if (TypedModifierIdPattern().IsMatch(withoutRanges) && !withoutRanges.Contains(' '))
         {
             effect = new PoBExportUniqueEffectLine
@@ -303,6 +303,7 @@ public static partial class PoBExportUniqueOwnershipParser
                 IsTypedModifier = true,
                 ModifierId = withoutRanges,
                 ResidualText = null,
+                ValueRangeOverrides = rangeOverrides,
                 VariantIndices = variantIndices,
                 IsCrafted = isCrafted,
             };
@@ -318,6 +319,98 @@ public static partial class PoBExportUniqueOwnershipParser
             IsCrafted = isCrafted,
         };
         return true;
+    }
+
+    /// <summary>
+    /// Typed Export owners in scope that carry at least one trailing <c>[min,max]</c> override.
+    /// Scope rules mirror <see cref="GetTypedOwnerModifierIds"/> (variant-aware).
+    /// </summary>
+    public static IReadOnlyList<PoBExportUniqueEffectLine> GetTypedOwnerLinesWithRangeOverrides(
+        PoBExportUniqueOwnershipEntry entry,
+        IReadOnlySet<int> variantIndices)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(variantIndices);
+
+        var ownerIds = GetTypedOwnerModifierIds(entry, variantIndices);
+        var unscoped = variantIndices.Count == 0;
+        var scoped = new List<PoBExportUniqueEffectLine>();
+        foreach (var line in entry.EffectLines)
+        {
+            if (!line.IsTypedModifier ||
+                line.ModifierId is null ||
+                !ownerIds.Contains(line.ModifierId) ||
+                line.ValueRangeOverrides.Count == 0)
+            {
+                continue;
+            }
+
+            if (unscoped)
+            {
+                if (line.VariantIndices.Count == 0 || entry.VariantLabels.Count == 0)
+                {
+                    scoped.Add(line);
+                }
+
+                continue;
+            }
+
+            if (variantIndices.Any(line.AppliesToVariant))
+            {
+                scoped.Add(line);
+            }
+        }
+
+        return scoped
+            .GroupBy(line => line.ModifierId!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(line => line.ModifierId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PoBExportValueRangeOverride> ParseTrailingRangeOverrides(
+        string clean,
+        out string withoutRanges)
+    {
+        withoutRanges = clean;
+        var matches = RangeOverridePattern().Matches(clean);
+        if (matches.Count == 0)
+        {
+            return [];
+        }
+
+        // Only accept a pure trailing suffix of [min,max] groups (same as RangeSuffixPattern).
+        var suffix = string.Concat(matches.Select(match => match.Value));
+        if (!clean.EndsWith(suffix, StringComparison.Ordinal) ||
+            !RangeSuffixPattern().IsMatch(clean))
+        {
+            return [];
+        }
+
+        var overrides = new List<PoBExportValueRangeOverride>(matches.Count);
+        foreach (Match match in matches)
+        {
+            if (!decimal.TryParse(
+                    match.Groups["min"].Value,
+                    System.Globalization.NumberStyles.AllowLeadingSign |
+                        System.Globalization.NumberStyles.AllowDecimalPoint,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var minimum) ||
+                !decimal.TryParse(
+                    match.Groups["max"].Value,
+                    System.Globalization.NumberStyles.AllowLeadingSign |
+                        System.Globalization.NumberStyles.AllowDecimalPoint,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var maximum))
+            {
+                return [];
+            }
+
+            overrides.Add(new PoBExportValueRangeOverride(minimum, maximum));
+        }
+
+        withoutRanges = clean[..^suffix.Length];
+        return overrides;
     }
 
     private static HashSet<int> ParseVariantIndices(string line)
@@ -374,6 +467,11 @@ public static partial class PoBExportUniqueOwnershipParser
 
     [GeneratedRegex(@"(\[[^\]]*\])+$")]
     private static partial Regex RangeSuffixPattern();
+
+    [GeneratedRegex(
+        @"\[(?<min>[+-]?\d+(?:\.\d+)?)\s*,\s*(?<max>[+-]?\d+(?:\.\d+)?)\]",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex RangeOverridePattern();
 
     [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_]*$")]
     private static partial Regex TypedModifierIdPattern();

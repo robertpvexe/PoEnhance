@@ -76,6 +76,12 @@ public sealed class PoBExportUniqueEffectLine
     public string? ResidualText { get; init; }
 
     /// <summary>
+    /// Trailing PoB Export <c>ModId[min,max]…</c> instance roll overrides in declaration order.
+    /// Empty when the typed owner uses the RePoE base roll unchanged.
+    /// </summary>
+    public IReadOnlyList<PoBExportValueRangeOverride> ValueRangeOverrides { get; init; } = [];
+
+    /// <summary>
     /// Empty means the line applies to every variant of the entry (or the entry has no variants).
     /// </summary>
     public required IReadOnlySet<int> VariantIndices { get; init; }
@@ -85,3 +91,6 @@ public sealed class PoBExportUniqueEffectLine
     public bool AppliesToVariant(int variantIndex) =>
         VariantIndices.Count == 0 || VariantIndices.Contains(variantIndex);
 }
+
+/// <summary>One trailing <c>[min,max]</c> pair from a typed Export Unique effect line.</summary>
+public readonly record struct PoBExportValueRangeOverride(decimal Minimum, decimal Maximum);

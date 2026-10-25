@@ -354,6 +354,9 @@ public sealed class PoBPassageOwnedStatIdsSupersetTests
         Assert.DoesNotContain(
             PoBUniqueCatalogImporter.PassageOwnedStatIdsSupersetCollapseReason,
             block.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
+        Assert.DoesNotContain(
+            PoBUniqueCatalogImporter.CurrentSameDisplayExportOwnerCollapseReason,
+            block.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
     }
 
     [Fact]
@@ -408,11 +411,19 @@ public sealed class PoBPassageOwnedStatIdsSupersetTests
         var allocate = Assert.Single(
             blocks,
             block => block.Lines.SequenceEqual([AllocateLine]));
-        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, allocate.MechanicalMapping.Status);
-        Assert.Equal(2, allocate.MechanicalMapping.ConflictEvidence!.Candidates.Count);
+        // Passage chrome evidence incomplete → Passage-superset does not apply; the allocate
+        // line alone is a SameDisplay ExactConflict with singular Export owner and collapses
+        // via the non-Passage SameDisplay Export-owner path.
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, allocate.MechanicalMapping.Status);
+        Assert.Equal(
+            ["JewelUniqueAllocateDisconnectedPassives"],
+            allocate.MechanicalMapping.ModifierIds);
         Assert.DoesNotContain(
             PoBUniqueCatalogImporter.PassageOwnedStatIdsSupersetCollapseReason,
             allocate.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.CurrentSameDisplayExportOwnerCollapseReason,
+            allocate.MechanicalMapping.Provenance!.ResolutionReasons);
     }
 
     [Fact]
@@ -514,8 +525,10 @@ public sealed class PoBPassageOwnedStatIdsSupersetTests
     }
 
     [Fact]
-    public void Import_RecklessScaleHandler_RemainsExactConflict()
+    public void Import_RecklessScaleHandler_WithoutExportOwnerAmongCandidates_RemainsExactConflict()
     {
+        // Synthetic negative: Export typed owner is unrelated SpellBlock, so SameDisplay
+        // singular-owner collapse must stay fail-closed (mirrors Import_NoOwnedCandidate).
         var exportRoot = CreateExportTree("""
             return {
             [[
@@ -555,6 +568,9 @@ public sealed class PoBPassageOwnedStatIdsSupersetTests
         Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
         Assert.DoesNotContain(
             PoBUniqueCatalogImporter.PassageOwnedStatIdsSupersetCollapseReason,
+            block.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
+        Assert.DoesNotContain(
+            PoBUniqueCatalogImporter.CurrentSameDisplayExportOwnerCollapseReason,
             block.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
     }
 

@@ -259,6 +259,8 @@ public sealed class LevelVsChanceExportOwnerCollapseTests
     [Fact]
     public void Import_OtherConflictKind_DoesNotApplyLevelVsChanceCollapse()
     {
+        // SameDisplay (not LevelVsChance): singular Export owner is collapsed by the
+        // SameDisplay Export-owner path; LevelVsChance reason must stay absent.
         const string line = "Your Critical Strikes do not deal extra Damage";
         var exportRoot = CreateExportTree("""
             return {
@@ -294,13 +296,15 @@ public sealed class LevelVsChanceExportOwnerCollapseTests
 
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
-        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
-        Assert.Equal(
-            UniqueMechanicalConflictKind.SameDisplayTextDifferentStatIds,
-            block.MechanicalMapping.ConflictEvidence!.Kind);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["NoBonusesFromCriticalStrikes"], block.MechanicalMapping.ModifierIds);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
         Assert.DoesNotContain(
             PoBUniqueCatalogImporter.CurrentLevelVsChanceExportOwnerCollapseReason,
-            block.MechanicalMapping.Provenance?.ResolutionReasons ?? []);
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.CurrentSameDisplayExportOwnerCollapseReason,
+            block.MechanicalMapping.Provenance.ResolutionReasons);
     }
 
     [Fact]

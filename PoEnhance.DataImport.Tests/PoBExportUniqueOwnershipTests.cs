@@ -47,6 +47,39 @@ public sealed class PoBExportUniqueOwnershipTests
         // Shared across Ungil + Replica Kongor
         Assert.True(index.IsOwnedByOtherUnique("CriticalMultiplierUniqueAmulet18", "Ungil's Harmony"));
         Assert.True(index.IsOwnedByOtherUnique("CriticalMultiplierUniqueAmulet18", "Replica Kongor's Undying Rage"));
+
+        // U.2.4I pinned evidence for the two remaining Current SameDisplay Ambiguous rows.
+        Assert.True(index.TryGetEntry("Poacher's Aim", out var poacher));
+        Assert.Contains(
+            poacher.EffectLines,
+            line => line.IsTypedModifier &&
+                string.Equals(line.ModifierId, "AdditionalPierceUniqueJewel__1", StringComparison.Ordinal));
+        Assert.True(index.TryGetEntry("The Devouring Diadem", out var diadem));
+        Assert.Contains(
+            diadem.EffectLines,
+            line => line.IsTypedModifier &&
+                string.Equals(line.ModifierId, "AdditionalPierceUniqueJewel__1", StringComparison.Ordinal) &&
+                line.VariantIndices.Contains(28));
+        Assert.True(index.IsOwnedByOtherUnique("AdditionalPierceUniqueJewel__1", "Poacher's Aim"));
+
+        Assert.True(index.TryGetEntry("Bitterbind Point", out var bitterbind));
+        Assert.Contains(
+            bitterbind.EffectLines,
+            line => !line.IsTypedModifier &&
+                string.Equals(
+                    line.ResidualText,
+                    "+1 to maximum number of Spectres",
+                    StringComparison.Ordinal) &&
+                line.VariantIndices.Contains(19));
+        // Residual spectre-count line has no typed ModId owner on Bitterbind; the three
+        // SameDisplay conflict candidates never appear as Export-typed owners on this Unique.
+        Assert.DoesNotContain(
+            bitterbind.EffectLines,
+            line => line.IsTypedModifier &&
+                line.ModifierId is not null &&
+                (string.Equals(line.ModifierId, "MaximumMinionCountUniqueBodyInt9", StringComparison.Ordinal) ||
+                 string.Equals(line.ModifierId, "MaximumMinionCountUniqueSceptre5", StringComparison.Ordinal) ||
+                 string.Equals(line.ModifierId, "TalismanEnchantMaximumSpectreCount", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -262,7 +295,7 @@ public sealed class PoBExportUniqueOwnershipTests
     }
 
     [Fact]
-    public void Import_SameItemOrphanFork_RemainsExactConflict()
+    public void Import_SameItemOrphanFork_CollapsesToSingularExportOwner()
     {
         var exportRoot = CreateExportTree("""
             return {
@@ -303,10 +336,13 @@ public sealed class PoBExportUniqueOwnershipTests
 
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
-        Assert.Equal(UniqueModifierMechanicalMappingStatus.Ambiguous, block.MechanicalMapping.Status);
-        Assert.Equal("UNIQUE_MECHANICS_EXACT_CONFLICT", block.MechanicalMapping.DiagnosticCode);
-        Assert.Equal(3, block.MechanicalMapping.ConflictEvidence!.Candidates.Count);
-        Assert.Null(block.MechanicalMapping.Provenance);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["CurseOnHitCriticalWeaknessUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(["mark_a"], block.MechanicalMapping.StatIds);
+        Assert.Null(block.MechanicalMapping.ConflictEvidence);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.CurrentSameDisplayExportOwnerCollapseReason,
+            block.MechanicalMapping.Provenance!.ResolutionReasons);
     }
 
     [Fact]

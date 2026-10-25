@@ -1124,10 +1124,11 @@ public sealed partial class PoBUniqueCatalogImporter
         PoBExportUniqueOwnershipIndex? exportOwnership,
         PoBModTextMapIndex? modTextMap)
     {
-        var signatures = lines.Select(NormalizeSignature).ToArray();
+        var effectiveLines = lines;
+        var signatures = effectiveLines.Select(NormalizeSignature).ToArray();
         var signature = string.Join("\n", signatures);
         var resolution = mechanicalIndex.Resolve(
-            lines,
+            effectiveLines,
             baseType,
             hasGeneratedOptionEvidence,
             sourceSemanticFingerprint,
@@ -1249,6 +1250,21 @@ public sealed partial class PoBUniqueCatalogImporter
                 candidates = levelVsChanceSurvivors;
                 currentRoleResolutionReason = levelVsChanceReason;
             }
+            else if (TryResolveCurrentSameDisplayExportOwnerCollapse(
+                    canonicalUniqueName,
+                    versionLabel,
+                    versionRole,
+                    sourceVariantIndex,
+                    lines,
+                    candidates,
+                    exportOwnership,
+                    out var sameDisplaySurvivors,
+                    out var sameDisplayReason,
+                    out _))
+            {
+                candidates = sameDisplaySurvivors;
+                currentRoleResolutionReason = sameDisplayReason;
+            }
 
             if (currentRoleResolutionReason is not null)
             {
@@ -1262,6 +1278,78 @@ public sealed partial class PoBUniqueCatalogImporter
                     _ => UniqueModifierMechanicalMappingStatus.EquivalentSourceSet,
                 };
             }
+        }
+
+        // Current Export ModId[min,max] that disagrees with RePoE base while Data still shows the
+        // legacy override roll: rewrite packaged Fixed lines to RePoE ExactText (live current).
+        if ((status == UniqueModifierMechanicalMappingStatus.Ambiguous ||
+                status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet ||
+                status == UniqueModifierMechanicalMappingStatus.Unsupported) &&
+            currentRoleResolutionReason is null &&
+            TryReconcileCurrentStaleExportOwnedRangeAgainstRePoEBase(
+                canonicalUniqueName,
+                versionLabel,
+                versionRole,
+                sourceVariantIndex,
+                kind,
+                effectiveLines,
+                baseType,
+                hasGeneratedOptionEvidence,
+                mechanicalIndex,
+                exportOwnership,
+                out var reconciledLines,
+                out var reconcileSurvivors,
+                out var reconcileReason,
+                out _))
+        {
+            effectiveLines = reconciledLines;
+            signatures = effectiveLines.Select(NormalizeSignature).ToArray();
+            signature = string.Join("\n", signatures);
+            candidates = reconcileSurvivors;
+            currentRoleResolutionReason = reconcileReason;
+            semanticFingerprints = candidates
+                .Select(SemanticFingerprintEquivalenceKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            status = UniqueModifierMechanicalMappingStatus.Exact;
+            resolution = new MechanicalResolution(
+                candidates,
+                UsedStrictEvidence: true,
+                ResolutionReasons: [ExportOwnedCurrentRePoEBaseReconcileExactReason]);
+        }
+
+        // Historical (or Current redundant) Export ModId[min,max] Exact via override re-render.
+        // Current overrides that disagree with RePoE base are refused inside this path.
+        if ((status == UniqueModifierMechanicalMappingStatus.Ambiguous ||
+                status == UniqueModifierMechanicalMappingStatus.EquivalentSourceSet ||
+                status == UniqueModifierMechanicalMappingStatus.Unsupported) &&
+            currentRoleResolutionReason is null &&
+            TryResolveExportOwnedRangeOverrideExact(
+                canonicalUniqueName,
+                versionLabel,
+                versionRole,
+                sourceVariantIndex,
+                kind,
+                effectiveLines,
+                baseType,
+                hasGeneratedOptionEvidence,
+                mechanicalIndex,
+                exportOwnership,
+                out var rangeOverrideSurvivors,
+                out var rangeOverrideReason,
+                out _))
+        {
+            candidates = rangeOverrideSurvivors;
+            currentRoleResolutionReason = rangeOverrideReason;
+            semanticFingerprints = candidates
+                .Select(SemanticFingerprintEquivalenceKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            status = UniqueModifierMechanicalMappingStatus.Exact;
+            resolution = new MechanicalResolution(
+                candidates,
+                UsedStrictEvidence: true,
+                ResolutionReasons: [ExportOwnedRangeOverrideExactReason]);
         }
 
         if (status == UniqueModifierMechanicalMappingStatus.Unsupported &&
@@ -1299,7 +1387,7 @@ public sealed partial class PoBUniqueCatalogImporter
         // Classify only after every mechanical path failed so a future real Trade match stays Exact.
         string? nonSearchableClassRequirement = null;
         if (status == UniqueModifierMechanicalMappingStatus.Unsupported &&
-            TryClassifySourceClassRequirement(lines, out nonSearchableClassRequirement))
+            TryClassifySourceClassRequirement(effectiveLines, out nonSearchableClassRequirement))
         {
             status = UniqueModifierMechanicalMappingStatus.NonSearchable;
             candidates = [];
@@ -1320,7 +1408,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 signature,
                 string.Join('\u001f', candidatePoolMembershipIds),
                 string.Join('\u001f', optionChoiceMemberships.Select(OptionMembershipKey)),
-                string.Join('\n', lines))
+                string.Join('\n', effectiveLines))
             : isGeneratedCandidate
                 ? StableId(
                     "unique-block",
@@ -1329,14 +1417,14 @@ public sealed partial class PoBUniqueCatalogImporter
                     kind.ToString(),
                     signature,
                     string.Join('\u001f', candidatePoolMembershipIds),
-                    string.Join('\n', lines))
+                    string.Join('\n', effectiveLines))
                 : StableId(
                     "unique-block",
                     identityId,
                     versionLabel,
                     kind.ToString(),
                     signature,
-                    ExtractSourceValueDomainKey(lines),
+                    ExtractSourceValueDomainKey(effectiveLines),
                     SourceObservationStructureKey(sourceSemanticFingerprint));
         var composition = resolved &&
             !isComponentComposite &&
@@ -1344,7 +1432,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 currentRoleResolutionReason,
                 PassageOwnedStatIdsSupersetCollapseReason,
                 StringComparison.Ordinal)
-            ? BuildComposition(blockId, lines, signatures, observationId, candidates)
+            ? BuildComposition(blockId, effectiveLines, signatures, observationId, candidates)
             : null;
         var translationEvidence = candidates
             .SelectMany(candidate => candidate.ProvenanceTranslations)
@@ -1390,7 +1478,7 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             Id = blockId,
             Kind = kind,
-            Lines = lines,
+            Lines = effectiveLines,
             CanonicalSignatures = signatures,
             SourceSemantics = isGeneratedCandidate
                 ? UniqueModifierSourceSemantics.GeneratedCandidate
@@ -1427,12 +1515,18 @@ public sealed partial class PoBUniqueCatalogImporter
                                 "Current-role ExactConflict of inverse/legacy handler encoding vs current encoding collapsed to one surviving mechanical vector after removing only proven inverse/legacy encoding candidates; copied instance values remain authoritative.",
                             CurrentLevelVsChanceExportOwnerCollapseReason =>
                                 "Current-role LevelVsChanceOnHit ExactConflict collapsed to the single PoB Export typed owner ModifierId with a usable StatId vector; orphan/Synthesis/Mutated competitors remain non-authoritative; copied instance values remain authoritative.",
+                            CurrentSameDisplayExportOwnerCollapseReason =>
+                                "Current-role SameDisplayTextDifferentStatIds ExactConflict collapsed to the single PoB Export typed owner ModifierId with a usable StatId vector; same-item orphan/Updated/Divergent/New competitors remain non-authoritative; copied instance values remain authoritative.",
                             ExportUniqueOwnershipFilterReason =>
                                 "Pinned Path of Building Export Uniques typed ownership removed cross-item ModifierId candidates that are not owned by this Unique identity/variant; copied instance values remain authoritative.",
                             PassageOwnedStatIdsSupersetCollapseReason =>
                                 "SameDisplay ExactConflict under shared Passage display-chrome evidence collapsed to the single Export-owned candidate whose StatIds properly supersede every non-owned competitor; copied instance values remain authoritative.",
                             ExportOwnerModTextMapPositiveExactReason =>
                                 "Pinned Export typed ownership intersected with ModTextMap for this display block yields one RePoE ModifierId with StatIds after normal mechanical matching found none; copied instance values remain authoritative.",
+                            ExportOwnedRangeOverrideExactReason =>
+                                "Pinned Export typed ModId[min,max] instance roll override re-renders to ExactText matching this Data display block for one owned RePoE ModifierId with StatIds; copied instance values remain authoritative.",
+                            ExportOwnedCurrentRePoEBaseReconcileExactReason =>
+                                "Current-role Export ModId[min,max] and Data display agree on a legacy roll that disagrees with the pinned RePoE base for the owned ModifierId; packaged Fixed lines were rewritten to the RePoE ExactText so live current clipboards match; copied instance values remain authoritative.",
                             _ when isComponentComposite =>
                                 "Complete multi-stat composite translation ExactText is proven by uniquely resolved Unique-generation one-stat component ModIds covering every StatId with no defaults, extras, or invented aggregate ModId; copied instance values remain authoritative.",
                             _ =>
@@ -1834,10 +1928,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 }
             }
 
-            if (!string.Equals(
-                    modifier.SourceGenerationType?.Trim(),
-                    "unique",
-                    StringComparison.OrdinalIgnoreCase))
+            // Unique-owned Exact enrollment stays Unique-generation only. Generated Unique option
+            // pools (PoB veiledMods / ModJewelCharm) own unveiled + affliction_charm Exact text
+            // without SourceGenerationType=unique — enroll those domains for strict match so
+            // GeneratedCandidate resolution does not fall through to Unique-generation broad pools.
+            if (!IsEligibleForStrictExactEnrollment(modifier))
             {
                 continue;
             }
@@ -2020,7 +2115,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     group => group.Key,
                     group => group.First(),
                     StringComparer.OrdinalIgnoreCase),
-            statsById);
+            statsById,
+            translationsByFirstStat);
     }
 
     private static void EnrollComponentCompositeExactCandidates(
@@ -2373,6 +2469,8 @@ public sealed partial class PoBUniqueCatalogImporter
             "negate" => ["scale:-1"],
             "double" => ["scale:2"],
             "negate_and_double" => ["scale:-2"],
+            "times_twenty" => ["scale:20"],
+            "30%_of_value" => ["scale:0.3"],
             "divide_by_one_hundred" => ["scale:0.01"],
             "divide_by_one_hundred_2dp" => ["scale:0.01", "round:2"],
             "divide_by_one_hundred_2dp_if_required" =>
@@ -2895,6 +2993,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 "double" => projected * 2m,
                 "negate_and_double" => -projected * 2m,
                 "times_twenty" => projected * 20m,
+                "30%_of_value" => projected * 0.3m,
                 "divide_by_one_hundred" or
                     "divide_by_one_hundred_2dp" or
                     "divide_by_one_hundred_2dp_if_required" => projected / 100m,
@@ -3916,7 +4015,8 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
         IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics,
         IReadOnlyDictionary<string, ModifierDefinition> modifiersById,
-        IReadOnlyDictionary<string, StatDefinition> statsById)
+        IReadOnlyDictionary<string, StatDefinition> statsById,
+        IReadOnlyDictionary<string, StatTranslationDefinition[]> translationsByFirstStat)
     {
         public bool TryCreateOwnedModifierCandidate(
             string modifierId,
@@ -3930,7 +4030,346 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             candidate = null!;
             rejectReason = null;
+            if (!TryValidateOwnedModifier(
+                    modifierId,
+                    blockKind,
+                    blockLines,
+                    versionRole,
+                    out var modifier,
+                    out var statIds,
+                    out rejectReason))
+            {
+                return false;
+            }
+
+            var provisional = new MechanicalCandidate(
+                modifier.Id!,
+                statIds,
+                modifier.Domain,
+                ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                SourceText: modifier.SourceText,
+                SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                    statIds,
+                    statsById,
+                    []),
+                SourceGenerationType: modifier.SourceGenerationType,
+                SourceAvailability: modifier.SourceAvailability);
+            var filtered = FilterCandidates(
+                [provisional],
+                baseType,
+                hasGeneratedOptionEvidence,
+                blockKind);
+            if (filtered.Candidates.Count != 1)
+            {
+                rejectReason = "domain-or-property-incompatible";
+                return false;
+            }
+
+            candidate = filtered.Candidates[0];
+            return true;
+        }
+
+        public bool TryCreateOwnedModifierCandidateWithRangeOverride(
+            string modifierId,
+            IReadOnlyList<PoBExportValueRangeOverride> valueRangeOverrides,
+            UniqueModifierBlockKind blockKind,
+            IReadOnlyList<string> blockLines,
+            string baseType,
+            bool hasGeneratedOptionEvidence,
+            UniqueItemVersionRole versionRole,
+            out MechanicalCandidate candidate,
+            out string? rejectReason)
+        {
+            candidate = null!;
+            rejectReason = null;
+            if (valueRangeOverrides.Count == 0)
+            {
+                rejectReason = "range-overrides-empty";
+                return false;
+            }
+
+            if (!TryValidateOwnedModifier(
+                    modifierId,
+                    blockKind,
+                    blockLines,
+                    versionRole,
+                    out var modifier,
+                    out var statIds,
+                    out rejectReason))
+            {
+                return false;
+            }
+
+            if (!TryApplyExportValueRangeOverrides(
+                    modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                    valueRangeOverrides,
+                    out var overriddenStats,
+                    out rejectReason))
+            {
+                return false;
+            }
+
+            var overriddenModifier = modifier with { Stats = overriddenStats };
+            var matchingRenderings = BuildStrictRenderings(
+                    overriddenModifier,
+                    translationsByFirstStat,
+                    allowMissingStats: false)
+                .Where(rendering =>
+                    rendering.ExactText is not null &&
+                    string.Equals(
+                        UnorderedMultilineKey(rendering.ExactText),
+                        UnorderedMultilineKey(
+                            string.Join("\n", blockLines.Select(NormalizeExactEvidence))),
+                        StringComparison.Ordinal))
+                .ToArray();
+            if (matchingRenderings.Length == 0)
+            {
+                rejectReason = "override-exact-text-mismatch";
+                return false;
+            }
+
+            // Prefer the strongest value evidence among matching override renderings.
+            var rendering = matchingRenderings
+                .OrderByDescending(match => match.ValueEvidenceCount)
+                .ThenByDescending(match => match.ExactText!.Length)
+                .First();
+            var provisional = new MechanicalCandidate(
+                modifier.Id!,
+                statIds,
+                modifier.Domain,
+                ModifierStats: overriddenStats,
+                SourceText: modifier.SourceText,
+                StrictValueEvidenceCount: rendering.ValueEvidenceCount,
+                StrictPatternSpecificity: rendering.DynamicPatternText?.Length ?? 0,
+                TranslationEvidence: rendering.TranslationEvidence,
+                OrderedRenderingText: rendering.ExactText,
+                SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                    statIds,
+                    statsById,
+                    rendering.TranslationEvidence),
+                SourceGenerationType: modifier.SourceGenerationType,
+                SourceAvailability: modifier.SourceAvailability);
+            var filtered = FilterCandidates(
+                [provisional],
+                baseType,
+                hasGeneratedOptionEvidence,
+                blockKind);
+            if (filtered.Candidates.Count != 1)
+            {
+                rejectReason = "domain-or-property-incompatible";
+                return false;
+            }
+
+            candidate = filtered.Candidates[0];
+            return true;
+        }
+
+        public bool ValueRangeOverridesMatchModifierBase(
+            string modifierId,
+            IReadOnlyList<PoBExportValueRangeOverride> valueRangeOverrides)
+        {
+            if (!modifiersById.TryGetValue(modifierId, out var modifier) ||
+                valueRangeOverrides.Count == 0)
+            {
+                return false;
+            }
+
+            if (!TryApplyExportValueRangeOverrides(
+                    modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                    valueRangeOverrides,
+                    out var overriddenStats,
+                    out _))
+            {
+                return false;
+            }
+
+            var baseStats = modifier.Stats.OrderBy(stat => stat.Index).ToArray();
+            if (baseStats.Length != overriddenStats.Count)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < baseStats.Length; index++)
+            {
+                if (baseStats[index].MinValue != overriddenStats[index].MinValue ||
+                    baseStats[index].MaxValue != overriddenStats[index].MaxValue)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public bool TryRenderOwnedModifierBaseExactText(
+            string modifierId,
+            out string exactText,
+            out string? rejectReason)
+        {
+            exactText = string.Empty;
+            rejectReason = null;
             if (!modifiersById.TryGetValue(modifierId, out var modifier))
+            {
+                rejectReason = "repoe-modifier-missing";
+                return false;
+            }
+
+            var rendering = BuildStrictRenderings(
+                    modifier,
+                    translationsByFirstStat,
+                    allowMissingStats: false)
+                .Where(match => match.ExactText is not null)
+                .OrderByDescending(match => match.ValueEvidenceCount)
+                .ThenByDescending(match => match.ExactText!.Length)
+                .FirstOrDefault();
+            if (rendering is null)
+            {
+                rejectReason = "base-exact-text-unavailable";
+                return false;
+            }
+
+            exactText = rendering.ExactText!;
+            return true;
+        }
+
+        public bool TryCreateOwnedModifierCandidateFromBaseExactRender(
+            string modifierId,
+            UniqueModifierBlockKind blockKind,
+            string baseType,
+            bool hasGeneratedOptionEvidence,
+            UniqueItemVersionRole versionRole,
+            out MechanicalCandidate candidate,
+            out string exactText,
+            out string? rejectReason)
+        {
+            candidate = null!;
+            exactText = string.Empty;
+            rejectReason = null;
+            if (!TryRenderOwnedModifierBaseExactText(modifierId, out exactText, out rejectReason))
+            {
+                return false;
+            }
+
+            var baseLines = exactText.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (!TryValidateOwnedModifier(
+                    modifierId,
+                    blockKind,
+                    baseLines,
+                    versionRole,
+                    out var modifier,
+                    out var statIds,
+                    out rejectReason))
+            {
+                return false;
+            }
+
+            var renderedExactText = exactText;
+            var rendering = BuildStrictRenderings(
+                    modifier,
+                    translationsByFirstStat,
+                    allowMissingStats: false)
+                .Where(match =>
+                    match.ExactText is not null &&
+                    string.Equals(
+                        UnorderedMultilineKey(match.ExactText),
+                        UnorderedMultilineKey(renderedExactText),
+                        StringComparison.Ordinal))
+                .OrderByDescending(match => match.ValueEvidenceCount)
+                .FirstOrDefault();
+            if (rendering is null)
+            {
+                rejectReason = "base-exact-text-unavailable";
+                return false;
+            }
+
+            var provisional = new MechanicalCandidate(
+                modifier.Id!,
+                statIds,
+                modifier.Domain,
+                ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                SourceText: modifier.SourceText,
+                StrictValueEvidenceCount: rendering.ValueEvidenceCount,
+                StrictPatternSpecificity: rendering.DynamicPatternText?.Length ?? 0,
+                TranslationEvidence: rendering.TranslationEvidence,
+                OrderedRenderingText: rendering.ExactText,
+                SemanticFingerprint: BuildCandidateSemanticFingerprint(
+                    statIds,
+                    statsById,
+                    rendering.TranslationEvidence),
+                SourceGenerationType: modifier.SourceGenerationType,
+                SourceAvailability: modifier.SourceAvailability);
+            var filtered = FilterCandidates(
+                [provisional],
+                baseType,
+                hasGeneratedOptionEvidence,
+                blockKind);
+            if (filtered.Candidates.Count != 1)
+            {
+                rejectReason = "domain-or-property-incompatible";
+                return false;
+            }
+
+            candidate = filtered.Candidates[0];
+            return true;
+        }
+
+        public bool TryRenderOwnedModifierWithRangeOverrideExactText(
+            string modifierId,
+            IReadOnlyList<PoBExportValueRangeOverride> valueRangeOverrides,
+            out string exactText,
+            out string? rejectReason)
+        {
+            exactText = string.Empty;
+            rejectReason = null;
+            if (!modifiersById.TryGetValue(modifierId, out var modifier))
+            {
+                rejectReason = "repoe-modifier-missing";
+                return false;
+            }
+
+            if (!TryApplyExportValueRangeOverrides(
+                    modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
+                    valueRangeOverrides,
+                    out var overriddenStats,
+                    out rejectReason))
+            {
+                return false;
+            }
+
+            var overriddenModifier = modifier with { Stats = overriddenStats };
+            var renderings = BuildStrictRenderings(
+                    overriddenModifier,
+                    translationsByFirstStat,
+                    allowMissingStats: false)
+                .Where(rendering => rendering.ExactText is not null)
+                .OrderByDescending(rendering => rendering.ValueEvidenceCount)
+                .ThenByDescending(rendering => rendering.ExactText!.Length)
+                .ToArray();
+            if (renderings.Length == 0)
+            {
+                rejectReason = "override-exact-text-unavailable";
+                return false;
+            }
+
+            exactText = renderings[0].ExactText!;
+            return true;
+        }
+
+        private bool TryValidateOwnedModifier(
+            string modifierId,
+            UniqueModifierBlockKind blockKind,
+            IReadOnlyList<string> blockLines,
+            UniqueItemVersionRole versionRole,
+            out ModifierDefinition modifier,
+            out string[] statIds,
+            out string? rejectReason)
+        {
+            modifier = null!;
+            statIds = [];
+            rejectReason = null;
+            if (!modifiersById.TryGetValue(modifierId, out modifier!))
             {
                 rejectReason = "repoe-modifier-missing";
                 return false;
@@ -3957,7 +4396,7 @@ public sealed partial class PoBUniqueCatalogImporter
                 return false;
             }
 
-            var statIds = modifier.Stats.OrderBy(stat => stat.Index)
+            statIds = modifier.Stats.OrderBy(stat => stat.Index)
                 .Select(stat => stat.StatId?.Trim())
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Cast<string>()
@@ -3987,30 +4426,48 @@ public sealed partial class PoBUniqueCatalogImporter
                 }
             }
 
-            var provisional = new MechanicalCandidate(
-                modifier.Id!,
-                statIds,
-                modifier.Domain,
-                ModifierStats: modifier.Stats.OrderBy(stat => stat.Index).ToArray(),
-                SourceText: modifier.SourceText,
-                SemanticFingerprint: BuildCandidateSemanticFingerprint(
-                    statIds,
-                    statsById,
-                    []),
-                SourceGenerationType: modifier.SourceGenerationType,
-                SourceAvailability: modifier.SourceAvailability);
-            var filtered = FilterCandidates(
-                [provisional],
-                baseType,
-                hasGeneratedOptionEvidence,
-                blockKind);
-            if (filtered.Candidates.Count != 1)
+            return true;
+        }
+
+        private static bool TryApplyExportValueRangeOverrides(
+            IReadOnlyList<ModifierStat> stats,
+            IReadOnlyList<PoBExportValueRangeOverride> valueRangeOverrides,
+            out IReadOnlyList<ModifierStat> overriddenStats,
+            out string? rejectReason)
+        {
+            overriddenStats = [];
+            rejectReason = null;
+            var valuedIndices = new List<int>();
+            for (var index = 0; index < stats.Count; index++)
             {
-                rejectReason = "domain-or-property-incompatible";
+                var stat = stats[index];
+                if (IsZeroStat(stat) || !stat.MinValue.HasValue || !stat.MaxValue.HasValue)
+                {
+                    continue;
+                }
+
+                valuedIndices.Add(index);
+            }
+
+            if (valuedIndices.Count != valueRangeOverrides.Count)
+            {
+                rejectReason = "range-override-arity-mismatch";
                 return false;
             }
 
-            candidate = filtered.Candidates[0];
+            var result = stats.ToArray();
+            for (var overrideIndex = 0; overrideIndex < valueRangeOverrides.Count; overrideIndex++)
+            {
+                var statIndex = valuedIndices[overrideIndex];
+                var range = valueRangeOverrides[overrideIndex];
+                result[statIndex] = result[statIndex] with
+                {
+                    MinValue = range.Minimum,
+                    MaxValue = range.Maximum,
+                };
+            }
+
+            overriddenStats = result;
             return true;
         }
 
@@ -4279,6 +4736,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 reasons.Add("repoe-modifier-source-text");
             }
             if (filtered.Candidates.Any(candidate =>
+                    IsGeneratedOptionOwnedDomain(candidate.Domain)))
+            {
+                reasons.Add(GeneratedOptionDomainExactReason);
+            }
+            if (filtered.Candidates.Any(candidate =>
                     candidate.OrderedRenderingText?.Contains('\n') == true &&
                     orderedSourceText?.Contains('\n') == true &&
                     !string.Equals(
@@ -4364,6 +4826,22 @@ public sealed partial class PoBUniqueCatalogImporter
                 ? propertyCompatible
                 : domainCompatible;
 
+            // Generated Unique option lines own unveiled/charm Exact rows. Prefer those over
+            // Unique-generation broad/Exact competitors that only share normalized display text.
+            if (hasGeneratedOptionEvidence)
+            {
+                var generatedOwned = afterDomainProperty
+                    .Where(candidate => IsGeneratedOptionOwnedDomain(candidate.Domain))
+                    .ToArray();
+                if (generatedOwned.Length > 0)
+                {
+                    return new CandidateFilterResult(
+                        generatedOwned,
+                        ExcludedByPropertyCapability: hasPropertyCompatibleCandidate &&
+                            propertyCompatible.Length < domainCompatible.Length);
+                }
+            }
+
             // Source-generation eligibility is authoritative only when at least one survivor
             // proves compatible. Candidates without generation metadata (or all incompatible)
             // remain fail-closed to the prior set rather than inventing Unsupported.
@@ -4416,6 +4894,14 @@ public sealed partial class PoBUniqueCatalogImporter
             bool hasGeneratedOptionEvidence)
         {
             var domain = candidate.Domain?.Trim();
+            if (hasGeneratedOptionEvidence &&
+                IsGeneratedOptionOwnedDomain(domain))
+            {
+                // PoB Generated.lua veiled / charm option lines are not base-domain spawn rows;
+                // ownership is the GeneratedCandidate option axis, not item-domain affinity.
+                return true;
+            }
+
             if (string.Equals(domain, "item", StringComparison.OrdinalIgnoreCase))
             {
                 // Generated Unique option pools already allow item-domain effects on any base.
@@ -4432,6 +4918,14 @@ public sealed partial class PoBUniqueCatalogImporter
                 {
                     return true;
                 }
+            }
+
+            // Fixed / non-generated Unique blocks must not Exact-claim unveiled/charm catalog rows
+            // that happen to share display text with Unique-generation competitors.
+            if (!hasGeneratedOptionEvidence &&
+                IsGeneratedOptionOwnedDomain(domain))
+            {
+                return false;
             }
 
             if (!baseDomains.TryGetValue(baseType.Trim(), out var domains))
