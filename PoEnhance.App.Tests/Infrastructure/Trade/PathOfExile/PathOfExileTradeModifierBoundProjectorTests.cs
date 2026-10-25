@@ -459,6 +459,38 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
         Assert.Equal("FixedPresenceIdentity", result.ProjectionKind);
     }
 
+    [Fact]
+    public void ProjectBounds_FlaskAdditionalCurseDuringEffect_ProjectsPresenceOntoDuringEffectTemplateOnly()
+    {
+        var component = new ResolvedSearchComponent
+        {
+            ComponentId = "modifier:0:0",
+            CanonicalSignature = "You can apply an additional Curse during Effect",
+            ProviderCanonicalSignature = "You can apply an additional Curse during Effect",
+            ValueBoundShape = ModifierBoundShape.PresenceOnly,
+            SupportsValueBounds = false,
+            ProviderFallbackNumericValues = [1m],
+        };
+
+        var projected = PathOfExileTradeModifierBoundProjector.ProjectedLookupTemplates(component);
+        Assert.Contains("You can apply # additional Curses during Effect", projected);
+        Assert.DoesNotContain("You can apply # additional Curses", projected);
+
+        var duringEffect = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            component,
+            Candidate("You can apply # additional Curses during Effect"));
+        Assert.True(duringEffect.IsFaithful);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, duringEffect.ValueBoundShape);
+        Assert.Null(duringEffect.Minimum);
+        Assert.Null(duringEffect.Maximum);
+        Assert.Equal("FixedPresenceIdentity", duringEffect.ProjectionKind);
+
+        Assert.False(
+            PathOfExileTradeModifierBoundProjector.CanProjectSemanticBridge(
+                component,
+                Candidate("You can apply # additional Curses")));
+    }
+
     private static ResolvedSearchComponent DamageRangeComponent(IReadOnlyList<decimal> values)
     {
         return new ResolvedSearchComponent

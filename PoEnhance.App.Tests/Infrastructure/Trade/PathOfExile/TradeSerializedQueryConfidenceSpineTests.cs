@@ -690,6 +690,64 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void Cinderswallow_SyntheticCatarinaPrefix_AdditionalCurseDuringEffect_SerializesOfficialPresenceOnly()
+    {
+        // Synthetic AID-shaped clipboard (not genuine Ctrl+C). Official frozen catalog
+        // explicit.stat_3897433431 = "You can apply # additional Curses during Effect".
+        // Must not serialize bare explicit.stat_30642521 ("# additional Curses").
+        var raw = """
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Cinderswallow Urn
+            Silver Flask
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            +(15-20) to Maximum Charges
+            { Unique Modifier }
+            Recharges 5 Charges when you Consume an Ignited corpse
+            { Unique Modifier }
+            Enemies Ignited by you during Effect take 8(7-10)% increased Damage
+            { Unique Modifier }
+            Recover 2(1-3)% of Energy Shield when you Kill an Enemy during Effect
+            { Prefix Modifier "Catarina's" (Tier: 1) }
+            You can apply an additional Curse during Effect
+            --------
+            """;
+        var runtime = Resolve(raw);
+        Assert.Equal("Cinderswallow Urn", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var curse = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "additional Curse during Effect",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, curse.UniqueSourceSemantics);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, curse.ValueBoundShape);
+        Assert.False(curse.SupportsValueBounds);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, curse.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_3897433431", curse.ProviderStatId);
+        Assert.DoesNotContain(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.ProviderStatId == "explicit.stat_30642521");
+
+        var uncheckedJson = Serialize(runtime, selectedComponent: null);
+        AssertNoActiveOptionalStatFilters(
+            JsonDocument.Parse(uncheckedJson).RootElement.GetProperty("query"));
+
+        var json = Serialize(runtime, curse);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_3897433431", filter.GetProperty("id").GetString());
+        Assert.False(filter.TryGetProperty("value", out _));
+        Assert.DoesNotContain("explicit.stat_30642521", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReplicaParadoxica_GenuineCapture_ThreeSuspectGeneratedOptions_ExactTradeJson()
     {
         // Same genuine Ctrl+D capture as PhysBlind. U.2.4H recovered multi-line phys+blind;
@@ -1315,6 +1373,8 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(7, "Replica Atziri's Acuity", "Vaal Gauntlets", "armour"),
             UniqueItem(8, "Replica Paradoxica", "Vaal Rapier", "weapon"),
             UniqueItem(9, "Precursor's Emblem", "Sapphire Ring", "accessory"),
+            UniqueItem(10, "Cinderswallow Urn", "Silver Flask", "flask"),
+            UniqueItem(11, "Cospri's Will", "Assassin's Garb", "armour"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(

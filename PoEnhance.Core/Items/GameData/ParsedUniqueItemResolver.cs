@@ -155,9 +155,11 @@ public sealed partial class ParsedUniqueItemResolver
             }
 
             // Unknown AID kinds recover any Exact Unique catalog block. Recognized Prefix/Suffix
-            // rows on Unique items (e.g. AID "Chosen" / "of the Order" unveiled options) recover
-            // only when identity-bound proof is a GeneratedCandidate Exact block — never Fixed —
-            // so ordinary crafted/prefix competition cannot steal Unique Fixed mechanics.
+            // rows on Unique items (e.g. AID "Chosen" / "of the Order" / Catarina unveil options)
+            // recover only when identity-bound proof is a GeneratedCandidate Exact block, or a
+            // Fixed Exact block that carries option-axis membership (Betrayal flask unveil options
+            // packaged as Fixed+OptionAxis). Bare Fixed Unique Exact stays ineligible so ordinary
+            // crafted/prefix competition cannot steal Unique Fixed mechanics.
             var unknownKindRecovery = IsEligibleForIdentityBoundRecovery(parsedModifier, isFoulborn);
             var generatedOptionRecovery = !unknownKindRecovery &&
                 IsEligibleForGeneratedOptionIdentityBoundRecovery(parsedModifier, isFoulborn);
@@ -184,7 +186,7 @@ public sealed partial class ParsedUniqueItemResolver
             }
 
             if (generatedOptionRecovery &&
-                recovered.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate)
+                !IsEligibleGeneratedOptionRecoveryCatalogSemantics(recovered))
             {
                 continue;
             }
@@ -303,11 +305,13 @@ public sealed partial class ParsedUniqueItemResolver
     }
 
     /// <summary>
-    /// AID presents PoB Generated Unique option lines (veiledMods / ModJewelCharm) as ordinary
-    /// Prefix/Suffix metadata ("Chosen", "of the Order", …). Those rows are not
+    /// AID presents PoB Generated Unique option lines (veiledMods / ModJewelCharm) and Fixed
+    /// Unique option-axis unveil lines (Betrayal flask choices) as ordinary Prefix/Suffix
+    /// metadata ("Chosen", "of the Order", Catarina's, …). Those rows are not
     /// <see cref="ParsedModifierKind.Unique"/> and are excluded from unknown-kind recovery, but on
-    /// an Exact Unique identity they may still Exact-match a packaged GeneratedCandidate block.
-    /// Crafted / fractured / veiled-placeholder rows stay ineligible.
+    /// an Exact Unique identity they may still Exact-match a packaged GeneratedCandidate block or
+    /// a Fixed Exact block with option-axis membership. Crafted / fractured / veiled-placeholder
+    /// rows stay ineligible.
     /// </summary>
     private static bool IsEligibleForGeneratedOptionIdentityBoundRecovery(
         ParsedModifier parsedModifier,
@@ -322,6 +326,22 @@ public sealed partial class ParsedUniqueItemResolver
             !parsedModifier.IsVeiled &&
             !parsedModifier.IsUnrevealedVeiledPlaceholder &&
             parsedModifier.ValueLines.Count > 0;
+    }
+
+    /// <summary>
+    /// Catalog semantics allowed for AID Prefix/Suffix identity-bound recovery. Bare Fixed Exact
+    /// without option-axis membership remains excluded (see FixedUniquePrefixText negative test).
+    /// </summary>
+    private static bool IsEligibleGeneratedOptionRecoveryCatalogSemantics(
+        UniqueModifierBlockResolution recovered)
+    {
+        if (recovered.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate)
+        {
+            return true;
+        }
+
+        return recovered.SourceSemantics == UniqueModifierSourceSemantics.Fixed &&
+            recovered.OptionChoiceMemberships.Count > 0;
     }
 
     private static UniqueModifierBlockResolution ResolveOrdinaryBlock(

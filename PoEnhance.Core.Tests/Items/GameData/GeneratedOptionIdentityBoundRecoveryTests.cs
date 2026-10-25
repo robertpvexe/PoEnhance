@@ -270,7 +270,8 @@ public sealed class GeneratedOptionIdentityBoundRecoveryTests
     [Fact]
     public void FixedUniquePrefixText_DoesNotRecoverAsGeneratedOption()
     {
-        // Crafted/prefix-shaped AID must not claim Fixed Unique catalog Exact via GeneratedOption path.
+        // Crafted/prefix-shaped AID must not claim Fixed Unique catalog Exact via GeneratedOption path
+        // (bare Fixed without option-axis membership stays ineligible).
         var clipboard = """
             Item Class: Gloves
             Rarity: Unique
@@ -289,8 +290,118 @@ public sealed class GeneratedOptionIdentityBoundRecoveryTests
         Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
         Assert.DoesNotContain(
             unique.ModifierBlocks,
+            block => block.IsIdentityBoundRecovery);
+    }
+
+    [Fact]
+    public void Cinderswallow_SyntheticCatarinaPrefix_AdditionalCurseDuringEffect_RecoversFixedOptionAxisExact()
+    {
+        // Synthetic AID-shaped Prefix (not a genuine Ctrl+C capture). U.2.5G.1: Betrayal flask
+        // unveil options are packaged Fixed+OptionAxis Exact; AID presents them as Prefix
+        // "Catarina's". Recovery must keep Fixed provenance + option-axis membership and feed
+        // the flask-local during-Effect curse stat into Trade draft (not bare additional Curse).
+        var clipboard = """
+            Item Class: Utility Flasks
+            Rarity: Unique
+            Cinderswallow Urn
+            Silver Flask
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            +(15-20) to Maximum Charges
+            { Unique Modifier }
+            Recharges 5 Charges when you Consume an Ignited corpse
+            { Unique Modifier }
+            Enemies Ignited by you during Effect take 8(7-10)% increased Damage
+            { Unique Modifier }
+            Recover 2(1-3)% of Energy Shield when you Kill an Enemy during Effect
+            { Prefix Modifier "Catarina's" (Tier: 1) }
+            You can apply an additional Curse during Effect
+            --------
+            """;
+        var parsed = new ItemTextParser().Parse(clipboard);
+        var baseResolution = new ParsedItemBaseResolver().Resolve(parsed, Catalog.Value);
+        var unique = new ParsedUniqueItemResolver().Resolve(parsed, Catalog.Value, baseResolution);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+
+        var recovered = Assert.Single(
+            unique.ModifierBlocks,
             block => block.IsIdentityBoundRecovery &&
-                block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate);
+                block.IsResolved &&
+                block.ModifierIds.Contains("JunMasterVeiledLocalFlaskAdditionalCurseOnEnemies"));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, recovered.SourceSemantics);
+        Assert.NotEmpty(recovered.OptionChoiceMemberships);
+        Assert.Equal(
+            ["local_flask_number_of_additional_curses_allowed_during_effect"],
+            recovered.StatIds.ToArray());
+        Assert.Contains(
+            recovered.CanonicalSignatures,
+            signature => signature.Contains(
+                "additional Curse during Effect",
+                StringComparison.OrdinalIgnoreCase));
+
+        var resolutions = new ParsedItemModifierCandidateResolver()
+            .Resolve(parsed, Catalog.Value, baseResolution);
+        var draft = new TradeSearchDraftMapper().CreateDraft(
+            parsed,
+            baseResolution,
+            resolutions,
+            Catalog.Value);
+        Assert.True(draft.IsSuccess);
+
+        var curse = Assert.Single(
+            draft.Draft!.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "additional Curse during Effect",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, curse.UniqueSourceSemantics);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, curse.ValueBoundShape);
+        Assert.False(curse.SupportsValueBounds);
+        Assert.Equal([1m], curse.ProviderFallbackNumericValues);
+        Assert.Equal(
+            "JunMasterVeiledLocalFlaskAdditionalCurseOnEnemies",
+            curse.ResolvedModifierId);
+        Assert.Equal(
+            ["local_flask_number_of_additional_curses_allowed_during_effect"],
+            curse.ResolvedStatIds.ToArray());
+        Assert.Contains(
+            curse.ProviderSearchSignatures,
+            signature => signature.Contains("during Effect", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            draft.Draft.ModifierFilters,
+            component =>
+                component.OriginalText.Contains("additional Curse", StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("during Effect", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CosprisWill_SyntheticPrefix_UnconditionalAdditionalCurse_DoesNotRecoverBareFixed()
+    {
+        // Negative: ordinary unconditional additional Curse Fixed (no option-axis) must not recover
+        // through the AID Prefix Fixed+OptionAxis gate, and must not claim flask during-Effect.
+        var clipboard = """
+            Item Class: Body Armours
+            Rarity: Unique
+            Cospri's Will
+            Assassin's Garb
+            --------
+            Item Level: 85
+            --------
+            { Prefix Modifier "Catarina's" (Tier: 1) }
+            You can apply an additional Curse
+            --------
+            """;
+        var parsed = new ItemTextParser().Parse(clipboard);
+        var baseResolution = new ParsedItemBaseResolver().Resolve(parsed, Catalog.Value);
+        var unique = new ParsedUniqueItemResolver().Resolve(parsed, Catalog.Value, baseResolution);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+        Assert.DoesNotContain(
+            unique.ModifierBlocks,
+            block => block.IsIdentityBoundRecovery &&
+                block.IsResolved &&
+                (block.SourceSemantics == UniqueModifierSourceSemantics.Fixed ||
+                    block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate));
     }
 
     private static GameDataCatalog LoadCatalog()
