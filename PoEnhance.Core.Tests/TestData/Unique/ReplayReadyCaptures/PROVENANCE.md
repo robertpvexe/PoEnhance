@@ -15,3 +15,6 @@
 
 ## PROPERTIES.2.2
 - Lifesprig.clipboard.txt — A.5.36 Unique-NoModId-Capture 20260924-093804-947 (Current Unique; Phys/Total DPS Q20 Unavailable: wand base has no sourced Physical Damage range)
+
+## U.2.4H
+- Replica-Paradoxica-Chosen-PhysBlind.clipboard.txt — user-provided genuine Ctrl+C paste (one occurrence; pasted twice by user, stored once). Advanced Item Description with Chosen Prefix phys+blind composite option and working Chaos Duration sibling. Not a TEMP JSON machine capture. Blind reminder parenthetical retained under the Blind effect.

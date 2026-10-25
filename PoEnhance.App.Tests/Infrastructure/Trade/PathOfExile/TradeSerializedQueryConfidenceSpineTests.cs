@@ -478,6 +478,423 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
         Assert.False(value.TryGetProperty("min", out _));
     }
 
+    [Fact]
+    public void Oskarm_SyntheticChaosResistance_SelectedSerializesOfficialPlusAxisMinOnly()
+    {
+        // SYNTHETIC fixture (not a committed genuine capture): production-shaped Oskarm line for
+        // ChaosResistUnique__8 [-20,-10] with observed -16. Live screenshot motivated the case;
+        // clipboard text below is constructed for offline serialization coverage only.
+        var runtime = Resolve(OskarmSyntheticClipboard);
+        Assert.Equal("Oskarm", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var chaos = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Chaos Resistance",
+                StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("maximum", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, chaos.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_2923486259", chaos.ProviderStatId);
+        Assert.Contains(
+            "+#% to Chaos Resistance",
+            chaos.ProviderStatText ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal([-16m], chaos.ObservedNumericValues);
+        Assert.Equal([-16m], chaos.CanonicalNumericValues);
+        Assert.Equal(ModifierBoundDirection.Minimum, chaos.DefaultBoundDirection);
+        Assert.Equal(-16m, chaos.RequestedMinimum);
+        Assert.Null(chaos.RequestedMaximum);
+
+        var uncheckedJson = Serialize(runtime, selectedComponent: null);
+        AssertNoActiveOptionalStatFilters(JsonDocument.Parse(uncheckedJson).RootElement.GetProperty("query"));
+
+        var json = Serialize(runtime, chaos);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_2923486259", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-16m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+        Assert.False(value.TryGetProperty("option", out _));
+    }
+
+    [Fact]
+    public void Oskarm_SyntheticChaosResistance_UserEditedMinPreservedInSerializedJson()
+    {
+        var runtime = Resolve(OskarmSyntheticClipboard);
+        var chaos = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Chaos Resistance",
+                StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("maximum", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(-16m, chaos.RequestedMinimum);
+
+        var edited = chaos with
+        {
+            RequestedMinimum = -10m,
+            RequestedMaximum = null,
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+        };
+        Assert.Equal([-16m], edited.ObservedNumericValues);
+        Assert.Equal(-10m, edited.RequestedMinimum);
+
+        var json = Serialize(runtime, edited);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_2923486259", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-10m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+    }
+
+    [Fact]
+    public void RecklessDefence_SyntheticHitsCritAgainstYou_RemainsDeferredMinimumDefault()
+    {
+        // POST-MVP handoff note (do not "fix" here): Hits have #% increased Critical Strike
+        // Chance against you is defensively lower-is-better, but current defaults stay Minimum.
+        // SYNTHETIC fixture — not a genuine capture.
+        const string raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Reckless Defence
+            Cobalt Jewel
+            --------
+            Item Level: 72
+            --------
+            { Unique Modifier }
+            +(4-6)% Chance to Block Attack Damage
+            { Unique Modifier }
+            +(4-6)% Chance to Block Spell Damage
+            { Unique Modifier }
+            Hits have 170(140-200)% increased Critical Strike Chance against you
+            --------
+            """;
+        var runtime = Resolve(raw);
+        var hitsCrit = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Critical Strike Chance against you",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ModifierBoundDirection.Minimum, hitsCrit.DefaultBoundDirection);
+        Assert.Equal(170m, hitsCrit.RequestedMinimum);
+        Assert.Null(hitsCrit.RequestedMaximum);
+    }
+
+    [Fact]
+    public void ReplicaParadoxica_GenuineChosenPhysBlind_IndependentNumericBoundsAndSelectedJson()
+    {
+        // Genuine user Ctrl+C paste (U.2.4H). Stored once under ReplayReadyCaptures; not a TEMP JSON
+        // machine capture. Chosen Prefix phys+blind is one GeneratedCandidate Exact composition;
+        // Trade keeps two independent numeric filters (fixture official-stats-2026-08-19.json).
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Replica-Paradoxica-Chosen-PhysBlind.clipboard.txt");
+        Assert.Contains("Replica Paradoxica", raw, StringComparison.Ordinal);
+
+        var runtime = Resolve(raw);
+        Assert.Equal("Replica Paradoxica", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+        Assert.All(runtime.ProviderDraft.ModifierFilters, filter => Assert.False(filter.IsSelected));
+
+        var phys = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Physical Damage",
+                StringComparison.OrdinalIgnoreCase));
+        var blind = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "chance to Blind Enemies on hit",
+                StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("Being Blinded", StringComparison.OrdinalIgnoreCase));
+        var chaos = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Chaos Damage",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, phys.UniqueSourceSemantics);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, blind.UniqueSourceSemantics);
+        Assert.Equal(
+            "JunMasterVeiledLocalIncreasedPhysicalDamageAndBlindChanceCrafted_",
+            phys.ResolvedModifierId);
+        Assert.Equal(phys.ResolvedModifierId, blind.ResolvedModifierId);
+        Assert.Equal([134m], phys.ObservedNumericValues);
+        Assert.Equal([23m], blind.ObservedNumericValues);
+        Assert.True(phys.SupportsValueBounds);
+        Assert.True(blind.SupportsValueBounds);
+        Assert.Equal(ModifierBoundDirection.Minimum, phys.DefaultBoundDirection);
+        Assert.Equal(ModifierBoundDirection.Minimum, blind.DefaultBoundDirection);
+        Assert.Equal(134m, phys.RequestedMinimum);
+        Assert.Null(phys.RequestedMaximum);
+        Assert.Equal(23m, blind.RequestedMinimum);
+        Assert.Null(blind.RequestedMaximum);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, phys.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, blind.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_1509134228", phys.ProviderStatId);
+        Assert.Equal("explicit.stat_2301191210", blind.ProviderStatId);
+        Assert.NotEqual(phys.ProviderStatId, blind.ProviderStatId);
+
+        // Nearby working generated option (chaos duration composite) stays numeric.
+        Assert.Equal([60m], chaos.ObservedNumericValues);
+        Assert.True(chaos.SupportsValueBounds);
+        Assert.Equal(60m, chaos.RequestedMinimum);
+
+        var uncheckedJson = Serialize(runtime, selectedComponent: null);
+        AssertNoActiveOptionalStatFilters(JsonDocument.Parse(uncheckedJson).RootElement.GetProperty("query"));
+
+        var physJson = Serialize(runtime, phys);
+        using (var document = JsonDocument.Parse(physJson))
+        {
+            var filter = Assert.Single(
+                document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                    .GetProperty("filters")
+                    .EnumerateArray());
+            Assert.Equal("explicit.stat_1509134228", filter.GetProperty("id").GetString());
+            var value = filter.GetProperty("value");
+            Assert.Equal(134m, value.GetProperty("min").GetDecimal());
+            Assert.False(value.TryGetProperty("max", out _));
+            Assert.False(value.TryGetProperty("option", out _));
+        }
+
+        var blindJson = Serialize(runtime, blind);
+        using (var document = JsonDocument.Parse(blindJson))
+        {
+            var filter = Assert.Single(
+                document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                    .GetProperty("filters")
+                    .EnumerateArray());
+            Assert.Equal("explicit.stat_2301191210", filter.GetProperty("id").GetString());
+            var value = filter.GetProperty("value");
+            Assert.Equal(23m, value.GetProperty("min").GetDecimal());
+            Assert.False(value.TryGetProperty("max", out _));
+        }
+
+        var editedPhys = phys with { RequestedMinimum = 130m };
+        Assert.Equal([134m], editedPhys.ObservedNumericValues);
+        var editedJson = Serialize(runtime, editedPhys);
+        using (var document = JsonDocument.Parse(editedJson))
+        {
+            var value = Assert.Single(
+                    document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                        .GetProperty("filters")
+                        .EnumerateArray())
+                .GetProperty("value");
+            Assert.Equal(130m, value.GetProperty("min").GetDecimal());
+        }
+    }
+
+    [Fact]
+    public void ReplicaParadoxica_GenuineCapture_ThreeSuspectGeneratedOptions_ExactTradeJson()
+    {
+        // Same genuine Ctrl+D capture as PhysBlind. U.2.4H recovered multi-line phys+blind;
+        // single-line GeneratedCandidate siblings (Chaos Penetrate / Crit Multi Nearby / Double
+        // Damage) must keep Unique-resolved StatIds when AID Exact also matches — otherwise
+        // provider mapping fails closed as Unsupported despite Exact GameData recovery.
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Replica-Paradoxica-Chosen-PhysBlind.clipboard.txt");
+        var runtime = Resolve(raw);
+
+        var penetrate = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Penetrate",
+                StringComparison.OrdinalIgnoreCase) &&
+                component.OriginalText.Contains("Chaos Resistance", StringComparison.OrdinalIgnoreCase));
+        var critNearby = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Critical Strike Multiplier while a Rare or Unique Enemy is Nearby",
+                StringComparison.OrdinalIgnoreCase));
+        var doubleDamage = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "chance to deal Double Damage",
+                StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("Focused", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(
+            "JunMasterVeiledChaosPenetrationWithAttacks__",
+            penetrate.ResolvedModifierId);
+        Assert.Equal(
+            "JunMasterVeiledCriticalStrikeMultiplierIfRareOrUniqueEnemyNearby1h",
+            critNearby.ResolvedModifierId);
+        Assert.Equal("JunMasterVeiledDoubleDamageChance1h", doubleDamage.ResolvedModifierId);
+        Assert.Equal(["local_chaos_penetration_%"], penetrate.ResolvedStatIds.ToArray());
+        Assert.Equal(
+            ["critical_strike_multiplier_+_if_rare_or_unique_enemy_nearby"],
+            critNearby.ResolvedStatIds.ToArray());
+        Assert.Equal(["chance_to_deal_double_damage_%"], doubleDamage.ResolvedStatIds.ToArray());
+        Assert.Equal([14m], penetrate.ObservedNumericValues);
+        Assert.Equal([40m], critNearby.ObservedNumericValues);
+        Assert.Equal([6m], doubleDamage.ObservedNumericValues);
+        Assert.True(penetrate.SupportsValueBounds);
+        Assert.True(critNearby.SupportsValueBounds);
+        Assert.True(doubleDamage.SupportsValueBounds);
+        Assert.Equal(14m, penetrate.RequestedMinimum);
+        Assert.Equal(40m, critNearby.RequestedMinimum);
+        Assert.Equal(6m, doubleDamage.RequestedMinimum);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, penetrate.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, critNearby.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, doubleDamage.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_3762412853", penetrate.ProviderStatId);
+        Assert.Equal("explicit.stat_3992439283", critNearby.ProviderStatId);
+        Assert.Equal("explicit.stat_1172810729", doubleDamage.ProviderStatId);
+
+        // Phys+blind siblings from the same capture remain Exact with independent Trade filters.
+        var phys = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Physical Damage",
+                StringComparison.OrdinalIgnoreCase));
+        var blind = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "chance to Blind Enemies on hit",
+                StringComparison.OrdinalIgnoreCase) &&
+                !component.OriginalText.Contains("Being Blinded", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, phys.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, blind.ProviderResolutionStatus);
+        Assert.Equal(134m, phys.RequestedMinimum);
+        Assert.Equal(23m, blind.RequestedMinimum);
+        Assert.Equal("explicit.stat_1509134228", phys.ProviderStatId);
+        Assert.Equal("explicit.stat_2301191210", blind.ProviderStatId);
+
+        AssertNoActiveOptionalStatFilters(
+            JsonDocument.Parse(Serialize(runtime, selectedComponent: null)).RootElement.GetProperty("query"));
+
+        AssertSelectedScalarMinJson(runtime, penetrate, "explicit.stat_3762412853", 14m);
+        AssertSelectedScalarMinJson(runtime, critNearby, "explicit.stat_3992439283", 40m);
+        AssertSelectedScalarMinJson(runtime, doubleDamage, "explicit.stat_1172810729", 6m);
+    }
+
+    private static void AssertSelectedScalarMinJson(
+        RuntimeResult runtime,
+        ResolvedSearchComponent component,
+        string expectedStatId,
+        decimal expectedMin)
+    {
+        using var document = JsonDocument.Parse(Serialize(runtime, component));
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal(expectedStatId, filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(expectedMin, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+        Assert.False(value.TryGetProperty("option", out _));
+    }
+
+    [Fact]
+    public void ReplicaAtzirisAcuity_SyntheticCurrentGlobalCrit_53of40_60_SelectedSerializesOfficialMinOnly()
+    {
+        // SYNTHETIC fixture (not a committed genuine capture): mirrors the user's observed current
+        // Replica Atziri's Acuity Crit roll 53(40-60). Official Trade filter explicit.stat_587431675.
+        // Request a real Ctrl+D capture for manual verification — do not treat this as genuine.
+        var runtime = Resolve(ReplicaAtzirisAcuitySyntheticCurrentClipboard);
+        Assert.Equal("Replica Atziri's Acuity", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var crit = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Global Critical Strike Chance",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, crit.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_587431675", crit.ProviderStatId);
+        Assert.Equal([53m], crit.ObservedNumericValues);
+        Assert.Equal(ModifierBoundDirection.Minimum, crit.DefaultBoundDirection);
+        Assert.Equal(53m, crit.RequestedMinimum);
+        Assert.Null(crit.RequestedMaximum);
+        Assert.False(crit.IsSelected);
+
+        var uncheckedJson = Serialize(runtime, selectedComponent: null);
+        AssertNoActiveOptionalStatFilters(JsonDocument.Parse(uncheckedJson).RootElement.GetProperty("query"));
+
+        var json = Serialize(runtime, crit);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0].GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_587431675", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(53m, value.GetProperty("min").GetDecimal());
+        Assert.False(value.TryGetProperty("max", out _));
+        Assert.False(value.TryGetProperty("option", out _));
+    }
+
+    // SYNTHETIC current Replica Atziri's Acuity clipboard — 53(40-60) after 3.16 RePoE base reconcile;
+    // not ReplayReady / not a genuine capture. Please supply a real capture for manual verification.
+    private const string ReplicaAtzirisAcuitySyntheticCurrentClipboard = """
+        Item Class: Gloves
+        Rarity: Unique
+        Replica Atziri's Acuity
+        Vaal Gauntlets
+        --------
+        Quality: +20%
+        Armour: 626
+        --------
+        Requirements:
+        Level: 63
+        Str: 100
+        --------
+        Sockets: R-R-R-R
+        --------
+        Item Level: 84
+        --------
+        { Unique Modifier }
+        +(68-80) to Intelligence
+        { Unique Modifier }
+        53(40-60)% increased Global Critical Strike Chance
+        { Unique Modifier }
+        (210-220)% increased Armour
+        { Unique Modifier }
+        +(70-75) to maximum Life
+        { Unique Modifier }
+        You have Perfect Agony if you've dealt a Critical Strike recently
+        --------
+        """;
+
+    // SYNTHETIC Oskarm clipboard — constructed for bound/serialization regression; not ReplayReady.
+    private const string OskarmSyntheticClipboard = """
+        Item Class: Gloves
+        Rarity: Unique
+        Oskarm
+        Nubuck Gloves
+        --------
+        Evasion Rating: 109
+        --------
+        Requirements:
+        Level: 52
+        Dex: 50
+        --------
+        Sockets: G-G-G-G
+        --------
+        Item Level: 75
+        --------
+        { Unique Modifier }
+        Trigger Level 10 Assassin's Mark when you Hit a Rare or Unique Enemy and have no Mark
+        { Unique Modifier }
+        +(11-12)% chance to Suppress Spell Damage
+        { Unique Modifier }
+        35(30-40)% increased Global Accuracy Rating
+        { Unique Modifier }
+        +45(40-50) to maximum Life
+        { Unique Modifier }
+        -16(-20--10)% to Chaos Resistance
+        { Unique Modifier }
+        2% increased Attack Critical Strike Chance per 200 Accuracy Rating
+        --------
+        """;
+
     private static IReadOnlyList<string> ResolvedProviderStatIds(ResolvedSearchComponent component)
     {
         var ids = component.ProviderStatAlternativeIds
@@ -626,6 +1043,10 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(2, "Echoforge", "Infernal Sword", "weapon"),
             UniqueItem(3, "Ventor's Gamble", "Gold Ring", "accessory"),
             UniqueItem(4, "Progenesis", "Amethyst Flask", "flask"),
+            UniqueItem(5, "Oskarm", "Nubuck Gloves", "armour"),
+            UniqueItem(6, "Reckless Defence", "Cobalt Jewel", "jewel"),
+            UniqueItem(7, "Replica Atziri's Acuity", "Vaal Gauntlets", "armour"),
+            UniqueItem(8, "Replica Paradoxica", "Vaal Rapier", "weapon"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(

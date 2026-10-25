@@ -154,7 +154,14 @@ public sealed partial class ParsedUniqueItemResolver
                 continue;
             }
 
-            if (!IsEligibleForIdentityBoundRecovery(parsedModifier, isFoulborn))
+            // Unknown AID kinds recover any Exact Unique catalog block. Recognized Prefix/Suffix
+            // rows on Unique items (e.g. AID "Chosen" / "of the Order" unveiled options) recover
+            // only when identity-bound proof is a GeneratedCandidate Exact block — never Fixed —
+            // so ordinary crafted/prefix competition cannot steal Unique Fixed mechanics.
+            var unknownKindRecovery = IsEligibleForIdentityBoundRecovery(parsedModifier, isFoulborn);
+            var generatedOptionRecovery = !unknownKindRecovery &&
+                IsEligibleForGeneratedOptionIdentityBoundRecovery(parsedModifier, isFoulborn);
+            if (!unknownKindRecovery && !generatedOptionRecovery)
             {
                 continue;
             }
@@ -171,10 +178,18 @@ public sealed partial class ParsedUniqueItemResolver
                 catalog,
                 isIdentityBoundRecovery: true,
                 allowExactHybridRowFallback);
-            if (recovered.IsResolved)
+            if (!recovered.IsResolved)
             {
-                results.Add(recovered);
+                continue;
             }
+
+            if (generatedOptionRecovery &&
+                recovered.SourceSemantics != UniqueModifierSourceSemantics.GeneratedCandidate)
+            {
+                continue;
+            }
+
+            results.Add(recovered);
         }
 
         return results;
@@ -284,6 +299,28 @@ public sealed partial class ParsedUniqueItemResolver
             !parsedModifier.IsCrafted &&
             !parsedModifier.IsFractured &&
             !parsedModifier.IsVeiled &&
+            parsedModifier.ValueLines.Count > 0;
+    }
+
+    /// <summary>
+    /// AID presents PoB Generated Unique option lines (veiledMods / ModJewelCharm) as ordinary
+    /// Prefix/Suffix metadata ("Chosen", "of the Order", …). Those rows are not
+    /// <see cref="ParsedModifierKind.Unique"/> and are excluded from unknown-kind recovery, but on
+    /// an Exact Unique identity they may still Exact-match a packaged GeneratedCandidate block.
+    /// Crafted / fractured / veiled-placeholder rows stay ineligible.
+    /// </summary>
+    private static bool IsEligibleForGeneratedOptionIdentityBoundRecovery(
+        ParsedModifier parsedModifier,
+        bool isFoulborn)
+    {
+        return !isFoulborn &&
+            parsedModifier.Kind is ParsedModifierKind.Prefix or ParsedModifierKind.Suffix &&
+            parsedModifier.UniqueOrigin == ParsedUniqueModifierOrigin.Unspecified &&
+            parsedModifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Unspecified &&
+            !parsedModifier.IsCrafted &&
+            !parsedModifier.IsFractured &&
+            !parsedModifier.IsVeiled &&
+            !parsedModifier.IsUnrevealedVeiledPlaceholder &&
             parsedModifier.ValueLines.Count > 0;
     }
 

@@ -90,13 +90,47 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
-    public void ScalarBoundDefault_NormalNegativeValueUsesRestrictiveMaximum()
+    public void ScalarBoundDefault_NormalNegativeValueKeepsHandlerDerivedMinimum()
     {
+        // Order-preserving handlers + signed observed: higher-is-better on the canonical
+        // axis uses Minimum at the signed threshold (not a blind MAX flip).
         var result = BoundDefault("-15 Test Value", -15m, handlers: []);
 
         Assert.True(result.IsSupported);
         Assert.Equal(-15m, result.ObservedCanonicalValue);
-        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Theory]
+    [InlineData("-16% to Chaos Resistance", -16, -20, -10)]
+    [InlineData("+35% to Chaos Resistance", 35, 30, 40)]
+    [InlineData("-12% to Fire Resistance", -12, -15, -5)]
+    [InlineData("+42% to Fire Resistance", 42, 36, 48)]
+    public void ScalarBoundDefault_AdditiveSignedResistance_UsesMinimumOnCanonicalPlusAxis(
+        string sourceLine,
+        int observed,
+        int statMinimum,
+        int statMaximum)
+    {
+        // Authentic RePoE shape for base_*_damage_resistance_%: ValueFormat "+#", empty
+        // handlers, format "{0}% to … Resistance", Trade axis "+#% to … Resistance".
+        var result = AdditiveResistanceBoundDefault(
+            sourceLine,
+            observed,
+            statMinimum,
+            statMaximum);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(observed, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+        Assert.Contains(
+            "% to ",
+            result.ProviderCanonicalSignature ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith(
+            "+",
+            result.ProviderCanonicalSignature ?? string.Empty,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -212,13 +246,13 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Fact]
-    public void ScalarBoundDefault_NegativeOrderPreservingValueDefaultsToMaximum()
+    public void ScalarBoundDefault_NegativeOrderPreservingValueDefaultsToMinimum()
     {
         var result = BoundDefault("-215(-300--1) Test Value", -300m, maximum: -1m);
 
         Assert.True(result.IsSupported);
         Assert.Equal(-215m, result.ObservedCanonicalValue);
-        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
     }
 
     [Fact]
@@ -1353,6 +1387,78 @@ Item Level: 84
                 })
                 .ToArray(),
         };
+    }
+
+    private static ModifierBoundDefaultResult AdditiveResistanceBoundDefault(
+        string sourceLine,
+        decimal observed,
+        decimal statMinimum,
+        decimal statMaximum)
+    {
+        var resistanceKind = sourceLine.Contains("Chaos", StringComparison.OrdinalIgnoreCase)
+            ? "Chaos"
+            : "Fire";
+        var statId = resistanceKind == "Chaos"
+            ? "base_chaos_damage_resistance_%"
+            : "base_fire_damage_resistance_%";
+        var formatLine = $"{{0}}% to {resistanceKind} Resistance";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = statMinimum,
+            MaxValue = statMaximum,
+        };
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = [new StatDefinition { Id = statId }],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = $"test-{resistanceKind.ToLowerInvariant()}-resistance",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                            FormatLines = [formatLine],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        Assert.Equal(observed, ModifierBoundDefaults.ExtractObservedValues(sourceLine).Single());
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-resistance-modifier", Stats = [stat] },
+            [stat],
+            [sourceLine],
+            catalog);
     }
 
     private static ModifierBoundDefaultResult BipolarNegatedBoundDefault(

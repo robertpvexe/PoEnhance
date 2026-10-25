@@ -1,0 +1,46 @@
+Item Class: Thrusting One Hand Swords
+Rarity: Unique
+Replica Paradoxica
+Vaal Rapier
+--------
+One Handed Sword
+Physical Damage: 51-204 (augmented)
+Critical Strike Chance: 8.58% (augmented)
+Attacks per Second: 1.30
+Weapon Range: 1.4 metres
+--------
+Requirements:
+Level: 66
+Dex: 212 (unmet)
+--------
+Sockets: W-W-G 
+--------
+Item Level: 85
+--------
+{ Implicit Modifier — Damage, Critical }
++25% to Global Critical Strike Multiplier
+--------
+{ Prefix Modifier "Chosen" (Tier: 1) — Damage, Chaos, Attack }
+Attacks with this Weapon Penetrate 14(14-16)% Chaos Resistance
+--------
+{ Prefix Modifier "Chosen" (Tier: 1) — Damage, Physical, Attack }
+134(120-139)% increased Physical Damage
+23(21-25)% chance to Blind Enemies on hit
+(Being Blinded causes 20% less Accuracy Rating and Evasion Rating, for 4 seconds)
+--------
+{ Prefix Modifier "Chosen" (Tier: 1) — Damage, Chaos }
+60(60-69)% increased Chaos Damage
+Chaos Skills have 15(13-15)% increased Skill Effect Duration
+--------
+{ Suffix Modifier "of the Order" (Tier: 1) — Damage, Critical }
++40(36-40)% Critical Strike Multiplier while a Rare or Unique Enemy is Nearby
+--------
+{ Suffix Modifier "of the Order" (Tier: 1) — Attack, Critical, Attribute }
++27(25-28) to Strength and Intelligence
+32(28-32)% increased Critical Strike Chance
+--------
+{ Suffix Modifier "of the Order" (Tier: 1) — Damage }
+6(6-7)% chance to deal Double Damage
+--------
+"This is one riddle I can't solve." 
+- Researcher Graven

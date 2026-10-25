@@ -178,11 +178,10 @@ internal static partial class ModifierBoundDefaults
             }
 
             var observed = observedValues[0];
-            if (direction == ModifierBoundDirection.Minimum && observed < 0m)
-            {
-                direction = ModifierBoundDirection.Maximum;
-            }
-
+            // Do not flip Minimum→Maximum solely because the observed display value is
+            // negative. Additive signed axes (e.g. "+#% to Chaos Resistance" at -16) keep
+            // handler-derived Minimum so same-or-better is min=-16. Reversing handlers still
+            // select Maximum via TryGetDirection; bipolar straddle may then restore Minimum.
             var canonical = direction == ModifierBoundDirection.Maximum
                 ? -decimal.Abs(observed)
                 : observed;

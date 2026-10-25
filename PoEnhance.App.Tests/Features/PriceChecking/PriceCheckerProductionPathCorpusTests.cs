@@ -850,24 +850,33 @@ Item Level: 84
     [Fact]
     public void ShowOrUpdate_OnslaughtTwirlTransformedAffixesUseOriginalRangesForIdentityAndDisplayedValuesForBounds()
     {
+        // Mirrored Manifold Ring: AID shows transformed signed magnitudes (e.g. -215 life) while
+        // parenthetical rolls retain the pre-transform source ranges. Bounds follow translation
+        // handler polarity — NOT the removed blanket "observed < 0 ⇒ Maximum" flip (that flip
+        // wrongly forced Maximum on additive signed axes such as life/recoup and conflicted with
+        // Oskarm/Echoforge/Ventor's Minimum semantics).
+        // Life / Recoup: non-reversing "+#" axes → Minimum at the signed canonical threshold.
+        // Rarity: display "reduced" maps to official "increased Rarity" via negate. The sourced
+        // roll (-25..-28) does not straddle zero, so bipolar Minimum does not apply and handler
+        // polarity keeps Maximum (same class as non-straddle reversing charges-per-use).
         using var harness = ProductionPathHarness.Create();
 
         var snapshot = harness.OpenText(OnslaughtTwirlText);
 
         var life = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("maximum Life", StringComparison.Ordinal));
-        AssertTransformedScalar(life, -215m, 100m, 114m);
+        AssertTransformedScalarBound(life, -215m, 100m, 114m, ModifierBoundDirection.Minimum);
 
         var rarity = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Rarity of Items", StringComparison.Ordinal));
-        AssertTransformedScalar(rarity, -52m, -25m, -28m);
+        AssertTransformedScalarBound(rarity, -52m, -25m, -28m, ModifierBoundDirection.Maximum);
         Assert.Equal(
             "<number>% increased Rarity of Items found",
             rarity.ProviderCanonicalSignature);
 
         var recoup = Assert.Single(snapshot.Draft.ModifierFilters, component =>
             component.OriginalText.Contains("Recouped as Life", StringComparison.Ordinal));
-        AssertTransformedScalar(recoup, -29m, 13m, 15m);
+        AssertTransformedScalarBound(recoup, -29m, 13m, 15m, ModifierBoundDirection.Minimum);
 
         Assert.True(snapshot.AfterParse.IsMirrored);
         Assert.All([life, rarity, recoup], component =>
@@ -882,11 +891,12 @@ Item Level: 84
         });
     }
 
-    private static void AssertTransformedScalar(
+    private static void AssertTransformedScalarBound(
         ResolvedSearchComponent component,
         decimal providerValue,
         decimal sourceMinimum,
-        decimal sourceMaximum)
+        decimal sourceMaximum,
+        ModifierBoundDirection expectedDirection)
     {
         Assert.True(
             component.IsSearchable,
@@ -895,9 +905,18 @@ Item Level: 84
             $"Shape={component.ValueBoundShape}; Signature={component.ProviderCanonicalSignature}");
         Assert.True(component.SupportsValueBounds, component.ValueBoundsUnsupportedReason);
         Assert.Equal([providerValue], component.CanonicalNumericValues);
-        Assert.Equal(ModifierBoundDirection.Maximum, component.DefaultBoundDirection);
-        Assert.Null(component.RequestedMinimum);
-        Assert.Equal(providerValue, component.RequestedMaximum);
+        Assert.Equal(expectedDirection, component.DefaultBoundDirection);
+        if (expectedDirection == ModifierBoundDirection.Minimum)
+        {
+            Assert.Equal(providerValue, component.RequestedMinimum);
+            Assert.Null(component.RequestedMaximum);
+        }
+        else
+        {
+            Assert.Null(component.RequestedMinimum);
+            Assert.Equal(providerValue, component.RequestedMaximum);
+        }
+
         Assert.Equal(
             [new ModifierSourceRollRange(sourceMinimum, sourceMaximum)],
             component.OriginalSourceRollRanges);

@@ -35,8 +35,13 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         throw new MissingMethodException(nameof(PriceCheckerSearchController), "ModifierAvailabilityStatus");
 
     [Fact]
-    public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithEquivalentSourceProvenance()
+    public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithExactCorruptedProvenance()
     {
+        // Pinned package 3.29.3.3 retains a single eligible corrupted observation for
+        // base_minimum_frenzy_charges on amulet (V2MinFrenzyChargesCorrupted). A second RePoE
+        // row (V2MinPowerChargesCorrupted) shares the Frenzy stat id but is Disabled with zero
+        // spawn weights, so it is correctly excluded — not an EquivalentSourceSet. Multi-observation
+        // equivalence remains covered by ParsedItemModifierCandidateResolverTests synthetic fixtures.
         var runtime = Resolve(DragonfangText);
         var parsedModifier = Assert.Single(runtime.Parsed.Modifiers);
         var sourceResolution = Assert.Single(runtime.SourceResolutions);
@@ -45,17 +50,22 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
         Assert.Equal(ParsedImplicitModifierOrigin.Corrupted, parsedModifier.ImplicitOrigin);
         Assert.Equal(ModifierGenerationType.Corrupted, sourceResolution.GenerationType);
         Assert.Equal(ModifierCandidateResolutionStatus.Exact, sourceResolution.Status);
-        Assert.True(sourceResolution.IsEquivalentSourceSet);
-        Assert.Equal(2, sourceResolution.Candidates.Count);
-        Assert.Equal(2, component.Sources.Count);
-        Assert.Null(component.ResolvedModifierId);
-        Assert.All(component.Sources, source =>
-        {
-            Assert.False(string.IsNullOrWhiteSpace(source.ResolvedModifierId));
-            Assert.Equal(
-                SearchComponentProviderResolutionStatus.Exact,
-                source.ProviderResolutionStatus);
-        });
+        Assert.False(sourceResolution.IsEquivalentSourceSet);
+        var candidate = Assert.Single(sourceResolution.Candidates);
+        Assert.Equal("V2MinFrenzyChargesCorrupted", candidate.Id);
+        Assert.Equal(ModifierGenerationType.Corrupted, candidate.GenerationType);
+        Assert.Equal(
+            ["base_minimum_frenzy_charges"],
+            candidate.Stats.Select(stat => stat.StatId));
+        Assert.Equal("V2MinFrenzyChargesCorrupted", component.ResolvedModifierId);
+        Assert.False(component.IsEquivalentSourceSet);
+        // Aggregator synthesizes a single self-provenance row when the catalog Exact set is
+        // singleton (not an EquivalentSourceSet multi-row provenance list).
+        var source = Assert.Single(component.Sources);
+        Assert.Equal("V2MinFrenzyChargesCorrupted", source.ResolvedModifierId);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Exact,
+            source.ProviderResolutionStatus);
         Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
         Assert.Equal("implicit.stat_658456881", component.ProviderStatId);
         Assert.True(component.IsSearchable);

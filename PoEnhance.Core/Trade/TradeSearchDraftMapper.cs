@@ -1098,9 +1098,12 @@ public sealed partial class TradeSearchDraftMapper
             Status: ModifierCandidateResolutionStatus.Exact,
             AnointPassiveIdentity: not null,
         };
+        // Unique-resolved blocks (including GeneratedCandidate AID Prefix/Suffix recovery) own
+        // their StatIds. A parallel AID Exact candidate must not clear them when the Unique path
+        // intentionally passes empty line stats (single-line non-expanded blocks).
         var statIds = isExactAnoint
             ? resolution!.MechanicalStatIds.ToArray()
-            : exactCandidate is null && uniqueBlockResolution?.IsResolved == true
+            : uniqueBlockResolution?.IsResolved == true
             ? uniqueBlockResolution.StatIds.ToArray()
             : StatIds(stats).ToArray();
         var statLocalities = uniqueBlockResolution?.IsResolved == true
@@ -2527,19 +2530,22 @@ public sealed partial class TradeSearchDraftMapper
         }
 
         // Prefer source-proven Exact composition line↔stat association for Unique-catalog Implicit
-        // consumption. Ordinary Unique multi-line blocks keep the translation-gated association so
-        // conjunctive Unique compositions are not silently split.
+        // consumption and for GeneratedCandidate option blocks (AID Prefix/Suffix unveiled lines
+        // recovered onto multi-line Exact compositions). Ordinary Fixed Unique multi-line blocks keep
+        // the translation-gated association so conjunctive Unique compositions are not silently split.
         IReadOnlyList<IReadOnlyList<ModifierStat>> matchedLineStats = [];
         IReadOnlyList<string>? matchedCanonicalSignatures = null;
-        var matchedViaCatalogImplicitComposition =
-            uniqueBlockResolution.CatalogImplicitConsumptionReason is not null &&
+        var preferPackagedComposition =
+            uniqueBlockResolution.CatalogImplicitConsumptionReason is not null ||
+            uniqueBlockResolution.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate;
+        var matchedViaPackagedComposition = preferPackagedComposition &&
             TryMatchExactCompositionComponentsToBoundStats(
                 uniqueBlockResolution,
                 valueLines,
                 boundCandidate,
                 out matchedLineStats,
                 out matchedCanonicalSignatures);
-        if (!matchedViaCatalogImplicitComposition &&
+        if (!matchedViaPackagedComposition &&
             !TryMatchIndividualStatsToParsedLinesUnordered(
                 boundCandidate,
                 valueLines,
@@ -2549,7 +2555,7 @@ public sealed partial class TradeSearchDraftMapper
             return false;
         }
 
-        if (!matchedViaCatalogImplicitComposition)
+        if (!matchedViaPackagedComposition)
         {
             matchedCanonicalSignatures = null;
         }
