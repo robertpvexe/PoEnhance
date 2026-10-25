@@ -315,9 +315,55 @@ public sealed class PrecursorGeneratedSignatureRecoveryTests
     }
 
     [Fact]
-    public void Import_GeneratedEnduranceMaxWordingMismatch_StaysUnsupported()
+    public void NormalizeSignature_CollapsesYourMaximumNumberOf_ToMaximum()
     {
-        // PoB: "your maximum number of Endurance Charges"; RePoE/Trade: "maximum Endurance Charges".
+        Assert.Equal(
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "(15-45)% chance that if you would gain Endurance Charges, you instead gain up to maximum Endurance Charges"),
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "(15-45)% chance that if you would gain Endurance Charges, you instead gain up to your maximum number of Endurance Charges"));
+        Assert.Equal(
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "(15-45)% chance that if you would gain Frenzy Charges, you instead gain up to your maximum number of Frenzy Charges"),
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "(15-45)% chance that if you would gain Frenzy Charges, you instead gain up to maximum Frenzy Charges"));
+    }
+
+    [Fact]
+    public void StripOptionalAddedDamageQualifier_AliasesBarePoBAgainstAddedRender()
+    {
+        var withAdded = PoBUniqueCatalogImporter.NormalizeSignature(
+            "(6-24) to (12-39) Added Cold Damage per Frenzy Charge");
+        var bare = PoBUniqueCatalogImporter.NormalizeSignature(
+            "(6-24) to (12-39) Cold Damage per Frenzy Charge");
+        Assert.Equal(
+            bare,
+            PoBUniqueCatalogImporter.StripOptionalAddedDamageQualifierFromSignature(withAdded));
+        Assert.Equal(
+            bare,
+            PoBUniqueCatalogImporter.StripOptionalAddedDamageQualifierFromSignature(bare));
+    }
+
+    [Fact]
+    public void ExpandGainNumberToIndefiniteArticleAliases_CoversPoBArticleForm()
+    {
+        var numeric = PoBUniqueCatalogImporter.NormalizeSignature(
+            "Gain 1 Endurance Charge every second if you've been Hit Recently");
+        var aliases = PoBUniqueCatalogImporter.ExpandGainNumberToIndefiniteArticleAliases(numeric);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "Gain an Endurance Charge every second if you've been Hit Recently"),
+            aliases);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "Gain a Endurance Charge every second if you've been Hit Recently"),
+            aliases);
+    }
+
+    [Fact]
+    public void Import_GeneratedEnduranceMaxWording_MatchesRePoEShortForm()
+    {
+        // PoB long form vs RePoE/Trade short form — same ChargeBonus max-chance mechanic as Frenzy.
         var result = ImportGeneratedChargeOption(
             "(15-45)% chance that if you would gain Endurance Charges, you instead gain up to your maximum number of Endurance Charges",
             Modifier(
@@ -333,12 +379,17 @@ public sealed class PrecursorGeneratedSignatureRecoveryTests
 
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
-        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
-        Assert.Empty(block.MechanicalMapping.ModifierIds);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["ChargeBonusChanceToGainMaximumEnduranceCharges"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["gain_maximum_endurance_charges_on_endurance_charge_gained_%_chance"],
+            block.MechanicalMapping.StatIds);
     }
 
     [Fact]
-    public void Import_GeneratedHitRecentlyArticleVsNumeric_StaysUnsupported()
+    public void Import_GeneratedHitRecentlyArticleVsNumeric_MatchesFixedOneRePoE()
     {
         var result = ImportGeneratedChargeOption(
             "Gain an Endurance Charge every second if you've been Hit Recently",
@@ -355,14 +406,20 @@ public sealed class PrecursorGeneratedSignatureRecoveryTests
 
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);
-        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
-        Assert.Empty(block.MechanicalMapping.ModifierIds);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["ChargeBonusEnduranceChargeIfHitRecently"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["gain_endurance_charge_per_second_if_have_been_hit_recently"],
+            block.MechanicalMapping.StatIds);
     }
 
     [Fact]
-    public void Import_GeneratedColdMissingAdded_StaysUnsupported()
+    public void Import_GeneratedColdMissingAdded_MatchesRePoEAddedCold()
     {
-        // Fire sibling Exact without "Added"; Cold RePoE/Trade require "Added". Do not invent that synonym.
+        // Fire sibling Exact without "Added" on both sides; Cold PoB omits "Added" while
+        // RePoE/Trade/live AID include it. Optional-Added broad alias recovers ChargeBonus.
         var result = ImportGeneratedChargeOption(
             "(6-24) to (12-39) Cold Damage per Frenzy Charge",
             TwoStatModifier(
@@ -378,6 +435,37 @@ public sealed class PrecursorGeneratedSignatureRecoveryTests
                 "minimum_added_cold_damage_per_frenzy_charge",
                 "maximum_added_cold_damage_per_frenzy_charge",
                 "{0} to {1} Added Cold Damage per Frenzy Charge"));
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(
+            ["ChargeBonusAddedColdDamagePerFrenzyCharge"],
+            block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            [
+                "minimum_added_cold_damage_per_frenzy_charge",
+                "maximum_added_cold_damage_per_frenzy_charge",
+            ],
+            block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedColdAdded_DoesNotStealUnrelatedIncreasedColdPerFrenzy()
+    {
+        // Negative: "% increased Cold Damage per Frenzy" must not Exact via optional-Added alias.
+        var result = ImportGeneratedChargeOption(
+            "(6-24) to (12-39) Cold Damage per Frenzy Charge",
+            Modifier(
+                "SomeIncreasedColdPerFrenzy",
+                "cold_damage_+%_per_frenzy_charge",
+                6m,
+                24m),
+            Translation(
+                "increased-cold",
+                "cold_damage_+%_per_frenzy_charge",
+                "{0}% increased Cold Damage per Frenzy Charge",
+                "#"));
 
         var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
             .ModifierBlocks);

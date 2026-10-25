@@ -1934,6 +1934,24 @@ public sealed partial class PoBUniqueCatalogImporter
                         // forcing PoB "+(n)% …" lookups into the bare-"#" competitor pool.
                         AddBroadSignatureCandidate(broadIndex, plusStripped, candidate);
                     }
+
+                    var addedStripped = StripOptionalAddedDamageQualifierFromSignature(signature);
+                    if (!string.Equals(addedStripped, signature, StringComparison.Ordinal) &&
+                        addedStripped.Length > 0)
+                    {
+                        // Alias only: PoB "(n) to (m) Cold Damage per Frenzy…" hits RePoE
+                        // "Added Cold Damage…" without rewriting Fire siblings that already omit
+                        // Added on both PoB and RePoE/Trade.
+                        AddBroadSignatureCandidate(broadIndex, addedStripped, candidate);
+                    }
+
+                    foreach (var articleAlias in ExpandGainNumberToIndefiniteArticleAliases(signature))
+                    {
+                        // Alias only: RePoE "Gain {0}/1 …" indexes under PoB "Gain an/a …" for
+                        // fixed-one Hit Recently ChargeBonus without rewriting mid-sentence
+                        // "while a Rare…" phrases.
+                        AddBroadSignatureCandidate(broadIndex, articleAlias, candidate);
+                    }
                 }
             }
 
@@ -3647,6 +3665,11 @@ public sealed partial class PoBUniqueCatalogImporter
         // RePoE and official Trade use the grammatically correct "a". Vowels keep "an"
         // ("an Endurance") so Exact charge siblings stay stable.
         normalized = IndefiniteArticleBeforeConsonantPattern().Replace(normalized, "a ");
+        // GGG charge-max wording is inconsistent across charge types: Frenzy/Power Trade+RePoE use
+        // "your maximum number of X Charges" while Endurance uses "maximum X Charges". PoB
+        // Generated.lua uses the long form for Endurance too — collapse to the short form so the
+        // ChargeBonus chance-to-max family can Exact-match without item-specific rules.
+        normalized = YourMaximumNumberOfPattern().Replace(normalized, "maximum ");
         normalized = WhitespacePattern().Replace(normalized, " ");
         return normalized.Trim();
     }
@@ -3658,6 +3681,14 @@ public sealed partial class PoBUniqueCatalogImporter
     /// </summary>
     internal static string StripOptionalPositivePlusFromSignature(string normalizedSignature) =>
         OptionalPositivePlusBeforeNumberTokenPattern().Replace(normalizedSignature, "<number>");
+
+    /// <summary>
+    /// Cosmetic "Added" qualifier before elemental/physical Damage tokens. PoB Generated Cold
+    /// omits "Added" while RePoE/Trade/live AID require it; Fire/Lightning ChargeBonus siblings
+    /// already agree without "Added" on both sides. Alias-only at broad index time.
+    /// </summary>
+    internal static string StripOptionalAddedDamageQualifierFromSignature(string normalizedSignature) =>
+        OptionalAddedBeforeDamageTypePattern().Replace(normalizedSignature, string.Empty);
 
     /// <summary>
     /// Broad mechanical index key: per-line <see cref="NormalizeSignature"/> joined with spaces so
@@ -3916,6 +3947,40 @@ public sealed partial class PoBUniqueCatalogImporter
 
     [GeneratedRegex(@"\+<number>", RegexOptions.CultureInvariant)]
     private static partial Regex OptionalPositivePlusBeforeNumberTokenPattern();
+
+    [GeneratedRegex(
+        @"\bAdded (?=(?:Cold|Fire|Lightning|Chaos|Physical) Damage\b)",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex OptionalAddedBeforeDamageTypePattern();
+
+    [GeneratedRegex(
+        @"\byour maximum number of\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex YourMaximumNumberOfPattern();
+
+    [GeneratedRegex(
+        @"\bGain <number> ",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex GainNumberTokenPattern();
+
+    /// <summary>
+    /// Broad-index aliases so RePoE "Gain &lt;number&gt; …" (fixed roll 1) resolves PoB
+    /// "Gain an/a …" without equating arbitrary mid-line articles to numeric tokens.
+    /// </summary>
+    internal static IReadOnlyList<string> ExpandGainNumberToIndefiniteArticleAliases(
+        string normalizedSignature)
+    {
+        if (!GainNumberTokenPattern().IsMatch(normalizedSignature))
+        {
+            return [];
+        }
+
+        var withA = GainNumberTokenPattern().Replace(normalizedSignature, "Gain a ");
+        var withAn = GainNumberTokenPattern().Replace(normalizedSignature, "Gain an ");
+        return string.Equals(withA, withAn, StringComparison.Ordinal)
+            ? [withA]
+            : [withA, withAn];
+    }
 
     [GeneratedRegex(
         @"\ban (?=[BCDFGHJKLMNPQRSTVWXYZbcdfghjklmnpqrstvwxyz])",
