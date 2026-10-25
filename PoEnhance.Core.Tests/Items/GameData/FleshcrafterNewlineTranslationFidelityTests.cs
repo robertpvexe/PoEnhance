@@ -128,23 +128,9 @@ public sealed class FleshcrafterNewlineTranslationFidelityTests
         return Assert.IsType<TradeSearchDraft>(result.Draft);
     }
 
-    private static async Task<GameDataPackage> LoadPackageAsync()
-    {
-        var packagePath = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory,
-            "..", "..", "..", "..", "artifacts", "poenhance-game-data.json"));
-        Assert.True(File.Exists(packagePath), packagePath);
-        var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
-        Assert.True(load.IsSuccess, string.Join(", ", load.Diagnostics.Select(d => d.Code)));
-        Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal(
-            "3.29.1.2.10-unique-component-composite-translation",
-            load.Package.Manifest.DataVersion);
-        return load.Package;
-    }
+    private static Task<GameDataPackage> LoadPackageAsync() =>
+        PinnedActiveGameDataPackage.LoadAndAssertMatchesPinAsync();
 
-    private static async Task<GameDataCatalog> LoadCatalogAsync()
-    {
-        return GameDataCatalog.FromPackage(await LoadPackageAsync());
-    }
+    private static Task<GameDataCatalog> LoadCatalogAsync() =>
+        PinnedActiveGameDataPackage.LoadCatalogAndAssertMatchesPinAsync();
 }

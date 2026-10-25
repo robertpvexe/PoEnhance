@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace PoEnhance.App.Tests;
 
@@ -14,25 +15,28 @@ public sealed class GameDataDistributionWorkflowTests
         var root = document.RootElement;
         var package = root.GetProperty("package");
 
+        // Package identity is authoritative in sources.json; assert structural completeness
+        // and that the on-disk active artifact matches the pin (do not hardcode a historic dataVersion).
         Assert.Equal(4, package.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal(
-            "3.29.1.2.10-unique-component-composite-translation",
-            package.GetProperty("dataVersion").GetString());
-        Assert.Equal("2026-09-18T22:00:00+00:00", package.GetProperty("createdAtUtc").GetString());
-        Assert.Equal(187329930, package.GetProperty("sizeBytes").GetInt64());
-        Assert.Equal(
-            "0d3f997c5573031d2fd7cd6f672baaeacdea467f73f7ffab9c8d085c49d45565",
-            package.GetProperty("sha256").GetString());
+        var dataVersion = package.GetProperty("dataVersion").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(dataVersion));
+        Assert.False(string.IsNullOrWhiteSpace(package.GetProperty("createdAtUtc").GetString()));
+        var sizeBytes = package.GetProperty("sizeBytes").GetInt64();
+        Assert.True(sizeBytes > 0);
+        var sha256 = package.GetProperty("sha256").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(sha256));
         Assert.Equal(353, package.GetProperty("foulbornRelationshipCount").GetInt32());
         Assert.Equal(353, package.GetProperty("exactFoulbornRelationshipCount").GetInt32());
         Assert.Equal(0, package.GetProperty("unsupportedFoulbornRelationshipCount").GetInt32());
 
-        Assert.Equal(
-            "34a9bd548eba7c3b62ab1d1f19a99ae8b12f1564",
-            root.GetProperty("currentRePoe").GetProperty("commitSha").GetString());
-        Assert.Equal(
-            "be8246f83dd452f86b90bd27c6de85945bf68ce2",
-            root.GetProperty("currentRePoe").GetProperty("hostedExportCommitSha").GetString());
+        var activePath = ResolveRepositoryPath("artifacts", "poenhance-game-data.json");
+        Assert.True(File.Exists(activePath), $"Active GameData package missing: {activePath}");
+        Assert.Equal(sizeBytes, new FileInfo(activePath).Length);
+        Assert.Equal(sha256, ComputeSha256Hex(activePath), ignoreCase: true);
+
+        var currentRePoe = root.GetProperty("currentRePoe");
+        Assert.False(string.IsNullOrWhiteSpace(currentRePoe.GetProperty("commitSha").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(currentRePoe.GetProperty("hostedExportCommitSha").GetString()));
         Assert.Equal(
             "c50acab2ed660a70511e7f91ee09db4e632089e4",
             root.GetProperty("historicalRePoe").GetProperty("commitSha").GetString());
@@ -100,7 +104,10 @@ public sealed class GameDataDistributionWorkflowTests
             StringComparison.Ordinal);
     }
 
-    private static string ReadRepositoryFile(params string[] pathParts)
+    private static string ReadRepositoryFile(params string[] pathParts) =>
+        File.ReadAllText(ResolveRepositoryPath(pathParts));
+
+    private static string ResolveRepositoryPath(params string[] pathParts)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "PoEnhance.slnx")))
@@ -109,6 +116,13 @@ public sealed class GameDataDistributionWorkflowTests
         }
 
         Assert.NotNull(directory);
-        return File.ReadAllText(Path.Combine([directory.FullName, .. pathParts]));
+        return Path.Combine([directory.FullName, .. pathParts]);
+    }
+
+    private static string ComputeSha256Hex(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var hash = SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

@@ -126,15 +126,34 @@ public sealed class PureTalentComponentCompositeProviderValidationTests
 
     private static GameDataCatalog LoadGameData()
     {
+        var packagePath = FindRepoFile("artifacts", "poenhance-game-data.json");
+        using var sources = System.Text.Json.JsonDocument.Parse(
+            File.ReadAllText(FindRepoFile("data", "game-data", "sources.json")));
+        var pin = sources.RootElement.GetProperty("package");
+        var expectedVersion = pin.GetProperty("dataVersion").GetString();
+        var expectedSchema = pin.GetProperty("schemaVersion").GetInt32();
+        var expectedSha256 = pin.GetProperty("sha256").GetString();
+        var expectedSize = pin.GetProperty("sizeBytes").GetInt64();
+
+        var fileInfo = new FileInfo(packagePath);
+        Assert.Equal(expectedSize, fileInfo.Length);
+        Assert.Equal(expectedSha256, ComputeSha256Hex(packagePath), ignoreCase: true);
+
         var result = GameDataPackageLoader
-            .LoadFromFileAsync(FindRepoFile("artifacts", "poenhance-game-data.json"))
+            .LoadFromFileAsync(packagePath)
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal(
-            "3.29.1.2.10-unique-component-composite-translation",
-            result.Package!.Manifest.DataVersion);
+        Assert.Equal(expectedSchema, result.Package!.Manifest.SchemaVersion);
+        Assert.Equal(expectedVersion, result.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
+    }
+
+    private static string ComputeSha256Hex(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var hash = System.Security.Cryptography.SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static PathOfExileTradeStatCatalog LoadOfficialTradeCatalog()
