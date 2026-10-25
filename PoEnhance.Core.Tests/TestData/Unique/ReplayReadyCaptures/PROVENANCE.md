@@ -18,3 +18,6 @@
 
 ## U.2.4H
 - Replica-Paradoxica-Chosen-PhysBlind.clipboard.txt — user-provided genuine Ctrl+C paste (one occurrence; pasted twice by user, stored once). Advanced Item Description with Chosen Prefix phys+blind composite option and working Chaos Duration sibling. Not a TEMP JSON machine capture. Blind reminder parenthetical retained under the Blind effect.
+
+## U.2.5D
+- Precursors-Emblem-Sapphire-Frenzy-Suppress.clipboard.txt — user-provided genuine Ctrl+C paste during manual U.2.5C verification (2026-10-25). Sapphire Ring / Frenzy charge options; corruption Anger reservation implicit; AID Suppress parenthetical helper retained; listing Note ~b/o retained. Not a TEMP JSON machine capture.

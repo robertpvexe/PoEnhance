@@ -796,6 +796,138 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void PrecursorsEmblem_GenuineSapphireFrenzyCapture_SevenRows_SuppressAndDurationExactTradeJson()
+    {
+        // U.2.5D — genuine Ctrl+C capture Precursors-Emblem-Sapphire-Frenzy-Suppress.clipboard.txt.
+        // Manual FAIL was Unique·Unsupported on Suppress-per-Frenzy and Frenzy Duration; five other
+        // displayed rows already Exact. Reminder parenthetical and listing Note are not mods.
+        var raw = ReadClipboard(
+            "PoEnhance.Core.Tests",
+            "TestData",
+            "Unique",
+            "ReplayReadyCaptures",
+            "Precursors-Emblem-Sapphire-Frenzy-Suppress.clipboard.txt");
+        Assert.Contains("Precursor's Emblem", raw, StringComparison.Ordinal);
+        Assert.Contains("Note: ~b/o 200 chaos", raw, StringComparison.Ordinal);
+
+        var runtime = Resolve(raw);
+        Assert.Equal("Precursor's Emblem", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+        Assert.Equal(7, runtime.ProviderDraft.ModifierFilters.Count);
+        Assert.DoesNotContain(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Suppressed Hits",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "~b/o",
+                StringComparison.OrdinalIgnoreCase));
+
+        var anger = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains("Anger has", StringComparison.OrdinalIgnoreCase));
+        var life = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased maximum Life",
+                StringComparison.OrdinalIgnoreCase));
+        var energyShield = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased maximum Energy Shield",
+                StringComparison.OrdinalIgnoreCase));
+        var dexterity = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains("to Dexterity", StringComparison.OrdinalIgnoreCase));
+        var suppress = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Suppress Spell Damage per Frenzy Charge",
+                StringComparison.OrdinalIgnoreCase));
+        var duration = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Frenzy Charge Duration",
+                StringComparison.OrdinalIgnoreCase));
+        var movement = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Movement Speed per Frenzy Charge",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.All(
+            runtime.ProviderDraft.ModifierFilters,
+            component =>
+            {
+                Assert.Equal(ModifierCandidateResolutionStatus.Exact, component.ResolutionStatus);
+                Assert.Equal(
+                    SearchComponentProviderResolutionStatus.Exact,
+                    component.ProviderResolutionStatus);
+                Assert.False(component.IsSelected);
+            });
+
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, suppress.UniqueSourceSemantics);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, duration.UniqueSourceSemantics);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, movement.UniqueSourceSemantics);
+        Assert.Equal(
+            ["spell_suppression_chance_%_per_frenzy_charge"],
+            suppress.ResolvedStatIds.ToArray());
+        Assert.Equal(["base_frenzy_charge_duration_+%"], duration.ResolvedStatIds.ToArray());
+        Assert.Equal(["movement_velocity_+%_per_frenzy_charge"], movement.ResolvedStatIds.ToArray());
+        Assert.Equal([1m], suppress.ObservedNumericValues);
+        Assert.Equal([25m], duration.ObservedNumericValues);
+        Assert.Equal([1m], movement.ObservedNumericValues);
+        Assert.Equal(1m, suppress.RequestedMinimum);
+        Assert.Equal(25m, duration.RequestedMinimum);
+        Assert.Equal(1m, movement.RequestedMinimum);
+        Assert.Null(suppress.RequestedMaximum);
+        Assert.Null(duration.RequestedMaximum);
+        Assert.Null(movement.RequestedMaximum);
+
+        // Official Trade catalog (2026-08-19 fixture): per-charge Suppress ≠ generic Suppress;
+        // Duration ≠ charge-count / reduced-duration-per-charge.
+        Assert.Equal("explicit.stat_482967934", suppress.ProviderStatId);
+        Assert.Equal("explicit.stat_3338298622", duration.ProviderStatId);
+        Assert.Equal("explicit.stat_1541516339", movement.ProviderStatId);
+        Assert.NotEqual("explicit.stat_3680664274", suppress.ProviderStatId);
+        Assert.NotEqual("explicit.stat_2543931078", duration.ProviderStatId);
+
+        Assert.Equal(29m, anger.RequestedMinimum);
+        Assert.Equal(5m, life.RequestedMinimum);
+        Assert.Equal(5m, energyShield.RequestedMinimum);
+        Assert.Equal(20m, dexterity.RequestedMinimum);
+
+        AssertNoActiveOptionalStatFilters(
+            JsonDocument.Parse(Serialize(runtime, selectedComponent: null)).RootElement.GetProperty("query"));
+
+        AssertSelectedScalarMinJson(runtime, suppress, "explicit.stat_482967934", 1m);
+        AssertSelectedScalarMinJson(runtime, duration, "explicit.stat_3338298622", 25m);
+        AssertSelectedScalarMinJson(runtime, movement, "explicit.stat_1541516339", 1m);
+        AssertSelectedScalarMinJson(runtime, anger, Assert.IsType<string>(anger.ProviderStatId), 29m);
+        AssertSelectedScalarMinJson(runtime, life, Assert.IsType<string>(life.ProviderStatId), 5m);
+        AssertSelectedScalarMinJson(
+            runtime,
+            energyShield,
+            Assert.IsType<string>(energyShield.ProviderStatId),
+            5m);
+        AssertSelectedScalarMinJson(runtime, dexterity, Assert.IsType<string>(dexterity.ProviderStatId), 20m);
+
+        // Negative: selecting only Suppress must not enroll Duration/Movement filters.
+        using (var document = JsonDocument.Parse(Serialize(runtime, suppress)))
+        {
+            var filters = document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray()
+                .Select(filter => filter.GetProperty("id").GetString()!)
+                .ToArray();
+            Assert.Equal(["explicit.stat_482967934"], filters);
+            Assert.DoesNotContain("explicit.stat_3338298622", filters);
+            Assert.DoesNotContain("explicit.stat_1541516339", filters);
+        }
+    }
+
+    [Fact]
     public void ReplicaAtzirisAcuity_SyntheticCurrentGlobalCrit_53of40_60_SelectedSerializesOfficialMinOnly()
     {
         // SYNTHETIC fixture (not a committed genuine capture): mirrors the user's observed current
@@ -1047,6 +1179,7 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(6, "Reckless Defence", "Cobalt Jewel", "jewel"),
             UniqueItem(7, "Replica Atziri's Acuity", "Vaal Gauntlets", "armour"),
             UniqueItem(8, "Replica Paradoxica", "Vaal Rapier", "weapon"),
+            UniqueItem(9, "Precursor's Emblem", "Sapphire Ring", "accessory"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(

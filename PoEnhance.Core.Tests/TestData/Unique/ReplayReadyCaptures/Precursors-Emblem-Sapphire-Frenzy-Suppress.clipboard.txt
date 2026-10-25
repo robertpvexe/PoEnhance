@@ -1,0 +1,32 @@
+Item Class: Rings
+Rarity: Unique
+Precursor's Emblem
+Sapphire Ring
+--------
+Requirements:
+Level: 49
+--------
+Item Level: 84
+--------
+{ Corruption Implicit Modifier — Mana, Aura }
+Anger has 29(20-30)% increased Mana Reservation Efficiency
+--------
+{ Unique Modifier — Life }
+5% increased maximum Life
+{ Unique Modifier — Defences, Energy Shield }
+5% increased maximum Energy Shield
+{ Unique Modifier — Attribute }
++20 to Dexterity
+{ Unique Modifier }
++1% chance to Suppress Spell Damage per Frenzy Charge
+(40% of Damage from Suppressed Hits and Ailments they inflict is prevented)
+{ Unique Modifier }
+25(20-40)% increased Frenzy Charge Duration
+{ Unique Modifier — Speed }
+1% increased Movement Speed per Frenzy Charge
+--------
+History teaches humility.
+--------
+Corrupted
+--------
+Note: ~b/o 200 chaos

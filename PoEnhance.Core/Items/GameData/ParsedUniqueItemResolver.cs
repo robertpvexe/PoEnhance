@@ -1560,12 +1560,17 @@ public sealed partial class ParsedUniqueItemResolver
         UniqueItemVersionRole versionRole)
     {
         var rawLines = modifier.ValueLines.Select(line => line.Trim()).ToArray();
-        if (!HasCompatibleAnnotatedRollEvidence(rawLines, block.Lines))
+        // GeneratedCandidate: AID option ranges may be tighter than overstated PoB evaluated
+        // catalog ranges ((20-40) vs (20-120)). Use GeneratedCandidate roll evidence (exact or
+        // AID⊆catalog). Fixed keeps exact annotation matching for version discrimination.
+        if (block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate)
         {
-            return UniqueBlockTextMatch.NoMatch;
+            if (!HasCompatibleGeneratedCandidateRollEvidence(rawLines, block.Lines))
+            {
+                return UniqueBlockTextMatch.NoMatch;
+            }
         }
-        if (block.SourceSemantics == UniqueModifierSourceSemantics.GeneratedCandidate &&
-            !HasCompatibleGeneratedCandidateRollEvidence(rawLines, block.Lines))
+        else if (!HasCompatibleAnnotatedRollEvidence(rawLines, block.Lines))
         {
             return UniqueBlockTextMatch.NoMatch;
         }
@@ -1597,7 +1602,6 @@ public sealed partial class ParsedUniqueItemResolver
                 modifier,
                 out var semanticLines,
                 out var textualOptionRangeAnnotations) ||
-            !HasCompatibleAnnotatedRollEvidence(semanticLines, block.Lines) ||
             !HasCompatibleGeneratedCandidateRollEvidence(semanticLines, block.Lines))
         {
             return UniqueBlockTextMatch.NoMatch;
@@ -1639,8 +1643,7 @@ public sealed partial class ParsedUniqueItemResolver
         var foldedLines = withoutPassage.Length == 1
             ? withoutPassage
             : [string.Join(' ', withoutPassage)];
-        if (!HasCompatibleAnnotatedRollEvidence(foldedLines, block.Lines) ||
-            !HasCompatibleGeneratedCandidateRollEvidence(foldedLines, block.Lines))
+        if (!HasCompatibleGeneratedCandidateRollEvidence(foldedLines, block.Lines))
         {
             return UniqueBlockTextMatch.NoMatch;
         }
@@ -2446,10 +2449,14 @@ public sealed partial class ParsedUniqueItemResolver
                 var catalog = catalogTokens[tokenIndex];
                 if (parsed.IsEvaluatedAnnotation)
                 {
-                    if (!string.Equals(parsed.CanonicalRoll, catalog.CanonicalRoll, StringComparison.Ordinal))
+                    // Exact AID range match, or AID range contained in an overstated PoB catalog
+                    // range (e.g. live 25(20-40)% vs evaluated PoB (20-120)%). Observed roll must
+                    // still lie within the catalog domain when present.
+                    if (!IsCompatibleGeneratedCandidateAnnotatedRoll(parsed, catalog))
                     {
                         return false;
                     }
+
                     continue;
                 }
 
@@ -2600,8 +2607,82 @@ public sealed partial class ParsedUniqueItemResolver
     private static string FormatRollNumber(decimal value) =>
         value.ToString("G29", CultureInfo.InvariantCulture);
 
-    private static bool SignaturesEqual(IReadOnlyList<string> first, IReadOnlyList<string> second) =>
-        first.Count == second.Count && first.SequenceEqual(second, StringComparer.OrdinalIgnoreCase);
+    private static bool IsCompatibleGeneratedCandidateAnnotatedRoll(
+        LogicalRollToken parsed,
+        LogicalRollToken catalog)
+    {
+        if (string.Equals(parsed.CanonicalRoll, catalog.CanonicalRoll, StringComparison.Ordinal))
+        {
+            return ObservedValueWithinCatalogBounds(parsed, catalog);
+        }
+
+        if (!TryReadRollBounds(parsed.CanonicalRoll, out var parsedMinimum, out var parsedMaximum) ||
+            !TryReadRollBounds(catalog.CanonicalRoll, out var catalogMinimum, out var catalogMaximum))
+        {
+            return false;
+        }
+
+        var parsedLow = Math.Min(parsedMinimum, parsedMaximum);
+        var parsedHigh = Math.Max(parsedMinimum, parsedMaximum);
+        var catalogLow = Math.Min(catalogMinimum, catalogMaximum);
+        var catalogHigh = Math.Max(catalogMinimum, catalogMaximum);
+        if (parsedLow < catalogLow || parsedHigh > catalogHigh)
+        {
+            return false;
+        }
+
+        return ObservedValueWithinCatalogBounds(parsed, catalog);
+    }
+
+    private static bool ObservedValueWithinCatalogBounds(
+        LogicalRollToken parsed,
+        LogicalRollToken catalog)
+    {
+        if (parsed.ObservedValue is not { } observedValue)
+        {
+            return true;
+        }
+
+        if (!TryReadRollBounds(catalog.CanonicalRoll, out var catalogMinimum, out var catalogMaximum))
+        {
+            return false;
+        }
+
+        var catalogLow = Math.Min(catalogMinimum, catalogMaximum);
+        var catalogHigh = Math.Max(catalogMinimum, catalogMaximum);
+        return observedValue >= catalogLow && observedValue <= catalogHigh;
+    }
+
+    private static bool SignaturesEqual(IReadOnlyList<string> first, IReadOnlyList<string> second)
+    {
+        if (first.Count != second.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < first.Count; index++)
+        {
+            if (string.Equals(first[index], second[index], StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Live AID often renders RePoE "+#" as "+N%" while PoB Generated candidate lines omit
+            // the cosmetic plus ("(1-2)% chance to Suppress…"). Positive-plus is optional only.
+            if (!string.Equals(
+                    StripOptionalPositivePlusFromSignature(first[index]),
+                    StripOptionalPositivePlusFromSignature(second[index]),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string StripOptionalPositivePlusFromSignature(string signature) =>
+        OptionalPositivePlusBeforeNumberTokenPattern().Replace(signature, "<number>");
 
     private sealed record VersionBlockMatches(
         UniqueItemVersionObservation Version,
@@ -2680,6 +2761,9 @@ public sealed partial class ParsedUniqueItemResolver
         @"(?<![A-Za-z<])(?:(?<actual>[+-]?\d+(?:[\.,]\d+)?)(?<annotation>\(\s*(?<annotationFirst>[+-]?\d+(?:[\.,]\d+)?)(?:\s*-\s*(?<annotationSecond>[+-]?\d+(?:[\.,]\d+)?)\s*)?\))|(?<range>\(?\s*(?<rangeFirst>[+-]?\d+(?:[\.,]\d+)?)\s*-\s*(?<rangeSecond>[+-]?\d+(?:[\.,]\d+)?)\s*\)?)|(?<single>[+-]?\d+(?:[\.,]\d+)?))",
         RegexOptions.CultureInvariant)]
     private static partial Regex LogicalRollPattern();
+
+    [GeneratedRegex(@"\+<number>", RegexOptions.CultureInvariant)]
+    private static partial Regex OptionalPositivePlusBeforeNumberTokenPattern();
 
     [GeneratedRegex(@"\b(?:increased|reduced)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PolarityPattern();
