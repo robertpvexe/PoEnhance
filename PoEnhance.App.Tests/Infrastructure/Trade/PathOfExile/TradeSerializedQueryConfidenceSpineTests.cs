@@ -796,6 +796,141 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void PrecursorsEmblem_SyntheticEnduranceMaxAndHitRecently_ExactTradeJson()
+    {
+        // U.2.5E — synthetic AID shapes matching Trade/RePoE short forms for the two catalog
+        // residual families recovered via importer NormalizeSignature / Gain-number aliases.
+        const string synthetic = """
+            Item Class: Rings
+            Rarity: Unique
+            Precursor's Emblem
+            Sapphire Ring
+            --------
+            Requirements:
+            Level: 49
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            30(15-45)% chance that if you would gain Endurance Charges, you instead gain up to maximum Endurance Charges
+            { Unique Modifier }
+            Gain 1 Endurance Charge every second if you've been Hit Recently
+            --------
+            """;
+
+        var runtime = Resolve(synthetic);
+        var maxCharges = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "gain up to maximum Endurance Charges",
+                StringComparison.OrdinalIgnoreCase));
+        var hitRecently = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Hit Recently",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, maxCharges.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, hitRecently.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_2713233613", maxCharges.ProviderStatId);
+        Assert.Equal("explicit.stat_2894476716", hitRecently.ProviderStatId);
+        Assert.Equal([30m], maxCharges.ObservedNumericValues);
+        Assert.Equal([1m], hitRecently.ObservedNumericValues);
+        Assert.Equal(30m, maxCharges.RequestedMinimum);
+        Assert.Equal(1m, hitRecently.RequestedMinimum);
+        Assert.Null(maxCharges.RequestedMaximum);
+        Assert.Null(hitRecently.RequestedMaximum);
+
+        AssertSelectedScalarMinJson(runtime, maxCharges, "explicit.stat_2713233613", 30m);
+        AssertSelectedScalarMinJson(runtime, hitRecently, "explicit.stat_2894476716", 1m);
+    }
+
+    [Fact]
+    public void PrecursorsEmblem_ScreenshotDerivedAddedCold_TwoAxisTradeJson()
+    {
+        // U.2.5E — SYNTHETIC clipboard reconstructed from a genuine Ctrl+D screenshot (ilvl 75
+        // Sapphire Unsupported Cold). Not a committed genuine Ctrl+C capture. Official Trade
+        // filter is a single arity-2 "# to # Added Cold…" entry; both observed axes 8 and 13
+        // are retained and project to ArithmeticMeanRange min=(8+13)/2.
+        const string synthetic = """
+            Item Class: Rings
+            Rarity: Unique
+            Precursor's Emblem
+            Sapphire Ring
+            --------
+            Requirements:
+            Level: 49
+            --------
+            Item Level: 75
+            --------
+            { Unique Modifier }
+            8(6-8) to 13(12-13) Added Cold Damage per Frenzy Charge
+            { Unique Modifier }
+            31(20-40)% increased Frenzy Charge Duration
+            { Unique Modifier }
+            +1% chance to Suppress Spell Damage per Frenzy Charge
+            --------
+            """;
+
+        var runtime = Resolve(synthetic);
+        Assert.Equal("Precursor's Emblem", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var cold = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Added Cold Damage per Frenzy Charge",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ModifierCandidateResolutionStatus.Exact, cold.ResolutionStatus);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, cold.UniqueSourceSemantics);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, cold.ProviderResolutionStatus);
+        Assert.Equal(
+            [
+                "minimum_added_cold_damage_per_frenzy_charge",
+                "maximum_added_cold_damage_per_frenzy_charge",
+            ],
+            cold.ResolvedStatIds.ToArray());
+        Assert.Equal([8m, 13m], cold.ObservedNumericValues.ToArray());
+        Assert.Equal(ModifierBoundShape.ArithmeticMeanRange, cold.ValueBoundShape);
+        Assert.Equal(10.5m, cold.RequestedMinimum);
+        Assert.Null(cold.RequestedMaximum);
+        Assert.Equal("explicit.stat_3648858570", cold.ProviderStatId);
+        Assert.NotEqual("explicit.stat_329974315", cold.ProviderStatId);
+
+        var duration = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Frenzy Charge Duration",
+                StringComparison.OrdinalIgnoreCase));
+        var suppress = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Suppress Spell Damage per Frenzy Charge",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, duration.ProviderResolutionStatus);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, suppress.ProviderResolutionStatus);
+        Assert.Equal(31m, duration.RequestedMinimum);
+        Assert.Equal(1m, suppress.RequestedMinimum);
+        Assert.Equal("explicit.stat_3338298622", duration.ProviderStatId);
+        Assert.Equal("explicit.stat_482967934", suppress.ProviderStatId);
+
+        AssertNoActiveOptionalStatFilters(
+            JsonDocument.Parse(Serialize(runtime, selectedComponent: null)).RootElement.GetProperty("query"));
+        AssertSelectedScalarMinJson(runtime, cold, "explicit.stat_3648858570", 10.5m);
+
+        using (var document = JsonDocument.Parse(Serialize(runtime, cold)))
+        {
+            var filters = document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray()
+                .Select(filter => filter.GetProperty("id").GetString()!)
+                .ToArray();
+            Assert.Equal(["explicit.stat_3648858570"], filters);
+            Assert.DoesNotContain("explicit.stat_3338298622", filters);
+            Assert.DoesNotContain("explicit.stat_329974315", filters);
+        }
+    }
+
+    [Fact]
     public void PrecursorsEmblem_GenuineSapphireFrenzyCapture_SevenRows_SuppressAndDurationExactTradeJson()
     {
         // U.2.5D — genuine Ctrl+C capture Precursors-Emblem-Sapphire-Frenzy-Suppress.clipboard.txt.

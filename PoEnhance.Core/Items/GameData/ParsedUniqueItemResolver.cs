@@ -2438,6 +2438,15 @@ public sealed partial class ParsedUniqueItemResolver
         {
             var parsedTokens = ExtractLogicalRollTokens(parsedLines[lineIndex]);
             var catalogTokens = ExtractLogicalRollTokens(catalogLines[lineIndex]);
+            // PoB Hit Recently uses "Gain an …" with no digit while RePoE/AID use "Gain 1 …".
+            // Project the article to a fixed 1 solely for GeneratedCandidate roll-token parity.
+            if (catalogTokens.Count == 0 &&
+                GainIndefiniteArticlePattern().IsMatch(catalogLines[lineIndex]))
+            {
+                catalogTokens = ExtractLogicalRollTokens(
+                    GainIndefiniteArticlePattern().Replace(catalogLines[lineIndex], "Gain 1 "));
+            }
+
             if (parsedTokens.Count != catalogTokens.Count)
             {
                 return false;
@@ -2667,11 +2676,11 @@ public sealed partial class ParsedUniqueItemResolver
                 continue;
             }
 
-            // Live AID often renders RePoE "+#" as "+N%" while PoB Generated candidate lines omit
-            // the cosmetic plus ("(1-2)% chance to Suppress…"). Positive-plus is optional only.
+            // Live AID vs packaged PoB GeneratedCandidate cosmetic gaps (optional +, optional
+            // "Added" before damage type, GGG max-charge wording, Gain an/a vs Gain <number>).
             if (!string.Equals(
-                    StripOptionalPositivePlusFromSignature(first[index]),
-                    StripOptionalPositivePlusFromSignature(second[index]),
+                    ProjectCosmeticGeneratedSignatureEquivalence(first[index]),
+                    ProjectCosmeticGeneratedSignatureEquivalence(second[index]),
                     StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -2681,8 +2690,14 @@ public sealed partial class ParsedUniqueItemResolver
         return true;
     }
 
-    private static string StripOptionalPositivePlusFromSignature(string signature) =>
-        OptionalPositivePlusBeforeNumberTokenPattern().Replace(signature, "<number>");
+    private static string ProjectCosmeticGeneratedSignatureEquivalence(string signature)
+    {
+        var projected = OptionalPositivePlusBeforeNumberTokenPattern().Replace(signature, "<number>");
+        projected = OptionalAddedBeforeDamageTypePattern().Replace(projected, string.Empty);
+        projected = YourMaximumNumberOfPattern().Replace(projected, "maximum ");
+        projected = GainIndefiniteArticlePattern().Replace(projected, "Gain <number> ");
+        return WhitespacePattern().Replace(projected, " ").Trim();
+    }
 
     private sealed record VersionBlockMatches(
         UniqueItemVersionObservation Version,
@@ -2764,6 +2779,24 @@ public sealed partial class ParsedUniqueItemResolver
 
     [GeneratedRegex(@"\+<number>", RegexOptions.CultureInvariant)]
     private static partial Regex OptionalPositivePlusBeforeNumberTokenPattern();
+
+    [GeneratedRegex(
+        @"\bAdded (?=(?:Cold|Fire|Lightning|Chaos|Physical) Damage\b)",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex OptionalAddedBeforeDamageTypePattern();
+
+    [GeneratedRegex(
+        @"\byour maximum number of\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex YourMaximumNumberOfPattern();
+
+    [GeneratedRegex(
+        @"\bGain (?:a|an) ",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex GainIndefiniteArticlePattern();
+
+    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex WhitespacePattern();
 
     [GeneratedRegex(@"\b(?:increased|reduced)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PolarityPattern();

@@ -148,6 +148,110 @@ public sealed class PrecursorEmblemGenuineCaptureDiagnosticTests
         Assert.Empty(duration.StatIds);
     }
 
+    [Fact]
+    public void ScreenshotDerivedPrecursorCold_AddedAidsMatchesPackagedPoBWithoutAdded()
+    {
+        // U.2.5E — NOT a genuine full Ctrl+C fixture. Line text + rolls taken from the user's
+        // real Ctrl+D screenshot (ilvl 75 Sapphire, Unsupported Added Cold). Do not treat as
+        // ReplayReadyCapture provenance.
+        const string synthetic = """
+            Item Class: Rings
+            Rarity: Unique
+            Precursor's Emblem
+            Sapphire Ring
+            --------
+            Requirements:
+            Level: 49
+            --------
+            Item Level: 75
+            --------
+            { Unique Modifier }
+            8(6-8) to 13(12-13) Added Cold Damage per Frenzy Charge
+            { Unique Modifier }
+            31(20-40)% increased Frenzy Charge Duration
+            { Unique Modifier }
+            +1% chance to Suppress Spell Damage per Frenzy Charge
+            --------
+            """;
+
+        var parsed = new ItemTextParser().Parse(synthetic);
+        var baseResolution = new ParsedItemBaseResolver().Resolve(parsed, Catalog.Value);
+        var unique = new ParsedUniqueItemResolver().Resolve(parsed, Catalog.Value, baseResolution);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+
+        var coldIndex = IndexOfModifier(parsed, "Added Cold Damage per Frenzy Charge");
+        var cold = Assert.Single(unique.ModifierBlocks, block => block.ParsedModifierIndex == coldIndex);
+        Assert.True(cold.IsResolved);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, cold.SourceSemantics);
+        Assert.Null(cold.DiagnosticCode);
+        Assert.Equal(
+            [
+                "minimum_added_cold_damage_per_frenzy_charge",
+                "maximum_added_cold_damage_per_frenzy_charge",
+            ],
+            cold.StatIds.ToArray());
+        Assert.Contains("ChargeBonusAddedColdDamagePerFrenzyCharge", cold.ModifierIds);
+
+        var duration = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.ParsedModifierIndex == IndexOfModifier(parsed, "increased Frenzy Charge Duration"));
+        Assert.True(duration.IsResolved);
+        var suppress = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.ParsedModifierIndex == IndexOfModifier(
+                parsed,
+                "Suppress Spell Damage per Frenzy Charge"));
+        Assert.True(suppress.IsResolved);
+    }
+
+    [Fact]
+    public void SyntheticPrecursorEnduranceMaxAndHitRecently_ResolveGeneratedCandidateExact()
+    {
+        // Catalog-proven residual families (no genuine clipboard for these two lines yet).
+        const string synthetic = """
+            Item Class: Rings
+            Rarity: Unique
+            Precursor's Emblem
+            Sapphire Ring
+            --------
+            Requirements:
+            Level: 49
+            --------
+            Item Level: 80
+            --------
+            { Unique Modifier }
+            30(15-45)% chance that if you would gain Endurance Charges, you instead gain up to maximum Endurance Charges
+            { Unique Modifier }
+            Gain 1 Endurance Charge every second if you've been Hit Recently
+            --------
+            """;
+
+        var parsed = new ItemTextParser().Parse(synthetic);
+        var baseResolution = new ParsedItemBaseResolver().Resolve(parsed, Catalog.Value);
+        var unique = new ParsedUniqueItemResolver().Resolve(parsed, Catalog.Value, baseResolution);
+        Assert.Equal(UniqueItemResolutionStatus.ExactIdentity, unique.Status);
+
+        var maxCharges = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.ParsedModifierIndex == IndexOfModifier(parsed, "gain up to maximum Endurance Charges"));
+        Assert.True(maxCharges.IsResolved);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, maxCharges.SourceSemantics);
+        Assert.Equal(
+            ["gain_maximum_endurance_charges_on_endurance_charge_gained_%_chance"],
+            maxCharges.StatIds.ToArray());
+        Assert.Contains("ChargeBonusChanceToGainMaximumEnduranceCharges", maxCharges.ModifierIds);
+
+        var hitRecently = Assert.Single(
+            unique.ModifierBlocks,
+            block => block.ParsedModifierIndex == IndexOfModifier(parsed, "Hit Recently"));
+        Assert.True(hitRecently.IsResolved);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, hitRecently.SourceSemantics);
+        Assert.Equal(
+            ["gain_endurance_charge_per_second_if_have_been_hit_recently"],
+            hitRecently.StatIds.ToArray());
+        Assert.Contains("ChargeBonusEnduranceChargeIfHitRecently", hitRecently.ModifierIds);
+    }
+
     private static int IndexOfModifier(ParsedItem parsed, string textContains)
     {
         for (var index = 0; index < parsed.Modifiers.Count; index++)
