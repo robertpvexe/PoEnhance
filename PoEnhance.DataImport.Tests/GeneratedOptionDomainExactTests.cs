@@ -516,6 +516,268 @@ public sealed class GeneratedOptionDomainExactTests
         Assert.DoesNotContain(VeiledSpellBlockModId, block.MechanicalMapping.ModifierIds);
     }
 
+    private const string VeiledFlaskIgniteModId =
+        "JunMasterVeiledLocalFlaskPhysicalDamageCanIgnite";
+    private const string VeiledFlaskRarityModId =
+        "JunMasterVeiledLocalFlaskItemFoundRarityDuringFlaskEffect";
+    private const string UniqueFlaskRarityModId = "FlaskItemRarityUniqueFlask1";
+
+    [Fact]
+    public void Import_FixedOptionAxisFlaskUnveil_ExactOwnsUnveiledDomain()
+    {
+        // Cinderswallow-style Fixed+OptionAxis ExactText owns RePoE unveiled flask rows.
+        // Bare Fixed must still refuse unveiled (Import_FixedUniqueMatchingVeiledDisplay_*).
+        var veiled = new ModifierDefinition
+        {
+            Id = VeiledFlaskIgniteModId,
+            GroupId = VeiledFlaskIgniteModId,
+            Name = "Catarina's",
+            GenerationType = ModifierGenerationType.Prefix,
+            SourceGenerationType = "prefix",
+            Domain = "unveiled",
+            SourceText = "Your Physical Damage can Ignite during Effect",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "local_flask_physical_damage_can_ignite_during_effect",
+                    MinValue = 1m,
+                    MaxValue = 1m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Silver Urn
+                Silver Flask
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Current
+                Variant: Physical Damage can Ignite
+                Implicits: 0
+                {variant:1}+(10-20) to Maximum Charges
+                {variant:2}{crafted}Your Physical Damage can Ignite during Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("FlaskMaxChargesUnique__1", "local_flask_maximum_charges_+", 10, 20, "unique"),
+                veiled,
+            ],
+            translations:
+            [
+                Translation(
+                    "charges",
+                    "local_flask_maximum_charges_+",
+                    "{0} to Maximum Charges",
+                    "#|+#"),
+                Translation(
+                    "ignite",
+                    "local_flask_physical_damage_can_ignite_during_effect",
+                    "Your Physical Damage can Ignite during Effect"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Flasks/FlaskUtility14",
+                    Name = "Silver Flask",
+                    Domain = "flask",
+                },
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        var ignite = Assert.Single(
+            version.ModifierBlocks,
+            block => block.Lines[0].Contains("Physical Damage can Ignite", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, ignite.SourceSemantics);
+        Assert.NotEmpty(ignite.OptionChoiceMemberships);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, ignite.MechanicalMapping.Status);
+        Assert.Equal([VeiledFlaskIgniteModId], ignite.MechanicalMapping.ModifierIds);
+        Assert.Contains(
+            PoBUniqueCatalogImporter.GeneratedOptionDomainExactReason,
+            ignite.MechanicalMapping.Provenance!.ResolutionReasons);
+    }
+
+    [Fact]
+    public void Import_FixedOptionAxisFlask_PrefersUniqueGenerationOverUnveiledSameDisplay()
+    {
+        // Real RePoE: Unique ExactText is (30-50)% while PoB/Cinderswallow option is (20-30)%.
+        // Unveiled ExactText matches (20-30)%; Fixed option-axis must still prefer Unique broad
+        // ownership (FlaskItemRarityUniqueFlask1) over flipping to the unveiled twin.
+        var uniqueRarity = Modifier(
+            UniqueFlaskRarityModId,
+            "local_unique_flask_item_rarity_+%_while_healing",
+            30m,
+            50m,
+            "unique") with
+        {
+            Domain = "flask",
+            SourceText = "(30-50)% increased Rarity of Items found during Effect",
+        };
+        var veiledRarity = new ModifierDefinition
+        {
+            Id = VeiledFlaskRarityModId,
+            GroupId = VeiledFlaskRarityModId,
+            Name = "of the Order",
+            GenerationType = ModifierGenerationType.Prefix,
+            SourceGenerationType = "prefix",
+            Domain = "unveiled",
+            SourceText = "(20-30)% increased Rarity of Items found during Effect",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "local_flask_item_found_rarity_+%_during_flask_effect",
+                    MinValue = 20m,
+                    MaxValue = 30m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Silver Urn
+                Silver Flask
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Current
+                Variant: Item Rarity
+                Implicits: 0
+                {variant:1}+(10-20) to Maximum Charges
+                {variant:2}{crafted}(20-30)% increased Rarity of Items found during Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("FlaskMaxChargesUnique__1", "local_flask_maximum_charges_+", 10, 20, "unique"),
+                uniqueRarity,
+                veiledRarity,
+            ],
+            translations:
+            [
+                Translation(
+                    "charges",
+                    "local_flask_maximum_charges_+",
+                    "{0} to Maximum Charges",
+                    "#|+#"),
+                Translation(
+                    "rarity-unique",
+                    "local_unique_flask_item_rarity_+%_while_healing",
+                    "{0}% increased Rarity of Items found during Effect",
+                    "#"),
+                Translation(
+                    "rarity-veiled",
+                    "local_flask_item_found_rarity_+%_during_flask_effect",
+                    "{0}% increased Rarity of Items found during Effect",
+                    "#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Flasks/FlaskUtility14",
+                    Name = "Silver Flask",
+                    Domain = "flask",
+                },
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        var rarity = Assert.Single(
+            version.ModifierBlocks,
+            block => block.Lines[0].Contains("Rarity of Items found", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, rarity.SourceSemantics);
+        Assert.NotEmpty(rarity.OptionChoiceMemberships);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, rarity.MechanicalMapping.Status);
+        Assert.Equal([UniqueFlaskRarityModId], rarity.MechanicalMapping.ModifierIds);
+        Assert.DoesNotContain(VeiledFlaskRarityModId, rarity.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_FixedOptionAxisFlask_ReducedReflectWording_RemainsUnsupported()
+    {
+        // PoB "(60-80)% reduced Reflected Damage taken during Effect" has no RePoE ExactText;
+        // Prevent +(80-60)% form must not synonym-claim Exact.
+        var preventReflect = new ModifierDefinition
+        {
+            Id = "JunMasterVeiledLocalFlaskReducedReflectDuringEffect",
+            GroupId = "JunMasterVeiledLocalFlaskReducedReflectDuringEffect",
+            Name = "of the Order",
+            GenerationType = ModifierGenerationType.Prefix,
+            SourceGenerationType = "prefix",
+            Domain = "unveiled",
+            SourceText = "Prevent +(80-60)% of Reflected Damage during Effect",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "local_flask_-%_of_your_damage_cannot_be_reflected",
+                    MinValue = -80m,
+                    MaxValue = -60m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Silver Urn
+                Silver Flask
+                Has Alt Variant: true
+                Selected Variant: 1
+                Selected Alt Variant: 2
+                Variant: Current
+                Variant: Reduced Reflected Damage Taken
+                Implicits: 0
+                {variant:1}+(10-20) to Maximum Charges
+                {variant:2}{crafted}(60-80)% reduced Reflected Damage taken during Effect
+                """,
+            generated: false,
+            modifiers:
+            [
+                Modifier("FlaskMaxChargesUnique__1", "local_flask_maximum_charges_+", 10, 20, "unique"),
+                preventReflect,
+            ],
+            translations:
+            [
+                Translation(
+                    "charges",
+                    "local_flask_maximum_charges_+",
+                    "{0} to Maximum Charges",
+                    "#|+#"),
+                Translation(
+                    "prevent-reflect",
+                    "local_flask_-%_of_your_damage_cannot_be_reflected",
+                    "Prevent +{0}% of Reflected Damage during Effect",
+                    "#|+#"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Flasks/FlaskUtility14",
+                    Name = "Silver Flask",
+                    Domain = "flask",
+                },
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        var reflect = Assert.Single(
+            version.ModifierBlocks,
+            block => block.Lines[0].Contains("reduced Reflected Damage", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, reflect.SourceSemantics);
+        Assert.NotEmpty(reflect.OptionChoiceMemberships);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.Unsupported,
+            reflect.MechanicalMapping.Status);
+        Assert.Empty(reflect.MechanicalMapping.ModifierIds);
+    }
+
     private static PoBUniqueCatalogImportResult ImportSingle(
         string raw,
         bool generated,

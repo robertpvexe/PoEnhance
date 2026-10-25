@@ -1029,7 +1029,8 @@ public sealed partial class PoBUniqueCatalogImporter
                         baseType,
                         candidateLines.Any(line => line.HasGeneratedOptionEvidence),
                         CombineSourceSemanticFingerprints(candidateLines.Select(line =>
-                            line.SemanticFingerprint))))
+                            line.SemanticFingerprint)),
+                        candidateLines.Any(line => line.OptionChoiceMemberships.Count > 0)))
                 {
                     selectedLength = length;
                     break;
@@ -1132,7 +1133,8 @@ public sealed partial class PoBUniqueCatalogImporter
             baseType,
             hasGeneratedOptionEvidence,
             sourceSemanticFingerprint,
-            kind);
+            kind,
+            hasFixedOptionAxisEvidence: optionChoiceMemberships.Count > 0);
         var candidates = resolution.Candidates;
         string? currentRoleResolutionReason = null;
         var semanticFingerprints = candidates
@@ -4681,13 +4683,15 @@ public sealed partial class PoBUniqueCatalogImporter
             IReadOnlyList<string> lines,
             string baseType,
             bool hasGeneratedOptionEvidence,
-            UniqueModifierSemanticFingerprint sourceSemanticFingerprint)
+            UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
+            bool hasFixedOptionAxisEvidence = false)
         {
             var resolution = Resolve(
                 lines,
                 baseType,
                 hasGeneratedOptionEvidence,
-                sourceSemanticFingerprint);
+                sourceSemanticFingerprint,
+                hasFixedOptionAxisEvidence: hasFixedOptionAxisEvidence);
             return resolution.Candidates.Count > 0 &&
                 (!resolution.Candidates.Any(candidate => candidate.UsesSourceTextEvidence) ||
                     resolution.Candidates.Select(SemanticFingerprintEquivalenceKey)
@@ -4699,7 +4703,8 @@ public sealed partial class PoBUniqueCatalogImporter
             string baseType,
             bool hasGeneratedOptionEvidence,
             UniqueModifierSemanticFingerprint sourceSemanticFingerprint,
-            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique)
+            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique,
+            bool hasFixedOptionAxisEvidence = false)
         {
             var orderedExactText = string.Join("\n", lines.Select(NormalizeExactEvidence));
             var exactText = UnorderedMultilineKey(orderedExactText);
@@ -4717,7 +4722,11 @@ public sealed partial class PoBUniqueCatalogImporter
                             : candidate.ModifierId,
                         StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
+                    .ToArray(),
+                    baseType,
+                    hasGeneratedOptionEvidence,
+                    blockKind,
+                    hasFixedOptionAxisEvidence);
                 staticStrict = staticStrict with
                 {
                     Candidates = RejectIncompleteCompositionMatches(
@@ -4733,7 +4742,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
+                .ToArray(),
+                baseType,
+                hasGeneratedOptionEvidence,
+                blockKind,
+                hasFixedOptionAxisEvidence);
             dynamicStrict = dynamicStrict with
             {
                 Candidates = RetainStrongestValueEvidence(
@@ -4746,7 +4759,22 @@ public sealed partial class PoBUniqueCatalogImporter
             {
                 return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
-            if (staticStrict.HadCandidatesBeforeSemanticFingerprint)
+
+            // Fixed option-axis ExactText can hit unveiled/charm rows whose numeric axis differs
+            // from Unique-generation catalog rows that still share normalized display text
+            // (Cinderswallow rarity (20-30) vs Unique (30-50)). Defer unveiled-only strict Exact
+            // so Unique-generation broad can keep prior ownership; GeneratedCandidate still
+            // prefers unveiled via the early return above.
+            var deferFixedOptionAxisGeneratedOptionStrict =
+                hasFixedOptionAxisEvidence &&
+                !hasGeneratedOptionEvidence &&
+                staticStrict.HadCandidatesBeforeSemanticFingerprint &&
+                staticStrict.Candidates.Count > 0 &&
+                staticStrict.Candidates.All(candidate =>
+                    IsGeneratedOptionOwnedDomain(candidate.Domain));
+
+            if (staticStrict.HadCandidatesBeforeSemanticFingerprint &&
+                !deferFixedOptionAxisGeneratedOptionStrict)
             {
                 return Resolution(staticStrict, usedStrictEvidence: true, orderedExactText);
             }
@@ -4774,14 +4802,22 @@ public sealed partial class PoBUniqueCatalogImporter
                         .ToArray(),
                     baseType,
                     hasGeneratedOptionEvidence,
-                    blockKind);
+                    blockKind,
+                    hasFixedOptionAxisEvidence);
                 broadFiltered = broadFiltered with
                 {
                     Candidates = RetainStrongestValueEvidence(broadFiltered.Candidates),
                 };
-                return Resolution(
-                    ApplySemanticFingerprint(broadFiltered, sourceSemanticFingerprint),
-                    usedStrictEvidence: false);
+                broadFiltered = ApplySemanticFingerprint(broadFiltered, sourceSemanticFingerprint);
+                if (broadFiltered.HadCandidatesBeforeSemanticFingerprint)
+                {
+                    return Resolution(broadFiltered, usedStrictEvidence: false);
+                }
+            }
+
+            if (deferFixedOptionAxisGeneratedOptionStrict)
+            {
+                return Resolution(staticStrict, usedStrictEvidence: true, orderedExactText);
             }
 
             var partialStatic = CandidateFilterResult.Empty;
@@ -4790,7 +4826,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 partialStatic = FilterCandidates(partialStaticMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
+                    .ToArray(),
+                    baseType,
+                    hasGeneratedOptionEvidence,
+                    blockKind,
+                    hasFixedOptionAxisEvidence);
                 partialStatic = partialStatic with
                 {
                     Candidates = RejectIncompleteCompositionMatches(
@@ -4806,7 +4846,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Select(candidate => candidate.Candidate)
                 .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
+                .ToArray(),
+                baseType,
+                hasGeneratedOptionEvidence,
+                blockKind,
+                hasFixedOptionAxisEvidence);
             partialDynamicMatches = partialDynamicMatches with
             {
                 Candidates = RetainStrongestValueEvidence(
@@ -4837,7 +4881,11 @@ public sealed partial class PoBUniqueCatalogImporter
                 sourceTextMatches = FilterCandidates(sourceMatches
                     .DistinctBy(candidate => candidate.ModifierId, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(candidate => candidate.ModifierId, StringComparer.Ordinal)
-                    .ToArray(), baseType, hasGeneratedOptionEvidence, blockKind);
+                    .ToArray(),
+                    baseType,
+                    hasGeneratedOptionEvidence,
+                    blockKind,
+                    hasFixedOptionAxisEvidence);
                 sourceTextMatches = sourceTextMatches with
                 {
                     Candidates = RetainStrongestValueEvidence(sourceTextMatches.Candidates),
@@ -4959,7 +5007,8 @@ public sealed partial class PoBUniqueCatalogImporter
             IReadOnlyList<MechanicalCandidate> candidates,
             string baseType,
             bool hasGeneratedOptionEvidence,
-            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique)
+            UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique,
+            bool hasFixedOptionAxisEvidence = false)
         {
             var available = candidates
                 .Where(candidate =>
@@ -4969,7 +5018,8 @@ public sealed partial class PoBUniqueCatalogImporter
                 .Where(candidate => IsDomainCompatible(
                     candidate,
                     baseType,
-                    hasGeneratedOptionEvidence))
+                    hasGeneratedOptionEvidence,
+                    hasFixedOptionAxisEvidence))
                 .ToArray();
             var propertyCompatible = domainCompatible
                 .Where(candidate => IsPropertyCapabilityCompatible(candidate, baseType))
@@ -4981,6 +5031,8 @@ public sealed partial class PoBUniqueCatalogImporter
 
             // Generated Unique option lines own unveiled/charm Exact rows. Prefer those over
             // Unique-generation broad/Exact competitors that only share normalized display text.
+            // Fixed option-axis does NOT prefer unveiled when Unique-generation Exact also exists
+            // (e.g. Cinderswallow rarity keeps FlaskItemRarityUniqueFlask1).
             if (hasGeneratedOptionEvidence)
             {
                 var generatedOwned = afterDomainProperty
@@ -4998,6 +5050,8 @@ public sealed partial class PoBUniqueCatalogImporter
             // Source-generation eligibility is authoritative only when at least one survivor
             // proves compatible. Candidates without generation metadata (or all incompatible)
             // remain fail-closed to the prior set rather than inventing Unsupported.
+            // Fixed option-axis unveiled Exact relies on this fallback when Unique-generation
+            // has no survivor for the ExactText.
             var generationCompatible = afterDomainProperty
                 .Where(candidate => IsSourceGenerationCompatible(
                     blockKind,
@@ -5044,14 +5098,20 @@ public sealed partial class PoBUniqueCatalogImporter
         private bool IsDomainCompatible(
             MechanicalCandidate candidate,
             string baseType,
-            bool hasGeneratedOptionEvidence)
+            bool hasGeneratedOptionEvidence,
+            bool hasFixedOptionAxisEvidence = false)
         {
             var domain = candidate.Domain?.Trim();
-            if (hasGeneratedOptionEvidence &&
+            // Fixed Unique option-axis ExactText may own unveiled/charm rows (Betrayal flask
+            // unveils) without treating Fixed as Generated or unlocking all item-domain prefixes.
+            var allowGeneratedOptionOwnedDomains =
+                hasGeneratedOptionEvidence || hasFixedOptionAxisEvidence;
+            if (allowGeneratedOptionOwnedDomains &&
                 IsGeneratedOptionOwnedDomain(domain))
             {
-                // PoB Generated.lua veiled / charm option lines are not base-domain spawn rows;
-                // ownership is the GeneratedCandidate option axis, not item-domain affinity.
+                // PoB Generated.lua veiled / charm option lines, and Fixed Unique option-axis
+                // ExactText that owns the same unveiled/charm catalog rows, are not base-domain
+                // spawn rows; ownership is the option axis, not item-domain affinity.
                 return true;
             }
 
@@ -5073,9 +5133,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 }
             }
 
-            // Fixed / non-generated Unique blocks must not Exact-claim unveiled/charm catalog rows
-            // that happen to share display text with Unique-generation competitors.
-            if (!hasGeneratedOptionEvidence &&
+            // Bare Fixed Unique blocks must not Exact-claim unveiled/charm catalog rows that
+            // happen to share display text with Unique-generation competitors.
+            if (!allowGeneratedOptionOwnedDomains &&
                 IsGeneratedOptionOwnedDomain(domain))
             {
                 return false;
