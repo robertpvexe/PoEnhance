@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
@@ -445,7 +445,7 @@ Corrupted
         var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
         Assert.True(load.IsSuccess);
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal("3.29.3.3", load.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.3.4", load.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(load.Package);
     }
 

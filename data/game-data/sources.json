@@ -1,11 +1,11 @@
-{
+﻿{
     "schemaVersion":  1,
     "package":  {
                     "schemaVersion":  4,
-                    "dataVersion":  "3.29.3.3",
+                    "dataVersion":  "3.29.3.4",
                     "createdAtUtc":  "2026-10-21T12:00:00+00:00",
-                    "sizeBytes":  191034541,
-                    "sha256":  "9043d8548e6e20c566ec3b003a221516c0bf8664aa589a153bde656ebd412717",
+                    "sizeBytes":  191045890,
+                    "sha256":  "8398c09a09fa3bfcffcfebf568948b09fa724b727121295b5351f3bbccc0006c",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0

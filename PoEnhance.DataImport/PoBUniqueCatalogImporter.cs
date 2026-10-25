@@ -1898,18 +1898,18 @@ public sealed partial class PoBUniqueCatalogImporter
                         .Select(line => NormalizeSignature(Render(line, variant.ValueFormats)))
                         .Where(signature => signature.Length > 0)
                         .ToArray();
-                    var signature = string.Join("\n", signatures);
+                    // Formatting-only continuation lines (no {n} placeholders) may be space-folded
+                    // so PoB single-line Generations match RePoE "up to\nyour maximum…" splits.
+                    // Multi-placeholder newline splits stay "\n"-joined (fail-closed).
+                    var signature = HasFormattingOnlyContinuationLines(variant.FormatLines)
+                        ? ComposeBroadSignatureKey(signatures)
+                        : string.Join("\n", signatures);
                     if (signature.Length == 0)
                     {
                         continue;
                     }
 
-                    if (!broadIndex.TryGetValue(signature, out var candidates))
-                    {
-                        candidates = [];
-                        broadIndex.Add(signature, candidates);
-                    }
-                    candidates.Add(new MechanicalCandidate(
+                    var candidate = new MechanicalCandidate(
                         modifier.Id!,
                         statIds,
                         modifier.Domain,
@@ -1924,7 +1924,16 @@ public sealed partial class PoBUniqueCatalogImporter
                             statsById,
                             [CreateTranslationEvidence(translation, variant, statIds)]),
                         SourceGenerationType: modifier.SourceGenerationType,
-                        SourceAvailability: modifier.SourceAvailability));
+                        SourceAvailability: modifier.SourceAvailability);
+                    AddBroadSignatureCandidate(broadIndex, signature, candidate);
+                    var plusStripped = StripOptionalPositivePlusFromSignature(signature);
+                    if (!string.Equals(plusStripped, signature, StringComparison.Ordinal) &&
+                        plusStripped.Length > 0)
+                    {
+                        // Alias only: bare PoB "(1-2)% …" can resolve RePoE "+#" renders without
+                        // forcing PoB "+(n)% …" lookups into the bare-"#" competitor pool.
+                        AddBroadSignatureCandidate(broadIndex, plusStripped, candidate);
+                    }
                 }
             }
 
@@ -3634,8 +3643,74 @@ public sealed partial class PoBUniqueCatalogImporter
             match.Groups["sign"].Value + "<number>");
         normalized = NumberPattern().Replace(normalized, match =>
             match.Groups["sign"].Value + "<number>");
+        // PoB Generated.lua occasionally emits "an" before a consonant ("an Frenzy" / "an Power");
+        // RePoE and official Trade use the grammatically correct "a". Vowels keep "an"
+        // ("an Endurance") so Exact charge siblings stay stable.
+        normalized = IndefiniteArticleBeforeConsonantPattern().Replace(normalized, "a ");
         normalized = WhitespacePattern().Replace(normalized, " ");
         return normalized.Trim();
+    }
+
+    /// <summary>
+    /// Cosmetic RePoE "+#" positive-plus token equivalence for broad index aliases only.
+    /// Applied when indexing "+#"-rendered signatures so bare PoB ranges can hit them, without
+    /// collapsing PoB "+(n)% …" lookups into bare-"#" competitor pools (Craiceann/Rathpith).
+    /// </summary>
+    internal static string StripOptionalPositivePlusFromSignature(string normalizedSignature) =>
+        OptionalPositivePlusBeforeNumberTokenPattern().Replace(normalizedSignature, "<number>");
+
+    /// <summary>
+    /// Broad mechanical index key: per-line <see cref="NormalizeSignature"/> joined with spaces so
+    /// RePoE FormatLines that only differ by a formatting newline (Power-charge "up to\nyour maximum…")
+    /// match a single PoB Generated source line. Order is preserved; sorting is intentionally not applied.
+    /// </summary>
+    internal static string ComposeBroadSignatureKey(IEnumerable<string> normalizedLineSignatures) =>
+        WhitespacePattern().Replace(
+            string.Join(' ', normalizedLineSignatures.Where(signature => signature.Length > 0)),
+            " ").Trim();
+
+    private static void AddBroadSignatureCandidate(
+        Dictionary<string, List<MechanicalCandidate>> broadIndex,
+        string signature,
+        MechanicalCandidate candidate)
+    {
+        if (!broadIndex.TryGetValue(signature, out var candidates))
+        {
+            candidates = [];
+            broadIndex.Add(signature, candidates);
+        }
+
+        candidates.Add(candidate);
+    }
+
+    private static bool HasFormattingOnlyContinuationLines(IReadOnlyList<string> formatLines) =>
+        formatLines.Count > 1 &&
+        formatLines.Skip(1).All(line => !UnresolvedPlaceholderPattern().IsMatch(line));
+
+    private static IReadOnlyList<MechanicalCandidate> CollectBroadSignatureCandidates(
+        IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> broad,
+        string newlineSignature,
+        string foldedSignature)
+    {
+        List<MechanicalCandidate>? merged = null;
+        if (broad.TryGetValue(newlineSignature, out var newlineHits) && newlineHits.Count > 0)
+        {
+            merged = [.. newlineHits];
+        }
+
+        if (!string.Equals(newlineSignature, foldedSignature, StringComparison.Ordinal) &&
+            broad.TryGetValue(foldedSignature, out var foldedHits) &&
+            foldedHits.Count > 0)
+        {
+            if (merged is null)
+            {
+                return foldedHits;
+            }
+
+            merged.AddRange(foldedHits);
+        }
+
+        return merged ?? [];
     }
 
     internal static string ComputeLegacyFixedBlockStableId(
@@ -3838,6 +3913,14 @@ public sealed partial class PoBUniqueCatalogImporter
 
     [GeneratedRegex(@"(?<![A-Za-z<])(?<sign>[+-]?)\d+(?:[\.,]\d+)?", RegexOptions.CultureInvariant)]
     private static partial Regex NumberPattern();
+
+    [GeneratedRegex(@"\+<number>", RegexOptions.CultureInvariant)]
+    private static partial Regex OptionalPositivePlusBeforeNumberTokenPattern();
+
+    [GeneratedRegex(
+        @"\ban (?=[BCDFGHJKLMNPQRSTVWXYZbcdfghjklmnpqrstvwxyz])",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex IndefiniteArticleBeforeConsonantPattern();
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespacePattern();
@@ -4607,8 +4690,13 @@ public sealed partial class PoBUniqueCatalogImporter
                 return Resolution(dynamicStrict, usedStrictEvidence: true, orderedExactText);
             }
 
-            var signature = string.Join("\n", lines.Select(NormalizeSignature));
-            var broadCandidates = broad.GetValueOrDefault(signature) ?? [];
+            var normalizedLines = lines.Select(NormalizeSignature).ToArray();
+            var newlineSignature = string.Join("\n", normalizedLines);
+            var foldedSignature = ComposeBroadSignatureKey(normalizedLines);
+            var broadCandidates = CollectBroadSignatureCandidates(
+                broad,
+                newlineSignature,
+                foldedSignature);
             if (broadCandidates.Count > 0)
             {
                 // Broad normalized-signature matches previously skipped domain/property/
