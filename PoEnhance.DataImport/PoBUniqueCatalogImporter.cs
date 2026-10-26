@@ -2129,6 +2129,16 @@ public sealed partial class PoBUniqueCatalogImporter
                         .ToHashSet(StringComparer.OrdinalIgnoreCase),
                     StringComparer.Ordinal),
             baseItems
+                .Where(item => !string.IsNullOrWhiteSpace(item.Name) &&
+                    !string.IsNullOrWhiteSpace(item.ItemClass))
+                .GroupBy(item => item.Name!.Trim(), StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(item => item.ItemClass!.Trim())
+                        .First(itemClass => itemClass.Length > 0),
+                    StringComparer.Ordinal),
+            baseItems
                 .Where(item => !string.IsNullOrWhiteSpace(item.Name))
                 .GroupBy(item => item.Name!.Trim(), StringComparer.Ordinal)
                 .ToDictionary(
@@ -4300,6 +4310,7 @@ public sealed partial class PoBUniqueCatalogImporter
         IReadOnlyDictionary<string, IReadOnlyList<MechanicalCandidate>> sourceTextExact,
         IReadOnlySet<string> compositionModifierIds,
         IReadOnlyDictionary<string, IReadOnlySet<string>> baseDomains,
+        IReadOnlyDictionary<string, string> baseItemClasses,
         IReadOnlyDictionary<string, BaseMechanicalCapability> baseCapabilities,
         IReadOnlyDictionary<string, ItemPropertySemanticDescriptor> propertySemantics,
         IReadOnlyDictionary<string, ModifierDefinition> modifiersById,
@@ -5301,9 +5312,28 @@ public sealed partial class PoBUniqueCatalogImporter
                 return true;
             }
 
+            // Abyss AlternateTree Unique mods are catalogued as domain=misc (like classic
+            // Timeless), but Abyss Eye bases use domain=abyss_jewel (Assembled Eye is
+            // undefined + itemClass=AbyssJewel). Allow misc Unique-generation only on those
+            // Abyss Jewel bases — never globally, or jewel Unique ExactText pollutes helmets.
+            if (string.Equals(domain, "misc", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(
+                    candidate.SourceGenerationType?.Trim(),
+                    "unique",
+                    StringComparison.OrdinalIgnoreCase) &&
+                IsAbyssJewelBase(baseType.Trim(), domains))
+            {
+                return true;
+            }
+
             return !string.IsNullOrWhiteSpace(domain) &&
                 domains.Contains(domain);
         }
+
+        private bool IsAbyssJewelBase(string baseType, IReadOnlySet<string> domains) =>
+            domains.Contains("abyss_jewel") ||
+            (baseItemClasses.TryGetValue(baseType, out var itemClass) &&
+                string.Equals(itemClass, "AbyssJewel", StringComparison.OrdinalIgnoreCase));
 
         private bool IsPropertyCapabilityCompatible(
             MechanicalCandidate candidate,

@@ -868,6 +868,369 @@ public sealed class PoBUniqueCatalogImporterRepresentationTests
             candidate.MechanicalMapping.ModifierIds.Contains("UniqueJewelAlternateTreeInRadiusEternal"));
     }
 
+    [Fact]
+    public void Import_AbyssEyeJewelMiscUniqueAlternateTree_ComposesExactDespiteBaseDomainMismatch()
+    {
+        // RePoE UniqueJewelAlternateTreeAbyss* rows are domain=misc Unique-generation, while
+        // Hypnotic/Ghastly/Murderous/Searching Eye bases are abyss_jewel (Assembled Eye is
+        // undefined). Spawn-affinity filtering must treat misc Unique-generation as ownership,
+        // same as item-domain Unique on Timeless Jewel, so SourceText composition can Exact.
+        const string subjugating = "Subjugating (100-8000) souls in the thrall of Kurgal";
+        const string conquered = "Passives affected are Conquered by the Abyssal";
+        const string historic = "Historic";
+        var modifier = new ModifierDefinition
+        {
+            Id = "UniqueJewelAlternateTreeAbyssHypnotic",
+            GroupId = "UniqueJewelAlternateTreeAbyss",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "misc",
+            SourceText = $"{subjugating}\n{conquered}\n{historic}",
+            Stats =
+            [
+                new ModifierStat { Index = 0, StatId = "local_unique_jewel_alternate_tree_version", MinValue = 9, MaxValue = 9 },
+                new ModifierStat { Index = 1, StatId = "local_unique_jewel_alternate_tree_seed", MinValue = 100, MaxValue = 8000 },
+                new ModifierStat { Index = 2, StatId = "local_unique_jewel_alternate_tree_keystone", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 3, StatId = "local_unique_jewel_passive_tree_abyss_size", MinValue = 60, MaxValue = 60 },
+                new ModifierStat { Index = 4, StatId = "local_is_alternate_tree_jewel", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 5, StatId = "local_unique_jewel_alternate_tree_internal_revision", MinValue = 1, MaxValue = 1 },
+            ],
+        };
+
+        var result = ImportSingle(
+            raw: $"""
+                Baleful Dominion
+                Hypnotic Eye Jewel
+                League: Abyss
+                Limited to: 1 Historic
+                Implicits: 0
+                {subjugating}
+                {conquered}
+                {historic}
+                """,
+            modifiers: [modifier],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "abyss-seed",
+                    StatIds =
+                    [
+                        "local_unique_jewel_alternate_tree_version",
+                        "local_unique_jewel_alternate_tree_seed",
+                        "local_unique_jewel_alternate_tree_keystone",
+                        "local_unique_jewel_alternate_tree_internal_revision",
+                    ],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 9, MaxValue = 9 },
+                                new StatTranslationCondition { Index = 1 },
+                                new StatTranslationCondition { Index = 2, MinValue = 1, MaxValue = 1 },
+                                new StatTranslationCondition { Index = 3 },
+                            ],
+                            ValueFormats = ["ignore", "#", "ignore", "ignore"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                                new StatTranslationIndexHandler { Index = 2 },
+                                new StatTranslationIndexHandler { Index = 3 },
+                            ],
+                            FormatLines =
+                            [
+                                "Subjugating {1} souls in the thrall of Kurgal",
+                                "Passives affected are Conquered by the Abyssal",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "abyss-historic",
+                    StatIds = ["local_is_alternate_tree_jewel"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Hypnotic Eye Jewel",
+                    Domain = "abyss_jewel",
+                    ItemClass = "AbyssJewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(3, block.Lines.Count);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["UniqueJewelAlternateTreeAbyssHypnotic"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(6, block.MechanicalMapping.StatIds.Count);
+        Assert.DoesNotContain(
+            result.Catalog.Items.SelectMany(item => item.Versions).SelectMany(version => version.ModifierBlocks),
+            candidate => candidate.Lines.Count == 1);
+    }
+
+    [Fact]
+    public void Import_AssembledEyeUndefinedDomain_UsesAbyssJewelItemClassForMiscUniqueOwnership()
+    {
+        const string binding = "Binding (100-8000) souls to phylacteries to sustain Zorath";
+        const string conquered = "Passives affected are Conquered by the Abyssal";
+        const string historic = "Historic";
+        var modifier = new ModifierDefinition
+        {
+            Id = "UniqueJewelAlternateTreeAbyssSpecial",
+            GroupId = "UniqueJewelAlternateTreeAbyssSpecial",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "misc",
+            SourceText = $"{binding}\n{conquered}\n{historic}",
+            Stats =
+            [
+                new ModifierStat { Index = 0, StatId = "local_unique_jewel_alternate_tree_version", MinValue = 11, MaxValue = 11 },
+                new ModifierStat { Index = 1, StatId = "local_unique_jewel_alternate_tree_seed", MinValue = 100, MaxValue = 8000 },
+                new ModifierStat { Index = 2, StatId = "local_unique_jewel_alternate_tree_keystone", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 3, StatId = "local_unique_jewel_passive_tree_abyss_to_character_start", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 4, StatId = "local_is_alternate_tree_jewel", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 5, StatId = "local_unique_jewel_alternate_tree_internal_revision", MinValue = 1, MaxValue = 1 },
+                new ModifierStat { Index = 6, StatId = "local_unique_jewel_x_abyss_ascendancy_notables", MinValue = 1, MaxValue = 1 },
+            ],
+        };
+
+        var result = ImportSingle(
+            raw: $"""
+                Reclaimed Malevolence
+                Assembled Eye Jewel
+                Limited to: 1 Historic
+                Implicits: 0
+                {binding}
+                {conquered}
+                {historic}
+                """,
+            modifiers: [modifier],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "abyss-special-seed",
+                    StatIds =
+                    [
+                        "local_unique_jewel_alternate_tree_version",
+                        "local_unique_jewel_alternate_tree_seed",
+                        "local_unique_jewel_alternate_tree_keystone",
+                        "local_unique_jewel_alternate_tree_internal_revision",
+                    ],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 11, MaxValue = 11 },
+                                new StatTranslationCondition { Index = 1 },
+                                new StatTranslationCondition { Index = 2, MinValue = 1, MaxValue = 1 },
+                                new StatTranslationCondition { Index = 3 },
+                            ],
+                            ValueFormats = ["ignore", "#", "ignore", "ignore"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0 },
+                                new StatTranslationIndexHandler { Index = 1 },
+                                new StatTranslationIndexHandler { Index = 2 },
+                                new StatTranslationIndexHandler { Index = 3 },
+                            ],
+                            FormatLines =
+                            [
+                                "Binding {1} souls to phylacteries to sustain Zorath",
+                                "Passives affected are Conquered by the Abyssal",
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "abyss-historic",
+                    StatIds = ["local_is_alternate_tree_jewel"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Assembled Eye Jewel",
+                    Domain = "undefined",
+                    ItemClass = "AbyssJewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["UniqueJewelAlternateTreeAbyssSpecial"], block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_AbyssEyeJewelMiscPrefixCompetitor_RemainsFailClosedWithoutUniqueOwnership()
+    {
+        // Non-Unique misc-domain rows must still require base-domain affinity; do not broaden
+        // the Unique-generation misc ownership gate into ordinary crafting affinity.
+        var result = ImportSingle(
+            raw: """
+                Fake Abyss
+                Hypnotic Eye Jewel
+                Implicits: 0
+                Historic
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "MiscPrefixHistoricLookalike",
+                    GroupId = "MiscPrefixHistoricLookalike",
+                    GenerationType = ModifierGenerationType.Prefix,
+                    SourceGenerationType = "prefix",
+                    Domain = "misc",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "local_is_alternate_tree_jewel", MinValue = 1, MaxValue = 1 },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "historic",
+                    StatIds = ["local_is_alternate_tree_jewel"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Historic"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Hypnotic Eye Jewel",
+                    Domain = "abyss_jewel",
+                    ItemClass = "AbyssJewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_MiscUniqueJewelPierce_DoesNotPolluteNonAbyssHelmetExact()
+    {
+        // Regression for the rejected global misc Unique-generation gate: jewel Unique Pierce
+        // ExactText must not ExactConflict onto a helmet Unique that already has ownership.
+        var result = ImportSingle(
+            raw: """
+                The Devouring Diadem
+                Necromancer Circlet
+                Implicits: 0
+                Projectiles Pierce an additional Target
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "SynthesisImplicitAdditionalPierce1",
+                    GroupId = "SynthesisImplicitAdditionalPierce1",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "projectile_base_number_of_targets_to_pierce", MinValue = 1, MaxValue = 1 },
+                    ],
+                },
+                new ModifierDefinition
+                {
+                    Id = "AdditionalPierceUniqueJewel__1",
+                    GroupId = "AdditionalPierceUniqueJewel__1",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "misc",
+                    Stats =
+                    [
+                        new ModifierStat { Index = 0, StatId = "projectile_base_number_of_targets_to_pierce", MinValue = 1, MaxValue = 1 },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "pierce",
+                    StatIds = ["projectile_base_number_of_targets_to_pierce"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Projectiles Pierce an additional Target"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Necromancer Circlet",
+                    Domain = "item",
+                    ItemClass = "Helmet",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["SynthesisImplicitAdditionalPierce1"], block.MechanicalMapping.ModifierIds);
+        Assert.DoesNotContain(
+            "AdditionalPierceUniqueJewel__1",
+            block.MechanicalMapping.ModifierIds,
+            StringComparer.Ordinal);
+    }
+
     private sealed record SourceOptionAxisFixture(
         string SourceKind,
         int SourceOrdinal,
