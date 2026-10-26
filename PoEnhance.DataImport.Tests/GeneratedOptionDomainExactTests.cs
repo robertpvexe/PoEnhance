@@ -6,6 +6,8 @@ namespace PoEnhance.DataImport.Tests;
 /// <summary>
 /// Generated Unique option pools (PoB veiledMods / ModJewelCharm) own unveiled and
 /// affliction_charm Exact rows. Fixed Unique Exact must not claim those domains.
+/// Cluster AfflictionNotable Disabled recovery is covered by dedicated Megalomaniac-style tests
+/// without adding affliction_jewel to IsGeneratedOptionOwnedDomain.
 /// </summary>
 public sealed class GeneratedOptionDomainExactTests
 {
@@ -26,9 +28,292 @@ public sealed class GeneratedOptionDomainExactTests
         Assert.True(PoBUniqueCatalogImporter.IsEligibleForStrictExactEnrollment(
             Modifier("c", "s", 1, 1, "prefix") with { Domain = "affliction_charm" }));
         Assert.False(PoBUniqueCatalogImporter.IsEligibleForStrictExactEnrollment(
+            Modifier("j", "s", 1, 1, "prefix") with { Domain = "affliction_jewel" }));
+        Assert.False(PoBUniqueCatalogImporter.IsEligibleForStrictExactEnrollment(
             Modifier("p", "s", 1, 1, "prefix") with { Domain = "item" }));
         Assert.False(PoBUniqueCatalogImporter.IsEligibleForStrictExactEnrollment(
             Modifier("craft", "s", 1, 1, "prefix") with { Domain = "crafted" }));
+    }
+
+    [Fact]
+    public void Import_GeneratedClusterNotable_DisabledAfflictionJewel_ExactOwnsNotable()
+    {
+        // Megalomaniac-style: RePoE AfflictionNotable with spawn_weights all zero is Disabled,
+        // but PoB GeneratedCandidate + official Trade still own the ExactText.
+        const string notableModId = "AfflictionNotableNoWitnesses";
+        var notable = Modifier(
+            notableModId,
+            "local_affliction_notable_no_witnesses",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+        };
+
+        var result = ImportSingle(
+            """
+                Megalomaniac
+                Medium Cluster Jewel
+                Selected Variant: 1
+                Variant: No Witnesses
+                Implicits: 0
+                {variant:1}1 Added Passive Skill is No Witnesses
+                """,
+            generated: true,
+            modifiers: [notable],
+            translations:
+            [
+                Translation(
+                    "no-witnesses",
+                    "local_affliction_notable_no_witnesses",
+                    "1 Added Passive Skill is No Witnesses",
+                    "ignore"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium",
+                    Name = "Medium Cluster Jewel",
+                    Domain = "affliction_jewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([notableModId], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["local_affliction_notable_no_witnesses"],
+            block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedClusterNotable_PotentiallyEligibleAfflictionJewel_StillExact()
+    {
+        const string notableModId = "AfflictionNotableDiseaseVector";
+        var notable = Modifier(
+            notableModId,
+            "local_affliction_notable_disease_vector",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+
+        var result = ImportSingle(
+            """
+                Megalomaniac
+                Medium Cluster Jewel
+                Selected Variant: 1
+                Variant: Disease Vector
+                Implicits: 0
+                {variant:1}1 Added Passive Skill is Disease Vector
+                """,
+            generated: true,
+            modifiers: [notable],
+            translations:
+            [
+                Translation(
+                    "disease-vector",
+                    "local_affliction_notable_disease_vector",
+                    "1 Added Passive Skill is Disease Vector",
+                    "ignore"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium",
+                    Name = "Medium Cluster Jewel",
+                    Domain = "affliction_jewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([notableModId], block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_FixedUniqueMatchingAfflictionJewelDisplay_DoesNotExactClaimDisabledNotable()
+    {
+        // Negative: bare Fixed Unique must not Exact-claim Disabled affliction_jewel rows that
+        // share display text with a GeneratedCandidate cluster option.
+        const string notableModId = "AfflictionNotableNoWitnesses";
+        var notable = Modifier(
+            notableModId,
+            "local_affliction_notable_no_witnesses",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+        };
+
+        var result = ImportSingle(
+            """
+                Hypothetical Fixed Cluster
+                Medium Cluster Jewel
+                Implicits: 0
+                1 Added Passive Skill is No Witnesses
+                """,
+            generated: false,
+            modifiers: [notable],
+            translations:
+            [
+                Translation(
+                    "no-witnesses",
+                    "local_affliction_notable_no_witnesses",
+                    "1 Added Passive Skill is No Witnesses",
+                    "ignore"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium",
+                    Name = "Medium Cluster Jewel",
+                    Domain = "affliction_jewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, block.SourceSemantics);
+        Assert.Equal(
+            UniqueModifierMechanicalMappingStatus.Unsupported,
+            block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedClusterNotable_LiveTwinBeatsDisabledRename()
+    {
+        // Evil Eye (PotentiallyEligible) must win over Disabled Whispers of Death sharing ExactText.
+        const string liveModId = "AfflictionNotableEvilEye";
+        const string disabledRenameId = "AfflictionNotableWhispersofDeath";
+        var live = Modifier(
+            liveModId,
+            "local_affliction_notable_evil_eye",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+        };
+        var disabledRename = Modifier(
+            disabledRenameId,
+            "local_affliction_notable_whispers_of_death",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+        };
+
+        var result = ImportSingle(
+            """
+                Megalomaniac
+                Medium Cluster Jewel
+                Selected Variant: 1
+                Variant: Evil Eye
+                Implicits: 0
+                {variant:1}1 Added Passive Skill is Evil Eye
+                """,
+            generated: true,
+            modifiers: [live, disabledRename],
+            translations:
+            [
+                Translation(
+                    "evil-eye",
+                    "local_affliction_notable_evil_eye",
+                    "1 Added Passive Skill is Evil Eye",
+                    "ignore"),
+                Translation(
+                    "whispers",
+                    "local_affliction_notable_whispers_of_death",
+                    "1 Added Passive Skill is Evil Eye",
+                    "ignore"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium",
+                    Name = "Medium Cluster Jewel",
+                    Domain = "affliction_jewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([liveModId], block.MechanicalMapping.ModifierIds);
+        Assert.DoesNotContain(disabledRenameId, block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedClusterNotable_ForbiddenWords_OwnsWardbreakerRename()
+    {
+        // PoB/Trade still display "Forbidden Words"; pinned RePoE mod id is Wardbreaker_.
+        const string notableModId = "AfflictionNotableWardbreaker_";
+        var notable = Modifier(
+            notableModId,
+            "local_affliction_notable_wardbreaker",
+            1m,
+            1m,
+            "prefix") with
+        {
+            Domain = "affliction_jewel",
+            SourceAvailability = ModifierSourceAvailability.Disabled,
+        };
+
+        var result = ImportSingle(
+            """
+                Megalomaniac
+                Medium Cluster Jewel
+                Selected Variant: 1
+                Variant: Forbidden Words
+                Implicits: 0
+                {variant:1}1 Added Passive Skill is Forbidden Words
+                """,
+            generated: true,
+            modifiers: [notable],
+            translations:
+            [
+                Translation(
+                    "forbidden-words",
+                    "local_affliction_notable_wardbreaker",
+                    "1 Added Passive Skill is Forbidden Words",
+                    "ignore"),
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium",
+                    Name = "Medium Cluster Jewel",
+                    Domain = "affliction_jewel",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([notableModId], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["local_affliction_notable_wardbreaker"],
+            block.MechanicalMapping.StatIds);
     }
 
     [Fact]

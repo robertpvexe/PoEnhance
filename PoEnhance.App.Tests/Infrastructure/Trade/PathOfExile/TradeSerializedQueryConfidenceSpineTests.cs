@@ -790,6 +790,90 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void Megalomaniac_SyntheticDisabledAfflictionNotable_SerializesOfficialPresenceFilter()
+    {
+        // Synthetic AID (not genuine Ctrl+C). No Witnesses is RePoE spawn-disabled but still
+        // Trade-searchable on Megalomaniac GeneratedCandidate options.
+        // Official: explicit.stat_1722480396 = "1 Added Passive Skill is No Witnesses".
+        // Must not attach Disease Vector / Forbidden Words sibling notables.
+        var raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Megalomaniac
+            Medium Cluster Jewel
+            --------
+            Item Level: 84
+            --------
+            Adds 4 Passive Skills
+            Added Small Passive Skills grant Nothing
+            { Unique Modifier }
+            1 Added Passive Skill is No Witnesses
+            --------
+            """;
+        var runtime = Resolve(raw);
+        Assert.Equal("Megalomaniac", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var notable = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "No Witnesses",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, notable.UniqueSourceSemantics);
+        Assert.True(
+            notable.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"status={notable.ProviderResolutionStatus}; id={notable.ProviderStatId}; code={notable.ProviderDiagnosticCode}; text={notable.OriginalText}");
+        Assert.Equal("explicit.stat_1722480396", notable.ProviderStatId);
+        Assert.NotEqual("explicit.stat_183591019", notable.ProviderStatId);
+        Assert.NotEqual("explicit.stat_2454339320", notable.ProviderStatId);
+
+        var json = Serialize(runtime, notable);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_1722480396", filter.GetProperty("id").GetString());
+        Assert.False(filter.TryGetProperty("value", out _));
+    }
+
+    [Fact]
+    public void Megalomaniac_SyntheticForbiddenWords_OwnsWardbreakerTradeId()
+    {
+        // Synthetic AID (not genuine Ctrl+C). PoB/Trade display "Forbidden Words"; RePoE mod id
+        // is AfflictionNotableWardbreaker_ → explicit.stat_2454339320.
+        var raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Megalomaniac
+            Medium Cluster Jewel
+            --------
+            Item Level: 84
+            --------
+            Adds 4 Passive Skills
+            Added Small Passive Skills grant Nothing
+            { Unique Modifier }
+            1 Added Passive Skill is Forbidden Words
+            --------
+            """;
+        var runtime = Resolve(raw);
+        var notable = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Forbidden Words",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, notable.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_2454339320", notable.ProviderStatId);
+
+        var json = Serialize(runtime, notable);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_2454339320", filter.GetProperty("id").GetString());
+    }
+
+    [Fact]
     public void WatchersEye_SyntheticClarityManaCost_ManualMaxMinus8_SerializesOverriddenMax()
     {
         // Synthetic AID (not genuine Ctrl+C). Manual Max edit must reach Trade as max:-8.
@@ -1635,6 +1719,7 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(11, "Cospri's Will", "Assassin's Garb", "armour"),
             UniqueItem(12, "Aul's Uprising", "Onyx Amulet", "accessory"),
             UniqueItem(13, "Watcher's Eye", "Prismatic Jewel", "jewel"),
+            UniqueItem(14, "Megalomaniac", "Medium Cluster Jewel", "jewel"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(

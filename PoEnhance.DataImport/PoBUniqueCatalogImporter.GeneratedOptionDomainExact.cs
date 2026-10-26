@@ -10,6 +10,10 @@ public sealed partial class PoBUniqueCatalogImporter
     /// Domains owned by PoB Generated Unique option pools (veiledMods / ModJewelCharm) and by
     /// Fixed Unique option-axis choices that ExactText-match those catalog rows (e.g. Betrayal
     /// flask unveil lines). Never owned by bare Fixed Unique SourceGenerationType=unique rows.
+    /// Affliction_jewel Cluster notables are NOT included here: adding them would prefer
+    /// Affliction rows over Unique-generation Exact for Fixed Cluster lines (Voices / Megalomaniac
+    /// "Adds N Passive Skills") whenever the item also carries GeneratedCandidate evidence.
+    /// Disabled AfflictionNotable recovery for Megalomaniac is handled only in FilterCandidates.
     /// </summary>
     internal static bool IsGeneratedOptionOwnedDomain(string? domain)
     {

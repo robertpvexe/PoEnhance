@@ -5148,10 +5148,27 @@ public sealed partial class PoBUniqueCatalogImporter
             UniqueModifierBlockKind blockKind = UniqueModifierBlockKind.Unique,
             bool hasFixedOptionAxisEvidence = false)
         {
+            // Megalomaniac / JewelCluster GeneratedCandidate options may Exact-own AfflictionNotable
+            // rows whose spawn_weights are all zero (Disabled) but which remain Trade-searchable.
+            // Prefer non-Disabled survivors first so rename twins (Evil Eye vs Whispers of Death)
+            // stay Exact on the live row. Only when every candidate is Disabled, admit
+            // affliction_jewel Disabled rows under Generated evidence — never via
+            // IsGeneratedOptionOwnedDomain (that preference steals Fixed Cluster Unique Exact).
             var available = candidates
                 .Where(candidate =>
                     candidate.SourceAvailability != ModifierSourceAvailability.Disabled)
                 .ToArray();
+            if (available.Length == 0 && hasGeneratedOptionEvidence)
+            {
+                available = candidates
+                    .Where(candidate =>
+                        candidate.SourceAvailability == ModifierSourceAvailability.Disabled &&
+                        string.Equals(
+                            candidate.Domain?.Trim(),
+                            "affliction_jewel",
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+            }
             var domainCompatible = available
                 .Where(candidate => IsDomainCompatible(
                     candidate,
