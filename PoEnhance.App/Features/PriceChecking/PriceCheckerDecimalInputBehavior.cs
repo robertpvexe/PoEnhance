@@ -40,13 +40,28 @@ public static class PriceCheckerDecimalInputBehavior
 
     internal static bool IsTextAllowed(string? text)
     {
-        if (string.IsNullOrEmpty(text) || text is "." or ",")
+        if (string.IsNullOrEmpty(text) || text is "." or "," or "-")
+        {
+            return true;
+        }
+
+        var body = text;
+        if (body[0] == '-')
+        {
+            body = body[1..];
+            if (body.Length == 0)
+            {
+                return true;
+            }
+        }
+
+        if (body is "." or ",")
         {
             return true;
         }
 
         var separator = '\0';
-        foreach (var character in text)
+        foreach (var character in body)
         {
             if (char.IsAsciiDigit(character))
             {
@@ -66,12 +81,23 @@ public static class PriceCheckerDecimalInputBehavior
 
     internal static bool IsPasteTextAllowed(string? text)
     {
-        if (string.IsNullOrEmpty(text) || !IsTextAllowed(text))
+        if (string.IsNullOrEmpty(text) || !IsTextAllowed(text) || text is "-" or "." or ",")
         {
             return false;
         }
 
-        return char.IsAsciiDigit(text[0]) && char.IsAsciiDigit(text[^1]);
+        var body = text[0] == '-' ? text[1..] : text;
+        if (body.Length == 0 ||
+            body is "." or "," ||
+            body.StartsWith('.') ||
+            body.StartsWith(',') ||
+            body.EndsWith('.') ||
+            body.EndsWith(','))
+        {
+            return false;
+        }
+
+        return char.IsAsciiDigit(body[0]) && char.IsAsciiDigit(body[^1]);
     }
 
     private static void OnIsEnabledChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)

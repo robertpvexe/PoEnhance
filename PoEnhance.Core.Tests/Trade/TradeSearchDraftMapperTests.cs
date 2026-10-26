@@ -103,6 +103,40 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Theory]
+    [InlineData(-6)]
+    [InlineData(-7)]
+    public void ScalarBoundDefault_AllNegativeManaCost_UsesMaximumOnCanonicalPlusAxis(int observed)
+    {
+        // Authentic Clarity Non-Channelling shape: ValueFormat "+#", empty handlers, entirely
+        // non-positive GameData roll, mana_cost stat id. Same-or-better is Maximum.
+        var result = ManaCostBoundDefault(
+            $"Non-Channelling Skills have {observed}(-10--5) to Total Mana Cost while affected by Clarity",
+            observed,
+            statMinimum: -10m,
+            statMaximum: -5m);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(observed, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Maximum, result.Direction);
+        Assert.Contains(
+            "Mana Cost",
+            result.ProviderCanonicalSignature ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ScalarBoundDefault_AllNegativeNonManaCost_KeepsMinimum()
+    {
+        // Guard: entirely negative +# empty-handler rolls that are NOT mana_cost stay Minimum
+        // (do not globally flip every negative domain to Maximum).
+        var result = BoundDefault("-8 Test Value", -10m, handlers: [], maximum: -5m);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(-8m, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+    }
+
+    [Theory]
     [InlineData("-16% to Chaos Resistance", -16, -20, -10)]
     [InlineData("+35% to Chaos Resistance", 35, 30, 40)]
     [InlineData("-12% to Fire Resistance", -12, -15, -5)]
@@ -1592,6 +1626,75 @@ Item Level: 84
             new ModifierDefinition { Id = "test-bipolar-modifier", Stats = [stat] },
             [stat],
             [source],
+            catalog);
+    }
+
+    private static ModifierBoundDefaultResult ManaCostBoundDefault(
+        string sourceLine,
+        decimal observed,
+        decimal statMinimum,
+        decimal statMaximum)
+    {
+        const string statId = "skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = statMinimum,
+            MaxValue = statMaximum,
+        };
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = [new StatDefinition { Id = statId }],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "test-mana-cost-clarity",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                            FormatLines =
+                            [
+                                "Non-Channelling Skills have {0} to Total Mana Cost while affected by Clarity",
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        Assert.Equal(observed, ModifierBoundDefaults.ExtractObservedValues(sourceLine).Single());
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-mana-cost-modifier", Stats = [stat] },
+            [stat],
+            [sourceLine],
             catalog);
     }
 

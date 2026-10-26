@@ -1407,15 +1407,21 @@ Item Level: 82
     [InlineData("12,5", true)]
     [InlineData(".", true)]
     [InlineData(",", true)]
+    [InlineData("-", true)]
+    [InlineData("-1", true)]
+    [InlineData("-1.5", true)]
+    [InlineData("-1,5", true)]
+    [InlineData("-.", true)]
     [InlineData("abc", false)]
     [InlineData("1 2", false)]
     [InlineData("1.2.3", false)]
     [InlineData("1,2,3", false)]
     [InlineData("1.2,3", false)]
     [InlineData("+1", false)]
-    [InlineData("-1", false)]
+    [InlineData("--1", false)]
+    [InlineData("1-2", false)]
     [InlineData("1e3", false)]
-    public void DecimalInput_TypingAllowsOnlyUnsignedProspectiveDecimalText(string text, bool expected)
+    public void DecimalInput_TypingAllowsSignedProspectiveDecimalText(string text, bool expected)
     {
         Assert.Equal(expected, PriceCheckerDecimalInputBehavior.IsTextAllowed(text));
     }
@@ -1425,19 +1431,35 @@ Item Level: 82
     [InlineData("123", true)]
     [InlineData("12.5", true)]
     [InlineData("12,5", true)]
+    [InlineData("-1", true)]
+    [InlineData("-7", true)]
+    [InlineData("-1.5", true)]
+    [InlineData("-1,5", true)]
     [InlineData("", false)]
     [InlineData(".", false)]
     [InlineData(",", false)]
+    [InlineData("-", false)]
     [InlineData("1.", false)]
+    [InlineData("-1.", false)]
     [InlineData(" 1", false)]
     [InlineData("1 ", false)]
     [InlineData("1.2,3", false)]
     [InlineData("+1", false)]
-    [InlineData("-1", false)]
+    [InlineData("--1", false)]
     [InlineData("1e3", false)]
-    public void DecimalInput_PasteAcceptsOnlyCompleteUnsignedIntegersOrDecimals(string text, bool expected)
+    public void DecimalInput_PasteAcceptsCompleteSignedOrUnsignedIntegersOrDecimals(string text, bool expected)
     {
         Assert.Equal(expected, PriceCheckerDecimalInputBehavior.IsPasteTextAllowed(text));
+    }
+
+    [Fact]
+    public void DecimalInput_ProspectiveReplacementAcceptsLeadingMinusWhileTyping()
+    {
+        Assert.True(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("", 0, 0, "-"));
+        Assert.True(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("-", 1, 0, "6"));
+        Assert.True(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("6", 0, 1, "-8"));
+        Assert.Equal("-6", PriceCheckerDecimalInputBehavior.ProspectiveText("-", 1, 0, "6"));
+        Assert.False(PriceCheckerDecimalInputBehavior.IsProspectiveTextAllowed("-6", 2, 0, "-"));
     }
 
     [Fact]

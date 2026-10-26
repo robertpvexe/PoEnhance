@@ -205,6 +205,18 @@ internal static partial class ModifierBoundDefaults
             {
                 // Direction/canonical already updated for same-or-better Minimum.
             }
+            else if (TryApplyAllNegativeManaCostMaximum(
+                    retainedHandlers[0],
+                    stats,
+                    numericIndexes[0],
+                    statIds,
+                    providerCanonicalSignature,
+                    observed,
+                    ref direction,
+                    ref canonical))
+            {
+                // Entirely non-positive mana_cost +#/# axis: lower signed values are better.
+            }
 
             var role = NumericQueryRoleClassifier.Classify(
                 statIds,
@@ -862,6 +874,63 @@ internal static partial class ModifierBoundDefaults
             : ModifierBoundDirection.Minimum;
         return true;
     }
+
+    /// <summary>
+    /// Additive <c>mana_cost</c> axes use RePoE <c>+#</c>/<c>#</c> with empty handlers while the
+    /// GameData roll domain stays entirely non-positive. Displayed values are negative, and
+    /// same-or-better Trade search is Maximum at the signed threshold (e.g. Clarity
+    /// Non-Channelling mana cost at -6 → max=-6). Distinct from additive resistance
+    /// (<c>+#% to … Resistance</c>), which keeps Minimum. Not a global negative→Max rule.
+    /// </summary>
+    private static bool TryApplyAllNegativeManaCostMaximum(
+        IReadOnlyList<string> handlers,
+        IReadOnlyList<ModifierStat> stats,
+        int numericIndex,
+        IReadOnlyList<string> statIds,
+        string? providerCanonicalSignature,
+        decimal observed,
+        ref ModifierBoundDirection direction,
+        ref decimal canonical)
+    {
+        if (direction != ModifierBoundDirection.Minimum ||
+            observed >= 0m ||
+            handlers.Any(OrderReversingHandlers.Contains) ||
+            numericIndex < 0 ||
+            numericIndex >= stats.Count)
+        {
+            return false;
+        }
+
+        var stat = stats[numericIndex];
+        if (stat.MinValue is not { } minimum ||
+            stat.MaxValue is not { } maximum ||
+            minimum >= 0m ||
+            maximum > 0m)
+        {
+            return false;
+        }
+
+        var resolvedStatId = numericIndex < statIds.Count
+            ? statIds[numericIndex]
+            : stat.StatId;
+        if (!IsManaCostStatId(resolvedStatId) &&
+            !IsManaCostProviderSignature(providerCanonicalSignature))
+        {
+            return false;
+        }
+
+        direction = ModifierBoundDirection.Maximum;
+        canonical = observed;
+        return true;
+    }
+
+    private static bool IsManaCostStatId(string? statId) =>
+        !string.IsNullOrWhiteSpace(statId) &&
+        statId.Contains("mana_cost", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsManaCostProviderSignature(string? providerCanonicalSignature) =>
+        !string.IsNullOrWhiteSpace(providerCanonicalSignature) &&
+        providerCanonicalSignature.Contains("Mana Cost", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// When a reversing translation maps onto a non-reversing provider signature and the

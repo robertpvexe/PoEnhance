@@ -690,6 +690,147 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void WatchersEye_SyntheticClarityNonChannellingManaCost_SerializesOfficialSignedPlusHashFilter()
+    {
+        // Synthetic AID-shaped clipboard (not genuine Ctrl+C). Catalog ExactText is compact
+        // `-(10-5)`; live AID uses double-dash annotation `-7(-10--5)`. Official frozen catalog
+        // explicit.stat_1853636813 = "Non-Channelling Skills have +# to Total Mana Cost while affected by Clarity".
+        // Must not map the Clarity-less Non-Channelling mana-cost filter or the Skills-while-Clarity sibling.
+        var raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Watcher's Eye
+            Prismatic Jewel
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Non-Channelling Skills have -7(-10--5) to Total Mana Cost while affected by Clarity
+            --------
+            """;
+        var runtime = Resolve(raw);
+        Assert.Equal("Watcher's Eye", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var mana = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Total Mana Cost while affected by Clarity",
+                StringComparison.OrdinalIgnoreCase) &&
+                component.OriginalText.Contains(
+                    "Non-Channelling",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, mana.UniqueSourceSemantics);
+        Assert.True(
+            mana.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"status={mana.ProviderResolutionStatus}; id={mana.ProviderStatId}; code={mana.ProviderDiagnosticCode}; min={mana.RequestedMinimum}; max={mana.RequestedMaximum}; text={mana.OriginalText}; shape={mana.ValueBoundShape}; supports={mana.SupportsValueBounds}; boundsReason={mana.ValueBoundsUnsupportedReason}; values=[{string.Join(',', mana.CanonicalNumericValues ?? [])}]; observed=[{string.Join(',', mana.ObservedNumericValues ?? [])}]");
+        Assert.Equal("explicit.stat_1853636813", mana.ProviderStatId);
+        Assert.NotEqual("explicit.stat_677564538", mana.ProviderStatId);
+        Assert.NotEqual("explicit.stat_2445618239", mana.ProviderStatId);
+        Assert.True(
+            mana.SupportsValueBounds,
+            $"supports={mana.SupportsValueBounds}; shape={mana.ValueBoundShape}; min={mana.RequestedMinimum}; max={mana.RequestedMaximum}; fixed={mana.FixedQueryValue}; boundsReason={mana.ValueBoundsUnsupportedReason}; values=[{string.Join(',', mana.CanonicalNumericValues ?? [])}]; observed=[{string.Join(',', mana.ObservedNumericValues ?? [])}]");
+        Assert.Equal(ModifierBoundShape.Scalar, mana.ValueBoundShape);
+        Assert.Equal([-7m], mana.CanonicalNumericValues);
+        // All-negative mana_cost +# axis: same-or-better is Maximum (not Oskarm resistance Minimum).
+        Assert.Equal(ModifierBoundDirection.Maximum, mana.DefaultBoundDirection);
+        Assert.Null(mana.RequestedMinimum);
+        Assert.Equal(-7m, mana.RequestedMaximum);
+
+        var json = Serialize(runtime, mana);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_1853636813", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-7m, value.GetProperty("max").GetDecimal());
+        Assert.False(value.TryGetProperty("min", out _));
+    }
+
+    [Fact]
+    public void WatchersEye_SyntheticClarityManaCost_RollMinus6_DefaultsMaxOnly()
+    {
+        // Synthetic AID (not genuine Ctrl+C). Live Ctrl+D at -6 must default Max=-6 / Min blank
+        // so official Trade does not admit worse rolls such as -5.
+        var raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Watcher's Eye
+            Prismatic Jewel
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Non-Channelling Skills have -6(-10--5) to Total Mana Cost while affected by Clarity
+            --------
+            """;
+        var runtime = Resolve(raw);
+        var mana = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Total Mana Cost while affected by Clarity",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, mana.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_1853636813", mana.ProviderStatId);
+        Assert.Equal(ModifierBoundDirection.Maximum, mana.DefaultBoundDirection);
+        Assert.Null(mana.RequestedMinimum);
+        Assert.Equal(-6m, mana.RequestedMaximum);
+
+        var json = Serialize(runtime, mana);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_1853636813", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-6m, value.GetProperty("max").GetDecimal());
+        Assert.False(value.TryGetProperty("min", out _));
+    }
+
+    [Fact]
+    public void WatchersEye_SyntheticClarityManaCost_ManualMaxMinus8_SerializesOverriddenMax()
+    {
+        // Synthetic AID (not genuine Ctrl+C). Manual Max edit must reach Trade as max:-8.
+        var raw = """
+            Item Class: Jewels
+            Rarity: Unique
+            Watcher's Eye
+            Prismatic Jewel
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Non-Channelling Skills have -7(-10--5) to Total Mana Cost while affected by Clarity
+            --------
+            """;
+        var runtime = Resolve(raw);
+        var mana = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Total Mana Cost while affected by Clarity",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(-7m, mana.RequestedMaximum);
+
+        var edited = mana with
+        {
+            RequestedMinimum = null,
+            RequestedMaximum = -8m,
+        };
+        var json = Serialize(runtime, edited);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_1853636813", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(-8m, value.GetProperty("max").GetDecimal());
+        Assert.False(value.TryGetProperty("min", out _));
+    }
+
+    [Fact]
     public void AulsUprising_SyntheticAidUnscalableNearbyStun_BlankUiBounds_SerializesFixedNumericConstraint()
     {
         // Synthetic AID-shaped clipboard (not genuine Ctrl+C). Real Ctrl+D shows blank Min/Max
@@ -1493,6 +1634,7 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(10, "Cinderswallow Urn", "Silver Flask", "flask"),
             UniqueItem(11, "Cospri's Will", "Assassin's Garb", "armour"),
             UniqueItem(12, "Aul's Uprising", "Onyx Amulet", "accessory"),
+            UniqueItem(13, "Watcher's Eye", "Prismatic Jewel", "jewel"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(

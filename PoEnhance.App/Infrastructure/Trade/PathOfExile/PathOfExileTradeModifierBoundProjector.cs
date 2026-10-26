@@ -305,6 +305,22 @@ internal static partial class PathOfExileTradeModifierBoundProjector
             var queryScalar = signedUnsignedProjection.Minimum ??
                 signedUnsignedProjection.Maximum ??
                 0m;
+            // Preserve Core same-or-better Maximum (e.g. all-negative mana_cost) as one-sided max.
+            // Tempered Spirit-style equality (min=max) remains the default when Core left Minimum.
+            if (component.DefaultBoundDirection == ModifierBoundDirection.Maximum)
+            {
+                return component with
+                {
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    CanonicalNumericValues = [queryScalar],
+                    DefaultBoundDirection = ModifierBoundDirection.Maximum,
+                    RequestedMinimum = null,
+                    RequestedMaximum = queryScalar,
+                    ValueBoundsUnsupportedReason = null,
+                };
+            }
+
             return component with
             {
                 SupportsValueBounds = true,
@@ -906,6 +922,21 @@ internal static partial class PathOfExileTradeModifierBoundProjector
         }
 
         // TRADE.4e.2 live matrix: Trade indexes the signed source scalar (-1), not Abs(+1).
+        // When Core already proved same-or-better Maximum (all-negative mana_cost), project
+        // one-sided max; otherwise keep Tempered Spirit equality (min=max=signedScalar).
+        if (component.DefaultBoundDirection == ModifierBoundDirection.Maximum)
+        {
+            projection = new PathOfExileTradeProviderBoundProjection
+            {
+                IsFaithful = true,
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                Minimum = null,
+                Maximum = signedScalar,
+                ProjectionKind = "SignedSourceUnsignedTradeMagnitude",
+            };
+            return true;
+        }
+
         projection = new PathOfExileTradeProviderBoundProjection
         {
             IsFaithful = true,
