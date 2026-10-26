@@ -1608,10 +1608,55 @@ public sealed class ParsedUniqueItemResolverTests
 
         var version = Assert.Single(result.CompatibleVersions);
         Assert.Equal("Current", version.Label);
-        var block = Assert.Single(result.ModifierBlocks);
+        var negativeResBlocks = result.ModifierBlocks;
+        var block = Assert.Single(negativeResBlocks);
         Assert.NotEqual("UNIQUE_BLOCK_VERSION_MISMATCH", block.DiagnosticCode);
         Assert.Single(block.CatalogBlocks);
         Assert.Contains("negative-fire-res", block.CatalogBlocks[0].Id, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_GeneratedCandidate_SignedCompactCatalog_MatchesAidDoubleDashAnnotation()
+    {
+        // Synthetic: mirrors Watcher's Eye Clarity Non-Channelling mana-cost packaging
+        // ExactText `-(10-5)` vs live AID `-7(-10--5)`. Not a genuine Ctrl+C capture.
+        var parsed = parser.Parse("""
+            Item Class: Jewels
+            Rarity: Unique
+            Test Watcher Clarity Jewel
+            Prismatic Jewel
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Non-Channelling Skills have -7(-10--5) to Total Mana Cost while affected by Clarity
+            """);
+        var catalog = CreateCatalog(
+            "Test Watcher Clarity Jewel",
+            "Prismatic Jewel",
+            UniqueItemKind.Ordinary,
+            Version("Current", UniqueItemVersionRole.Current,
+                GeneratedEvidenceBlock(
+                    "clarity-mana-nonchannel",
+                    "Non-Channelling Skills have -(10-5) to Total Mana Cost while affected by Clarity",
+                    "Non-Channelling Skills have -<number> to Total Mana Cost while affected by Clarity",
+                    "skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity",
+                    "pool:clarity-mana")) with
+                {
+                    GeneratedCandidateSelectionLimit = 1,
+                });
+
+        var result = resolver.Resolve(parsed, catalog);
+
+        var block = Assert.Single(result.ModifierBlocks);
+        Assert.True(
+            block.IsResolved,
+            $"code={block.DiagnosticCode}; diag={block.Diagnostic}; versions={result.CompatibleVersions.Count}");
+        Assert.Single(result.CompatibleVersions);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(
+            ["skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity"],
+            block.StatIds);
     }
 
     [Fact]

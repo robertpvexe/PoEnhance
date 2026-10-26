@@ -3118,12 +3118,29 @@ public sealed partial class PoBUniqueCatalogImporter
         {
             (minimum, maximum) = (maximum, minimum);
         }
-        var prefix = format.Trim() == "+#" && minimum >= 0m ? "+" : string.Empty;
-        value = new StrictValue(
-            prefix + (minimum == maximum
-                ? FormatDecimal(minimum)
-                : $"({FormatDecimal(minimum)}-{FormatDecimal(maximum)})"),
-            IsDynamic: false);
+
+        // PoE / RePoE / PoB display for all-negative # / +# ranges is the compact form
+        // "-(hiAbs-loAbs)" (e.g. -(10-5) for [-10,-5]), not "(-10--5)". Mismatching that
+        // form leaves GeneratedCandidate Exact enrollment Unsupported despite Exact mod text.
+        var formatTrimmed = format.Trim();
+        string rendered;
+        if (minimum == maximum)
+        {
+            var prefix = formatTrimmed == "+#" && minimum >= 0m ? "+" : string.Empty;
+            rendered = prefix + FormatDecimal(minimum);
+        }
+        else if (maximum < 0m)
+        {
+            rendered =
+                $"-({FormatDecimal(decimal.Abs(minimum))}-{FormatDecimal(decimal.Abs(maximum))})";
+        }
+        else
+        {
+            var prefix = formatTrimmed == "+#" && minimum >= 0m ? "+" : string.Empty;
+            rendered = prefix + $"({FormatDecimal(minimum)}-{FormatDecimal(maximum)})";
+        }
+
+        value = new StrictValue(rendered, IsDynamic: false);
         return true;
     }
 

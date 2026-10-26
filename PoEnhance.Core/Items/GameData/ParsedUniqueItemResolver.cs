@@ -2481,7 +2481,14 @@ public sealed partial class ParsedUniqueItemResolver
                     // Exact AID range match, or AID range contained in an overstated PoB catalog
                     // range (e.g. live 25(20-40)% vs evaluated PoB (20-120)%). Observed roll must
                     // still lie within the catalog domain when present.
-                    if (!IsCompatibleGeneratedCandidateAnnotatedRoll(parsed, catalog))
+                    // Also accept Fixed-path signed-compact catalog forms such as `-(10-5)` when
+                    // AID shows `-7(-10--5)` (PoE/RePoE all-negative display vs double-dash AID).
+                    if (!IsCompatibleGeneratedCandidateAnnotatedRoll(parsed, catalog) &&
+                        !AreCompatibleAnnotatedRollTokens(
+                            parsed,
+                            catalog,
+                            parsedLines[lineIndex],
+                            catalogLines[lineIndex]))
                     {
                         return false;
                     }
@@ -2531,10 +2538,26 @@ public sealed partial class ParsedUniqueItemResolver
 
         var unsignedMinimum = Math.Min(catalogMinimum, catalogMaximum);
         var unsignedMaximum = Math.Max(catalogMinimum, catalogMaximum);
+        if (parsedMinimum != -unsignedMaximum ||
+            parsedMaximum != -unsignedMinimum)
+        {
+            return false;
+        }
+
+        // Compact all-negative PoE/RePoE/PoB display `-(hi-lo)` (line-leading or mid-line)
+        // vs AID double-dash annotation `actual(-hi--lo)`.
         var trimmedCatalogLine = catalogLine.TrimStart();
-        return trimmedCatalogLine.StartsWith("-", StringComparison.Ordinal) &&
-            parsedMinimum == -unsignedMaximum &&
-            parsedMaximum == -unsignedMinimum;
+        if (trimmedCatalogLine.StartsWith("-", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var compact =
+            $"-({FormatRollNumber(unsignedMaximum)}-{FormatRollNumber(unsignedMinimum)})";
+        var compactSwapped =
+            $"-({FormatRollNumber(unsignedMinimum)}-{FormatRollNumber(unsignedMaximum)})";
+        return catalogLine.Contains(compact, StringComparison.Ordinal) ||
+            catalogLine.Contains(compactSwapped, StringComparison.Ordinal);
     }
 
     private static bool TryReadRollBounds(string roll, out decimal minimum, out decimal maximum)

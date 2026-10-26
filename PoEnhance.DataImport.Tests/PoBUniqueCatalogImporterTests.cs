@@ -4898,6 +4898,151 @@ public sealed class PoBUniqueCatalogImporterTests
             block.MechanicalMapping.ModifierIds);
     }
 
+    [Fact]
+    public void Import_GeneratedCandidate_AllNegativePlusHashRange_UsesCompactPoEFormNotDoubleDash()
+    {
+        // Watcher's Eye Clarity Non-Channelling mana-cost: RePoE +# format, empty handlers,
+        // stats [-10,-5]. PoB/RePoE ExactText is "-(10-5)", not "(-10--5)".
+        var clarityMana = new ModifierDefinition
+        {
+            Id = "ClarityReducedManaCostNonChannelled",
+            GroupId = "AuraBonus",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "item",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId =
+                        "skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity",
+                    MinValue = -10m,
+                    MaxValue = -5m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Watcher Jewel
+                Prismatic Jewel
+                Selected Variant: 1
+                Variant: Clarity
+                Implicits: 0
+                {variant:1}Non-Channelling Skills have -(10-5) to Total Mana Cost while affected by Clarity
+                """,
+            generated: true,
+            modifiers: [clarityMana],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "clarity-nonchan-mana",
+                    StatIds =
+                    [
+                        "skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity",
+                    ],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Non-Channelling Skills have {0} to Total Mana Cost while affected by Clarity",
+                            ],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                        },
+                    ],
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["ClarityReducedManaCostNonChannelled"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            ["skill_mana_cost_+_with_non_channelling_skills_while_affected_by_clarity"],
+            block.MechanicalMapping.StatIds);
+        Assert.Equal(
+            "Non-Channelling Skills have -(10-5) to Total Mana Cost while affected by Clarity",
+            Assert.Single(block.Lines));
+    }
+
+    [Fact]
+    public void Import_GeneratedCandidate_PositivePlusHashRange_KeepsPlusParentheticalForm()
+    {
+        // Negative control: ordinary positive +# ranges stay "+(5-10)", not the compact minus form.
+        var positive = new ModifierDefinition
+        {
+            Id = "TestPositiveManaCostUnique__1",
+            GroupId = "AuraBonus",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "item",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "skill_mana_cost_+_with_non_channelling_skills",
+                    MinValue = 5m,
+                    MaxValue = 10m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Positive Jewel
+                Prismatic Jewel
+                Selected Variant: 1
+                Variant: Test
+                Implicits: 0
+                {variant:1}Non-Channelling Skills have +(5-10) to Total Mana Cost
+                """,
+            generated: true,
+            modifiers: [positive],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "nonchan-mana-pos",
+                    StatIds = ["skill_mana_cost_+_with_non_channelling_skills"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Non-Channelling Skills have {0} to Total Mana Cost",
+                            ],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                        },
+                    ],
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["TestPositiveManaCostUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            "Non-Channelling Skills have +(5-10) to Total Mana Cost",
+            Assert.Single(block.Lines));
+    }
+
     private static ModifierDefinition Modifier(
         string id,
         string statId,

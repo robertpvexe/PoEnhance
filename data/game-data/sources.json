@@ -2,10 +2,10 @@
     "schemaVersion":  1,
     "package":  {
                     "schemaVersion":  4,
-                    "dataVersion":  "3.29.3.7",
-                    "createdAtUtc":  "2026-10-25T22:45:00+00:00",
-                    "sizeBytes":  191214856,
-                    "sha256":  "1e1eb1578a8fe63e40bcc0723bdde0502c5fcf1cf2b24f512bc21ad452c6c000",
+                    "dataVersion":  "3.29.3.8",
+                    "createdAtUtc":  "2026-10-26T10:00:00+00:00",
+                    "sizeBytes":  191170336,
+                    "sha256":  "8877b65b1902ac9e13a7fe31811490d7f2fecf922786de7b4b64d1913e66a6f4",
                     "foulbornRelationshipCount":  353,
                     "exactFoulbornRelationshipCount":  353,
                     "unsupportedFoulbornRelationshipCount":  0

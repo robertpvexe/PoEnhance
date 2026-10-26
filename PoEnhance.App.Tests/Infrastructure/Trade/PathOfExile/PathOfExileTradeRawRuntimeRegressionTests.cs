@@ -37,7 +37,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithExactCorruptedProvenance()
     {
-        // Pinned package 3.29.3.7 retains a single eligible corrupted observation for
+        // Pinned package 3.29.3.8 retains a single eligible corrupted observation for
         // base_minimum_frenzy_charges on amulet (V2MinFrenzyChargesCorrupted). A second RePoE
         // row (V2MinPowerChargesCorrupted) shares the Frenzy stat id but is Disabled with zero
         // spawn weights, so it is correctly excluded — not an EquivalentSourceSet. Multi-observation
