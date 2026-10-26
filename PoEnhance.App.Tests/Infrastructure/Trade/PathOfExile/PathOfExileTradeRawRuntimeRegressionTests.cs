@@ -37,10 +37,10 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithExactCorruptedProvenance()
     {
-        // Pinned package 3.29.3.6 retains a single eligible corrupted observation for
+        // Pinned package 3.29.3.7 retains a single eligible corrupted observation for
         // base_minimum_frenzy_charges on amulet (V2MinFrenzyChargesCorrupted). A second RePoE
         // row (V2MinPowerChargesCorrupted) shares the Frenzy stat id but is Disabled with zero
-        // spawn weights, so it is correctly excluded — not an EquivalentSourceSet. Multi-observation
+        // spawn weights, so it is correctly excluded â€” not an EquivalentSourceSet. Multi-observation
         // equivalence remains covered by ParsedItemModifierCandidateResolverTests synthetic fixtures.
         var runtime = Resolve(DragonfangText);
         var parsedModifier = Assert.Single(runtime.Parsed.Modifiers);
@@ -696,19 +696,19 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             --------
             Item Level: 86
             --------
-            { Unique Modifier — Mana, Physical, Attack }
+            { Unique Modifier â€” Mana, Physical, Attack }
             2% of Physical Attack Damage Leeched as Mana
-            { Unique Modifier — Life, Physical, Attack }
+            { Unique Modifier â€” Life, Physical, Attack }
             2% of Physical Attack Damage Leeched as Life
-            { Unique Modifier — Attribute }
+            { Unique Modifier â€” Attribute }
             +22(20-30) to Strength
-            { Unique Modifier — Attribute }
+            { Unique Modifier â€” Attribute }
             +20(20-30) to Intelligence
-            { Unique Modifier — Elemental, Cold, Resistance }
+            { Unique Modifier â€” Elemental, Cold, Resistance }
             +28(20-30)% to Cold Resistance
-            { Unique Modifier — Life }
+            { Unique Modifier â€” Life }
             611(500-1000)% increased total Recovery per second from Life Leech
-            { Unique Modifier — Mana }
+            { Unique Modifier â€” Mana }
             965(500-1000)% increased total Recovery per second from Mana Leech
             """, catalog);
         var expected = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1760,7 +1760,7 @@ Iron Circlet
 --------
 Item Level: 80
 --------
-{ Unique Modifier — Defences, Energy Shield }
+{ Unique Modifier â€” Defences, Energy Shield }
 +39(30-50) to maximum Energy Shield
 """;
 
@@ -1772,7 +1772,7 @@ Samnite Helmet
 --------
 Item Level: 80
 --------
-{ Unique Modifier — Defences, Armour }
+{ Unique Modifier â€” Defences, Armour }
 108(100-120)% increased Armour
 """;
 
@@ -1789,7 +1789,7 @@ Item Level: 80
 { Corruption Implicit Modifier }
 0.5% of Cold Damage Leeched as Life
 --------
-{ Unique Modifier — Defences, Armour }
+{ Unique Modifier â€” Defences, Armour }
 108(100-120)% increased Armour
 { Unique Modifier }
 10% increased Stun and Block Recovery
@@ -1805,9 +1805,9 @@ Tribal Circlet
 --------
 Item Level: 80
 --------
-{ Unique Modifier — Defences, Energy Shield }
+{ Unique Modifier â€” Defences, Energy Shield }
 +45(30-50) to maximum Energy Shield
-{ Unique Modifier — Elemental, Fire, Minion }
+{ Unique Modifier â€” Elemental, Fire, Minion }
 Summoned Raging Spirits' Melee Strikes deal Fire-only Splash
 Damage to Surrounding Targets
 """;
@@ -1837,11 +1837,11 @@ Silk Slippers
 --------
 Item Level: 80
 --------
-{ Unique Modifier — Life }
+{ Unique Modifier â€” Life }
 +20 to maximum Life
-{ Unique Modifier — Mana }
+{ Unique Modifier â€” Mana }
 +20 to maximum Mana
-{ Unique Modifier — Minion, Gem }
+{ Unique Modifier â€” Minion, Gem }
 +1 to Level of all Raise Zombie Gems
 +1 to Level of all Raise Spectre Gems
 """;
@@ -1854,7 +1854,7 @@ Oakbranch Tincture
 --------
 Item Level: 80
 --------
-{ Unique Modifier — Attack }
+{ Unique Modifier â€” Attack }
 Does not inflict Mana Burn over time
 Inflicts Mana Burn on you when you Hit an Enemy with a Melee Weapon
 """;
@@ -1891,7 +1891,7 @@ Item Level: 83
 --------
 { Corruption Implicit Modifier }
 +1 to Maximum Endurance Charges
-{ Corruption Implicit Modifier — Speed }
+{ Corruption Implicit Modifier â€” Speed }
 9(8-10)% increased Movement Speed
 --------
 { Unique Modifier }
@@ -1908,7 +1908,7 @@ Bone Ring
 --------
 Item Level: 85
 --------
-{ Fractured Suffix Modifier "of Light" (Tier: 2) — Attack }
+{ Fractured Suffix Modifier "of Light" (Tier: 2) â€” Attack }
 12(12-15)% increased Global Accuracy Rating
 10% increased Light Radius
 --------
@@ -1993,18 +1993,18 @@ Chain Belt
 --------
 Item Level: 85
 --------
-{ Implicit Modifier — Defences, Energy Shield }
+{ Implicit Modifier â€” Defences, Energy Shield }
 +20(9-20) to maximum Energy Shield
 --------
-{ Unique Modifier — Attribute }
+{ Unique Modifier â€” Attribute }
 -20(-25--15) to Intelligence
-{ Unique Modifier — Damage }
+{ Unique Modifier â€” Damage }
 10% increased Damage
 { Unique Modifier }
 50% increased Fishing Pool Consumption
 { Unique Modifier }
 20% increased Fishing Range
-{ Unique Modifier — Drop }
+{ Unique Modifier â€” Drop }
 26(20-30)% increased Rarity of Fish Caught
 """;
 
@@ -2016,22 +2016,22 @@ Void Sceptre
 --------
 Item Level: 85
 --------
-{ Implicit Modifier — Damage, Elemental }
+{ Implicit Modifier â€” Damage, Elemental }
 40% increased Elemental Damage
 --------
-{ Unique Modifier — Damage, Physical, Attack }
+{ Unique Modifier â€” Damage, Physical, Attack }
 205(180-220)% increased Physical Damage
-{ Unique Modifier — Attack, Speed }
+{ Unique Modifier â€” Attack, Speed }
 10(10-15)% increased Attack Speed
-{ Unique Modifier — Attack, Critical }
+{ Unique Modifier â€” Attack, Critical }
 85(80-100)% increased Critical Strike Chance
-{ Unique Modifier — Damage, Physical, Elemental, Lightning }
+{ Unique Modifier â€” Damage, Physical, Elemental, Lightning }
 50% of Physical Damage Converted to Lightning Damage
-{ Unique Modifier — Damage, Elemental, Critical }
+{ Unique Modifier â€” Damage, Elemental, Critical }
 Every 16 seconds you gain Elemental Overload for 8 seconds
-{ Unique Modifier — Attack, Critical }
+{ Unique Modifier â€” Attack, Critical }
 You have Resolute Technique while you do not have Elemental Overload
-{ Unique Modifier — Damage, Physical }
+{ Unique Modifier â€” Damage, Physical }
 100% increased Physical Damage while you have Resolute Technique
 """;
 
@@ -2090,17 +2090,17 @@ Sockets: R-W-W-R
 --------
 Item Level: 84
 --------
-{ Unique Modifier — Attribute }
+{ Unique Modifier â€” Attribute }
 19(15-18)% increased Strength
-{ Unique Modifier — Defences, Armour }
+{ Unique Modifier â€” Defences, Armour }
 +226(180-220) to Armour
-{ Unique Modifier — Chaos, Resistance }
+{ Unique Modifier â€” Chaos, Resistance }
 +13(13-19)% to Chaos Resistance
-{ Unique Modifier — Speed }
+{ Unique Modifier â€” Speed }
 20(25)% increased Movement Speed
-{ Unique Modifier — Damage, Chaos }
+{ Unique Modifier â€” Damage, Chaos }
 Cannot deal non-Chaos Damage
-{ Unique Modifier — Damage, Chaos, Attack }
+{ Unique Modifier â€” Damage, Chaos, Attack }
 Adds 1 to 82(80) Chaos Damage to Attacks per 80 Strength
 --------
 "Starving test subject became completely incapable of exerting force.
@@ -2134,11 +2134,11 @@ Item Level: 84
 --------
 { Unique Modifier }
 Has 3 Sockets
-{ Unique Modifier — Gem }
+{ Unique Modifier â€” Gem }
 +8(5-8)% to Quality of Socketed Support Gems
 { Unique Modifier }
 Socketed Support Gems can also Support Skills from your Main Hand
-{ Unique Modifier — Defences, Armour, Evasion }
+{ Unique Modifier â€” Defences, Armour, Evasion }
 107(100-150)% increased Armour and Evasion
 { Unique Modifier }
 +5(3-5)% Chance to Block
@@ -2160,14 +2160,14 @@ Level: 44
 --------
 Item Level: 80
 --------
-{ Implicit Modifier — Attribute  — 20% Increased }
+{ Implicit Modifier â€” Attribute  â€” 20% Increased }
 +35(25-35) to Strength
 --------
-{ Unique Modifier — Attribute  — 20% Increased }
+{ Unique Modifier â€” Attribute  â€” 20% Increased }
 +49(30-50) to Dexterity
-{ Unique Modifier — Elemental, Fire, Resistance }
+{ Unique Modifier â€” Elemental, Fire, Resistance }
 +25(15-25)% to Fire Resistance
-{ Unique Modifier — Elemental, Cold, Resistance }
+{ Unique Modifier â€” Elemental, Cold, Resistance }
 +15(15-25)% to Cold Resistance
 { Unique Modifier }
 Magic Utility Flasks cannot be Used
@@ -2198,15 +2198,15 @@ Sockets: W-W-W
 --------
 Item Level: 85
 --------
-{ Unique Modifier — Defences, Armour }
+{ Unique Modifier â€” Defences, Armour }
 59(50-80)% increased Armour
-{ Unique Modifier — Elemental, Resistance }
+{ Unique Modifier â€” Elemental, Resistance }
 +11(10-15)% to all Elemental Resistances
-{ Monster Modifier — Caster, Curse }
+{ Monster Modifier â€” Caster, Curse }
 You can apply an additional Curse
-{ Unique Modifier — Speed }
+{ Unique Modifier â€” Speed }
 20% increased Movement Speed
-{ Unique Modifier — Caster, Curse }
+{ Unique Modifier â€” Caster, Curse }
 50% increased Area of Effect of Hex Skills
 --------
 The mocking wind, a shielding spell,
@@ -2221,16 +2221,16 @@ Paua Ring
 --------
 Item Level: 85
 --------
-{ Implicit Modifier — Mana }
+{ Implicit Modifier â€” Mana }
 +28(20-30) to maximum Mana
 --------
-{ Unique Modifier — Attribute }
+{ Unique Modifier â€” Attribute }
 +11(5-20) to Intelligence
-{ Unique Modifier — Elemental, Resistance }
+{ Unique Modifier â€” Elemental, Resistance }
 +18(5-20)% to all Elemental Resistances
-{ Unique Modifier — Mana }
+{ Unique Modifier â€” Mana }
 Gain 17(5-20) Mana per Enemy Killed
-{ Monster Modifier — Caster, Curse }
+{ Monster Modifier â€” Caster, Curse }
 You can apply an additional Curse
 --------
 Where her mouth should have been
@@ -2253,18 +2253,18 @@ Sockets: W W-W
 --------
 Item Level: 83
 --------
-{ Implicit Modifier — Speed }
+{ Implicit Modifier â€” Speed }
 3% increased Movement Speed
 --------
-{ Unique Modifier — Defences, Evasion }
+{ Unique Modifier â€” Defences, Evasion }
 168(150-200)% increased Evasion Rating
-{ Unique Modifier — Caster, Curse }
+{ Unique Modifier â€” Caster, Curse }
 You can apply an additional Curse
-{ Unique Modifier — Chaos, Resistance }
+{ Unique Modifier â€” Chaos, Resistance }
 +43(31-53)% to Chaos Resistance
 { Unique Modifier }
-Your Hexes can affect Hexproof Enemies — Unscalable Value
-{ Unique Modifier — Chaos, Ailment }
+Your Hexes can affect Hexproof Enemies â€” Unscalable Value
+{ Unique Modifier â€” Chaos, Ailment }
 Always Poison on Hit against Cursed Enemies
 (Poison deals Chaos Damage over time, based on the base Physical and Chaos Damage of the Skill. Multiple instances of Poison stack)
 --------
@@ -2322,7 +2322,7 @@ Hubris Circlet
 Item Level: 84
 --------
 { Unique Modifier }
-Trigger Level 10 Void Gaze when you use a Skill — Unscalable Value
+Trigger Level 10 Void Gaze when you use a Skill â€” Unscalable Value
 --------
 Corrupted
 """;
@@ -2345,11 +2345,11 @@ Adds 2(1-2) to 10(9-11) Lightning Damage to Spells and Attacks
 { Unique Modifier }
 +2 to Level of Socketed Gems
 { Unique Modifier }
-Socketed Gems are Supported by Level 10 Spell Echo — Unscalable Value
+Socketed Gems are Supported by Level 10 Spell Echo â€” Unscalable Value
 { Unique Modifier }
-Socketed Gems are Supported by Level 10 Controlled Destruction — Unscalable Value
+Socketed Gems are Supported by Level 10 Controlled Destruction â€” Unscalable Value
 { Unique Modifier }
-Socketed Gems are Supported by Level 10 Arcane Surge — Unscalable Value
+Socketed Gems are Supported by Level 10 Arcane Surge â€” Unscalable Value
 { Unique Modifier }
 +21(10-30) to Intelligence
 --------

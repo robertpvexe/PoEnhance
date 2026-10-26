@@ -9,7 +9,7 @@ using PoEnhance.GameData;
 namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 
 /// <summary>
-/// A.5.44 — FilterArity zero-slot presence-only: real Mjölner Lightning Trigger regression
+/// A.5.44 â€” FilterArity zero-slot presence-only: real MjÃ¶lner Lightning Trigger regression
 /// plus official-catalog structural controls. No item/ModId/provider-id production hardcodes.
 /// </summary>
 public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
@@ -256,7 +256,7 @@ public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
                 ProviderOrder = 0,
                 GroupId = "weapon",
                 GroupLabel = "weapon",
-                Name = "Mjölner",
+                Name = "MjÃ¶lner",
                 Type = "Gavel",
                 IsUnique = true,
             },
@@ -269,7 +269,7 @@ public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.3.6", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.3.7", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

@@ -2004,7 +2004,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     continue;
                 }
 
-                if (IsSourceTextCompositionComponentOnly(modifier, rendering.ExactText!))
+                if (IsSourceTextCompositionComponentOnly(modifier, rendering) &&
+                    !IsLocalDisplayOnlyRendering(modifier, rendering))
                 {
                     continue;
                 }
@@ -2046,7 +2047,8 @@ public sealed partial class PoBUniqueCatalogImporter
                     continue;
                 }
 
-                if (IsSourceTextCompositionComponentOnly(modifier, rendering.ExactText!))
+                if (IsSourceTextCompositionComponentOnly(modifier, rendering) &&
+                    !IsLocalDisplayOnlyRendering(modifier, rendering))
                 {
                     continue;
                 }
@@ -2064,9 +2066,16 @@ public sealed partial class PoBUniqueCatalogImporter
             // non-zero component stats. Formatting-only wraps (one stat, Energy\nShield)
             // must not enter compositionModifierIds or RejectIncompleteCompositionMatches
             // will drop a valid single-line PoB Exact after newline-folded signature match.
+            // local_display + translated companion SourceText (RePoE aura Unique tooltips) is
+            // also not true PoB multi-line composition — PoB copies only the display line.
             if (TryCreateSourceTextCompositionKey(modifier, out var sourceTextKey))
             {
-                compositionModifierIds.Add(modifier.Id!);
+                var localDisplayCompanionSplit = IsLocalDisplayCompanionSourceTextSplit(modifier);
+                if (!localDisplayCompanionSplit)
+                {
+                    compositionModifierIds.Add(modifier.Id!);
+                }
+
                 if (!sourceTextExactIndex.TryGetValue(sourceTextKey, out var sourceTextCandidates))
                 {
                     sourceTextCandidates = [];
@@ -2335,6 +2344,11 @@ public sealed partial class PoBUniqueCatalogImporter
 
     private static bool IsSourceTextCompositionComponentOnly(
         ModifierDefinition modifier,
+        StrictRendering rendering) =>
+        IsSourceTextCompositionComponentOnly(modifier, rendering.ExactText!);
+
+    private static bool IsSourceTextCompositionComponentOnly(
+        ModifierDefinition modifier,
         string exactText)
     {
         if (string.IsNullOrWhiteSpace(modifier.SourceText) ||
@@ -2353,6 +2367,47 @@ public sealed partial class PoBUniqueCatalogImporter
         return sourceLines.Any(line =>
             string.Equals(NormalizeExactEvidence(line), normalizedLine, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// True when the Exact rendering covers only <c>local_display_*</c> stats on a Unique that
+    /// also has translated non-display companions. RePoE often puts both companion and display
+    /// lines into Modifier.SourceText; PoB Fixed copies only the display tooltip, so that
+    /// single-line ExactText must remain enrollable.
+    /// </summary>
+    private static bool IsLocalDisplayOnlyRendering(
+        ModifierDefinition modifier,
+        StrictRendering rendering)
+    {
+        if (!HasLocalDisplayCompanionStatSplit(modifier))
+        {
+            return false;
+        }
+
+        var coveredStatIds = rendering.TranslationEvidence
+            .SelectMany(evidence => evidence.StatIds)
+            .Where(statId => !string.IsNullOrWhiteSpace(statId))
+            .Select(statId => statId.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return coveredStatIds.Length > 0 &&
+            coveredStatIds.All(IsLocalDisplayStatId);
+    }
+
+    private static bool HasLocalDisplayCompanionStatSplit(ModifierDefinition modifier) =>
+        modifier.Stats.Any(stat =>
+            !IsZeroStat(stat) && IsLocalDisplayStatId(stat.StatId)) &&
+        modifier.Stats.Any(stat =>
+            !IsZeroStat(stat) && !IsLocalDisplayStatId(stat.StatId));
+
+    /// <summary>
+    /// RePoE Unique aura mods often set SourceText to companion + local_display lines (1:1 with
+    /// non-zero stats). That shape matches <see cref="TryCreateSourceTextCompositionKey"/> but is
+    /// not a PoB multi-line composition clipboard.
+    /// </summary>
+    private static bool IsLocalDisplayCompanionSourceTextSplit(ModifierDefinition modifier) =>
+        HasLocalDisplayCompanionStatSplit(modifier) &&
+        !string.IsNullOrWhiteSpace(modifier.SourceText) &&
+        SplitSourceTextLines(modifier.SourceText!).Length >= 2;
 
     private static UniqueModifierTranslationEvidence CreateTranslationEvidence(
         StatTranslationDefinition translation,
@@ -2592,11 +2647,31 @@ public sealed partial class PoBUniqueCatalogImporter
             .SelectMany(group => group.StatIndices)
             .Distinct()
             .Count());
+        // Max-coverage ExactText is necessary for true multi-stat Unique composites, but Unique
+        // "nearby/aura" mods often pair a translated implementation companion
+        // (base_stun_recovery_+%, resist_all_%, …) with a local_display_* tooltip stat. PoB Fixed
+        // lines only copy the display tooltip; keeping only max-coverage produces a multi-line
+        // ExactText that never matches. Also enroll display-facing selections that cover every
+        // local_display_* index and omit translated non-display companions (Blind-style dummy
+        // companions without translations already collapse to display-only via max-coverage).
+        var selectionsToRender = selections
+            .Where(selection => selection
+                .SelectMany(group => group.StatIndices)
+                .Distinct()
+                .Count() == maximumCoveredStats)
+            .Concat(SelectLocalDisplayFacingSelections(stats, groups, selections))
+            .GroupBy(
+                selection => string.Join(
+                    '\u001f',
+                    selection.SelectMany(group => group.StatIndices)
+                        .Distinct()
+                        .OrderBy(index => index)
+                        .Select(index => index.ToString(CultureInfo.InvariantCulture))),
+                StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToArray();
         var renderings = new List<StrictRendering>();
-        foreach (var selection in selections.Where(selection => selection
-                     .SelectMany(group => group.StatIndices)
-                     .Distinct()
-                     .Count() == maximumCoveredStats))
+        foreach (var selection in selectionsToRender)
         {
             IReadOnlyList<StrictRendering> combined = [StrictRendering.Static(string.Empty, 0)];
             foreach (var group in selection.OrderBy(group => group.StatIndices.Min()))
@@ -2778,6 +2853,52 @@ public sealed partial class PoBUniqueCatalogImporter
                 var handlerName = raw.Trim().ToLowerInvariant();
                 return handlerName is "negate" or "negate_and_double";
             }));
+
+    private static bool IsLocalDisplayStatId(string? statId) =>
+        !string.IsNullOrWhiteSpace(statId) &&
+        statId.Trim().StartsWith("local_display_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Selections that cover every non-zero <c>local_display_*</c> modifier stat and none of the
+    /// translated non-display companions. Empty when the mod has no display/companion split.
+    /// </summary>
+    private static IEnumerable<IReadOnlyList<StrictRenderingGroup>> SelectLocalDisplayFacingSelections(
+        IReadOnlyList<ModifierStat> stats,
+        IReadOnlyList<StrictRenderingGroup> groups,
+        IReadOnlyList<IReadOnlyList<StrictRenderingGroup>> selections)
+    {
+        var displayIndices = new HashSet<int>();
+        for (var index = 0; index < stats.Count; index++)
+        {
+            if (!IsZeroStat(stats[index]) && IsLocalDisplayStatId(stats[index].StatId))
+            {
+                displayIndices.Add(index);
+            }
+        }
+
+        if (displayIndices.Count == 0)
+        {
+            return [];
+        }
+
+        var translatedNonDisplayIndices = groups
+            .SelectMany(group => group.StatIndices)
+            .Where(index => !displayIndices.Contains(index))
+            .ToHashSet();
+        if (translatedNonDisplayIndices.Count == 0)
+        {
+            return [];
+        }
+
+        return selections.Where(selection =>
+        {
+            var covered = selection
+                .SelectMany(group => group.StatIndices)
+                .ToHashSet();
+            return displayIndices.All(covered.Contains) &&
+                !covered.Overlaps(translatedNonDisplayIndices);
+        });
+    }
 
     private static void SelectCompatibleRenderingGroups(
         IReadOnlyList<StrictRenderingGroup> groups,

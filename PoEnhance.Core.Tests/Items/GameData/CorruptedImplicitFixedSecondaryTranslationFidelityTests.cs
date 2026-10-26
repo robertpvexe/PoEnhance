@@ -426,7 +426,7 @@ Corrupted
     private static string MjolnerClipboard(string corruptedLine) =>
         "Item Class: One Hand Maces\n" +
         "Rarity: Unique\n" +
-        "Mjölner\n" +
+        "Mjï¿½lner\n" +
         "Gavel\n" +
         "--------\n" +
         "Item Level: 85\n" +
@@ -445,7 +445,7 @@ Corrupted
         var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
         Assert.True(load.IsSuccess);
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal("3.29.3.6", load.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.3.7", load.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(load.Package);
     }
 

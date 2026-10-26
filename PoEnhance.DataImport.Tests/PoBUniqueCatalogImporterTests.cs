@@ -4644,6 +4644,260 @@ public sealed class PoBUniqueCatalogImporterTests
         }
     }
 
+    [Fact]
+    public void Import_FixedUnique_LocalDisplayNearbyCompanion_ExactMatchesDisplayTooltipOnly()
+    {
+        // Aul's Uprising-style: Unique mod pairs translated companion + local_display_*.
+        // PoB Fixed copies only the Nearby display tooltip; max-coverage ExactText alone is
+        // multi-line and would leave UNIQUE_MECHANICS_NOT_FOUND.
+        var nearbyUnique = new ModifierDefinition
+        {
+            Id = "NearbyEnemiesReducedStunRecoveryUnique__1",
+            GroupId = "NearbyEnemiesBonuses",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "item",
+            // RePoE SourceText duplicates companion + local_display lines; PoB Fixed copies only
+            // the display tooltip. Enrollment must not treat that tooltip as composition-only.
+            SourceText =
+                "10% reduced Stun and Block Recovery\nNearby Enemies have 10% reduced Stun and Block Recovery",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "base_stun_recovery_+%",
+                    MinValue = -10m,
+                    MaxValue = -10m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "local_display_nearby_enemies_stun_and_block_recovery_+%",
+                    MinValue = -10m,
+                    MaxValue = -10m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Test Aul Amulet
+                Onyx Amulet
+                Implicits: 0
+                Nearby Enemies have 10% reduced Stun and Block Recovery
+                """,
+            generated: false,
+            modifiers: [nearbyUnique],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "stun-self",
+                    StatIds = ["base_stun_recovery_+%"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 1 },
+                            ],
+                            FormatLines = ["{0}% increased Stun and Block Recovery"],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                        },
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1 },
+                            ],
+                            FormatLines = ["{0}% reduced Stun and Block Recovery"],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["negate"],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "stun-nearby",
+                    StatIds = ["local_display_nearby_enemies_stun_and_block_recovery_+%"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 1 },
+                            ],
+                            FormatLines =
+                            [
+                                "Nearby Enemies have {0}% increased Stun and Block Recovery",
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                        },
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1 },
+                            ],
+                            FormatLines =
+                            [
+                                "Nearby Enemies have {0}% reduced Stun and Block Recovery",
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["negate"],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Amulets/Amulet7",
+                    Name = "Onyx Amulet",
+                    Domain = "item",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["NearbyEnemiesReducedStunRecoveryUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.Equal(
+            [
+                "base_stun_recovery_+%",
+                "local_display_nearby_enemies_stun_and_block_recovery_+%",
+            ],
+            block.MechanicalMapping.StatIds);
+    }
+
+    [Fact]
+    public void Import_FixedUnique_SelfStunRecoveryWithoutNearby_DoesNotClaimLocalDisplayCompanionUnique()
+    {
+        // Negative: ordinary self stun-recovery Fixed text must Exact-own the single-stat Unique,
+        // not the Nearby dual-stat companion Unique (different ExactText).
+        var nearbyUnique = new ModifierDefinition
+        {
+            Id = "NearbyEnemiesReducedStunRecoveryUnique__1",
+            GroupId = "NearbyEnemiesBonuses",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "item",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "base_stun_recovery_+%",
+                    MinValue = -10m,
+                    MaxValue = -10m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "local_display_nearby_enemies_stun_and_block_recovery_+%",
+                    MinValue = -10m,
+                    MaxValue = -10m,
+                },
+            ],
+        };
+        var selfUnique = Modifier("StunRecoveryUnique__1", "base_stun_recovery_+%", -25, -25, "unique");
+
+        var result = ImportSingle(
+            """
+                Test Self Stun
+                Iron Ring
+                Implicits: 0
+                25% reduced Stun and Block Recovery
+                """,
+            generated: false,
+            modifiers: [nearbyUnique, selfUnique],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "stun-self",
+                    StatIds = ["base_stun_recovery_+%"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1 },
+                            ],
+                            FormatLines = ["{0}% reduced Stun and Block Recovery"],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["negate"],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "stun-nearby",
+                    StatIds = ["local_display_nearby_enemies_stun_and_block_recovery_+%"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1 },
+                            ],
+                            FormatLines =
+                            [
+                                "Nearby Enemies have {0}% reduced Stun and Block Recovery",
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["negate"],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["StunRecoveryUnique__1"], block.MechanicalMapping.ModifierIds);
+        Assert.DoesNotContain(
+            "NearbyEnemiesReducedStunRecoveryUnique__1",
+            block.MechanicalMapping.ModifierIds);
+    }
+
     private static ModifierDefinition Modifier(
         string id,
         string statId,
