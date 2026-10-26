@@ -1,5 +1,6 @@
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
+using PoEnhance.Core.Tests.Items.GameData;
 using PoEnhance.Core.Tests.Items.Parsing;
 using PoEnhance.Core.Trade;
 using PoEnhance.GameData;
@@ -741,6 +742,58 @@ Misty Footprints — Unscalable Value
         Assert.Equal(-1m, negative.RequestedMinimum);
         Assert.Null(negative.RequestedMaximum);
         Assert.False(negative.IsSelected);
+    }
+
+    [Fact]
+    public async Task CreateDraft_PinnedAulsUprising_UnscalableNearbyStun_UsesFixedQueryValueNotPresenceOnly()
+    {
+        // Synthetic AID-shaped clipboard (not genuine Ctrl+C). local_display companion Unique
+        // leaves translation bound Unsupported; Unscalable must still promote the display scalar
+        // 10 into FixedQueryValue rather than presence-only blank Trade bounds.
+        var catalog = await PinnedActiveGameDataPackage.LoadCatalogAndAssertMatchesPinAsync();
+        const string rawText = """
+Item Class: Amulets
+Rarity: Unique
+Aul's Uprising
+Onyx Amulet
+--------
+Item Level: 85
+--------
+{ Unique Modifier }
+Nearby Enemies have 10% reduced Stun and Block Recovery — Unscalable Value
+{ Unique Modifier }
+Anger has no Reservation
+""";
+        var item = parser.Parse(rawText);
+        Assert.True(item.Modifiers[0].HasUnscalableValue);
+        Assert.False(item.Modifiers[1].HasUnscalableValue);
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, gameDataCatalog: catalog));
+        var stun = Assert.Single(
+            draft.ModifierFilters,
+            filter => filter.OriginalText.Contains(
+                "reduced Stun and Block Recovery",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, stun.UniqueSourceSemantics);
+        Assert.Equal(ModifierBoundShape.Scalar, stun.ValueBoundShape);
+        Assert.False(stun.SupportsValueBounds);
+        Assert.Null(stun.RequestedMinimum);
+        Assert.Null(stun.RequestedMaximum);
+        Assert.Equal(10m, stun.FixedQueryValue);
+        Assert.Equal([10m], stun.CanonicalNumericValues);
+        Assert.Contains(
+            "fixed numeric query value",
+            stun.ValueBoundsUnsupportedReason,
+            StringComparison.OrdinalIgnoreCase);
+
+        var anger = Assert.Single(
+            draft.ModifierFilters,
+            filter => filter.OriginalText.Contains(
+                "Anger has no Reservation",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ModifierBoundShape.PresenceOnly, anger.ValueBoundShape);
+        Assert.False(anger.SupportsValueBounds);
+        Assert.Null(anger.FixedQueryValue);
     }
 
     [Fact]

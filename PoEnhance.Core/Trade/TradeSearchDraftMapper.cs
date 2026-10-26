@@ -1181,14 +1181,6 @@ public sealed partial class TradeSearchDraftMapper
             (qualifiesForFixedNumericIdentity ||
                 treatAsUnscalablePresence ||
                 hasProvenGeneratedTextualOptionRange);
-        var effectiveUnscalablePresence = treatAsUnscalablePresence &&
-            !editableGemSkillLevelBounds &&
-            !explicitNumericUnscalable;
-        var exactInitializedEditableQueryValue = fixedQueryValue is null &&
-            !effectiveUnscalablePresence &&
-            !boundDefault.IsSupported
-                ? providerSearchEvidence.ExactInitializedEditableQueryValue
-                : null;
         var providerOnlyUniqueValues = usesUniqueSourceMechanics &&
             (boundCandidate is null || boundDefault.Shape == ModifierBoundShape.Unsupported) &&
             componentLines.Count == 1
@@ -1206,7 +1198,41 @@ public sealed partial class TradeSearchDraftMapper
         {
             providerOnlyUniqueValues = ModifierBoundDefaults.ExtractObservedValues(componentLines[0]);
         }
+
+        // AID Unscalable + Fixed Unique whose translation bound is Unsupported because the Unique
+        // mod pairs a translated companion with a local_display_* tooltip still exposes one observed
+        // display scalar. Promote that scalar to FixedQueryValue — same non-editable Trade constraint
+        // as explicitNumericUnscalable — instead of collapsing to presence-only and dropping the
+        // numeric Trade axis. Skill-gem Level thresholds stay out. Omitted chance-wrapper tooltips
+        // (local_display_*…%_chance / trigger_level_*) stay out — their display Level N is not the
+        // Trade # slot (Chains of Command).
+        if (fixedQueryValue is null &&
+            treatAsUnscalablePresence &&
+            !editableGemSkillLevelBounds &&
+            !isSkillGemLevelThreshold &&
+            usesUniqueSourceMechanics &&
+            uniqueBlockResolution is
+            {
+                IsResolved: true,
+                SourceSemantics: UniqueModifierSourceSemantics.Fixed,
+            } &&
+            IsLocalDisplayMagnitudeTooltipWithoutChanceWrapper(uniqueBlockResolution.StatIds) &&
+            providerOnlyUniqueValues.Count == 1)
+        {
+            fixedQueryValue = providerOnlyUniqueValues[0];
+        }
+
+        var effectiveUnscalablePresence = treatAsUnscalablePresence &&
+            !editableGemSkillLevelBounds &&
+            !explicitNumericUnscalable &&
+            fixedQueryValue is null;
+        var exactInitializedEditableQueryValue = fixedQueryValue is null &&
+            !effectiveUnscalablePresence &&
+            !boundDefault.IsSupported
+                ? providerSearchEvidence.ExactInitializedEditableQueryValue
+                : null;
         var hasProviderOnlyUniqueScalar = !effectiveUnscalablePresence &&
+            fixedQueryValue is null &&
             providerOnlyUniqueValues.Count == 1;
         var supportsValueBounds = fixedQueryValue is null &&
             !effectiveUnscalablePresence &&
@@ -2856,6 +2882,36 @@ public sealed partial class TradeSearchDraftMapper
         }
 
         return boundDefault.NumericQueryRole;
+    }
+
+    private static bool IsLocalDisplayMagnitudeTooltipWithoutChanceWrapper(
+        IReadOnlyList<string> statIds)
+    {
+        var hasLocalDisplayTooltip = false;
+        foreach (var raw in statIds)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            var statId = raw.Trim();
+            if (!statId.StartsWith("local_display_", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            hasLocalDisplayTooltip = true;
+            if (statId.Contains("%_chance", StringComparison.OrdinalIgnoreCase) ||
+                statId.Contains("_chance_", StringComparison.OrdinalIgnoreCase) ||
+                statId.EndsWith("_chance", StringComparison.OrdinalIgnoreCase) ||
+                statId.Contains("trigger_level_", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return hasLocalDisplayTooltip;
     }
 
     private static bool IsNonSearchableUniqueRequirement(

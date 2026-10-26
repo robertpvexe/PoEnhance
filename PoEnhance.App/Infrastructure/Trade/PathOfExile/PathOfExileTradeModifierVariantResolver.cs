@@ -857,8 +857,10 @@ internal static class PathOfExileTradeModifierVariantResolver
                     : ModifierBoundShape.PresenceOnly,
                 RequestedMinimum = null,
                 RequestedMaximum = null,
-                ValueBoundsUnsupportedReason = option.ValueBoundsUnsupportedReason ??
-                    UnsupportedBoundsMessage,
+                ValueBoundsUnsupportedReason = hasFixedParametricQueryConstraint
+                    ? "The source proves a fixed numeric query value, but it is not user-editable."
+                    : option.ValueBoundsUnsupportedReason ??
+                        UnsupportedBoundsMessage,
             };
         }
 

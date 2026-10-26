@@ -690,6 +690,123 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
     }
 
     [Fact]
+    public void AulsUprising_SyntheticAidUnscalableNearbyStun_BlankUiBounds_SerializesFixedNumericConstraint()
+    {
+        // Synthetic AID-shaped clipboard (not genuine Ctrl+C). Real Ctrl+D shows blank Min/Max
+        // because Unscalable Value takes TradeSearchDraftMapper FixedQueryValue (non-editable)
+        // — not because the Trade filter is presence-only. Official frozen catalog
+        // explicit.stat_3169825297 = "Nearby Enemies have #% reduced Stun and Block Recovery"
+        // (FilterArity 1). Anger presence-only is the blank-bounds contrast that omits value.
+        var raw = """
+            Item Class: Amulets
+            Rarity: Unique
+            Aul's Uprising
+            Onyx Amulet
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Nearby Enemies have 10% reduced Stun and Block Recovery — Unscalable Value
+            { Unique Modifier }
+            Anger has no Reservation
+            --------
+            """;
+        var runtime = Resolve(raw);
+        Assert.Equal("Aul's Uprising", runtime.ProviderDraft.DisplayName, ignoreCase: true);
+
+        var stun = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "reduced Stun and Block Recovery",
+                StringComparison.OrdinalIgnoreCase) &&
+                component.OriginalText.Contains("Nearby Enemies", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, stun.UniqueSourceSemantics);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, stun.ProviderResolutionStatus);
+        Assert.Equal("explicit.stat_3169825297", stun.ProviderStatId);
+        Assert.NotEqual("explicit.stat_2511217560", stun.ProviderStatId);
+        Assert.Equal(ModifierBoundShape.Scalar, stun.ValueBoundShape);
+        Assert.False(stun.SupportsValueBounds);
+        Assert.Null(stun.RequestedMinimum);
+        Assert.Null(stun.RequestedMaximum);
+        Assert.Equal(10m, stun.FixedQueryValue);
+        Assert.Equal([10m], stun.CanonicalNumericValues);
+        Assert.Contains(
+            "fixed numeric query value",
+            stun.ValueBoundsUnsupportedReason,
+            StringComparison.OrdinalIgnoreCase);
+
+        var anger = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Anger has no Reservation",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ModifierBoundShape.PresenceOnly, anger.ValueBoundShape);
+        Assert.False(anger.SupportsValueBounds);
+        Assert.Null(anger.FixedQueryValue);
+        Assert.Equal("explicit.stat_2189891129", anger.ProviderStatId);
+
+        var json = Serialize(runtime, stun);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_3169825297", filter.GetProperty("id").GetString());
+        var value = filter.GetProperty("value");
+        Assert.Equal(10m, value.GetProperty("min").GetDecimal());
+        Assert.Equal(10m, value.GetProperty("max").GetDecimal());
+
+        var angerJson = Serialize(runtime, anger);
+        using var angerDocument = JsonDocument.Parse(angerJson);
+        var angerFilter = Assert.Single(
+            angerDocument.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_2189891129", angerFilter.GetProperty("id").GetString());
+        Assert.False(angerFilter.TryGetProperty("value", out _));
+    }
+
+    [Fact]
+    public void AulsUprising_SyntheticNearbyStunWithoutUnscalable_EditableRequestedMinimum()
+    {
+        // Contrast path: same Fixed line without AID Unscalable annotation keeps editable Min.
+        // U.2.5H report Min-10 expectation matched this synthetic shape, not real Ctrl+D AID.
+        var raw = """
+            Item Class: Amulets
+            Rarity: Unique
+            Aul's Uprising
+            Onyx Amulet
+            --------
+            Item Level: 85
+            --------
+            { Unique Modifier }
+            Nearby Enemies have 10% reduced Stun and Block Recovery
+            --------
+            """;
+        var runtime = Resolve(raw);
+        var stun = Assert.Single(
+            runtime.ProviderDraft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "reduced Stun and Block Recovery",
+                StringComparison.OrdinalIgnoreCase) &&
+                component.OriginalText.Contains("Nearby Enemies", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("explicit.stat_3169825297", stun.ProviderStatId);
+        Assert.Null(stun.FixedQueryValue);
+        Assert.True(stun.SupportsValueBounds);
+        Assert.Equal(10m, stun.RequestedMinimum);
+        Assert.Null(stun.RequestedMaximum);
+
+        var json = Serialize(runtime, stun);
+        using var document = JsonDocument.Parse(json);
+        var filter = Assert.Single(
+            document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                .GetProperty("filters")
+                .EnumerateArray());
+        Assert.Equal("explicit.stat_3169825297", filter.GetProperty("id").GetString());
+        Assert.Equal(10m, filter.GetProperty("value").GetProperty("min").GetDecimal());
+    }
+
+    [Fact]
     public void Cinderswallow_SyntheticCatarinaPrefix_AdditionalCurseDuringEffect_SerializesOfficialPresenceOnly()
     {
         // Synthetic AID-shaped clipboard (not genuine Ctrl+C). Official frozen catalog
@@ -1375,6 +1492,7 @@ public sealed class TradeSerializedQueryConfidenceSpineTests
             UniqueItem(9, "Precursor's Emblem", "Sapphire Ring", "accessory"),
             UniqueItem(10, "Cinderswallow Urn", "Silver Flask", "flask"),
             UniqueItem(11, "Cospri's Will", "Assassin's Garb", "armour"),
+            UniqueItem(12, "Aul's Uprising", "Onyx Amulet", "accessory"),
         ]);
 
     private static PathOfExileTradeItemEntry UniqueItem(
