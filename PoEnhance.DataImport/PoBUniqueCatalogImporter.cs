@@ -2569,6 +2569,7 @@ public sealed partial class PoBUniqueCatalogImporter
             "divide_by_one_hundred_2dp" => ["scale:0.01", "round:2"],
             "divide_by_one_hundred_2dp_if_required" =>
                 ["scale:0.01", "round:2-if-required"],
+            "divide_by_five" => ["scale:0.2"],
             "old_leech_percent" => ["scale:0.2"],
             "old_leech_permyriad" => ["scale:0.002"],
             "passive_hash" => ["lookup:passive"],
@@ -3174,6 +3175,9 @@ public sealed partial class PoBUniqueCatalogImporter
                 "divide_by_one_hundred" or
                     "divide_by_one_hundred_2dp" or
                     "divide_by_one_hundred_2dp_if_required" => projected / 100m,
+                // RePoE Fortification "+1 per 5" display stats (e.g. Queen's Hunger veiled
+                // JunMasterVeiledFortifyEffectWhileFocused_: raw 50 → "+10 to maximum …").
+                "divide_by_five" => projected / 5m,
                 "per_minute_to_per_second" or
                     "per_minute_to_per_second_1dp" =>
                     Math.Round(projected / 60m, 1, MidpointRounding.AwayFromZero),

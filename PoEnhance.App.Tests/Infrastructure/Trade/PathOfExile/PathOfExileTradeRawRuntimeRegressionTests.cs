@@ -37,7 +37,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithExactCorruptedProvenance()
     {
-        // Pinned package 3.29.3.11 retains a single eligible corrupted observation for
+        // Pinned package 3.29.3.12 retains a single eligible corrupted observation for
         // base_minimum_frenzy_charges on amulet (V2MinFrenzyChargesCorrupted). A second RePoE
         // row (V2MinPowerChargesCorrupted) shares the Frenzy stat id but is Disabled with zero
         // spawn weights, so it is correctly excluded — not an EquivalentSourceSet. Multi-observation
@@ -1127,6 +1127,68 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     }
 
     [Fact]
+    public void ResolveRawCopiedItem_QueensHungerFortificationDivideByFiveUsesExactTradeFilter()
+    {
+        // U.2.5M / SYNTHETIC clipboard: veiled Fortification-while-Focused (raw 50 / divide_by_five)
+        // must Exact-own JunMasterVeiledFortifyEffectWhileFocused_ and serialize official +# filter.
+        // Offering Fixed lines intentionally remain out of this family / may stay Unsupported.
+        // Not a genuine Ctrl+D capture — labelled synthetic for offline spine only.
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve(QueensHungerFortificationSyntheticText, catalog);
+        var component = FindComponent(
+            runtime.ProviderDraft,
+            "+10 to maximum Fortification while Focused");
+
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Single(component.UniqueCatalogBlockIds);
+        Assert.NotEmpty(component.UniqueSourceObservationIds);
+        var providerMatch = new PathOfExileTradeStatMatcher().Match(component, catalog);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"status={component.ProviderResolutionStatus}; code={component.ProviderDiagnosticCode}; " +
+            $"message={component.ProviderDiagnosticMessage}; alternatives=" +
+            string.Join(',', component.ProviderStatAlternativeIds) + "; candidates=" +
+            string.Join(" | ", providerMatch.Candidates.Select(candidate =>
+                $"{candidate.StatId}:{candidate.Text}")));
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+        Assert.Equal("explicit.stat_922014346", component.ProviderStatId);
+        Assert.Equal(ModifierBoundShape.Scalar, component.ValueBoundShape);
+        Assert.True(component.SupportsValueBounds);
+        Assert.Equal([10m], component.ObservedNumericValues);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.True(IsInteractionReady(component));
+        Assert.Equal("Unique", StaticModifierLabel(component));
+        // Initial Requested* may be null until the row is enabled; serialize with observed
+        // min=max like the Price Checker bound defaults when the Unique presence is selected.
+        var selected = component with
+        {
+            RequestedMinimum = 10m,
+            RequestedMaximum = 10m,
+        };
+        var selectedRuntime = runtime with
+        {
+            ProviderDraft = runtime.ProviderDraft with
+            {
+                ModifierFilters = runtime.ProviderDraft.ModifierFilters
+                    .Select(candidate => string.Equals(
+                            candidate.ComponentId,
+                            component.ComponentId,
+                            StringComparison.Ordinal)
+                        ? selected
+                        : candidate)
+                    .ToArray(),
+            },
+        };
+        AssertSingleQueryFilter(
+            selectedRuntime,
+            selected,
+            catalog,
+            "explicit.stat_922014346",
+            10m,
+            10m);
+    }
+
+    [Fact]
     public void ResolveRawCopiedItem_SkinOfTheLordsPuristKeystoneUsesExactTradeFilter()
     {
         // U.2.5L / SYNTHETIC clipboard: RePoE [KeystoneLightningPurist|Roiling Tempest] FormatLines
@@ -1737,6 +1799,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(27, "The Battle Within", "Oakbranch Tincture", "tincture"),
             UniqueItem(28, "Baleful Dominion", "Hypnotic Eye Jewel", "jewel"),
             UniqueItem(29, "Skin of the Lords", "Simple Robe", "armour"),
+            UniqueItem(30, "The Queen's Hunger", "Vaal Regalia", "armour"),
         ]);
     }
 
@@ -2057,6 +2120,39 @@ You can only Socket Corrupted Gems in this item
 Roiling Tempest
 --------
 Corrupted
+""";
+
+    // SYNTHETIC offline Ctrl+D spine fixture (U.2.5M) — not a genuine capture.
+    // Fixed Offering lines use PoB wording (or / no "in sequence") and stay Unsupported in catalog.
+    private const string QueensHungerFortificationSyntheticText = """
+Item Class: Body Armours
+Rarity: Unique
+The Queen's Hunger
+Vaal Regalia
+--------
+Quality: +20% (augmented)
+Energy Shield: 412 (augmented)
+--------
+Requirements:
+Level: 68
+Int: 194
+--------
+Sockets: B-B-B-B-B-B
+--------
+Item Level: 84
+--------
+{ Unique Modifier }
+Trigger Level 20 Bone Offering, Flesh Offering or Spirit Offering every 5 seconds
+{ Unique Modifier }
+Offering Skills Triggered this way also affect you
+{ Unique Modifier }
+8(5-10)% increased Cast Speed
+{ Unique Modifier }
+115(100-130)% increased Energy Shield
+{ Unique Modifier }
+8(6-10)% increased maximum Life
+{ Unique Modifier }
++10 to maximum Fortification while Focused
 """;
 
     private const string LethalPrideText = """

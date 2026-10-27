@@ -1063,6 +1063,348 @@ public sealed class GeneratedOptionDomainExactTests
         Assert.Empty(reflect.MechanicalMapping.ModifierIds);
     }
 
+    [Fact]
+    public void Import_GeneratedQueensHungerFortification_DivideByFive_ExactOwnsUnveiled()
+    {
+        // U.2.5M: JunMasterVeiledFortifyEffectWhileFocused_ stores raw 50 with RePoE
+        // divide_by_five → PoB/AID "+10 to maximum Fortification while Focused".
+        const string veiledId = "JunMasterVeiledFortifyEffectWhileFocused_";
+        var veiled = new ModifierDefinition
+        {
+            Id = veiledId,
+            GroupId = "FortifyEffectWhileFocused",
+            Name = "of the Order",
+            GenerationType = ModifierGenerationType.Suffix,
+            SourceGenerationType = "suffix",
+            Domain = "unveiled",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "max_fortification_while_focused_+1_per_5",
+                    MinValue = 50m,
+                    MaxValue = 50m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "grant_focus_skill",
+                    MinValue = 1m,
+                    MaxValue = 1m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                The Queen's Hunger
+                Vaal Regalia
+                Selected Variant: 1
+                Variant: (Suffix) Fortify Effect While Focused
+                Implicits: 0
+                {variant:1}{crafted}+10 to maximum Fortification while Focused
+                """,
+            generated: true,
+            modifiers: [veiled],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "fortify-focused",
+                    StatIds = ["max_fortification_while_focused_+1_per_5"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0, MinValue = null, MaxValue = null }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["divide_by_five"],
+                                },
+                            ],
+                            FormatLines = ["{0} to maximum Fortification while Focused"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Armours/BodyArmours/BodyInt3C",
+                    Name = "Vaal Regalia",
+                    Domain = "item",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal([veiledId], block.MechanicalMapping.ModifierIds);
+        Assert.Contains(
+            "max_fortification_while_focused_+1_per_5",
+            block.MechanicalMapping.StatIds,
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void Import_GeneratedQueensHungerFortification_WrongProjectedValue_RemainsUnsupported()
+    {
+        // Negative: PoB "+9 …" must not Exact-own the veiled raw-50 / divide_by_five (+10) row.
+        var veiled = new ModifierDefinition
+        {
+            Id = "JunMasterVeiledFortifyEffectWhileFocused_",
+            GroupId = "FortifyEffectWhileFocused",
+            GenerationType = ModifierGenerationType.Suffix,
+            SourceGenerationType = "suffix",
+            Domain = "unveiled",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "max_fortification_while_focused_+1_per_5",
+                    MinValue = 50m,
+                    MaxValue = 50m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "grant_focus_skill",
+                    MinValue = 1m,
+                    MaxValue = 1m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                The Queen's Hunger
+                Vaal Regalia
+                Selected Variant: 1
+                Variant: (Suffix) Fortify Effect While Focused
+                Implicits: 0
+                {variant:1}{crafted}+9 to maximum Fortification while Focused
+                """,
+            generated: true,
+            modifiers: [veiled],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "fortify-focused",
+                    StatIds = ["max_fortification_while_focused_+1_per_5"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["divide_by_five"],
+                                },
+                            ],
+                            FormatLines = ["{0} to maximum Fortification while Focused"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Armours/BodyArmours/BodyInt3C",
+                    Name = "Vaal Regalia",
+                    Domain = "item",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_FixedQueensHungerOfferingLines_WithoutTradeWording_RemainUnsupported()
+    {
+        // U.2.5M Offering NO-FIX guard: PoB uses "or" and omits "in sequence"; RePoE/Trade use
+        // commas + "in sequence" as one multi-line Unique FormatLines. Do not alias those words.
+        var unique = new ModifierDefinition
+        {
+            Id = "TriggerRandomOfferingSkillUnique__1",
+            GroupId = "GrantedSkill",
+            GenerationType = ModifierGenerationType.Implicit,
+            SourceGenerationType = "unique",
+            Domain = "item",
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "local_display_trigger_level_X_offering_every_5_seconds",
+                    MinValue = 20m,
+                    MaxValue = 20m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "buff_impl_stat",
+                    MinValue = 0m,
+                    MaxValue = 0m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                The Queen's Hunger
+                Vaal Regalia
+                Implicits: 0
+                Trigger Level 20 Bone Offering, Flesh Offering or Spirit Offering every 5 seconds
+                Offering Skills Triggered this way also affect you
+                """,
+            generated: true,
+            modifiers: [unique],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "offering-trigger",
+                    StatIds = ["local_display_trigger_level_X_offering_every_5_seconds"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0, MinValue = 1 }],
+                            ValueFormats = ["#"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines =
+                            [
+                                "Trigger Level {0} Bone Offering, Flesh Offering, Spirit Offering every 5 seconds in sequence",
+                                "Offering Skills Triggered this way also affect you",
+                            ],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Armours/BodyArmours/BodyInt3C",
+                    Name = "Vaal Regalia",
+                    Domain = "item",
+                },
+            ]);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        Assert.Equal(2, version.ModifierBlocks.Count);
+        Assert.All(
+            version.ModifierBlocks,
+            block =>
+            {
+                Assert.Equal(
+                    UniqueModifierMechanicalMappingStatus.Unsupported,
+                    block.MechanicalMapping.Status);
+                Assert.Empty(block.MechanicalMapping.ModifierIds);
+            });
+    }
+
+    [Fact]
+    public void Import_FixedNonGeneratedFortification_DoesNotClaimUnveiledDivideByFive()
+    {
+        // Negative: Fixed Unique without GeneratedCandidate must not Exact-claim unveiled domain.
+        var veiled = new ModifierDefinition
+        {
+            Id = "JunMasterVeiledFortifyEffectWhileFocused_",
+            GroupId = "FortifyEffectWhileFocused",
+            GenerationType = ModifierGenerationType.Suffix,
+            SourceGenerationType = "suffix",
+            Domain = "unveiled",
+            SourceAvailability = ModifierSourceAvailability.PotentiallyEligible,
+            Stats =
+            [
+                new ModifierStat
+                {
+                    Index = 0,
+                    StatId = "max_fortification_while_focused_+1_per_5",
+                    MinValue = 50m,
+                    MaxValue = 50m,
+                },
+                new ModifierStat
+                {
+                    Index = 1,
+                    StatId = "grant_focus_skill",
+                    MinValue = 1m,
+                    MaxValue = 1m,
+                },
+            ],
+        };
+
+        var result = ImportSingle(
+            """
+                Unrelated Regalia
+                Vaal Regalia
+                Implicits: 0
+                +10 to maximum Fortification while Focused
+                """,
+            generated: false,
+            modifiers: [veiled],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "fortify-focused",
+                    StatIds = ["max_fortification_while_focused_+1_per_5"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["+#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler
+                                {
+                                    Index = 0,
+                                    Handlers = ["divide_by_five"],
+                                },
+                            ],
+                            FormatLines = ["{0} to maximum Fortification while Focused"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Id = "Metadata/Items/Armours/BodyArmours/BodyInt3C",
+                    Name = "Vaal Regalia",
+                    Domain = "item",
+                },
+            ]);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.Fixed, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
     private static PoBUniqueCatalogImportResult ImportSingle(
         string raw,
         bool generated,

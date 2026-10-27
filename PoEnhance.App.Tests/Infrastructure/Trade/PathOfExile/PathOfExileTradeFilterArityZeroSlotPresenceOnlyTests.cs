@@ -269,7 +269,7 @@ public sealed class PathOfExileTradeFilterArityZeroSlotPresenceOnlyTests
             .GetAwaiter()
             .GetResult();
         Assert.True(result.IsSuccess, string.Join(" | ", result.Diagnostics.Select(d => d.Message)));
-        Assert.Equal("3.29.3.11", result.Package!.Manifest.DataVersion);
+        Assert.Equal("3.29.3.12", result.Package!.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(result.Package);
     }
 

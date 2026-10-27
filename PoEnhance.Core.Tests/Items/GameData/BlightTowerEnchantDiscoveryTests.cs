@@ -523,7 +523,7 @@ Item Level: 80
         var load = await GameDataPackageLoader.LoadFromFileAsync(packagePath);
         Assert.True(load.IsSuccess);
         Assert.Equal(4, load.Package!.Manifest.SchemaVersion);
-        Assert.Equal("3.29.3.11", load.Package.Manifest.DataVersion);
+        Assert.Equal("3.29.3.12", load.Package.Manifest.DataVersion);
         return GameDataCatalog.FromPackage(load.Package);
     }
 }
