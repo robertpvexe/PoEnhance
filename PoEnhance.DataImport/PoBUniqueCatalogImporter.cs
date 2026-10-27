@@ -3205,7 +3205,7 @@ public sealed partial class PoBUniqueCatalogImporter
         value.ToString("0.############################", CultureInfo.InvariantCulture);
 
     private static string NormalizeExactEvidence(string value) =>
-        WhitespacePattern().Replace(value.Trim(), " ");
+        WhitespacePattern().Replace(StripRePoEDisplayLinks(value.Trim()), " ");
 
     private static string UnorderedMultilineKey(string value) =>
         UnorderedMultilineKey(value.Split('\n'));
@@ -3807,7 +3807,9 @@ public sealed partial class PoBUniqueCatalogImporter
 
     internal static string NormalizeSignature(string value)
     {
-        var normalized = RangePattern().Replace(value.Trim(), match =>
+        // RePoE FormatLines may wrap display names as [InternalId|Display Text] (GGPK links).
+        // PoB Unique source / AID / Trade use the display text only — strip before signature work.
+        var normalized = RangePattern().Replace(StripRePoEDisplayLinks(value.Trim()), match =>
             match.Groups["sign"].Value + "<number>");
         normalized = NumberPattern().Replace(normalized, match =>
             match.Groups["sign"].Value + "<number>");
@@ -3822,6 +3824,23 @@ public sealed partial class PoBUniqueCatalogImporter
         normalized = YourMaximumNumberOfPattern().Replace(normalized, "maximum ");
         normalized = WhitespacePattern().Replace(normalized, " ");
         return normalized.Trim();
+    }
+
+    /// <summary>
+    /// RePoE English translations often encode client wiki/GGPK links as
+    /// <c>[InternalId|Display Text]</c>. PoB Unique lines, AID Ctrl+D, and official Trade filters
+    /// use only the display text (e.g. Skin of the Lords purist keystones). Strip every such
+    /// link to the display segment; leave unrelated brackets alone.
+    /// </summary>
+    internal static string StripRePoEDisplayLinks(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.IndexOf('[') < 0)
+        {
+            return value;
+        }
+
+        // ReplaceAll covers multiple non-overlapping links on one FormatLine (map/Pact text).
+        return RePoEDisplayLinkPattern().Replace(value, "${display}");
     }
 
     /// <summary>
@@ -4139,6 +4158,13 @@ public sealed partial class PoBUniqueCatalogImporter
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespacePattern();
+
+    // RePoE client link markup: [InternalId|Display Text]. Display may contain spaces; id does not
+    // use '|' or ']'. Do not match bare [Token] forms without a pipe.
+    [GeneratedRegex(
+        @"\[(?<id>[^\]|\r\n]+)\|(?<display>[^\]\r\n]+)\]",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex RePoEDisplayLinkPattern();
 
     [GeneratedRegex(@"(?:^|[\s(])Pre(?:[\s.]|$)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex HistoricalVersionMarkerPattern();

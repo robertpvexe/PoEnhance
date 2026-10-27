@@ -24,6 +24,26 @@ public sealed class PrecursorGeneratedSignatureRecoveryTests
     }
 
     [Fact]
+    public void StripRePoEDisplayLinks_UsesDisplayTextOnly()
+    {
+        Assert.Equal(
+            "Roiling Tempest",
+            PoBUniqueCatalogImporter.StripRePoEDisplayLinks(
+                "[KeystoneLightningPurist|Roiling Tempest]"));
+        Assert.Equal(
+            "Areas contain Abysses",
+            PoBUniqueCatalogImporter.StripRePoEDisplayLinks(
+                "Areas contain [ContainsAbyss|Abysses]"));
+        Assert.Equal(
+            "Elemental Equilibrium",
+            PoBUniqueCatalogImporter.StripRePoEDisplayLinks("Elemental Equilibrium"));
+        Assert.Equal(
+            "Roiling Tempest",
+            PoBUniqueCatalogImporter.NormalizeSignature(
+                "[KeystoneLightningPurist|Roiling Tempest]"));
+    }
+
+    [Fact]
     public void NormalizeSignature_PreservesPositivePlusAndNegativeSign()
     {
         Assert.Equal(

@@ -37,7 +37,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
     [Fact]
     public void ResolveRawCopiedItem_DragonfangMinimumFrenzy_IsSelectableWithExactCorruptedProvenance()
     {
-        // Pinned package 3.29.3.10 retains a single eligible corrupted observation for
+        // Pinned package 3.29.3.11 retains a single eligible corrupted observation for
         // base_minimum_frenzy_charges on amulet (V2MinFrenzyChargesCorrupted). A second RePoE
         // row (V2MinPowerChargesCorrupted) shares the Frenzy stat id but is Disabled with zero
         // spawn weights, so it is correctly excluded — not an EquivalentSourceSet. Multi-observation
@@ -1126,6 +1126,43 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             4321m);
     }
 
+    [Fact]
+    public void ResolveRawCopiedItem_SkinOfTheLordsPuristKeystoneUsesExactTradeFilter()
+    {
+        // U.2.5L / SYNTHETIC clipboard: RePoE [KeystoneLightningPurist|Roiling Tempest] FormatLines
+        // must Exact-own KeystoneLightningPuristUnique and serialize the official presence filter.
+        // Not a genuine Ctrl+D capture — labelled synthetic for offline spine only.
+        var catalog = OfficialTradeCatalog.Value;
+        var runtime = Resolve(SkinOfTheLordsRoilingTempestSyntheticText, catalog);
+        var component = FindComponent(runtime.ProviderDraft, "Roiling Tempest");
+
+        Assert.True(component.HasExactUniqueSourceProvenance);
+        Assert.Single(component.UniqueCatalogBlockIds);
+        Assert.NotEmpty(component.UniqueSourceObservationIds);
+        var providerMatch = new PathOfExileTradeStatMatcher().Match(component, catalog);
+        Assert.True(
+            component.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact,
+            $"status={component.ProviderResolutionStatus}; code={component.ProviderDiagnosticCode}; " +
+            $"message={component.ProviderDiagnosticMessage}; alternatives=" +
+            string.Join(',', component.ProviderStatAlternativeIds) + "; candidates=" +
+            string.Join(" | ", providerMatch.Candidates.Select(candidate =>
+                $"{candidate.StatId}:{candidate.Text}")));
+        Assert.Equal(ModifierStatMappingProofStatus.ProviderExact, component.StatMappingProof);
+        Assert.Equal("explicit.stat_2903189090", component.ProviderStatId);
+        Assert.Equal(ModifierBoundShape.PresenceOnly, component.ValueBoundShape);
+        Assert.False(component.SupportsValueBounds);
+        Assert.True(component.IsSearchable, component.NotSearchableReason);
+        Assert.True(IsInteractionReady(component));
+        Assert.Equal("Unique", StaticModifierLabel(component));
+        AssertSingleQueryFilter(
+            runtime,
+            component,
+            catalog,
+            "explicit.stat_2903189090",
+            expectedMinimum: null,
+            expectedMaximum: null);
+    }
+
     [Theory]
     [InlineData(nameof(ReplicaBatedBreathText), "-20(-25--15) to Intelligence")]
     [InlineData(nameof(AugyreText), "205(180-220)% increased Physical Damage")]
@@ -1699,6 +1736,7 @@ public sealed class PathOfExileTradeRawRuntimeRegressionTests
             UniqueItem(26, "Bones of Ullr", "Silk Slippers", "armour"),
             UniqueItem(27, "The Battle Within", "Oakbranch Tincture", "tincture"),
             UniqueItem(28, "Baleful Dominion", "Hypnotic Eye Jewel", "jewel"),
+            UniqueItem(29, "Skin of the Lords", "Simple Robe", "armour"),
         ]);
     }
 
@@ -1987,6 +2025,38 @@ Item Level: 86
 Subjugating 4321(100-8000) souls in the thrall of Kurgal
 Passives affected are Conquered by the Abyssal
 Historic
+""";
+
+    // SYNTHETIC offline Ctrl+D spine fixture (U.2.5L) — not a genuine capture.
+    private const string SkinOfTheLordsRoilingTempestSyntheticText = """
+Item Class: Body Armours
+Rarity: Unique
+Skin of the Lords
+Simple Robe
+--------
+Quality: +20% (augmented)
+Energy Shield: 28 (augmented)
+--------
+Requirements:
+Level: 62
+Int: 131
+--------
+Sockets: B-B-B-B-B-B
+--------
+Item Level: 84
+--------
+{ Unique Modifier }
+Sockets cannot be modified
+{ Unique Modifier }
++2 to Level of Socketed Gems
+{ Unique Modifier }
+100% increased Global Defences
+{ Unique Modifier }
+You can only Socket Corrupted Gems in this item
+{ Unique Modifier }
+Roiling Tempest
+--------
+Corrupted
 """;
 
     private const string LethalPrideText = """

@@ -1155,6 +1155,329 @@ public sealed class PoBUniqueCatalogImporterRepresentationTests
     }
 
     [Fact]
+    public void Import_GeneratedKeystone_RePoEDisplayLinkMarkup_ExactOwnsPuristKeystone()
+    {
+        // U.2.5L: Skin of the Lords purist keystones — RePoE FormatLines wrap the display name as
+        // [KeystoneLightningPurist|Roiling Tempest] while PoB GeneratedCandidate emits bare text.
+        // Stripping the GGPK link must Exact-own the Unique-generation keystone mod without
+        // inventing item/keystone hardcodes.
+        var result = ImportSingle(
+            raw: """
+                Skin of the Lords
+                Simple Robe
+                Selected Variant: 1
+                Variant: Roiling Tempest
+                Variant: Elemental Equilibrium
+                Implicits: 0
+                {variant:1}Roiling Tempest
+                {variant:2}Elemental Equilibrium
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "KeystoneLightningPuristUnique__1",
+                    GroupId = "Keystone",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "keystone_lightning_purist",
+                            MinValue = 1,
+                            MaxValue = 1,
+                        },
+                    ],
+                },
+                new ModifierDefinition
+                {
+                    Id = "KeystoneElementalEquilibriumUnique__1",
+                    GroupId = "Keystone",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "keystone_elemental_equilibrium",
+                            MinValue = 1,
+                            MaxValue = 1,
+                        },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "purist-lightning",
+                    StatIds = ["keystone_lightning_purist"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["[KeystoneLightningPurist|Roiling Tempest]"],
+                        },
+                    ],
+                },
+                new StatTranslationDefinition
+                {
+                    Id = "elemental-equilibrium",
+                    StatIds = ["keystone_elemental_equilibrium"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Elemental Equilibrium"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Simple Robe",
+                    Domain = "item",
+                    ItemClass = "BodyArmour",
+                },
+            ],
+            generated: true);
+
+        var version = Assert.Single(Assert.Single(result.Catalog!.Items).Versions);
+        var linked = Assert.Single(version.ModifierBlocks, block =>
+            block.Lines[0].Equals("Roiling Tempest", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, linked.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, linked.MechanicalMapping.Status);
+        Assert.Equal(["KeystoneLightningPuristUnique__1"], linked.MechanicalMapping.ModifierIds);
+        Assert.Equal(["keystone_lightning_purist"], linked.MechanicalMapping.StatIds);
+        var plain = Assert.Single(version.ModifierBlocks, block =>
+            block.Lines[0].Equals("Elemental Equilibrium", StringComparison.Ordinal));
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, plain.MechanicalMapping.Status);
+        Assert.Equal(["KeystoneElementalEquilibriumUnique__1"], plain.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedKeystone_WrongKeystoneChoice_DoesNotStealLinkedSibling()
+    {
+        // Negative: PoB emits Bitter Frost; linked Roiling Tempest translation must not Exact-own it.
+        var result = ImportSingle(
+            raw: """
+                Skin of the Lords
+                Simple Robe
+                Selected Variant: 1
+                Variant: Bitter Frost
+                Implicits: 0
+                {variant:1}Bitter Frost
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "KeystoneLightningPuristUnique__1",
+                    GroupId = "Keystone",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "keystone_lightning_purist",
+                            MinValue = 1,
+                            MaxValue = 1,
+                        },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "purist-lightning",
+                    StatIds = ["keystone_lightning_purist"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["[KeystoneLightningPurist|Roiling Tempest]"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Simple Robe",
+                    Domain = "item",
+                    ItemClass = "BodyArmour",
+                },
+            ],
+            generated: true);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierSourceSemantics.GeneratedCandidate, block.SourceSemantics);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_GeneratedKeystone_PlainSiblingWithoutLinkMarkup_StillExact()
+    {
+        // Adjacent already-Exact path: plain FormatLines keystones must keep Exact ownership.
+        var result = ImportSingle(
+            raw: """
+                Skin of the Lords
+                Simple Robe
+                Selected Variant: 1
+                Variant: Elemental Equilibrium
+                Implicits: 0
+                {variant:1}Elemental Equilibrium
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "KeystoneElementalEquilibriumUnique__1",
+                    GroupId = "Keystone",
+                    GenerationType = ModifierGenerationType.Implicit,
+                    SourceGenerationType = "unique",
+                    Domain = "item",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "keystone_elemental_equilibrium",
+                            MinValue = 1,
+                            MaxValue = 1,
+                        },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "elemental-equilibrium",
+                    StatIds = ["keystone_elemental_equilibrium"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["Elemental Equilibrium"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Simple Robe",
+                    Domain = "item",
+                    ItemClass = "BodyArmour",
+                },
+            ],
+            generated: true);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Exact, block.MechanicalMapping.Status);
+        Assert.Equal(["KeystoneElementalEquilibriumUnique__1"], block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
+    public void Import_LinkedKeystoneText_WithoutUniqueGeneration_RemainsUnsupported()
+    {
+        // Negative: same display text via non-Unique-generation / non-generated-option domain must
+        // not Exact through the display-link strip alone.
+        var result = ImportSingle(
+            raw: """
+                Skin of the Lords
+                Simple Robe
+                Selected Variant: 1
+                Variant: Roiling Tempest
+                Implicits: 0
+                {variant:1}Roiling Tempest
+                """,
+            modifiers:
+            [
+                new ModifierDefinition
+                {
+                    Id = "CraftedLookalikeRoilingTempest",
+                    GroupId = "CraftedLookalikeRoilingTempest",
+                    GenerationType = ModifierGenerationType.Prefix,
+                    SourceGenerationType = "prefix",
+                    Domain = "crafted",
+                    Stats =
+                    [
+                        new ModifierStat
+                        {
+                            Index = 0,
+                            StatId = "keystone_lightning_purist",
+                            MinValue = 1,
+                            MaxValue = 1,
+                        },
+                    ],
+                },
+            ],
+            translations:
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "purist-lightning",
+                    StatIds = ["keystone_lightning_purist"],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions = [new StatTranslationCondition { Index = 0 }],
+                            ValueFormats = ["ignore"],
+                            IndexHandlers = [new StatTranslationIndexHandler { Index = 0 }],
+                            FormatLines = ["[KeystoneLightningPurist|Roiling Tempest]"],
+                        },
+                    ],
+                },
+            ],
+            baseItems:
+            [
+                new ItemBaseRecord
+                {
+                    Name = "Simple Robe",
+                    Domain = "item",
+                    ItemClass = "BodyArmour",
+                },
+            ],
+            generated: true);
+
+        var block = Assert.Single(Assert.Single(Assert.Single(result.Catalog!.Items).Versions)
+            .ModifierBlocks);
+        Assert.Equal(UniqueModifierMechanicalMappingStatus.Unsupported, block.MechanicalMapping.Status);
+        Assert.Empty(block.MechanicalMapping.ModifierIds);
+    }
+
+    [Fact]
     public void Import_MiscUniqueJewelPierce_DoesNotPolluteNonAbyssHelmetExact()
     {
         // Regression for the rejected global misc Unique-generation gate: jewel Unique Pierce
@@ -1252,7 +1575,8 @@ public sealed class PoBUniqueCatalogImporterRepresentationTests
         IReadOnlyList<StatTranslationDefinition> translations,
         IReadOnlyList<ItemBaseRecord>? baseItems = null,
         IReadOnlyList<SourceOptionAxisFixture>? optionAxes = null,
-        IReadOnlyList<StatDefinition>? stats = null)
+        IReadOnlyList<StatDefinition>? stats = null,
+        bool generated = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"poenhance-pob-repr-{Guid.NewGuid():N}.json");
         try
@@ -1263,9 +1587,11 @@ public sealed class PoBUniqueCatalogImporterRepresentationTests
                 {
                     new
                     {
-                        uniqueType = "jewel",
-                        sourcePath = "Data/Uniques/jewel.lua",
-                        generated = false,
+                        uniqueType = generated ? "generated" : "jewel",
+                        sourcePath = generated
+                            ? "Data/Uniques/Special/Generated.lua"
+                            : "Data/Uniques/jewel.lua",
+                        generated,
                         raw,
                         optionAxes = optionAxes?.Select(axis => new
                         {
