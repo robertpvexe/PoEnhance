@@ -606,17 +606,34 @@ internal static class PathOfExileTradeModifierVariantResolver
         IReadOnlyList<ProviderVariantGroup> groups,
         IReadOnlyList<PathOfExileTradeStatMatchCandidate> sourceExactCandidates)
     {
+        var groupArray = groups.ToArray();
         var sourceDomains = component.Sources
             .Select(source => source.ProviderDomain?.Trim())
             .Where(domain => !string.IsNullOrWhiteSpace(domain))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        // Main aggregate row: prefer Explicit only when it can faithfully express the combined
+        // contribution (same provider identity across contributors). Merely having an Explicit
+        // catalog entry is not enough for mixed-domain totals.
+        if (component.Sources.Count > 1)
+        {
+            var faithfulExplicitIndex = Array.FindIndex(
+                groupArray,
+                group => string.Equals(group.ProviderKind, "explicit", StringComparison.Ordinal) &&
+                    group.Candidates.Count > 0 &&
+                    SupportsContributorComposition(component, group.Candidates[0]));
+            if (faithfulExplicitIndex >= 0)
+            {
+                return faithfulExplicitIndex;
+            }
+        }
+
         if (sourceDomains.Length > 1)
         {
-            var aggregateIndex = Array.FindIndex(groups.ToArray(), group => string.Equals(
-                group.ProviderKind,
-                "pseudo",
-                StringComparison.Ordinal));
+            var aggregateIndex = Array.FindIndex(
+                groupArray,
+                group => string.Equals(group.ProviderKind, "pseudo", StringComparison.Ordinal));
             if (aggregateIndex >= 0)
             {
                 return aggregateIndex;
@@ -626,7 +643,7 @@ internal static class PathOfExileTradeModifierVariantResolver
         var sourceIds = sourceExactCandidates
             .Select(candidate => candidate.StatId)
             .ToHashSet(StringComparer.Ordinal);
-        var exactIndex = Array.FindIndex(groups.ToArray(), group =>
+        var exactIndex = Array.FindIndex(groupArray, group =>
             group.Candidates.Any(candidate => sourceIds.Contains(candidate.StatId)));
         if (exactIndex >= 0)
         {
@@ -637,7 +654,7 @@ internal static class PathOfExileTradeModifierVariantResolver
             .Select(PathOfExileTradeStatCandidateClassifier.GetProviderKind)
             .Distinct(StringComparer.Ordinal)
             .ToHashSet(StringComparer.Ordinal);
-        return Array.FindIndex(groups.ToArray(), group => sourceKinds.Contains(group.ProviderKind));
+        return Array.FindIndex(groupArray, group => sourceKinds.Contains(group.ProviderKind));
     }
 
     private static IReadOnlyList<SearchComponentContributor> ResolveContributors(

@@ -11,12 +11,14 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         TradeSearchDraft? draft,
         PathOfExileTradeStatCatalog? catalog = null)
     {
-        var selectedModifiers = (draft?.ModifierFilters ?? [])
+        var relevantModifiers = (draft?.ModifierFilters ?? [])
             .Select((modifier, index) => new IndexedModifier(index, modifier))
-            .Where(indexed => indexed.Modifier.IsSelected)
+            .Where(indexed =>
+                indexed.Modifier.IsSelected ||
+                SearchComponentContributorActivation.IsFilteringActive(indexed.Modifier))
             .ToArray();
 
-        if (selectedModifiers.Length == 0)
+        if (relevantModifiers.Length == 0)
         {
             return PathOfExileTradeSelectedModifierMappingResult.Success([]);
         }
@@ -24,8 +26,20 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var filters = new List<PathOfExileTradeSelectedModifierFilter>();
         var contributorFilters = new List<PathOfExileTradeSelectedModifierFilter>();
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
-        foreach (var selectedModifier in selectedModifiers)
+        foreach (var selectedModifier in relevantModifiers)
         {
+            AddActiveContributorFilters(
+                selectedModifier.Index,
+                selectedModifier.Modifier,
+                catalog,
+                contributorFilters,
+                diagnostics);
+
+            if (!selectedModifier.Modifier.IsSelected)
+            {
+                continue;
+            }
+
             if (TryCreateAnointProviderFilter(
                     selectedModifier.Index,
                     selectedModifier.Modifier,
@@ -43,13 +57,6 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 }
                 continue;
             }
-
-            AddActiveContributorFilters(
-                selectedModifier.Index,
-                selectedModifier.Modifier,
-                catalog,
-                contributorFilters,
-                diagnostics);
 
             if (TryCreateConjunctiveProviderFilters(
                     selectedModifier.Index,
@@ -325,7 +332,10 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 continue;
             }
 
-            if (string.Equals(
+            // Same provider identity as an explicitly selected parent is folded into the parent
+            // filter. When the parent checkbox is unchecked, selected children must still emit.
+            if (parent.IsSelected &&
+                string.Equals(
                     providerGroup.Key,
                     parentProviderIdentity,
                     StringComparison.Ordinal))

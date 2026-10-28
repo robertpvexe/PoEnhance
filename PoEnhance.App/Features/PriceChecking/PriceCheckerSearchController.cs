@@ -663,15 +663,7 @@ internal sealed class PriceCheckerSearchController
 
         var modifierFilters = currentDraft.ModifierFilters
             .Select((modifier, index) => index == modifierIndex
-                ? modifier with
-                {
-                    IsSelected = isSelected,
-                    Contributors = !isSelected
-                        ? modifier.Contributors
-                            .Select(contributor => contributor with { IsSelected = false })
-                            .ToArray()
-                        : modifier.Contributors,
-                }
+                ? modifier with { IsSelected = isSelected }
                 : modifier)
             .ToArray();
         var userSelectedDraft = currentDraft with
@@ -683,6 +675,13 @@ internal sealed class PriceCheckerSearchController
             },
         };
         currentDraft = priceCheckService.ResolveEffectiveDraft(userSelectedDraft);
+        if (!isSelected)
+        {
+            // Parent unchecked independently: restore the observed aggregate bound and leave
+            // contributor checkboxes untouched.
+            parentMinimumStates[modifierIndex] = PriceCheckerParentMinimumState.CanonicalDefault;
+        }
+
         currentDraft = ReplaceModifier(
             currentDraft,
             modifierIndex,
@@ -701,7 +700,7 @@ internal sealed class PriceCheckerSearchController
         bool isSelected)
     {
         if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
-            !SearchComponentContributorActivation.SupportsComposition(parent) ||
+            !SearchComponentContributorActivation.AllowsContributorFiltering(parent) ||
             contributor.IsSelected == isSelected)
         {
             return;
@@ -716,15 +715,20 @@ internal sealed class PriceCheckerSearchController
                 ? candidate with { IsSelected = isSelected }
                 : candidate)
             .ToArray();
+        // Parent and contributor checkboxes are independent manual Trade criteria.
+        // Never imply parent.IsSelected from a child toggle, and never rewrite the observed
+        // parent aggregate bound from child checkbox changes.
         var nextParent = parent with
         {
-            IsSelected = parent.IsSelected || isSelected,
             Contributors = contributors,
         };
-        manualContributorParentMinimums.Remove(modifierIndex);
-        parentMinimumStates[modifierIndex] = nextParent.Contributors.Any(candidate => candidate.IsSelected)
-            ? PriceCheckerParentMinimumState.ChildDerived
-            : PriceCheckerParentMinimumState.CanonicalDefault;
+        if (parentMinimumStates.GetValueOrDefault(modifierIndex) ==
+            PriceCheckerParentMinimumState.ChildDerived)
+        {
+            parentMinimumStates[modifierIndex] = PriceCheckerParentMinimumState.CanonicalDefault;
+            manualContributorParentMinimums.Remove(modifierIndex);
+        }
+
         nextParent = SynchronizeContributorParentMinimum(modifierIndex, nextParent);
 
         currentDraft = currentDraft! with
@@ -793,7 +797,7 @@ internal sealed class PriceCheckerSearchController
         string? maximumText)
     {
         if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
-            !SearchComponentContributorActivation.SupportsComposition(parent) ||
+            !SearchComponentContributorActivation.AllowsContributorFiltering(parent) ||
             !contributor.SupportsValueBounds)
         {
             return;
@@ -1773,7 +1777,7 @@ internal sealed class PriceCheckerSearchController
             variants.Add(selectedVariant);
         }
         var contributorsEnabled = isInteractionEnabled &&
-            SearchComponentContributorActivation.SupportsComposition(modifier);
+            SearchComponentContributorActivation.AllowsContributorFiltering(modifier);
         var equivalentProvenanceOnly = IsEquivalentProvenanceOnly(modifier);
         var contributors = (equivalentProvenanceOnly ? [] : modifier.Contributors)
             .Select((contributor, contributorIndex) =>

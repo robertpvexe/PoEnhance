@@ -340,7 +340,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         }
 
         if (!hasValidationErrors &&
-            draft?.ModifierFilters.Any(modifier => modifier.IsSelected) == true &&
+            draft?.ModifierFilters.Any(modifier =>
+                modifier.IsSelected ||
+                SearchComponentContributorActivation.IsFilteringActive(modifier)) == true &&
             providerStatCatalog is not null)
         {
             var mappingResult = selectedModifierMapper.Map(draft, providerStatCatalog);
@@ -759,7 +761,9 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         TradeSearchValidationResult? validationResult,
         string? leagueIdentifier)
     {
-        return draft?.ModifierFilters.Any(modifier => modifier.IsSelected) == true &&
+        return draft?.ModifierFilters.Any(modifier =>
+                modifier.IsSelected ||
+                SearchComponentContributorActivation.IsFilteringActive(modifier)) == true &&
             validationResult is not null &&
             !validationResult.Diagnostics.Any(diagnostic =>
                 diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
@@ -866,6 +870,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     .ToArray(),
             };
         }
+
+        // Mixed-domain aggregates must not inherit a single contributor's special provider kind.
+        // Otherwise Fractured-first Life (+27) + Explicit (+51) routes the whole +78 as Fractured.
+        component = NeutralizeInheritedSpecialProviderFlags(component);
 
         if (IsUnrevealedVeiledPlaceholder(component))
         {
@@ -1920,6 +1928,32 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                         source.ProviderDomain,
                         providerKind,
                         StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static ResolvedSearchComponent NeutralizeInheritedSpecialProviderFlags(
+        ResolvedSearchComponent component)
+    {
+        if (component.Sources.Count <= 1)
+        {
+            return component;
+        }
+
+        var allFractured = component.Sources.All(source => source.IsFractured);
+        var allCrafted = component.Sources.All(source => source.IsCrafted);
+        var allVeiled = component.Sources.All(source => source.IsVeiled);
+        if (component.IsFractured == allFractured &&
+            component.IsCrafted == allCrafted &&
+            component.IsVeiled == allVeiled)
+        {
+            return component;
+        }
+
+        return component with
+        {
+            IsFractured = allFractured,
+            IsCrafted = allCrafted,
+            IsVeiled = allVeiled,
+        };
     }
 
     private static string? ExpectedSpecialProviderKind(ResolvedSearchComponent component)

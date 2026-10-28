@@ -13,13 +13,30 @@ public static class SearchComponentContributorActivation
         return selected?.SupportsContributorComposition == true;
     }
 
+    /// <summary>
+    /// True when selected contributors may participate in filtering under the current parent
+    /// selection. Composition-capable Mod Types keep the established aggregate+child contract.
+    /// When the parent checkbox is unchecked, individually selected sources may still filter by
+    /// their own exact Trade identities even if the parent cannot compose an aggregate.
+    /// </summary>
+    public static bool AllowsContributorFiltering(ResolvedSearchComponent parent)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+
+        return SupportsComposition(parent) || !parent.IsSelected;
+    }
+
+    /// <summary>
+    /// True when selected contributors should be serialized/validated. Parent checkbox selection
+    /// is intentionally independent of child checkboxes.
+    /// </summary>
     public static bool IsFilteringActive(ResolvedSearchComponent parent) =>
-        parent.IsSelected &&
-        SupportsComposition(parent) &&
+        AllowsContributorFiltering(parent) &&
+        parent.Contributors.Any(contributor => contributor.IsSelected) &&
         !AreSelectedContributorsSuspendedByParentBound(parent);
 
     public static int ActiveSelectionCount(ResolvedSearchComponent parent) =>
-        IsFilteringActive(parent)
+        AllowsContributorFiltering(parent)
             ? parent.Contributors.Count(contributor => contributor.IsSelected)
             : 0;
 
@@ -30,7 +47,10 @@ public static class SearchComponentContributorActivation
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(contributor);
 
-        if (!SupportsComposition(parent))
+        // Selected non-composition parents keep the established restriction: contributors cannot
+        // ride along with Explicit/standalone aggregate encoding. Unchecked parents never block
+        // independent source selection through this reason.
+        if (parent.IsSelected && !SupportsComposition(parent))
         {
             return SearchComponentContributorInactiveReason.ParentModeDoesNotComposeContributors;
         }
@@ -45,6 +65,8 @@ public static class SearchComponentContributorActivation
     {
         ArgumentNullException.ThrowIfNull(parent);
 
+        // Suspension only applies when the parent filter itself is selected and its bound
+        // cannot cover the selected child floor. Unchecked parents never suspend children.
         return parent.IsSelected &&
             SupportsComposition(parent) &&
             SearchComponentContributorMath.TryGetSelectedAdditiveMinimumFloor(parent, out var floor) &&

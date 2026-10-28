@@ -1323,6 +1323,88 @@ and they welcomed him.
     }
 
     [Fact]
+    public void ResolveProviderComponents_MixedDomainLifeAggregate_DoesNotRouteInheritedFracturedFlagToFracturedFilter()
+    {
+        var fixture = ServiceFixture.Create();
+        var draft = Draft() with
+        {
+            ItemStates = ["Fractured Item"],
+            ModifierFilters =
+            [
+                SpecialComponent("+78 to maximum Life", "+<number> to maximum Life") with
+                {
+                    ComponentId = "aggregate:modifier:0:0:2",
+                    // Stale/inherited parent flag: Fractured-first aggregation used to leave this true.
+                    IsFractured = true,
+                    Locality = ModifierLocality.Global,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ObservedNumericValues = [78m],
+                    CanonicalNumericValues = [78m],
+                    ValueBoundTranslationHandlers = [[]],
+                    ValueBoundTranslationIdentity = "test-life-aggregate",
+                    RequestedMinimum = 78m,
+                    ContributorProjection = SearchComponentContributorProjection.Additive,
+                    Sources =
+                    [
+                        new SearchComponentSourceProvenance
+                        {
+                            ComponentId = "modifier:0:0",
+                            SourceModifierIndex = 0,
+                            OriginalText = "+27 to maximum Life",
+                            CanonicalSignature = "+<number> to maximum Life",
+                            ParsedKind = ParsedModifierKind.Prefix,
+                            GenerationType = ModifierGenerationType.Prefix,
+                            Locality = ModifierLocality.Global,
+                            ProviderDomain = "Fractured",
+                            IsFractured = true,
+                            ResolvedModifierId = "fractured-life",
+                            ResolvedStatIds = ["base_maximum_life"],
+                            ObservedNumericValues = [27m],
+                            CanonicalNumericValues = [27m],
+                            ValueBoundShape = ModifierBoundShape.Scalar,
+                            TranslationHandlers = [[]],
+                        },
+                        new SearchComponentSourceProvenance
+                        {
+                            ComponentId = "modifier:1:0",
+                            SourceModifierIndex = 1,
+                            OriginalText = "+51 to maximum Life",
+                            CanonicalSignature = "+<number> to maximum Life",
+                            ParsedKind = ParsedModifierKind.Prefix,
+                            GenerationType = ModifierGenerationType.Prefix,
+                            Locality = ModifierLocality.Global,
+                            ProviderDomain = "Explicit",
+                            ResolvedModifierId = "explicit-life",
+                            ResolvedStatIds = ["base_maximum_life"],
+                            ObservedNumericValues = [51m],
+                            CanonicalNumericValues = [51m],
+                            ValueBoundShape = ModifierBoundShape.Scalar,
+                            TranslationHandlers = [[]],
+                        },
+                    ],
+                },
+            ],
+        };
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Stat("fractured.stat_3299347043", "+# to maximum Life", "fractured"),
+            Stat("explicit.stat_3299347043", "+# to maximum Life", "explicit"),
+            Stat("pseudo.pseudo_total_life", "+# total maximum Life", "pseudo"),
+        ]);
+
+        var resolved = fixture.Service.ResolveProviderComponents(draft, catalog);
+        var component = Assert.Single(resolved.ModifierFilters);
+
+        Assert.False(component.IsFractured);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, component.ProviderResolutionStatus);
+        Assert.Equal("pseudo.pseudo_total_life", component.ProviderStatId);
+        Assert.NotEqual("fractured.stat_3299347043", component.ProviderStatId);
+        Assert.Equal(78m, component.RequestedMinimum);
+        Assert.Equal(["Fractured", "Explicit"], component.Sources.Select(source => source.ProviderDomain));
+    }
+
+    [Fact]
     public void ResolveProviderComponents_FracturedModifier_UsesStructuredApproximationWhenEveryGuardExists()
     {
         var fixture = ServiceFixture.Create();

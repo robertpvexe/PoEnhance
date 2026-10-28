@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
@@ -2376,7 +2377,275 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
-    public void ModifierContributor_SelectionSelectsParentAndParentDeselectionClearsChildrenWithoutLocking()
+    public void MixedDomainLifeSelectionMatrix_SerializesOnlyExplicitlyCheckedFilters()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "fractured",
+                GroupLabel = "Fractured",
+                Id = "fractured.stat_3299347043",
+                Text = "+# to maximum Life",
+                Type = "fractured",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 1,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.stat_3299347043",
+                Text = "+# to maximum Life",
+                Type = "explicit",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 2,
+                GroupId = "pseudo",
+                GroupLabel = "Pseudo",
+                Id = "pseudo.pseudo_total_life",
+                Text = "+# total maximum Life",
+                Type = "pseudo",
+            },
+        ]);
+        var parentVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeModifierVariantResolver.IdentityFor("pseudo.pseudo_total_life"),
+            Label = "Pseudo",
+            Description = "+# total maximum Life",
+            ProviderKind = "pseudo",
+            Mode = SearchFilterVariantMode.Aggregate,
+            SupportsContributorComposition = true,
+            SupportsValueBounds = true,
+        };
+        var fracturedSource = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            OriginalText = "+27 to maximum Life",
+            CanonicalSignature = "+<number> to maximum Life",
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Global,
+            ProviderDomain = "Fractured",
+            IsFractured = true,
+            ResolvedModifierId = "fractured-life",
+            ResolvedStatIds = ["base_maximum_life"],
+            ObservedNumericValues = [27m],
+            CanonicalNumericValues = [27m],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("fractured.stat_3299347043"),
+        };
+        var explicitSource = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:1:0",
+            SourceModifierIndex = 1,
+            OriginalText = "+51 to maximum Life",
+            CanonicalSignature = "+<number> to maximum Life",
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Global,
+            ProviderDomain = "Explicit",
+            ResolvedModifierId = "explicit-life",
+            ResolvedStatIds = ["base_maximum_life"],
+            ObservedNumericValues = [51m],
+            CanonicalNumericValues = [51m],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_3299347043"),
+        };
+        var life = Modifier(
+            "+78 to maximum Life",
+            supportsValueBounds: true,
+            minimum: 78m) with
+        {
+            CanonicalSignature = "+<number> to maximum Life",
+            Locality = ModifierLocality.Global,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [78m],
+            CanonicalNumericValues = [78m],
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "pseudo.pseudo_total_life",
+            ProviderStatText = "+# total maximum Life",
+            FilterVariants = [parentVariant],
+            SelectedFilterVariantIdentity = parentVariant.Identity,
+            Sources = [fracturedSource, explicitSource],
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Contributor("contributor-fractured", fracturedSource, 27m, "fractured.stat_3299347043"),
+                Contributor("contributor-explicit", explicitSource, 51m, "explicit.stat_3299347043"),
+            ],
+        };
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Rare Gloves", modifiers: [life]),
+            ValidationSuccess());
+        var mapper = new PathOfExileTradeSelectedModifierMapper();
+
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: false,
+            expectedChild0: false,
+            expectedChild1: false,
+            expectedStatIds: []);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: true,
+            expectedChild0: false,
+            expectedChild1: false,
+            expectedStatIds: ["pseudo.pseudo_total_life"],
+            expectedMins: [78m]);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: false,
+            expectedChild0: true,
+            expectedChild1: false,
+            expectedStatIds: ["fractured.stat_3299347043"],
+            expectedMins: [27m]);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: false,
+            expectedChild0: false,
+            expectedChild1: true,
+            expectedStatIds: ["explicit.stat_3299347043"],
+            expectedMins: [51m]);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: false,
+            expectedChild0: true,
+            expectedChild1: true,
+            expectedStatIds: ["fractured.stat_3299347043", "explicit.stat_3299347043"],
+            expectedMins: [27m, 51m]);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: true,
+            expectedChild0: true,
+            expectedChild1: true,
+            expectedStatIds:
+            [
+                "pseudo.pseudo_total_life",
+                "fractured.stat_3299347043",
+                "explicit.stat_3299347043",
+            ],
+            expectedMins: [78m, 27m, 51m]);
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: true,
+            expectedChild0: false,
+            expectedChild1: true,
+            expectedStatIds: ["pseudo.pseudo_total_life", "explicit.stat_3299347043"],
+            expectedMins: [78m, 51m]);
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: false);
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        AssertSerializedLifeFilters(
+            fixture,
+            mapper,
+            catalog,
+            expectedParentSelected: true,
+            expectedChild0: false,
+            expectedChild1: true,
+            expectedStatIds: ["pseudo.pseudo_total_life", "explicit.stat_3299347043"],
+            expectedMins: [78m, 51m]);
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("78", row.MinimumText);
+    }
+
+    private static void AssertSerializedLifeFilters(
+        SearchFixture fixture,
+        PathOfExileTradeSelectedModifierMapper mapper,
+        PathOfExileTradeStatCatalog catalog,
+        bool expectedParentSelected,
+        bool expectedChild0,
+        bool expectedChild1,
+        IReadOnlyList<string> expectedStatIds,
+        IReadOnlyList<decimal>? expectedMins = null)
+    {
+        var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal(expectedParentSelected, row.IsSelected);
+        Assert.Equal(expectedChild0, row.Contributors[0].IsSelected);
+        Assert.Equal(expectedChild1, row.Contributors[1].IsSelected);
+        Assert.Equal("78", row.MinimumText);
+
+        var draft = fixture.Window.CurrentState!.Draft;
+        var mapping = mapper.Map(draft, catalog);
+        Assert.True(mapping.IsSuccess, string.Join(" | ", mapping.Diagnostics.Select(diagnostic =>
+            $"{diagnostic.Code}: {diagnostic.Message}")));
+        Assert.Equal(expectedStatIds, mapping.Filters.Select(filter => filter.StatId));
+        if (expectedMins is not null)
+        {
+            Assert.Equal(
+                expectedMins,
+                mapping.Filters.Select(filter => filter.Minimum ?? 0m).ToArray());
+        }
+
+        if (expectedStatIds.Count == 0)
+        {
+            return;
+        }
+
+        var validation = new TradeSearchDraftValidator().Validate(draft);
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            validation,
+            "Mirage",
+            mapping.Filters);
+        Assert.True(
+            build.IsSuccess,
+            $"validation={validation.IsValid}; " +
+            string.Join(" | ", validation.Diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code}: {diagnostic.Message}")) +
+            " || " +
+            string.Join(" | ", build.Diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code}: {diagnostic.Message}")));
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var group = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        Assert.Equal(
+            expectedStatIds,
+            group.GetProperty("filters").EnumerateArray()
+                .Select(filter => filter.GetProperty("id").GetString()));
+    }
+
+    [Fact]
+    public void ModifierContributor_ChildAndParentSelectionsAreIndependent()
     {
         var fixture = SearchFixture.Create();
         fixture.Controller.UpdateCurrentDraft(
@@ -2385,38 +2654,40 @@ public sealed class PriceCheckerSearchControllerTests
 
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
 
-        var selected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.True(selected.IsSelected);
-        Assert.True(selected.Contributors[0].IsSelected);
-        Assert.Equal("30", selected.MinimumText);
-        Assert.Contains("1 selected", selected.SectionLabel, StringComparison.Ordinal);
-
-        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
-
-        var deselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.False(deselected.IsSelected);
-        Assert.All(deselected.Contributors, contributor => Assert.False(contributor.IsSelected));
-        Assert.Equal("146", deselected.MinimumText);
+        var childOnly = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(childOnly.IsSelected);
+        Assert.True(childOnly.Contributors[0].IsSelected);
+        Assert.False(childOnly.Contributors[1].IsSelected);
+        Assert.Equal("146", childOnly.MinimumText);
+        Assert.Contains("1 selected", childOnly.SectionLabel, StringComparison.Ordinal);
 
         fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
 
-        var reselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.True(reselected.IsSelected);
-        Assert.All(reselected.Contributors, contributor => Assert.False(contributor.IsSelected));
+        var both = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(both.IsSelected);
+        Assert.True(both.Contributors[0].IsSelected);
+        Assert.False(both.Contributors[1].IsSelected);
 
-        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: false);
+
+        var parentOff = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(parentOff.IsSelected);
+        Assert.True(parentOff.Contributors[0].IsSelected);
+        Assert.Equal("146", parentOff.MinimumText);
+
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
 
-        var childDeselected = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.True(childDeselected.IsSelected);
-        Assert.False(childDeselected.Contributors[0].IsSelected);
-        Assert.Equal("146", childDeselected.MinimumText);
+        var childOff = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(childOff.IsSelected);
+        Assert.False(childOff.Contributors[0].IsSelected);
+        Assert.Equal("146", childOff.MinimumText);
         Assert.Empty(fixture.PriceCheckService.Calls);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
     }
 
     [Fact]
-    public void ModifierContributor_LastExplicitChildSelectionReplacesManualParentMinimum()
+    public void ModifierContributor_ChildOnlyKeepsObservedParentMinimum_ParentSelectedDerivesFloor()
     {
         var fixture = SearchFixture.Create();
         fixture.Controller.UpdateCurrentDraft(
@@ -2425,25 +2696,19 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
-        Assert.Equal("30", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+        var childOnly = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(childOnly.IsSelected);
+        Assert.Equal("146", childOnly.MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
         Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
 
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
-        Assert.Equal("116", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+        Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: false);
         Assert.Equal("146", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
-
-        var secondOnlyFixture = SearchFixture.Create();
-        secondOnlyFixture.Controller.UpdateCurrentDraft(
-            Draft("Horror Mangler", modifiers: [ContributorModifier(parentMinimum: 0m)]),
-            ValidationSuccess());
-        secondOnlyFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
-        Assert.Equal(
-            "116",
-            Assert.Single(secondOnlyFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
 
         var higherFixture = SearchFixture.Create();
         higherFixture.Controller.UpdateCurrentDraft(
@@ -2452,7 +2717,7 @@ public sealed class PriceCheckerSearchControllerTests
         higherFixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         higherFixture.Window.RaiseModifierBoundsChanged(0, "200", string.Empty);
         higherFixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
-        Assert.Equal("30", Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+        Assert.Equal("200", Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
 
         higherFixture.Window.RaiseModifierBoundsChanged(0, "20", string.Empty);
         var manuallyLowered = Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []);
@@ -2461,25 +2726,27 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.True(manuallyLowered.Contributors[0].IsInactive);
 
         higherFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
-        var childDerivedAgain = Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.Equal("146", childDerivedAgain.MinimumText);
-        Assert.All(childDerivedAgain.Contributors, contributor => Assert.False(contributor.IsInactive));
+        var stillManual = Assert.Single(higherFixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("20", stillManual.MinimumText);
+        Assert.All(stillManual.Contributors, contributor => Assert.True(contributor.IsInactive));
 
         var editedChildrenFixture = SearchFixture.Create();
         editedChildrenFixture.Controller.UpdateCurrentDraft(
             Draft("Horror Mangler", modifiers: [ContributorModifier()]),
             ValidationSuccess());
+        editedChildrenFixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         editedChildrenFixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
         editedChildrenFixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
         editedChildrenFixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "50", string.Empty);
         editedChildrenFixture.Window.RaiseModifierContributorBoundsChanged(0, 1, "45", string.Empty);
-        Assert.Equal(
-            "95",
-            Assert.Single(editedChildrenFixture.Window.CurrentSearchState?.Modifiers ?? []).MinimumText);
+        var edited = Assert.Single(editedChildrenFixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.Equal("146", edited.MinimumText);
+        Assert.Equal("50", edited.Contributors[0].MinimumText);
+        Assert.Equal("45", edited.Contributors[1].MinimumText);
     }
 
     [Fact]
-    public void ModifierContributor_ArmageddonSecondChildImmediatelyReplacesUntouchedCanonicalMinimum()
+    public void ModifierContributor_ChildOnlyDoesNotRewriteObservedAggregateMinimum()
     {
         var fixture = SearchFixture.Create();
         var source = ContributorModifier(parentMinimum: 91m);
@@ -2513,7 +2780,8 @@ public sealed class PriceCheckerSearchControllerTests
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
 
         var row = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.Equal("39", row.MinimumText);
+        Assert.False(row.IsSelected);
+        Assert.Equal("91", row.MinimumText);
         Assert.True(row.Contributors[1].IsSelected);
         Assert.Empty(fixture.PriceCheckService.Calls);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
@@ -2545,8 +2813,10 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.All(
             fixture.Window.ModifierCollections.Skip(updateCount),
             collection => Assert.Same(rowsDuringEdit, collection));
-        Assert.Equal("35.5", parentDuringEdit.MinimumText);
-        Assert.Contains(nameof(PriceCheckerModifierViewModel.MinimumText), changedProperties);
+        Assert.False(parentDuringEdit.IsSelected);
+        Assert.Equal("146", parentDuringEdit.MinimumText);
+        Assert.Equal("35.5", childDuringEdit.MinimumText);
+        Assert.Equal("40", childDuringEdit.MaximumText);
 
         fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
         fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: false);
@@ -2555,16 +2825,17 @@ public sealed class PriceCheckerSearchControllerTests
 
         var parent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
         var child = parent.Contributors[0];
+        Assert.False(parent.IsSelected);
         Assert.True(child.IsSelected);
         Assert.Equal("35.5", child.MinimumText);
         Assert.Equal("40", child.MaximumText);
-        Assert.Equal("35.5", parent.MinimumText);
+        Assert.Equal("146", parent.MinimumText);
         Assert.Empty(fixture.PriceCheckService.Calls);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
     }
 
     [Fact]
-    public void ModifierContributor_ParentTypeDisablesWithoutClearingAndPseudoRestoresStateAndFloor()
+    public async Task ModifierContributor_UncheckedParent_NonComposingTypeKeepsChildActiveAndInvalidBoundsBlockSearch()
     {
         var fixture = SearchFixture.Create();
         fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
@@ -2584,36 +2855,57 @@ public sealed class PriceCheckerSearchControllerTests
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
         fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35", "40");
 
+        // Parent stays unchecked: Fractured Mod Type must not disable an independently selected source.
         fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-fractured");
 
-        var inactiveParent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.Equal("35", inactiveParent.MinimumText);
-        Assert.Equal(0, inactiveParent.ActiveContributorCount);
-        Assert.True(inactiveParent.Contributors[0].IsSelected);
-        Assert.True(inactiveParent.Contributors[0].IsInactive);
-        Assert.False(inactiveParent.Contributors[0].IsInteractionEnabled);
-        Assert.False(inactiveParent.Contributors[0].CanEditBounds);
-        Assert.DoesNotContain("selected", inactiveParent.SectionLabel, StringComparison.Ordinal);
+        var childOnly = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(childOnly.IsSelected);
+        Assert.Equal("146", childOnly.MinimumText);
+        Assert.Equal(1, childOnly.ActiveContributorCount);
+        Assert.True(childOnly.Contributors[0].IsSelected);
+        Assert.False(childOnly.Contributors[0].IsInactive);
+        Assert.True(childOnly.Contributors[0].IsInteractionEnabled);
+        Assert.True(childOnly.Contributors[0].CanEditBounds);
+        Assert.Contains("1 selected", childOnly.SectionLabel, StringComparison.Ordinal);
+        Assert.Equal("35", childOnly.Contributors[0].MinimumText);
+        Assert.Equal("40", childOnly.Contributors[0].MaximumText);
+
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "50", "55");
+        var edited = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(edited.IsSelected);
+        Assert.Equal(1, edited.ActiveContributorCount);
+        Assert.Equal("50", edited.Contributors[0].MinimumText);
+        Assert.Equal("55", edited.Contributors[0].MaximumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
-        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "99", "100");
-        Assert.True(Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].IsSelected);
+        var cleared = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.False(cleared.IsSelected);
+        Assert.False(cleared.Contributors[0].IsSelected);
+        Assert.Equal(0, cleared.ActiveContributorCount);
 
-        fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-pseudo");
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "-", string.Empty);
+        await fixture.Controller.SearchAsync();
 
-        var restoredParent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
-        Assert.Equal("35", restoredParent.MinimumText);
-        Assert.Equal(1, restoredParent.ActiveContributorCount);
-        Assert.True(restoredParent.Contributors[0].IsSelected);
-        Assert.True(restoredParent.Contributors[0].IsInteractionEnabled);
-        Assert.Equal("35", restoredParent.Contributors[0].MinimumText);
-        Assert.Equal("40", restoredParent.Contributors[0].MaximumText);
         Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal(
+            "Contributor Min and Max must be finite decimal numbers.",
+            fixture.Window.CurrentSearchState?.Message);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).IsSelected);
+        Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
+
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35", "40");
+        await fixture.Controller.SearchAsync();
+
+        Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.NotEqual(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.False(Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).IsSelected);
         Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
     }
 
     [Fact]
-    public async Task ModifierContributor_InvalidRetainedChildDoesNotBlockNonPseudoParentButBlocksWhenPseudoReturns()
+    public async Task ModifierContributor_CheckedNonComposingParent_RetainsInactiveChildWithoutBlockingParentSearch()
     {
         var fixture = SearchFixture.Create();
         fixture.PriceCheckService.EffectiveDraftResolver = draft => draft with
@@ -2632,21 +2924,66 @@ public sealed class PriceCheckerSearchControllerTests
             ValidationSuccess());
         fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
         fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "-", string.Empty);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
         fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-fractured");
+
+        var inactiveUnderParent = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(inactiveUnderParent.IsSelected);
+        Assert.Equal("146", inactiveUnderParent.MinimumText);
+        Assert.Equal(0, inactiveUnderParent.ActiveContributorCount);
+        Assert.True(inactiveUnderParent.Contributors[0].IsSelected);
+        Assert.True(inactiveUnderParent.Contributors[0].IsInactive);
+        Assert.False(inactiveUnderParent.Contributors[0].IsInteractionEnabled);
+        Assert.False(inactiveUnderParent.Contributors[0].CanEditBounds);
+        Assert.DoesNotContain("selected", inactiveUnderParent.SectionLabel, StringComparison.Ordinal);
+        Assert.Equal("-", inactiveUnderParent.Contributors[0].MinimumText);
+
+        // Disabled child toggles/bounds are ignored by the controller. The test harness may paint
+        // ephemeral bound text into the VM; republish from draft to prove the model was unchanged.
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: false);
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "99", "100");
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        var stillRetained = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(stillRetained.IsSelected);
+        Assert.True(stillRetained.Contributors[0].IsSelected);
+        Assert.True(stillRetained.Contributors[0].IsInactive);
+        Assert.False(stillRetained.Contributors[0].IsInteractionEnabled);
+        Assert.Equal("-", stillRetained.Contributors[0].MinimumText);
 
         await fixture.Controller.SearchAsync();
 
         Assert.Single(fixture.PriceCheckService.Calls);
         Assert.NotEqual(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("fractured.physical", fixture.PriceCheckService.Calls[0].Draft!.ModifierFilters[0].ProviderStatId);
+        Assert.True(fixture.PriceCheckService.Calls[0].Draft!.ModifierFilters[0].IsSelected);
+        Assert.True(fixture.PriceCheckService.Calls[0].Draft!.ModifierFilters[0].Contributors[0].IsSelected);
         Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
 
+        // Returning to composing Pseudo with parent selected reactivates the retained invalid child.
         fixture.Window.RaiseModifierFilterVariantChanged(0, "variant-parent-pseudo");
+        var restored = Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []);
+        Assert.True(restored.IsSelected);
+        Assert.Equal(1, restored.ActiveContributorCount);
+        Assert.True(restored.Contributors[0].IsSelected);
+        Assert.True(restored.Contributors[0].IsInteractionEnabled);
+        Assert.Equal("-", restored.Contributors[0].MinimumText);
+
         await fixture.Controller.SearchAsync();
 
         Assert.Single(fixture.PriceCheckService.Calls);
         Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
-        Assert.Equal("Contributor Min and Max must be finite decimal numbers.", fixture.Window.CurrentSearchState?.Message);
-        Assert.Equal("-", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
+        Assert.Equal(
+            "Contributor Min and Max must be finite decimal numbers.",
+            fixture.Window.CurrentSearchState?.Message);
+
+        fixture.Window.RaiseModifierContributorBoundsChanged(0, 0, "35", "40");
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        Assert.NotEqual(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Equal("35", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MinimumText);
+        Assert.Equal("40", Assert.Single(fixture.Window.CurrentSearchState?.Modifiers ?? []).Contributors[0].MaximumText);
+        Assert.Empty(fixture.PriceCheckService.LoadMoreCalls);
     }
 
     [Fact]

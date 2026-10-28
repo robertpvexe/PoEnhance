@@ -616,6 +616,305 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
     }
 
     [Fact]
+    public void MixedDomainLifeAggregate_DefaultsToPseudoNotFracturedAndEmitsAggregateJson()
+    {
+        // Official Trade catalog anchors (2026-10-28):
+        // explicit.stat_3299347043 "+# to maximum Life"
+        // fractured.stat_3299347043 "+# to maximum Life"
+        // pseudo.pseudo_total_life "+# total maximum Life" (wider: Strength/implicits)
+        // Explicit +78 cannot represent Fractured+27 + Explicit+51; Pseudo is the verified aggregate.
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "fractured.stat_3299347043", "+# to maximum Life", "Fractured"),
+            Entry(1, "explicit.stat_3299347043", "+# to maximum Life", "Explicit"),
+            Entry(2, "pseudo.pseudo_total_life", "+# total maximum Life", "Pseudo"),
+        ]);
+        var component = LifeAggregateComponent(
+            isFractured: false,
+            sources:
+            [
+                LifeSource(
+                    "modifier:0:0",
+                    0,
+                    "+27 to maximum Life",
+                    27m,
+                    "fractured-life",
+                    "Fractured",
+                    isFractured: true),
+                LifeSource(
+                    "modifier:1:0",
+                    1,
+                    "+51 to maximum Life",
+                    51m,
+                    "explicit-life",
+                    "Explicit"),
+            ]);
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_3299347043"));
+        var draft = Draft(resolved);
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(draft);
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            new TradeSearchDraftValidator().Validate(draft),
+            "Mirage",
+            mapping.Filters);
+
+        Assert.False(resolved.IsFractured);
+        Assert.Equal(
+            PathOfExileTradeModifierVariantResolver.IdentityFor("pseudo.pseudo_total_life"),
+            resolved.SelectedFilterVariantIdentity);
+        Assert.Equal("pseudo.pseudo_total_life", resolved.ProviderStatId);
+        Assert.Equal(SearchFilterVariantMode.Aggregate, Selected(resolved).Mode);
+        Assert.Contains(resolved.FilterVariants, option => option.Label == "Explicit");
+        Assert.Contains(resolved.FilterVariants, option => option.Label == "Fractured");
+        Assert.Contains(resolved.FilterVariants, option => option.Label == "Pseudo");
+        Assert.Equal(["Fractured", "Explicit"], resolved.Sources.Select(source => source.ProviderDomain));
+        Assert.Equal([27m, 51m], resolved.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.All(resolved.Contributors, contributor => Assert.False(contributor.IsSelected));
+
+        var providerFilter = Assert.Single(mapping.Filters);
+        Assert.Equal("pseudo.pseudo_total_life", providerFilter.StatId);
+        Assert.Equal(78m, providerFilter.Minimum);
+        Assert.NotEqual("fractured.stat_3299347043", providerFilter.StatId);
+        Assert.True(build.IsSuccess);
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var statGroup = Assert.Single(document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray());
+        Assert.Equal("and", statGroup.GetProperty("type").GetString());
+        var jsonFilter = Assert.Single(statGroup.GetProperty("filters").EnumerateArray());
+        Assert.Equal("pseudo.pseudo_total_life", jsonFilter.GetProperty("id").GetString());
+        Assert.Equal(78m, jsonFilter.GetProperty("value").GetProperty("min").GetDecimal());
+    }
+
+    [Fact]
+    public void MixedDomainLifeAggregate_WithoutPseudoDoesNotEmitFracturedAggregateFilter()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "fractured.stat_3299347043", "+# to maximum Life", "Fractured"),
+            Entry(1, "explicit.stat_3299347043", "+# to maximum Life", "Explicit"),
+        ]);
+        var component = LifeAggregateComponent(
+            isFractured: false,
+            sources:
+            [
+                LifeSource(
+                    "modifier:0:0",
+                    0,
+                    "+27 to maximum Life",
+                    27m,
+                    "fractured-life",
+                    "Fractured",
+                    isFractured: true),
+                LifeSource(
+                    "modifier:1:0",
+                    1,
+                    "+51 to maximum Life",
+                    51m,
+                    "explicit-life",
+                    "Explicit"),
+            ]);
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_3299347043"));
+
+        Assert.DoesNotContain(resolved.FilterVariants, option => option.Label == "Pseudo");
+        Assert.All(resolved.FilterVariants, option =>
+            Assert.Equal(SearchFilterVariantMode.Standalone, option.Mode));
+        Assert.NotEqual("fractured.stat_3299347043", resolved.ProviderStatId);
+        Assert.False(
+            Selected(resolved).SupportsContributorComposition,
+            "Standalone Explicit/Fractured cannot faithfully represent mixed-domain Life totals.");
+    }
+
+    [Fact]
+    public void SameDomainExplicitLifeAggregate_PrefersFaithfulExplicitOverPseudo()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.stat_3299347043", "+# to maximum Life", "Explicit"),
+            Entry(1, "pseudo.pseudo_total_life", "+# total maximum Life", "Pseudo"),
+        ]);
+        var component = LifeAggregateComponent(
+            resolvedModifierId: "explicit-life",
+            sources:
+            [
+                LifeSource("modifier:0:0", 0, "+27 to maximum Life", 27m, "explicit-life-a"),
+                LifeSource("modifier:1:0", 1, "+51 to maximum Life", 51m, "explicit-life-b"),
+            ]);
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_3299347043"));
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(resolved));
+
+        Assert.Equal("explicit.stat_3299347043", resolved.ProviderStatId);
+        Assert.Equal(SearchFilterVariantMode.Aggregate, Selected(resolved).Mode);
+        Assert.True(Selected(resolved).SupportsContributorComposition);
+        Assert.Contains(resolved.FilterVariants, option => option.Label == "Pseudo");
+        var filter = Assert.Single(mapping.Filters);
+        Assert.Equal("explicit.stat_3299347043", filter.StatId);
+        Assert.Equal(78m, filter.Minimum);
+    }
+
+    [Fact]
+    public void MixedDomainLifeAggregate_SelectedFracturedContributorKeepsExactFracturedIdentity()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "fractured.stat_3299347043", "+# to maximum Life", "Fractured"),
+            Entry(1, "explicit.stat_3299347043", "+# to maximum Life", "Explicit"),
+            Entry(2, "pseudo.pseudo_total_life", "+# total maximum Life", "Pseudo"),
+        ]);
+        var component = LifeAggregateComponent(
+            sources:
+            [
+                LifeSource(
+                    "modifier:0:0",
+                    0,
+                    "+27 to maximum Life",
+                    27m,
+                    "fractured-life",
+                    "Fractured",
+                    isFractured: true),
+                LifeSource(
+                    "modifier:1:0",
+                    1,
+                    "+51 to maximum Life",
+                    51m,
+                    "explicit-life",
+                    "Explicit"),
+            ]);
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_3299347043"));
+        var withFracturedChild = resolved with
+        {
+            Contributors = resolved.Contributors
+                .Select((contributor, index) => contributor with { IsSelected = index == 0 })
+                .ToArray(),
+        };
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(
+            Draft(withFracturedChild),
+            catalog);
+
+        Assert.True(mapping.IsSuccess);
+        Assert.Equal(
+            ["pseudo.pseudo_total_life", "fractured.stat_3299347043"],
+            mapping.Filters.Select(filter => filter.StatId));
+        Assert.Equal([78m, 27m], mapping.Filters.Select(filter => filter.Minimum));
+        Assert.DoesNotContain(mapping.Filters, filter => filter.StatId == "explicit.stat_3299347043");
+
+        var withExplicitChild = resolved with
+        {
+            Contributors = resolved.Contributors
+                .Select((contributor, index) => contributor with { IsSelected = index == 1 })
+                .ToArray(),
+        };
+        var explicitMapping = new PathOfExileTradeSelectedModifierMapper().Map(
+            Draft(withExplicitChild),
+            catalog);
+        Assert.Equal(
+            ["pseudo.pseudo_total_life", "explicit.stat_3299347043"],
+            explicitMapping.Filters.Select(filter => filter.StatId));
+        Assert.Equal([78m, 51m], explicitMapping.Filters.Select(filter => filter.Minimum));
+        Assert.DoesNotContain(
+            explicitMapping.Filters,
+            filter => filter.StatId == "fractured.stat_3299347043");
+    }
+
+    [Fact]
+    public void LifeAggregate_UnselectedMainRowEmitsNoLifeFilter()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.stat_3299347043", "+# to maximum Life", "Explicit"),
+            Entry(1, "pseudo.pseudo_total_life", "+# total maximum Life", "Pseudo"),
+        ]);
+        var component = LifeAggregateComponent(
+            isSelected: false,
+            resolvedModifierId: "explicit-life",
+            sources:
+            [
+                LifeSource("modifier:0:0", 0, "+27 to maximum Life", 27m, "explicit-life-a"),
+                LifeSource("modifier:1:0", 1, "+51 to maximum Life", 51m, "explicit-life-b"),
+            ]);
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_3299347043"));
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(resolved));
+
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
+    }
+
+    private static ResolvedSearchComponent LifeAggregateComponent(
+        IReadOnlyList<SearchComponentSourceProvenance> sources,
+        bool isFractured = false,
+        bool isSelected = true,
+        string resolvedModifierId = "fractured-life")
+    {
+        return new ResolvedSearchComponent
+        {
+            ComponentId = "aggregate:modifier:0:0:2",
+            OriginalText = "+78 to maximum Life",
+            CanonicalSignature = "+<number> to maximum Life",
+            ParsedKind = ParsedModifierKind.Prefix,
+            Locality = ModifierLocality.Global,
+            IsFractured = isFractured,
+            ResolutionStatus = ModifierCandidateResolutionStatus.Exact,
+            ResolvedModifierId = resolvedModifierId,
+            ResolvedStatIds = ["base_maximum_life"],
+            IsSearchable = true,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [78m],
+            CanonicalNumericValues = [78m],
+            RequestedMinimum = 78m,
+            IsSelected = isSelected,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            ProviderDomainEvidence =
+            [
+                new SearchComponentProviderDomainEvidence
+                {
+                    ProviderDomain = "Explicit",
+                    ModifierId = "explicit-life",
+                    GenerationType = ModifierGenerationType.Prefix,
+                    Locality = ModifierLocality.Global,
+                    IsSourceExact = true,
+                    ItemBaseId = "base.fixture",
+                    ItemClass = "Ring",
+                    ApplicabilityReason = "Exact Explicit Life source fixture.",
+                },
+                new SearchComponentProviderDomainEvidence
+                {
+                    ProviderDomain = "Fractured",
+                    ModifierId = "fractured-life",
+                    GenerationType = ModifierGenerationType.Prefix,
+                    Locality = ModifierLocality.Global,
+                    IsSourceExact = true,
+                    ItemBaseId = "base.fixture",
+                    ItemClass = "Ring",
+                    ApplicabilityReason = "Exact Fractured Life source fixture.",
+                },
+            ],
+            Sources = sources,
+        };
+    }
+
+    [Fact]
     public void MixedDomainPhysicalAggregate_DefaultsToPseudoAndExposesContextualStandaloneModes()
     {
         var catalog = new PathOfExileTradeStatCatalog(
@@ -1030,6 +1329,38 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             TranslationHandlers = [[]],
             ProviderIdentity = PathOfExileTradeProviderIdentity.Create(
                 $"{providerDomain.ToLowerInvariant()}.physical"),
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+        };
+    }
+
+    private static SearchComponentSourceProvenance LifeSource(
+        string componentId,
+        int sourceModifierIndex,
+        string text,
+        decimal value,
+        string modifierId,
+        string providerDomain = "Explicit",
+        bool isFractured = false)
+    {
+        return new SearchComponentSourceProvenance
+        {
+            ComponentId = componentId,
+            SourceModifierIndex = sourceModifierIndex,
+            OriginalText = text,
+            CanonicalSignature = "+<number> to maximum Life",
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Global,
+            ProviderDomain = providerDomain,
+            IsFractured = isFractured,
+            ResolvedModifierId = modifierId,
+            ResolvedStatIds = ["base_maximum_life"],
+            ObservedNumericValues = [value],
+            CanonicalNumericValues = [value],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create(
+                $"{providerDomain.ToLowerInvariant()}.stat_3299347043"),
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
         };
     }

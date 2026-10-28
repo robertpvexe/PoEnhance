@@ -368,7 +368,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         Assert.True(row.IsSelected);
         Assert.True(row.HasMultipleFilterVariants);
         Assert.True(row.CanSelectFilterVariant);
-        Assert.Equal("116", row.MinimumText);
+        Assert.Equal("146", row.MinimumText);
         Assert.Equal("116", row.Contributors[1].MinimumText);
         Assert.Equal("Crafted Prefix", row.Contributors[1].ProvenanceLabel);
         Assert.True(row.Contributors[1].IsInteractionEnabled);
@@ -398,7 +398,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             ["pseudo.local_increased_physical_damage", "crafted.stat_1509134228"],
             filters.Select(filter => filter.GetProperty("id").GetString()));
         Assert.Equal(
-            [116m, 116m],
+            [146m, 116m],
             filters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
         Assert.Equal(2, filters.Select(filter => filter.GetProperty("id").GetString()).Distinct().Count());
 
@@ -407,7 +407,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
         var standaloneRow = fixture.Window.FindModifier(parentIndex);
         Assert.Equal("Fractured", standaloneRow.SelectedFilterVariant?.Label);
-        Assert.Equal("116", standaloneRow.MinimumText);
+        Assert.Equal("146", standaloneRow.MinimumText);
         Assert.True(standaloneRow.Contributors[1].IsSelected);
         Assert.True(standaloneRow.Contributors[1].IsInactive);
         Assert.False(standaloneRow.Contributors[1].CanEditBounds);
@@ -427,13 +427,13 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .ToArray();
         var standaloneFilter = Assert.Single(standaloneFilters);
         Assert.Equal("fractured.stat_1509134228", standaloneFilter.GetProperty("id").GetString());
-        Assert.Equal(116m, standaloneFilter.GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.Equal(146m, standaloneFilter.GetProperty("value").GetProperty("min").GetDecimal());
 
         var pseudo = Assert.Single(parent.FilterVariants, option => option.Label == "Pseudo");
         fixture.Controller.UpdateModifierFilterVariant(parentIndex, pseudo.Identity);
 
         var restoredRow = fixture.Window.FindModifier(parentIndex);
-        Assert.Equal("116", restoredRow.MinimumText);
+        Assert.Equal("146", restoredRow.MinimumText);
         Assert.True(restoredRow.Contributors[1].IsSelected);
         Assert.True(restoredRow.Contributors[1].IsInteractionEnabled);
         Assert.Equal(2, fixture.SearchClient.Calls.Count);
@@ -441,7 +441,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: false);
         fixture.Controller.UpdateModifierContributorSelection(parentIndex, 0, isSelected: true);
         var explicitRow = fixture.Window.FindModifier(parentIndex);
-        Assert.Equal("30", explicitRow.MinimumText);
+        Assert.Equal("146", explicitRow.MinimumText);
         Assert.True(explicitRow.Contributors[0].IsSelected);
         Assert.True(explicitRow.Contributors[0].IsInteractionEnabled);
         Assert.True(fixture.Window.CurrentSearchState!.CanSearch);
@@ -462,7 +462,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             ["pseudo.local_increased_physical_damage", "explicit.stat_1509134228"],
             explicitFilters.Select(filter => filter.GetProperty("id").GetString()));
         Assert.Equal(
-            [30m, 30m],
+            [146m, 30m],
             explicitFilters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
     }
 
@@ -684,6 +684,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
         Assert.Equal("146", initial.MinimumText);
         Assert.All(initial.Contributors, contributor => Assert.False(contributor.IsSelected));
 
+        fixture.Controller.UpdateModifierSelection(parentIndex, isSelected: true);
         fixture.Controller.UpdateModifierBounds(parentIndex, "100", string.Empty);
         fixture.Controller.UpdateModifierExpansion(parentIndex, isExpanded: true);
         fixture.Controller.UpdateModifierExpansion(parentIndex, isExpanded: false);
@@ -691,13 +692,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
         fixture.Controller.UpdateModifierContributorSelection(parentIndex, 1, isSelected: true);
         var childSelected = fixture.Window.FindModifier(parentIndex);
-        Assert.Equal("116", childSelected.MinimumText);
-        Assert.True(childSelected.Contributors[1].IsSelected);
-        Assert.False(childSelected.Contributors[1].IsInactive);
-
-        fixture.Controller.UpdateModifierBounds(parentIndex, "100", string.Empty);
-        childSelected = fixture.Window.FindModifier(parentIndex);
+        Assert.True(childSelected.IsSelected);
         Assert.Equal("100", childSelected.MinimumText);
+        Assert.True(childSelected.Contributors[1].IsSelected);
         Assert.True(childSelected.Contributors[1].IsInactive);
         Assert.Equal(
             SearchComponentContributorInactiveReason.ParentBoundBelowSelectedChildFloor,
@@ -760,6 +757,10 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 
         fixture.Controller.UpdateCurrentDraft(prepared, new TradeSearchDraftValidator().Validate(prepared));
         fixture.Controller.UpdateModifierContributorSelection(0, 1, isSelected: true);
+        var childOnly = fixture.Window.FindModifier(0);
+        Assert.False(childOnly.IsSelected);
+        Assert.True(childOnly.Contributors[1].IsSelected);
+        Assert.False(childOnly.Contributors[0].IsSelected);
         await fixture.Controller.SearchAsync();
 
         var call = Assert.Single(fixture.SearchClient.Calls);
@@ -770,12 +771,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .GetProperty("filters")
             .EnumerateArray()
             .ToArray();
-        Assert.Equal(
-            ["pseudo.local_attack_speed", "crafted.stat_210067635"],
-            filters.Select(filter => filter.GetProperty("id").GetString()));
-        Assert.Equal(
-            [20m, 20m],
-            filters.Select(filter => filter.GetProperty("value").GetProperty("min").GetDecimal()));
+        var craftedOnly = Assert.Single(filters);
+        Assert.Equal("crafted.stat_210067635", craftedOnly.GetProperty("id").GetString());
+        Assert.Equal(20m, craftedOnly.GetProperty("value").GetProperty("min").GetDecimal());
     }
 
     [Fact]

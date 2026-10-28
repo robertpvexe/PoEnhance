@@ -192,8 +192,10 @@ public sealed class PathOfExileTradeImplicitProductionTests
 
         row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers, modifier =>
             modifier.Text.Contains("Stun and Block Recovery", StringComparison.Ordinal));
-        Assert.Equal(expectedMinimum.ToString(), row.MinimumText);
+        Assert.False(row.IsSelected);
+        Assert.Equal("31", row.MinimumText);
         Assert.Equal(2, row.ActiveContributorCount);
+        Assert.All(row.Contributors, contributor => Assert.True(contributor.IsSelected));
 
         await fixture.SearchAsync();
 
@@ -219,18 +221,23 @@ public sealed class PathOfExileTradeImplicitProductionTests
 
         fixture.Window.RaiseModifierSelectionChanged(row.SourceIndex, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
-        Assert.Equal("9", CurrentRow().MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
-        Assert.Equal("31", CurrentRow().MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
+        Assert.All(CurrentRow().Contributors, contributor =>
+        {
+            Assert.True(contributor.IsSelected);
+            Assert.True(contributor.IsInactive);
+        });
 
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: false);
-        Assert.Equal("22", CurrentRow().MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: false);
-        Assert.Equal("31", CurrentRow().MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 0, isSelected: true);
         fixture.Window.RaiseModifierContributorSelectionChanged(row.SourceIndex, 1, isSelected: true);
-        Assert.Equal("31", CurrentRow().MinimumText);
+        Assert.Equal("20", CurrentRow().MinimumText);
 
         fixture.Window.RaiseModifierBoundsChanged(row.SourceIndex, "20", string.Empty);
         var suspended = CurrentRow();

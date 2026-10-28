@@ -65,6 +65,124 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_FracturedAndExplicitLifeRetainDistinctSourcesAndDoNotMarkParentFractured()
+    {
+        // Synthetic regression fixture for Ctrl+D dual-source Life (+27 Fractured + +51 Explicit = +78).
+        // Anchors are test-only; production must not hardcode these values.
+        var fractured = Scalar(
+            "modifier:0:0",
+            0,
+            "+27 to maximum Life",
+            27m,
+            "fractured-life",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            IsFractured = true,
+            Locality = ModifierLocality.Global,
+            ParsedModifierName = "Virile",
+        };
+        var explicitLife = Scalar(
+            "modifier:1:0",
+            1,
+            "+51 to maximum Life",
+            51m,
+            "explicit-life",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            Locality = ModifierLocality.Global,
+            ParsedModifierName = "Hale",
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([fractured, explicitLife]);
+
+        var aggregate = Assert.Single(result.Components);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal("+78 to maximum Life", aggregate.OriginalText);
+        Assert.Equal(78m, aggregate.RequestedMinimum);
+        Assert.Equal([78m], aggregate.CanonicalNumericValues);
+        Assert.False(aggregate.IsFractured);
+        Assert.False(aggregate.IsCrafted);
+        Assert.Equal(["Fractured", "Explicit"], aggregate.Sources.Select(source => source.ProviderDomain));
+        Assert.Equal([27m, 51m], aggregate.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
+        Assert.Equal([true, false], aggregate.Sources.Select(source => source.IsFractured));
+        Assert.Equal(2, aggregate.Contributors.Count);
+        Assert.All(aggregate.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.Equal(
+            ["+27 to maximum Life", "+51 to maximum Life"],
+            aggregate.Contributors.Select(contributor => contributor.DisplayText));
+        Assert.DoesNotContain(aggregate.Sources, source =>
+            source.IsFractured && Assert.Single(source.CanonicalNumericValues) == 78m);
+    }
+
+    [Fact]
+    public void Aggregate_UnanimousFracturedSourcesRetainParentFracturedFlag()
+    {
+        var first = Scalar(
+            "modifier:0:0",
+            0,
+            "+10 to maximum Life",
+            10m,
+            "fractured-life-a",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            IsFractured = true,
+            Locality = ModifierLocality.Global,
+        };
+        var second = Scalar(
+            "modifier:1:0",
+            1,
+            "+20 to maximum Life",
+            20m,
+            "fractured-life-b",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            IsFractured = true,
+            Locality = ModifierLocality.Global,
+        };
+
+        var aggregate = Assert.Single(
+            CanonicalModifierEffectAggregator.Aggregate([first, second]).Components);
+
+        Assert.Equal("+30 to maximum Life", aggregate.OriginalText);
+        Assert.True(aggregate.IsFractured);
+        Assert.All(aggregate.Sources, source => Assert.True(source.IsFractured));
+    }
+
+    [Fact]
+    public void Aggregate_NonAdditiveMoreModifierDoesNotSumWithIncreased()
+    {
+        var increased = Scalar(
+            "modifier:0:0",
+            0,
+            "20% increased maximum Life",
+            20m,
+            "increased-life",
+            signature: "<number>% increased maximum Life",
+            statId: "maximum_life_+%");
+        var more = Scalar(
+            "modifier:1:0",
+            1,
+            "10% more maximum Life",
+            10m,
+            "more-life",
+            signature: "<number>% more maximum Life",
+            statId: "maximum_life_+%_more");
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([increased, more]);
+
+        Assert.Equal(2, result.Components.Count);
+        Assert.Equal(
+            ["20% increased maximum Life", "10% more maximum Life"],
+            result.Components.Select(component => component.OriginalText));
+        Assert.DoesNotContain(result.Components, component =>
+            component.OriginalText.Contains("30%", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Aggregate_ExplicitAndCraftedContributorsShareCanonicalTotalAndRetainDomains()
     {
         var semantic = Semantic("weapon.physical-damage.increased-percent.local");
@@ -419,6 +537,8 @@ public sealed class CanonicalModifierEffectAggregatorTests
         var localAggregate = Assert.Single(result.Components, component => component.Locality == ModifierLocality.Local);
         Assert.Equal(60m, localAggregate.RequestedMinimum);
         Assert.Equal(["Explicit", "Crafted", "Fractured"], localAggregate.Sources.Select(source => source.ProviderDomain));
+        Assert.False(localAggregate.IsFractured);
+        Assert.False(localAggregate.IsCrafted);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Message.Contains("different locality", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Message.Contains("provider domain", StringComparison.Ordinal));
     }

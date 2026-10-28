@@ -100,10 +100,13 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 "A league identifier is required before building a Path of Exile Trade query.");
         }
 
+        // Parent checkbox and contributor checkboxes are independent. A row participates in the
+        // selected mapping set when the parent is checked and/or contributors are actively filtering.
         var selectedSourceIndexes = draft.ModifierFilters
             .Select((modifier, index) => new { Modifier = modifier, Index = index })
             .Where(indexed =>
-                indexed.Modifier.IsSelected &&
+                (indexed.Modifier.IsSelected ||
+                    SearchComponentContributorActivation.IsFilteringActive(indexed.Modifier)) &&
                 indexed.Modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed)
             .Select(indexed => indexed.Index)
             .ToHashSet();

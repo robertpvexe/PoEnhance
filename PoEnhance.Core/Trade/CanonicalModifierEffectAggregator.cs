@@ -289,6 +289,12 @@ internal static partial class CanonicalModifierEffectAggregator
         var scalarValue = first.ValueBoundShape == ModifierBoundShape.Scalar
             ? canonicalValues[0]
             : (decimal?)null;
+        // Parent special-provider flags must reflect the whole aggregate, not the first
+        // contributor. Inheriting Fractured/Crafted/Veiled from one source incorrectly forces
+        // Trade to treat the summed effect as that single provider kind (e.g. Fractured +78).
+        var allFractured = sources.Length > 0 && sources.All(source => source.IsFractured);
+        var allCrafted = sources.Length > 0 && sources.All(source => source.IsCrafted);
+        var allVeiled = sources.Length > 0 && sources.All(source => source.IsVeiled);
 
         return first with
         {
@@ -302,6 +308,9 @@ internal static partial class CanonicalModifierEffectAggregator
             RequestedMaximum = first.DefaultBoundDirection == ModifierBoundDirection.Maximum
                 ? scalarValue
                 : null,
+            IsFractured = allFractured,
+            IsCrafted = allCrafted,
+            IsVeiled = allVeiled,
             StatMappingProof = CommonStatMappingProof(components),
             Tier = null,
             Rank = null,
