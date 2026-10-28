@@ -96,12 +96,9 @@ public sealed class PathOfExileTradeImplicitProductionTests
         using var document = JsonDocument.Parse(json);
         var query = document.RootElement.GetProperty("query");
         var statsGroups = query.GetProperty("stats").EnumerateArray().ToArray();
-        Assert.Equal(2, statsGroups.Length);
-        Assert.All(statsGroups, statsGroup =>
-        {
-            Assert.Equal("and", statsGroup.GetProperty("type").GetString());
-            Assert.Single(statsGroup.GetProperty("filters").EnumerateArray());
-        });
+        var andGroup = Assert.Single(statsGroups);
+        Assert.Equal("and", andGroup.GetProperty("type").GetString());
+        Assert.Equal(2, andGroup.GetProperty("filters").GetArrayLength());
         var ids = StatIds(query);
         Assert.Equal(["implicit.phys_reduction", "implicit.non_phys"], ids);
         Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());

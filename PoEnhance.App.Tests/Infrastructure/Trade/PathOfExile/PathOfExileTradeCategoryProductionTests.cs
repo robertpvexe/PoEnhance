@@ -581,19 +581,16 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .GetProperty("min")
             .GetDecimal());
         var stats = query.GetProperty("stats").EnumerateArray().ToArray();
-        Assert.Equal(2, stats.Length);
-        Assert.All(stats, group =>
-        {
-            Assert.Equal("and", group.GetProperty("type").GetString());
-            Assert.Single(group.GetProperty("filters").EnumerateArray());
-        });
+        var andGroup = Assert.Single(stats);
+        Assert.Equal("and", andGroup.GetProperty("type").GetString());
+        var filters = andGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(2, filters.Length);
         Assert.Equal(
             [
                 "explicit.stat_1509134228",
                 "explicit.stat_1940865751",
             ],
-            stats.SelectMany(group => group.GetProperty("filters").EnumerateArray())
-                .Select(filter => filter.GetProperty("id").GetString()));
+            filters.Select(filter => filter.GetProperty("id").GetString()));
         Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);
     }

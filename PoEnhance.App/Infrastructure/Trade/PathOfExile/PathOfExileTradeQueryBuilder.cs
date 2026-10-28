@@ -362,26 +362,26 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             });
         }
 
-        foreach (var sourceGroup in providerFilters
-                     .Where(filter => filter.Alternatives.Count == 0)
-                     .GroupBy(LogicalSourceKey, StringComparer.Ordinal))
+        var conjunctiveFilters = providerFilters
+            .Where(filter => filter.Alternatives.Count == 0)
+            .Select(filter => new PathOfExileTradeSearchStatFilter
+            {
+                Id = filter.StatId.Trim(),
+                Value = filter.Option is not null || filter.Minimum.HasValue || filter.Maximum.HasValue
+                    ? new PathOfExileTradeSearchStatValue
+                    {
+                        Option = filter.Option,
+                        Min = filter.Minimum,
+                        Max = filter.Maximum,
+                    }
+                    : null,
+            })
+            .ToArray();
+        if (conjunctiveFilters.Length > 0)
         {
             statGroups.Add(new PathOfExileTradeSearchStatsGroup
             {
-                Filters = sourceGroup
-                    .Select(filter => new PathOfExileTradeSearchStatFilter
-                    {
-                        Id = filter.StatId.Trim(),
-                        Value = filter.Option is not null || filter.Minimum.HasValue || filter.Maximum.HasValue
-                            ? new PathOfExileTradeSearchStatValue
-                            {
-                                Option = filter.Option,
-                                Min = filter.Minimum,
-                                Max = filter.Maximum,
-                            }
-                            : null,
-                    })
-                    .ToArray(),
+                Filters = conjunctiveFilters,
             });
         }
 
@@ -685,14 +685,6 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         }
 
         groups[groupId] = new PathOfExileTradeSearchFilterGroup { Filters = merged };
-    }
-
-    private static string LogicalSourceKey(PathOfExileTradeSelectedModifierFilter filter)
-    {
-        var sourceIndexes = filter.SourceIndexes.Count > 0
-            ? filter.SourceIndexes
-            : [filter.SourceIndex];
-        return string.Join(",", sourceIndexes.Distinct().Order());
     }
 
     private static string MapListingStatus(TradeListingMode listingMode)

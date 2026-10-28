@@ -238,15 +238,13 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
             Assert.Single(searchClient.Requests)));
         var query = document.RootElement.GetProperty("query");
         var groups = query.GetProperty("stats").EnumerateArray().ToArray();
-        Assert.Equal(2, groups.Length);
-        Assert.All(groups, group =>
-        {
-            Assert.Equal("and", group.GetProperty("type").GetString());
-            Assert.Single(group.GetProperty("filters").EnumerateArray());
-        });
+        var group = Assert.Single(groups);
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        var filters = group.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(2, filters.Length);
         Assert.Equal(
             [76m, 21m],
-            groups.Select(group => group.GetProperty("filters")[0]
+            filters.Select(filter => filter
                 .GetProperty("value")
                 .GetProperty("min")
                 .GetDecimal()));

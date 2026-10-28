@@ -802,12 +802,11 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetProperty("stats")
             .EnumerateArray()
             .ToArray();
-        var filters = groups
-            .Select(group => Assert.Single(group.GetProperty("filters").EnumerateArray()))
-            .ToArray();
+        var group = Assert.Single(groups);
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        var filters = group.GetProperty("filters").EnumerateArray().ToArray();
 
-        Assert.Equal(2, groups.Length);
-        Assert.All(groups, group => Assert.Equal("and", group.GetProperty("type").GetString()));
+        Assert.Equal(2, filters.Length);
         Assert.Equal(["explicit.stat_life", "explicit.stat_resistance"], filters.Select(filter =>
             filter.GetProperty("id").GetString()));
         Assert.All(filters, filter =>
@@ -820,6 +819,75 @@ public sealed class PathOfExileTradeQueryBuilderTests
             Assert.False(filter.TryGetProperty("count", out _));
             Assert.False(filter.TryGetProperty("weighted", out _));
             Assert.Single(filter.EnumerateObject());
+        });
+    }
+
+    [Fact]
+    public void Build_OrdinaryAndPlusOneEquivalentCountSource_SharesOneAndAndKeepsIndependentCount()
+    {
+        var ordinaryLife = ProviderFilter(0, "explicit.stat_life") with { Minimum = 55m };
+        var ordinaryResist = ProviderFilter(1, "explicit.stat_resistance") with { Minimum = 38m };
+        var equivalentSuppress = ProviderFilter(2, "fractured.suppress.one") with
+        {
+            Minimum = 12m,
+            Maximum = 14m,
+            Alternatives =
+            [
+                new PathOfExileTradeSelectedModifierFilterAlternative
+                {
+                    StatId = "fractured.suppress.one",
+                    Minimum = 12m,
+                    Maximum = 14m,
+                },
+                new PathOfExileTradeSelectedModifierFilterAlternative
+                {
+                    StatId = "fractured.suppress.two",
+                    Minimum = 12m,
+                    Maximum = 14m,
+                },
+            ],
+        };
+
+        var result = BuildSuccessful(
+            Draft(modifiers:
+            [
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+                Modifier(isSelected: true, status: ModifierCandidateResolutionStatus.Exact),
+            ]),
+            [ordinaryLife, ordinaryResist, equivalentSuppress]);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var groups = document.RootElement
+            .GetProperty("query")
+            .GetProperty("stats")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(2, groups.Length);
+
+        var andGroup = groups[0];
+        Assert.Equal("and", andGroup.GetProperty("type").GetString());
+        var andFilters = andGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["explicit.stat_life", "explicit.stat_resistance"],
+            andFilters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(55m, andFilters[0].GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.Equal(38m, andFilters[1].GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.All(andFilters, filter =>
+            Assert.False(filter.GetProperty("value").TryGetProperty("max", out _)));
+
+        var countGroup = groups[1];
+        Assert.Equal("count", countGroup.GetProperty("type").GetString());
+        Assert.Equal(1m, countGroup.GetProperty("value").GetProperty("min").GetDecimal());
+        var countFilters = countGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(
+            ["fractured.suppress.one", "fractured.suppress.two"],
+            countFilters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.All(countFilters, filter =>
+        {
+            var value = filter.GetProperty("value");
+            Assert.Equal(12m, value.GetProperty("min").GetDecimal());
+            Assert.Equal(14m, value.GetProperty("max").GetDecimal());
         });
     }
 

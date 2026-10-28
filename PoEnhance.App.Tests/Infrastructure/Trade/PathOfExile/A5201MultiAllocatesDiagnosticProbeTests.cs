@@ -80,15 +80,14 @@ public sealed class A5201MultiAllocatesDiagnosticProbeTests
 
         using var doc = JsonDocument.Parse(built.SerializedJson!);
         var stats = doc.RootElement.GetProperty("query").GetProperty("stats");
-        Assert.Equal(2, stats.GetArrayLength());
-        Assert.Equal("65502", stats[0].GetProperty("filters")[0].GetProperty("value").GetProperty("option").GetString());
-        Assert.Equal("41119", stats[1].GetProperty("filters")[0].GetProperty("value").GetProperty("option").GetString());
-        Assert.Equal(
-            "enchant.stat_2954116742",
-            stats[0].GetProperty("filters")[0].GetProperty("id").GetString());
-        Assert.Equal(
-            "enchant.stat_2954116742",
-            stats[1].GetProperty("filters")[0].GetProperty("id").GetString());
+        var andGroup = Assert.Single(stats.EnumerateArray());
+        Assert.Equal("and", andGroup.GetProperty("type").GetString());
+        var serializedFilters = andGroup.GetProperty("filters").EnumerateArray().ToArray();
+        Assert.Equal(2, serializedFilters.Length);
+        Assert.Equal("65502", serializedFilters[0].GetProperty("value").GetProperty("option").GetString());
+        Assert.Equal("41119", serializedFilters[1].GetProperty("value").GetProperty("option").GetString());
+        Assert.Equal("enchant.stat_2954116742", serializedFilters[0].GetProperty("id").GetString());
+        Assert.Equal("enchant.stat_2954116742", serializedFilters[1].GetProperty("id").GetString());
     }
 
     [Theory]
@@ -127,19 +126,24 @@ public sealed class A5201MultiAllocatesDiagnosticProbeTests
         Assert.True(built.IsSuccess, string.Join(";", built.Diagnostics.Select(d => d.Code)));
         using var doc = JsonDocument.Parse(built.SerializedJson!);
         var stats = doc.RootElement.GetProperty("query").GetProperty("stats");
+        var andGroup = Assert.Single(stats.EnumerateArray());
+        Assert.Equal("and", andGroup.GetProperty("type").GetString());
+        var serializedFilters = andGroup.GetProperty("filters").EnumerateArray().ToArray();
         if (n == 0)
         {
-            Assert.Equal(1, stats.GetArrayLength());
-            Assert.Empty(stats[0].GetProperty("filters").EnumerateArray());
+            Assert.Empty(serializedFilters);
             return;
         }
 
-        Assert.Equal(n, stats.GetArrayLength());
+        Assert.Equal(n, serializedFilters.Length);
         for (var i = 0; i < n; i++)
         {
             Assert.Equal(
                 hashes[i].ToString(System.Globalization.CultureInfo.InvariantCulture),
-                stats[i].GetProperty("filters")[0].GetProperty("value").GetProperty("option").GetString());
+                serializedFilters[i].GetProperty("value").GetProperty("option").GetString());
+            Assert.Equal(
+                "enchant.stat_2954116742",
+                serializedFilters[i].GetProperty("id").GetString());
         }
     }
 
