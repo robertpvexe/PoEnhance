@@ -59,9 +59,9 @@ public sealed class PriceCheckerDeveloperDiagnosticsTests
         Assert.DoesNotContain("PriceCheckerDeveloperDiagnosticsWindow", priceCheckerXaml);
         Assert.DoesNotContain("Debug", priceCheckerXaml);
         Assert.DoesNotContain("Validation", priceCheckerXaml);
-        Assert.Contains("#if DEBUG", presenterCode);
-        Assert.Contains("#else", presenterCode);
+        Assert.Contains("CreateForCurrentBuild", presenterCode);
         Assert.Contains("return null;", presenterCode);
+        Assert.DoesNotContain("#if DEBUG", presenterCode);
     }
 
     [Fact]

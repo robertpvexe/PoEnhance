@@ -76,11 +76,9 @@ internal sealed class PriceCheckerDeveloperDiagnosticsPresenter :
 
     public static IPriceCheckerDeveloperDiagnosticsPresenter? CreateForCurrentBuild()
     {
-#if DEBUG
-        return new PriceCheckerDeveloperDiagnosticsPresenter();
-#else
+        // Floating developer HUD is intentionally disabled in all configurations.
+        // Snapshot collection and DeveloperDiagnosticsChanged remain active for tests/logging.
         return null;
-#endif
     }
 
     public void ShowOrUpdate(
