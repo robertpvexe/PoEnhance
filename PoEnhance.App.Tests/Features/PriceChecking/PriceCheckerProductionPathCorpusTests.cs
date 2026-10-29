@@ -1,9 +1,11 @@
+using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.GameData;
 using PoEnhance.App.Infrastructure.PathOfExile;
 using PoEnhance.App.Infrastructure.Trade.PathOfExile;
 using PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
+using PoEnhance.App.Tests.TestData.Items;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Trade;
@@ -744,6 +746,63 @@ Item Level: 84
     }
 
     [Fact]
+    public void RuneKeep_ArmourEnergyShieldQ20ParentsShareHybridAndIgnoreSpellBlockImplicit()
+    {
+        // Genuine copied fixture from fractured-trade-coverage-reference-corpus.txt (Rune Keep).
+        using var harness = ProductionPathHarness.Create();
+
+        var snapshot = harness.OpenText(RuneKeepText);
+        var armour = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.Armour);
+        var energyShield = Assert.Single(snapshot.Draft.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EnergyShield);
+        Assert.Equal((1283m, "Q20"), (armour.ObservedValue, armour.CalculationBasisLabel));
+        Assert.Equal((306m, "Q20"), (energyShield.ObservedValue, energyShield.CalculationBasisLabel));
+        Assert.DoesNotContain(
+            snapshot.Draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+
+        var spellBlock = Assert.Single(
+            snapshot.Draft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Chance to Block Spell Damage",
+                StringComparison.Ordinal));
+        Assert.True(spellBlock.IsBaseImplicit || spellBlock.ParsedKind == ParsedModifierKind.Implicit);
+
+        var aesAggregate = Assert.Single(
+            snapshot.Draft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "increased Armour and Energy Shield",
+                StringComparison.Ordinal));
+        Assert.Equal("132% increased Armour and Energy Shield", aesAggregate.OriginalText);
+        Assert.False(aesAggregate.IsFractured);
+
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(snapshot.Draft));
+        harness.ExpandProperty(TradeSearchItemPropertyKind.Armour);
+        var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.EnergyShield);
+        var armourRow = Assert.Single(expanded.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.Armour);
+        var energyShieldRow = Assert.Single(expanded.ItemProperties, property =>
+            property.Kind == TradeSearchItemPropertyKind.EnergyShield);
+        var armourProjection = Assert.Single(armourRow.Children, child =>
+            child.Text.Contains("increased Armour and Energy Shield", StringComparison.Ordinal));
+        var energyShieldProjection = Assert.Single(energyShieldRow.Children, child =>
+            child.Text.Contains("increased Armour and Energy Shield", StringComparison.Ordinal));
+        Assert.Equal(armourProjection.SourceIndex, energyShieldProjection.SourceIndex);
+        Assert.Equal("Shared with Energy Shield", armourProjection.SectionLabel);
+        Assert.Equal("Shared with Armour", energyShieldProjection.SectionLabel);
+
+        var resolved = new PathOfExileTradeItemPropertyResolver().Resolve(
+            snapshot.Draft,
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+        AssertExactProperty(resolved, TradeSearchItemPropertyKind.Armour);
+        AssertExactProperty(resolved, TradeSearchItemPropertyKind.EnergyShield);
+        Assert.DoesNotContain(
+            resolved.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+    }
+
+    [Fact]
     public void GoldenBuckler_ReconstructsFlooredLocalBlockAndKeepsParentAndChildSelectable()
     {
         using var harness = ProductionPathHarness.Create();
@@ -778,6 +837,183 @@ Item Level: 84
             property.Kind == TradeSearchItemPropertyKind.ChanceToBlock).Children.Single(row =>
                 row.SourceIndex == childRow.SourceIndex).IsSelected);
         Assert.Equal(0, harness.SearchCount);
+    }
+
+    [Theory]
+    [InlineData(0, "Hypnotic Keep", "Runic Crown", 320, 384)]
+    [InlineData(1, "Onslaught Cowl", "Runic Crown", 235, 282)]
+    [InlineData(2, "Havoc Grip", "Runic Gauntlets", 256, 307)]
+    [InlineData(3, "Damnation Stride", "Runic Sollerets", 118, 142)]
+    public void WardRealFixtures_Q0ClipboardNormalizesToQ20AndResolvesOfficialWardFilter(
+        int fixtureIndex,
+        string expectedName,
+        string expectedBase,
+        int clipboardObserved,
+        int expectedQ20)
+    {
+        // Provenance: D:\Projects\zfortests_v2.txt via ward-real-fixtures-zfortests-v2.txt
+        using var harness = ProductionPathHarness.Create();
+        var snapshot = harness.OpenText(WardRealFixtures.LoadItems()[fixtureIndex]);
+
+        Assert.Equal(expectedName, snapshot.Draft.DisplayName);
+        Assert.Equal(expectedBase, snapshot.Draft.ParsedBaseType);
+        var ward = Assert.Single(
+            snapshot.Draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward);
+        Assert.Equal(expectedQ20, ward.ObservedValue);
+        Assert.Equal("Q20", ward.CalculationBasisLabel);
+        Assert.Equal(
+            TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty,
+            ward.QualityNormalizationStatus);
+        Assert.Equal(
+            clipboardObserved,
+            Assert.Single(ward.SourceProperties).NumericGroups[0].ScalarValue);
+        Assert.DoesNotContain(
+            snapshot.Draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+
+        var resolved = new PathOfExileTradeItemPropertyResolver().Resolve(
+            snapshot.Draft,
+            PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog());
+        AssertExactProperty(resolved, TradeSearchItemPropertyKind.Ward);
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(resolved));
+
+        var selected = harness.SelectProperty(TradeSearchItemPropertyKind.Ward, true);
+        var selectedWard = Assert.Single(
+            selected.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward);
+        Assert.True(selectedWard.IsSelected);
+        Assert.Equal(expectedQ20.ToString(), selectedWard.MinimumText);
+        Assert.Equal(
+            expectedQ20,
+            Assert.Single(
+                harness.CurrentDraft.ItemProperties,
+                property => property.Kind == TradeSearchItemPropertyKind.Ward).ObservedValue);
+
+        var cleared = harness.SelectProperty(TradeSearchItemPropertyKind.Ward, false);
+        Assert.False(Assert.Single(
+            cleared.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward).IsSelected);
+        Assert.Equal(
+            expectedQ20,
+            Assert.Single(
+                harness.CurrentDraft.ItemProperties,
+                property => property.Kind == TradeSearchItemPropertyKind.Ward).ObservedValue);
+    }
+
+    [Fact]
+    public void HypnoticKeep_WardParentAndChildrenStayIndependentAndSerializeOfficialWardFilter()
+    {
+        using var harness = ProductionPathHarness.Create();
+        var snapshot = harness.OpenText(WardRealFixtures.HypnoticKeep);
+        var catalog = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
+        var resolver = new PathOfExileTradeItemPropertyResolver();
+        var resolved = resolver.Resolve(snapshot.Draft, catalog);
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(resolved));
+
+        var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.Ward);
+        var wardRow = Assert.Single(
+            expanded.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward);
+        Assert.Contains(
+            wardRow.Children,
+            child => child.Text.Contains("+14", StringComparison.Ordinal) &&
+                child.Text.Contains("Ward", StringComparison.Ordinal));
+        Assert.Contains(
+            wardRow.Children,
+            child => child.Text.Contains("65(56-67)% increased Ward", StringComparison.Ordinal));
+
+        var selectedParent = harness.SelectProperty(TradeSearchItemPropertyKind.Ward, true);
+        Assert.True(Assert.Single(
+            selectedParent.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward).IsSelected);
+        Assert.Equal("384", Assert.Single(
+            selectedParent.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward).MinimumText);
+        Assert.Equal(384m, Assert.Single(
+            harness.CurrentDraft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward).ObservedValue);
+        Assert.Equal(
+            320m,
+            Assert.Single(
+                harness.CurrentDraft.ItemProperties,
+                property => property.Kind == TradeSearchItemPropertyKind.Ward)
+                .SourceProperties[0].NumericGroups[0].ScalarValue);
+
+        var selectedDraft = resolved with
+        {
+            ItemProperties = resolved.ItemProperties
+                .Select(property => property.Kind == TradeSearchItemPropertyKind.Ward
+                    ? property with { IsSelected = true }
+                    : property)
+                .ToImmutableArray(),
+        };
+        var mapped = resolver.MapSelected(selectedDraft, catalog);
+        Assert.True(mapped.IsSuccess);
+        var wardFilter = Assert.Single(mapped.Filters);
+        Assert.Equal("armour_filters", wardFilter.ProviderGroupId);
+        Assert.Equal("ward", wardFilter.ProviderFilterId);
+        Assert.Equal(384m, wardFilter.RequestedMinimum);
+        Assert.Null(wardFilter.RequestedMaximum);
+
+        var built = new PathOfExileTradeQueryBuilder().Build(
+            selectedDraft,
+            new TradeSearchDraftValidator().Validate(selectedDraft),
+            "Mirage",
+            selectedModifierFilters: null,
+            providerFilterCatalog: catalog,
+            selectedItemPropertyFilters: mapped.Filters);
+        Assert.True(
+            built.IsSuccess,
+            string.Join("; ", built.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Contains("\"ward\"", built.SerializedJson, StringComparison.Ordinal);
+        Assert.Contains("\"min\":384", built.SerializedJson, StringComparison.Ordinal);
+
+        var disabledDraft = selectedDraft with
+        {
+            ItemProperties = selectedDraft.ItemProperties
+                .Select(property => property with { IsSelected = false })
+                .ToImmutableArray(),
+        };
+        var disabledMapped = resolver.MapSelected(disabledDraft, catalog);
+        Assert.True(disabledMapped.IsSuccess);
+        Assert.Empty(disabledMapped.Filters);
+    }
+
+    [Fact]
+    public void DamnationStride_MixedWardStunRecoveryDoesNotCreateBlockParent()
+    {
+        using var harness = ProductionPathHarness.Create();
+        var snapshot = harness.OpenText(WardRealFixtures.DamnationStride);
+
+        Assert.Equal(142m, Assert.Single(
+            snapshot.Draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward).ObservedValue);
+        Assert.Equal(
+            "Q20",
+            Assert.Single(
+                snapshot.Draft.ItemProperties,
+                property => property.Kind == TradeSearchItemPropertyKind.Ward).CalculationBasisLabel);
+        Assert.DoesNotContain(
+            snapshot.Draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.ChanceToBlock);
+
+        harness.ApplyResolvedDraft(WithExactTestProviderVariants(snapshot.Draft));
+        var expanded = harness.ExpandProperty(TradeSearchItemPropertyKind.Ward);
+        var wardRow = Assert.Single(
+            expanded.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.Ward);
+        Assert.Contains(
+            wardRow.Children,
+            child => child.Text.Contains("+23", StringComparison.Ordinal));
+        Assert.Contains(
+            wardRow.Children,
+            child => child.Text.Contains("26(21-26)% increased Ward", StringComparison.Ordinal));
+        Assert.Contains(
+            snapshot.Draft.ModifierFilters,
+            component => component.OriginalText.Contains(
+                "Stun and Block Recovery",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1112,6 +1348,44 @@ Item Level: 84
 62(58-63)% increased Chance to Block
 """;
 
+    // Genuine copied clipboard from fractured-trade-coverage-reference-corpus.txt.
+    internal const string RuneKeepText = """
+Item Class: Body Armours
+Rarity: Rare
+Rune Keep
+Saintly Chainmail
+--------
+Quality: +20% (augmented)
+Armour: 1283 (augmented)
+Energy Shield: 306 (augmented)
+--------
+Requirements:
+Level: 70
+Str: 99
+Dex: 70
+Int: 155 (unmet)
+--------
+Sockets: B-B-B-G-R-B
+--------
+Item Level: 78
+--------
+{ Eater of Worlds Implicit Modifier (Lesser) }
+5% Chance to Block Spell Damage
+--------
+{ Fractured Prefix Modifier "Interpolated" (Tier: 3) — Defences, Armour, Energy Shield }
+91(80-91)% increased Armour and Energy Shield
+{ Prefix Modifier "Seraphim's" (Tier: 1) — Defences, Armour, Energy Shield }
+41(39-42)% increased Armour and Energy Shield
+17(16-17)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Walrus" (Tier: 4) — Elemental, Cold, Resistance }
++34(30-35)% to Cold Resistance
+{ Master Crafted Suffix Modifier "of Craft" (Rank: 3) — Elemental, Lightning, Resistance }
++34(29-35)% to Lightning Resistance
+Eater of Worlds Item
+--------
+Fractured Item
+""";
+
     private static void AssertExactProperty(
         TradeSearchDraft draft,
         TradeSearchItemPropertyKind kind)
@@ -1152,6 +1426,9 @@ Item Level: 84
         private PriceCheckerWindowController Controller { get; }
 
         public int SearchCount => priceCheckService.SearchCount;
+
+        public TradeSearchDraft CurrentDraft =>
+            Assert.Single(windowFactory.CreatedWindows).CurrentState!.Draft;
 
         public static ProductionPathHarness Create()
         {

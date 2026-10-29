@@ -116,14 +116,16 @@ public sealed class TradeSearchDefenceSemanticProvenanceTests
     }
 
     [Fact]
-    public void WardDescriptorsHaveActiveRecordCoverageButNoGenuineCopiedFixture()
+    public void WardDescriptorsHaveActiveRecordCoverageAndGenuineCopiedFixtures()
     {
-        // Tracked fixture gap: there is no genuine copied Ward item in either copied-item corpus.
         Assert.Equal(
             ["item.ward.added.local", "item.ward.increased-percent.local"],
             ActiveSemanticCases
                 .Where(semanticCase => semanticCase.Targets.SequenceEqual([ItemPropertyTarget.Ward]))
                 .Select(semanticCase => semanticCase.Semantic.Id));
+        Assert.Equal(4, WardRealFixtures.LoadItems().Count);
+        Assert.Contains("Hypnotic Keep", WardRealFixtures.HypnoticKeep, StringComparison.Ordinal);
+        Assert.Contains("Ward: 320", WardRealFixtures.HypnoticKeep, StringComparison.Ordinal);
     }
 
     private TradeSearchDraft CreateCorpusDraft(string itemText)

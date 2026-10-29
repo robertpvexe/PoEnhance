@@ -1,0 +1,113 @@
+# Provenance: genuine PoE clipboard copies extracted from D:\Projects\zfortests_v2.txt
+# (external, not in this git repo). Stage 03.7A Ward real-fixture verification.
+# Do not treat this header as item text; items start at each "Item Class:" boundary.
+
+Item Class: Helmets
+Rarity: Rare
+Hypnotic Keep
+Runic Crown
+--------
+Ward: 320 (augmented)
+--------
+Requirements:
+Level: 68
+Str: 66
+Dex: 66
+Int: 66
+--------
+Sockets: G-R-B G
+--------
+Item Level: 70
+--------
+{ Prefix Modifier "Brownsmith's" (Tier: 7) — Defences }
++14(10-15) to Ward
+{ Prefix Modifier "Embedded" (Tier: 4) — Defences }
+65(56-67)% increased Ward
+{ Suffix Modifier "of the Marksman" (Tier: 3) — Attack }
++321(251-350) to Accuracy Rating
+{ Suffix Modifier "of the Storm" (Tier: 6) — Elemental, Lightning, Resistance }
++22(18-23)% to Lightning Resistance
+{ Suffix Modifier "of Ryslatha" (Tier: 3) — Life }
+Regenerate 59.2(48.1-64) Life per second
+
+Item Class: Helmets
+Rarity: Rare
+Onslaught Cowl
+Runic Crown
+--------
+Ward: 235 (augmented)
+--------
+Requirements:
+Level: 68
+Str: 66
+Dex: 66
+Int: 66
+--------
+Sockets: W-W-W-W
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Silversmith's" (Tier: 4) — Defences }
++49(36-52) to Ward
+{ Suffix Modifier "of Light" (Tier: 2) — Attack }
+15(12-15)% increased Global Accuracy Rating
+10% increased Light Radius
+{ Suffix Modifier "of the Augur" (Tier: 7) — Attribute }
++27(23-27) to Intelligence
+{ Suffix Modifier "of the Troll" (Tier: 4) — Life }
+Regenerate 45.8(32.1-48) Life per second
+
+Item Class: Gloves
+Rarity: Rare
+Havoc Grip
+Runic Gauntlets
+--------
+Ward: 256 (augmented)
+--------
+Requirements:
+Level: 69
+Str: 38
+Dex: 38
+Int: 38
+--------
+Sockets: G-W-W-W
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Lettered" (Tier: 2) — Defences }
+87(80-91)% increased Ward
+{ Prefix Modifier "Honed" (Tier: 1) — Damage, Physical, Attack }
+Adds 5(4-6) to 10(9-10) Physical Damage to Attacks
+{ Prefix Modifier "Coppersmith's" (Tier: 5) — Defences }
++21(16-23) to Ward
+{ Suffix Modifier "of the Magma" (Tier: 2) — Elemental, Fire, Resistance }
++44(42-45)% to Fire Resistance
+
+Item Class: Boots
+Rarity: Rare
+Damnation Stride
+Runic Sollerets
+--------
+Ward: 118 (augmented)
+--------
+Requirements:
+Level: 63
+Str: 37
+Dex: 37
+Int: 37
+--------
+Sockets: B-W-W-W
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Coppersmith's" (Tier: 5) — Defences }
++23(16-23) to Ward
+{ Prefix Modifier "Bolstered" (Tier: 4) — Defences }
+26(21-26)% increased Ward
+11(10-11)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++41(36-41)% to Cold Resistance
+{ Suffix Modifier "of Corundum Skin" (Tier: 1) }
+27(26-28)% increased Stun and Block Recovery
+{ Suffix Modifier "of the Volcano" (Tier: 3) — Elemental, Fire, Resistance }
++41(36-41)% to Fire Resistance

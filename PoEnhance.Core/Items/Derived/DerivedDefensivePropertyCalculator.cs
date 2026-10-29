@@ -22,7 +22,8 @@ public sealed partial class DerivedWeaponPropertyCalculator
             ItemPropertyTarget.Armour, "armour");
         AddQualityNormalized(results, parsedItem, itemBase, modifierEffects,
             ItemPropertyTarget.Evasion, "evasion rating");
-        AddWard(results, parsedItem, itemBase, modifierEffects);
+        AddQualityNormalized(results, parsedItem, itemBase, modifierEffects,
+            ItemPropertyTarget.Ward, "ward");
         AddBlock(results, parsedItem, itemBase, modifierEffects);
         return new DerivedDefensiveProperties { Properties = results };
     }
@@ -85,31 +86,6 @@ public sealed partial class DerivedWeaponPropertyCalculator
         results.Add(Create(
             target, observed, property, false, unsupported, null, contributions,
             quality.Value, baseProperties));
-    }
-
-    private static void AddWard(
-        ICollection<DerivedDefensiveProperty> results,
-        ParsedItem parsedItem,
-        ItemBaseRecord? itemBase,
-        IReadOnlyList<DerivedWeaponModifierEffect> effects)
-    {
-        var property = FindSingleScalarProperty(parsedItem, "ward", percentage: false);
-        if (property is null)
-        {
-            return;
-        }
-
-        var contributions = ReadContributions(effects, ItemPropertyTarget.Ward);
-        results.Add(Create(
-            ItemPropertyTarget.Ward,
-            property.NumericGroups[0].ScalarValue!.Value,
-            property,
-            false,
-            contributions.Reason,
-            null,
-            contributions,
-            ReadQuality(parsedItem).Value,
-            itemBase?.DefenceProperties));
     }
 
     private static void AddBlock(
@@ -206,7 +182,8 @@ public sealed partial class DerivedWeaponPropertyCalculator
                 continue;
             }
 
-            if (target is ItemPropertyTarget.Armour or ItemPropertyTarget.Evasion or ItemPropertyTarget.EnergyShield &&
+            if ((target is ItemPropertyTarget.Armour or ItemPropertyTarget.Evasion or
+                    ItemPropertyTarget.EnergyShield or ItemPropertyTarget.Ward) &&
                 semantic.Contributions.Any(contribution =>
                     contribution.Targets.Contains(ItemPropertyTarget.Quality)))
             {
@@ -267,7 +244,8 @@ public sealed partial class DerivedWeaponPropertyCalculator
                 statId.Contains("effect_of_explicit_mod", StringComparison.OrdinalIgnoreCase) ||
                 statId.Contains("per_quality", StringComparison.OrdinalIgnoreCase) ||
                 (statId.Contains("quality_does_not_increase_defences", StringComparison.OrdinalIgnoreCase) &&
-                 target is ItemPropertyTarget.Armour or ItemPropertyTarget.Evasion or ItemPropertyTarget.EnergyShield) ||
+                 target is ItemPropertyTarget.Armour or ItemPropertyTarget.Evasion or
+                     ItemPropertyTarget.EnergyShield or ItemPropertyTarget.Ward) ||
                 ((statId.Contains("set_to_zero", StringComparison.OrdinalIgnoreCase) ||
                   statId.Contains("always_zero", StringComparison.OrdinalIgnoreCase)) && CouldAffect(effect, target)))
             {

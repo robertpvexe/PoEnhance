@@ -882,7 +882,8 @@ public sealed partial class TradeSearchDraftMapper
     private static bool IsQualitySensitiveDefence(TradeSearchItemPropertyKind kind) =>
         kind is TradeSearchItemPropertyKind.Armour or
             TradeSearchItemPropertyKind.EvasionRating or
-            TradeSearchItemPropertyKind.EnergyShield;
+            TradeSearchItemPropertyKind.EnergyShield or
+            TradeSearchItemPropertyKind.Ward;
 
     private static TradeSearchItemPropertyKind DefensiveKind(ItemPropertyTarget target) => target switch
     {

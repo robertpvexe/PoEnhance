@@ -24,6 +24,8 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                       { "id": "weapon.bow", "text": "Bow" },
                       { "id": "weapon.staff", "text": "Staff" },
                       { "id": "armour.chest", "text": "Body Armour" },
+                      { "id": "armour.helmet", "text": "Helmet" },
+                      { "id": "armour.gloves", "text": "Gloves" },
                       { "id": "armour.shield", "text": "Shield" },
                       { "id": "armour.boots", "text": "Boots" }
                     ]
@@ -301,7 +303,8 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
             TradeSearchItemPropertyKind.TotalDps or
             TradeSearchItemPropertyKind.Armour or
             TradeSearchItemPropertyKind.EvasionRating or
-            TradeSearchItemPropertyKind.EnergyShield
+            TradeSearchItemPropertyKind.EnergyShield or
+            TradeSearchItemPropertyKind.Ward
             ? TradeSearchItemPropertyQualityNormalizationStatus.NormalizedToTwenty
             : TradeSearchItemPropertyQualityNormalizationStatus.NotApplicable;
 

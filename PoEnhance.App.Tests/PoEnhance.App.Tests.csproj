@@ -26,6 +26,7 @@
   <ItemGroup>
     <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PoEnhance.Core.Tests\TestData\Items\advanced-real-items-corpus.txt" Link="TestData\Items\advanced-real-items-corpus.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PoEnhance.Core.Tests\TestData\Items\ward-real-fixtures-zfortests-v2.txt" Link="TestData\Items\ward-real-fixtures-zfortests-v2.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Items\ordinary-item-price-checker-corpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Trade\fetch-offer-card-response.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TestData\Trade\fetch-offer-card-live-modifier-response.json" CopyToOutputDirectory="PreserveNewest" />
