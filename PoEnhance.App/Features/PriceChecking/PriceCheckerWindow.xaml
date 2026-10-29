@@ -660,9 +660,11 @@
             <Grid Grid.Row="0"
                   Background="#252525">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*"
+                                      MinWidth="72" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*"
+                                      MinWidth="108" />
                 </Grid.ColumnDefinitions>
 
                 <Thumb x:Name="HorizontalDragThumb"
@@ -671,25 +673,45 @@
                        Cursor="SizeWE">
                     <Thumb.Template>
                         <ControlTemplate TargetType="Thumb">
-                            <Border Background="#252525"
-                                    Padding="12,0">
-                                <TextBlock VerticalAlignment="Center"
-                                           FontWeight="SemiBold"
-                                           Foreground="#EEEEEE"
-                                           Text="Price Checker" />
-                            </Border>
+                            <Border Background="#252525" />
                         </ControlTemplate>
                     </Thumb.Template>
                 </Thumb>
 
-                <TextBlock x:Name="TitleDisplayNameText"
-                           Grid.Column="1"
-                           MaxWidth="260"
-                           IsHitTestVisible="False"
+                <TextBlock x:Name="LeagueHeaderText"
+                           Grid.Column="0"
+                           Margin="6,0,8,0"
+                           MaxWidth="160"
+                           HorizontalAlignment="Left"
                            VerticalAlignment="Center"
+                           IsHitTestVisible="False"
                            FontWeight="SemiBold"
+                           Foreground="#EEEEEE"
+                           Text="Not selected"
                            TextTrimming="CharacterEllipsis"
                            TextWrapping="NoWrap" />
+
+                <StackPanel x:Name="TitleInfluenceHeaderPanel"
+                            Grid.Column="1"
+                            MaxWidth="320"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                    <StackPanel x:Name="TitleInfluenceIconsLeft"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal" />
+                    <TextBlock x:Name="TitleDisplayNameText"
+                               MaxWidth="220"
+                               Margin="5,0"
+                               IsHitTestVisible="False"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               TextWrapping="NoWrap" />
+                    <StackPanel x:Name="TitleInfluenceIconsRight"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal" />
+                </StackPanel>
                 <StackPanel Grid.Column="2"
                             HorizontalAlignment="Right"
                             Orientation="Horizontal">
@@ -779,57 +801,58 @@
                         Background="#1D1D1D"
                         BorderBrush="#353535"
                         BorderThickness="1">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button x:Name="BaseCriterionButton"
-                                MinWidth="72"
-                                Padding="6,4"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Stretch"
-                                VerticalAlignment="Center"
-                                ToolTip="Toggle between category and exact base"
-                                Style="{StaticResource BaseCriterionButtonStyle}">
-                            <TextBlock x:Name="BaseCriterionText"
-                                       Text="Category"
-                                       TextTrimming="CharacterEllipsis"
-                                       TextWrapping="NoWrap" />
-                        </Button>
-                        <Grid Grid.Column="1"
-                              Margin="6,0,0,0">
-                            <ComboBox x:Name="RarityComboBox"
-                                      SelectionChanged="OnRaritySelectionChanged"
-                                      Style="{StaticResource RarityComboBoxStyle}"
-                                      ToolTip="Rarity">
-                                <ComboBoxItem Content="Any" />
-                                <ComboBoxItem Content="Normal" />
-                                <ComboBoxItem Content="Magic" />
-                                <ComboBoxItem Content="Rare" />
-                            </ComboBox>
-                            <Border x:Name="RarityStaticBorder"
-                                    Style="{StaticResource RarityStaticFieldStyle}"
-                                    ToolTip="Rarity">
-                                <TextBlock x:Name="RarityStaticText"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           FontSize="10"
-                                           Foreground="#E6E6E6"
-                                           Text="Unique" />
-                            </Border>
-                        </Grid>
-                        <StackPanel x:Name="InfluenceChipsPanel"
-                                    Grid.Column="2"
+                    <WrapPanel x:Name="BasicFiltersPanel"
+                               Orientation="Horizontal">
+                        <StackPanel x:Name="CategoryRarityGroup"
+                                    Margin="0,0,0,2"
                                     Orientation="Horizontal"
-                                    VerticalAlignment="Center" />
+                                    VerticalAlignment="Center">
+                            <Button x:Name="BaseCriterionButton"
+                                    MinWidth="72"
+                                    MaxWidth="220"
+                                    Padding="6,4"
+                                    HorizontalAlignment="Left"
+                                    HorizontalContentAlignment="Stretch"
+                                    VerticalAlignment="Center"
+                                    ToolTip="Toggle between category and exact base"
+                                    Style="{StaticResource BaseCriterionButtonStyle}">
+                                <TextBlock x:Name="BaseCriterionText"
+                                           Text="Category"
+                                           TextTrimming="CharacterEllipsis"
+                                           TextWrapping="NoWrap" />
+                            </Button>
+                            <Grid Margin="6,0,0,0"
+                                  VerticalAlignment="Center">
+                                <ComboBox x:Name="RarityComboBox"
+                                          SelectionChanged="OnRaritySelectionChanged"
+                                          Style="{StaticResource RarityComboBoxStyle}"
+                                          ToolTip="Rarity">
+                                    <ComboBoxItem Content="Any" />
+                                    <ComboBoxItem Content="Normal" />
+                                    <ComboBoxItem Content="Magic" />
+                                    <ComboBoxItem Content="Rare" />
+                                </ComboBox>
+                                <Border x:Name="RarityStaticBorder"
+                                        Style="{StaticResource RarityStaticFieldStyle}"
+                                        ToolTip="Rarity">
+                                    <TextBlock x:Name="RarityStaticText"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="10"
+                                               Foreground="#E6E6E6"
+                                               Text="Unique" />
+                                </Border>
+                            </Grid>
+                        </StackPanel>
                         <StackPanel x:Name="ItemStateFiltersPanel"
-                                    Grid.Column="3"
                                     Orientation="Horizontal"
                                     VerticalAlignment="Center"
-                                    ToolTip="Miscellaneous item-state filters">
+                                    ToolTip="Basic item-state filters">
+                            <Button x:Name="IdentifiedStateButton"
+                                    Click="OnItemStateButtonClick"
+                                    Content="Identified: Any"
+                                    Style="{StaticResource ItemStateButtonStyle}"
+                                    ToolTip="Identified: click to cycle Any → Yes → No" />
                             <Button x:Name="MirroredStateButton"
                                     Click="OnItemStateButtonClick"
                                     Content="Mirrored: Any"
@@ -840,24 +863,20 @@
                                     Content="Corrupted: Any"
                                     Style="{StaticResource ItemStateButtonStyle}"
                                     ToolTip="Corrupted: click to cycle Any → Yes → No" />
-                            <Button x:Name="IdentifiedStateButton"
-                                    Click="OnItemStateButtonClick"
-                                    Content="Identified: Any"
-                                    Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Identified: click to cycle Any → Yes → No" />
-                            <Button x:Name="FracturedStateButton"
-                                    Click="OnItemStateButtonClick"
-                                    Content="Fractured Item: Any"
-                                    Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Fractured Item: click to cycle Any → Yes → No" />
                         </StackPanel>
-                    </Grid>
+                    </WrapPanel>
                 </Border>
 
-                <StackPanel x:Name="HeaderRequestedFiltersPanel"
+                <WrapPanel x:Name="HeaderRequestedFiltersPanel"
                             Grid.Row="1"
                             Margin="0,8,0,0"
                             Orientation="Horizontal">
+                    <Button x:Name="FracturedStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Fractured Item: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Fractured Item: click to cycle Any → Yes → No" />
                     <Border x:Name="ItemLevelFilterBorder"
                             Margin="0,0,8,0"
                             PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
@@ -995,7 +1014,7 @@
                                      TextChanged="OnRequestedItemFilterTextChanged" />
                         </StackPanel>
                     </Border>
-                </StackPanel>
+                </WrapPanel>
 
                 <Grid x:Name="StatsHeader"
                       Grid.Row="2"
@@ -1929,16 +1948,12 @@
                     <Grid Grid.Column="1"
                           Margin="10,0,8,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*"
+                                              MinWidth="24" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="LeagueStatusText"
-                                   VerticalAlignment="Center"
-                                   Foreground="#AFAFAF"
-                                   Text="League: Not selected"
-                                   TextTrimming="CharacterEllipsis"
-                                   TextWrapping="NoWrap" />
+                        <!-- Reserved empty future space (league moved to title bar). -->
                         <TextBlock x:Name="SearchStatusText"
                                    Grid.Column="1"
                                    Margin="8,0,0,0"

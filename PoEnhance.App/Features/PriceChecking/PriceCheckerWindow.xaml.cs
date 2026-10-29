@@ -188,7 +188,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ? "ExactBase"
             : "Category";
         UpdateRarityControl(draft.Rarity, state.Presentation.IsRarityEditable);
-        UpdateInfluenceChips(draft.InfluenceCriteria);
+        UpdateHeaderIcons(draft);
+        UpdateItemStateButton(
+            IdentifiedStateButton,
+            TradeItemStateKind.Identified,
+            draft.ItemStateCriteria.Identified);
         UpdateItemStateButton(
             MirroredStateButton,
             TradeItemStateKind.Mirrored,
@@ -197,10 +201,6 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             CorruptedStateButton,
             TradeItemStateKind.Corrupted,
             draft.ItemStateCriteria.Corrupted);
-        UpdateItemStateButton(
-            IdentifiedStateButton,
-            TradeItemStateKind.Identified,
-            draft.ItemStateCriteria.Identified);
         UpdateItemStateButton(
             FracturedStateButton,
             TradeItemStateKind.Fractured,
@@ -225,9 +225,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ? Visibility.Visible
             : Visibility.Hidden;
         TradeButton.IsEnabled = state.CanOpenTrade;
-        LeagueStatusText.Text = string.IsNullOrWhiteSpace(state.LeagueIdentifier)
-            ? "League: Not selected"
-            : $"League: {state.LeagueIdentifier}";
+        LeagueHeaderText.Text = string.IsNullOrWhiteSpace(state.LeagueIdentifier)
+            ? "Not selected"
+            : state.LeagueIdentifier;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
         StatsCountText.Text = FormatStatsCount(state.SelectedStatsCount, state.StatsCount);
@@ -398,57 +398,142 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 CycleItemState(CurrentState.Draft.ItemStateCriteria.Get(kind))));
     }
 
-    private void UpdateInfluenceChips(ImmutableArray<TradeSearchInfluenceCriterion> criteria)
+    private void UpdateHeaderIcons(TradeSearchDraft draft)
     {
-        InfluenceChipsPanel.Children.Clear();
-        if (criteria.IsDefaultOrEmpty)
+        TitleInfluenceIconsLeft.Children.Clear();
+        TitleInfluenceIconsRight.Children.Clear();
+
+        var (left, right) = PriceCheckerHeaderIconCatalog.ResolveHeaderIcons(draft);
+        for (var index = 0; index < left.Count; index++)
         {
-            return;
+            var isNearestToName = index == left.Count - 1;
+            TitleInfluenceIconsLeft.Children.Add(
+                CreateHeaderIconControl(left[index], adjacentSpacingOnRight: !isNearestToName));
         }
 
-        var chipStyle = (Style)FindResource("InfluenceChipBorderStyle");
-        foreach (var criterion in criteria)
+        for (var index = 0; index < right.Count; index++)
         {
-            var label = criterion.ProviderResolutionStatus ==
-                TradeSearchItemPropertyProviderResolutionStatus.Unsupported
-                    ? $"{criterion.DisplayLabel} (Unsupported)"
-                    : criterion.DisplayLabel;
-            var isUnsupported = criterion.ProviderResolutionStatus ==
-                TradeSearchItemPropertyProviderResolutionStatus.Unsupported;
-            var border = new Border
-            {
-                Style = chipStyle,
-                Tag = isUnsupported && criterion.IsEnabled
-                    ? "Unsupported"
-                    : criterion.IsEnabled
-                        ? "Active"
-                        : null,
-                ToolTip = criterion.DiagnosticReason ??
-                    (criterion.IsEnabled
-                        ? $"{criterion.DisplayLabel} influence is enabled for Search"
-                        : $"{criterion.DisplayLabel} influence is disabled for Search"),
-                Child = new TextBlock
-                {
-                    Text = label,
-                    FontSize = 10,
-                    Foreground = isUnsupported && criterion.IsEnabled
-                        ? new SolidColorBrush(Color.FromRgb(0xCF, 0x9A, 0x9A))
-                        : new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6)),
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-            };
-            // Preserve criterion identity for toggle while using Tag for visual state.
-            border.DataContext = criterion;
-            border.PreviewMouseLeftButtonDown += OnInfluenceChipPreviewMouseLeftButtonDownFromDataContext;
-            InfluenceChipsPanel.Children.Add(border);
+            var isNearestToName = index == 0;
+            TitleInfluenceIconsRight.Children.Add(
+                CreateHeaderIconControl(right[index], adjacentSpacingOnLeft: !isNearestToName));
         }
     }
 
-    private void OnInfluenceChipPreviewMouseLeftButtonDownFromDataContext(
-        object sender,
-        MouseButtonEventArgs e)
+    private FrameworkElement CreateHeaderIconControl(
+        PriceCheckerHeaderIconEntry entry,
+        bool adjacentSpacingOnLeft = false,
+        bool adjacentSpacingOnRight = false)
     {
-        if (sender is not Border { DataContext: TradeSearchInfluenceCriterion criterion } ||
+        if (!PriceCheckerHeaderIconCatalog.TryGetImageSources(
+                entry.AssetFileName,
+                out var colorSource,
+                out var graySource))
+        {
+            return new FrameworkElement();
+        }
+
+        var image = new System.Windows.Controls.Image
+        {
+            Source = entry.IsVisuallyEnabled ? colorSource : graySource,
+            Width = PriceCheckerHeaderIconCatalog.DisplayPixelSize,
+            Height = PriceCheckerHeaderIconCatalog.DisplayPixelSize,
+            Stretch = Stretch.Uniform,
+            SnapsToDevicePixels = true,
+            Opacity = entry.IsVisuallyEnabled
+                ? 1.0
+                : PriceCheckerHeaderIconCatalog.InactiveOpacity,
+        };
+
+        var margin = new Thickness(
+            adjacentSpacingOnLeft ? PriceCheckerHeaderIconCatalog.AdjacentIconSpacing : 0,
+            0,
+            adjacentSpacingOnRight ? PriceCheckerHeaderIconCatalog.AdjacentIconSpacing : 0,
+            0);
+
+        if (!entry.IsInfluenceToggle)
+        {
+            var informational = new Border
+            {
+                Width = PriceCheckerHeaderIconCatalog.DisplayPixelSize,
+                Height = PriceCheckerHeaderIconCatalog.DisplayPixelSize,
+                Margin = margin,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Child = image,
+                Tag = entry.AssetFileName,
+                DataContext = entry,
+            };
+            ApplyHeaderIconToolTip(informational, entry.DisplayLabel);
+            return informational;
+        }
+
+        var criterion = entry.InfluenceCriterion!;
+        var button = new Button
+        {
+            Content = image,
+            Width = PriceCheckerHeaderIconCatalog.DisplayPixelSize + 2,
+            Height = PriceCheckerHeaderIconCatalog.DisplayPixelSize + 2,
+            Padding = new Thickness(0),
+            Margin = margin,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            DataContext = criterion,
+            Tag = criterion.Kind,
+            Opacity = criterion.ProviderResolutionStatus ==
+                TradeSearchItemPropertyProviderResolutionStatus.Unsupported
+                    ? 0.85
+                    : 1.0,
+        };
+        button.Style = CreateInfluenceIconButtonStyle();
+        ApplyHeaderIconToolTip(button, entry.DisplayLabel);
+        button.Click += OnInfluenceIconClick;
+        return button;
+    }
+
+    private static void ApplyHeaderIconToolTip(DependencyObject target, string label)
+    {
+        var toolTip = PriceCheckerHeaderIconCatalog.CreateNameOnlyToolTip(label);
+        if (target is FrameworkElement element)
+        {
+            element.ToolTip = toolTip;
+        }
+
+        ToolTipService.SetInitialShowDelay(target, 250);
+        ToolTipService.SetBetweenShowDelay(target, 250);
+        ToolTipService.SetShowDuration(target, 15000);
+    }
+
+    private static Style CreateInfluenceIconButtonStyle()
+    {
+        var style = new Style(typeof(Button));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        style.Setters.Add(new Setter(FrameworkElement.CursorProperty, Cursors.Hand));
+        style.Setters.Add(new Setter(Control.TemplateProperty, CreateInfluenceIconButtonTemplate()));
+        return style;
+    }
+
+    private static ControlTemplate CreateInfluenceIconButtonTemplate()
+    {
+        var template = new ControlTemplate(typeof(Button));
+        var borderFactory = new FrameworkElementFactory(typeof(Border));
+        borderFactory.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(0));
+        borderFactory.SetValue(Border.SnapsToDevicePixelsProperty, true);
+        var contentFactory = new FrameworkElementFactory(typeof(ContentPresenter));
+        contentFactory.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        contentFactory.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        borderFactory.AppendChild(contentFactory);
+        template.VisualTree = borderFactory;
+        return template;
+    }
+
+    private void OnInfluenceIconClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: TradeSearchInfluenceCriterion criterion } ||
             criterion.Kind == TradeSearchInfluenceKind.Unknown)
         {
             return;

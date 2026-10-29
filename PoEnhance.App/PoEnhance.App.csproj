@@ -37,6 +37,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\poenhance.ico" />
+    <Resource Include="Assets\Influences\*.png" />
+    <None Include="Assets\Influences\PROVENANCE.txt" />
     <None Update="Assets\poenhance-gem-source.png" CopyToOutputDirectory="Never" />
     <None Update="Assets\poenhance-gem.png" CopyToOutputDirectory="Never" />
   </ItemGroup>

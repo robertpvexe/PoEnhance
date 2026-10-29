@@ -105,37 +105,42 @@ public sealed class PriceCheckerWindowPresentationTests
     }
 
     [Fact]
-    public void WindowXaml_PresentsFourCyclingItemStateTilesInOneHeaderRow()
+    public void WindowXaml_PresentsBasicFiltersWithWrappingAndFracturedInMiscellaneous()
     {
         var xaml = LoadWindowXaml();
         var categoryBar = ExtractElement(
             xaml,
             "<Border Grid.Row=\"0\"",
-            "<StackPanel x:Name=\"HeaderRequestedFiltersPanel\"");
+            "<WrapPanel x:Name=\"HeaderRequestedFiltersPanel\"");
+        var miscellaneous = ExtractElement(
+            xaml,
+            "<WrapPanel x:Name=\"HeaderRequestedFiltersPanel\"",
+            "<Grid x:Name=\"StatsHeader\"");
         var stateStyle = ExtractElement(xaml, "<Style x:Key=\"ItemStateButtonStyle\"", "</Style>");
         var baseCriterion = ExtractElement(categoryBar, "<Button x:Name=\"BaseCriterionButton\"", "</Button>");
         var baseCriterionText = ExtractElement(baseCriterion, "<TextBlock x:Name=\"BaseCriterionText\"", "/>" );
         var mirrored = ExtractElement(categoryBar, "<Button x:Name=\"MirroredStateButton\"", "/>" );
         var corrupted = ExtractElement(categoryBar, "<Button x:Name=\"CorruptedStateButton\"", "/>" );
         var identified = ExtractElement(categoryBar, "<Button x:Name=\"IdentifiedStateButton\"", "/>" );
-        var fractured = ExtractElement(categoryBar, "<Button x:Name=\"FracturedStateButton\"", "/>" );
+        var fractured = ExtractElement(miscellaneous, "<Button x:Name=\"FracturedStateButton\"", "/>" );
         var rarity = ExtractElement(categoryBar, "<ComboBox x:Name=\"RarityComboBox\"", "</ComboBox>");
 
+        Assert.Contains("WrapPanel x:Name=\"BasicFiltersPanel\"", categoryBar);
+        Assert.DoesNotContain("InfluenceChipsPanel", categoryBar);
+        Assert.DoesNotContain("FracturedStateButton", categoryBar);
         Assert.True(categoryBar.IndexOf("BaseCriterionButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal) <
             categoryBar.IndexOf("ItemStateFiltersPanel", StringComparison.Ordinal));
+        Assert.True(categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal) <
+            categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal));
-        Assert.True(categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal) <
-            categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal));
-        Assert.True(categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal) <
-            categoryBar.IndexOf("FracturedStateButton", StringComparison.Ordinal));
-        Assert.DoesNotContain("WrapPanel", categoryBar);
+        Assert.True(miscellaneous.IndexOf("FracturedStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("ItemLevelFilterBorder", StringComparison.Ordinal));
         Assert.DoesNotContain("ComboBox x:Name=\"MirroredStateComboBox\"", categoryBar);
         Assert.DoesNotContain("OnItemStateSelectionChanged", categoryBar);
         Assert.Contains("MinWidth=\"72\"", baseCriterion);
-        Assert.Contains("HorizontalAlignment=\"Stretch\"", baseCriterion);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", baseCriterionText);
         Assert.Contains("TextWrapping=\"NoWrap\"", baseCriterionText);
         Assert.Contains("ComboBoxItem Content=\"Any\"", rarity);
@@ -154,8 +159,9 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Contains("Content=\"Corrupted: Any\"", corrupted);
         Assert.Contains("Content=\"Identified: Any\"", identified);
         Assert.Contains("Content=\"Fractured Item: Any\"", fractured);
-        Assert.Contains("ToolTip=\"Miscellaneous item-state filters\"", categoryBar);
-        Assert.DoesNotContain("Path", categoryBar);
+        Assert.Contains("x:Name=\"LeagueHeaderText\"", xaml);
+        Assert.DoesNotContain("LeagueStatusText", xaml);
+        Assert.DoesNotContain("Text=\"Price Checker\"", xaml);
     }
 
     [Fact]
@@ -192,17 +198,33 @@ public sealed class PriceCheckerWindowPresentationTests
             window.Show();
             window.UpdateLayout();
 
+            var identified = Assert.IsType<Button>(window.FindName("IdentifiedStateButton"));
             var mirrored = Assert.IsType<Button>(window.FindName("MirroredStateButton"));
             var corrupted = Assert.IsType<Button>(window.FindName("CorruptedStateButton"));
-            var identified = Assert.IsType<Button>(window.FindName("IdentifiedStateButton"));
             var fractured = Assert.IsType<Button>(window.FindName("FracturedStateButton"));
-            var controls = new[] { mirrored, corrupted, identified, fractured };
+            var panel1Controls = new[] { identified, mirrored, corrupted };
+            var controls = new[] { identified, mirrored, corrupted, fractured };
             Assert.All(controls, control => Assert.Equal(Visibility.Visible, control.Visibility));
             Assert.Equal(
-                ["Mirrored: Any", "Corrupted: Any", "Identified: Any", "Fractured Item: Any"],
+                ["Identified: Any", "Mirrored: Any", "Corrupted: Any", "Fractured Item: Any"],
                 controls.Select(control => control.Content?.ToString()));
             Assert.All(controls, control => Assert.False(
                 PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
+            Assert.IsType<WrapPanel>(window.FindName("BasicFiltersPanel"));
+            Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            Assert.Same(
+                window.FindName("ItemStateFiltersPanel"),
+                LogicalTreeHelper.GetParent(identified));
+            Assert.Same(
+                window.FindName("ItemStateFiltersPanel"),
+                LogicalTreeHelper.GetParent(mirrored));
+            Assert.Same(
+                window.FindName("ItemStateFiltersPanel"),
+                LogicalTreeHelper.GetParent(corrupted));
+            Assert.Same(
+                window.FindName("HeaderRequestedFiltersPanel"),
+                LogicalTreeHelper.GetParent(fractured));
+            Assert.Equal(3, panel1Controls.Length);
 
             mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
             Assert.NotNull(changed);
@@ -226,7 +248,7 @@ public sealed class PriceCheckerWindowPresentationTests
             });
             window.UpdateLayout();
             Assert.Equal(
-                ["Mirrored: Yes", "Corrupted: No", "Identified: Any", "Fractured Item: Yes"],
+                ["Identified: Any", "Mirrored: Yes", "Corrupted: No", "Fractured Item: Yes"],
                 controls.Select(control => control.Content?.ToString()));
             Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)mirrored.DataContext));
             Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)corrupted.DataContext));
@@ -399,13 +421,27 @@ Item Level: 82
     {
         var xaml = LoadWindowXaml();
         var title = ExtractElement(xaml, "<TextBlock x:Name=\"TitleDisplayNameText\"", "/>");
+        var titleInfluenceHeader = ExtractElement(
+            xaml,
+            "<StackPanel x:Name=\"TitleInfluenceHeaderPanel\"",
+            "</StackPanel>");
+        var leagueHeader = ExtractElement(xaml, "<TextBlock x:Name=\"LeagueHeaderText\"", "/>");
         var reset = ExtractElement(xaml, "<Button x:Name=\"ResetItemButton\"", "</Button>");
         var close = ExtractElement(xaml, "<Button x:Name=\"CloseButton\"", "</Button>");
         var criterionStyle = ExtractElement(xaml, "<Style x:Key=\"BaseCriterionButtonStyle\"", "</Style>");
 
-        Assert.Contains("Grid.Column=\"1\"", title);
+        Assert.Contains("Grid.Column=\"1\"", titleInfluenceHeader);
+        Assert.Contains("x:Name=\"TitleInfluenceIconsLeft\"", titleInfluenceHeader);
+        Assert.Contains("x:Name=\"TitleInfluenceIconsRight\"", titleInfluenceHeader);
+        Assert.Contains("Margin=\"5,0\"", title);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", title);
         Assert.DoesNotContain("Foreground=", title);
+        Assert.Contains("Grid.Column=\"0\"", leagueHeader);
+        Assert.Contains("Margin=\"6,0,8,0\"", leagueHeader);
+        Assert.Contains("HorizontalAlignment=\"Left\"", leagueHeader);
+        Assert.DoesNotContain("League:", leagueHeader);
+        Assert.DoesNotContain("Text=\"Price Checker\"", xaml);
+        Assert.DoesNotContain("LeagueStatusText", xaml);
         Assert.Contains("Color=\"White\"", ExtractElement(
             xaml,
             "<SolidColorBrush x:Key=\"PriceCheckerTitleNormalForegroundBrush\"",
@@ -914,27 +950,24 @@ Item Level: 82
             window.Show();
             window.UpdateLayout();
 
-            var header = Assert.IsType<StackPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            var header = Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            var basicFilters = Assert.IsType<WrapPanel>(window.FindName("BasicFiltersPanel"));
             var itemLevel = Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder"));
             var links = Assert.IsType<Border>(window.FindName("LinksFilterBorder"));
             var baseCriterion = Assert.IsType<Button>(window.FindName("BaseCriterionButton"));
             var baseCriterionText = Assert.IsType<TextBlock>(window.FindName("BaseCriterionText"));
             var rarity = Assert.IsType<ComboBox>(window.FindName("RarityComboBox"));
-            var stateControls = new[]
+            var panel1StateControls = new[]
             {
+                Assert.IsType<Button>(window.FindName("IdentifiedStateButton")),
                 Assert.IsType<Button>(window.FindName("MirroredStateButton")),
                 Assert.IsType<Button>(window.FindName("CorruptedStateButton")),
-                Assert.IsType<Button>(window.FindName("IdentifiedStateButton")),
-                Assert.IsType<Button>(window.FindName("FracturedStateButton")),
             };
+            var fractured = Assert.IsType<Button>(window.FindName("FracturedStateButton"));
             Assert.Equal(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, window.MinWidth);
-            Assert.True(header.ActualWidth >= header.DesiredSize.Width - 0.5d);
+            Assert.True(header.ActualWidth <= window.ActualWidth);
+            Assert.True(basicFilters.ActualWidth <= window.ActualWidth);
             Assert.Null(window.FindName("BaseRollMetadataText"));
-            Assert.InRange(
-                Math.Abs(itemLevel.TranslatePoint(new Point(0, 0), header).Y -
-                    links.TranslatePoint(new Point(0, 0), header).Y),
-                0d,
-                3d);
             Assert.True(links.TranslatePoint(new Point(links.ActualWidth, 0), window).X <=
                 window.ActualWidth - 12d);
             Assert.Equal(68d, rarity.ActualWidth);
@@ -942,12 +975,14 @@ Item Level: 82
             Assert.Contains(baseCriterionText.Text, baseCriterion.ToolTip?.ToString(), StringComparison.Ordinal);
             Assert.True(rarity.TranslatePoint(new Point(rarity.ActualWidth, 0), window).X <=
                 window.ActualWidth);
-            Assert.All(stateControls, control => Assert.True(
+            Assert.All(panel1StateControls, control => Assert.True(
                 control.TranslatePoint(new Point(control.ActualWidth, 0), window).X <= window.ActualWidth));
-            Assert.All(stateControls, control => Assert.Equal(
-                stateControls[0].TranslatePoint(new Point(0, 0), window).Y,
-                control.TranslatePoint(new Point(0, 0), window).Y,
-                3));
+            Assert.True(fractured.TranslatePoint(new Point(fractured.ActualWidth, 0), window).X <=
+                window.ActualWidth);
+            Assert.True(ReferenceEquals(
+                LogicalTreeHelper.GetParent(fractured),
+                header));
+            Assert.True(itemLevel.IsVisible);
             window.Close();
         });
     }

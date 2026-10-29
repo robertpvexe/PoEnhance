@@ -1,0 +1,41 @@
+Path of Exile 1 item-header icons — provenance
+==============================================
+
+Included files (unmodified binary copies from Path of Building Community Assets):
+
+Influence (headerInfluence in PoB Classes/Tooltip.lua):
+  shaper.png          ← shapericon.png
+  elder.png           ← eldericon.png
+  crusader.png        ← crusadericon.png
+  redeemer.png        ← redeemericon.png
+  hunter.png          ← huntericon.png
+  warlord.png         ← warlordicon.png
+  searing-exarch.png  ← exarchicon.png
+  eater-of-worlds.png ← eatericon.png
+
+Item status (same PoB headerInfluence table):
+  fractured.png       ← fracturedicon.png   (Fractured)
+  synthesised.png     ← synthesisicon.png   (Synthesis)
+  veiled.png          ← veiledicon.png      (Veiled; header only while veiled mods are unrevealed)
+  foulborn.png        ← breachicon.png      (Foulborn)
+
+Source mirrors used for verification:
+  - D:\Projects\PoEnhance\artifacts\upstream-pob-corrections\PathOfBuilding\src\Assets\
+  - D:\Path of Exile\Path of Building Community\Assets\
+  - PoB Classes/Tooltip.lua headerInfluence mapping (game-parity item header symbols)
+
+Artwork copyright:
+  Path of Exile visual assets are © Grinding Gear Games. Packaged unmodified for offline
+  UI parity with in-game item-header symbols. PoB software is MIT-licensed; that does not
+  transfer ownership of GGG artwork.
+
+PoEnhance type → file mapping:
+  Shaper / Elder / Crusader / Redeemer / Hunter / Warlord / SearingExarch / EaterOfWorlds
+    → influence files above
+  Fractured / Synthesised / Foulborn / Veiled
+    → status files above
+
+Header priority (product rule 29.10.2026):
+  When displayable influence icons are present, Fractured status icons are omitted from the
+  header (influence symbols override Fractured). Fractured mod semantics and the Fractured
+  Item filter control are unchanged. Delve / Temple / Incursion are not header item types.
