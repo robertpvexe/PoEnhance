@@ -916,7 +916,7 @@ Item Level: 82
 
             var header = Assert.IsType<StackPanel>(window.FindName("HeaderRequestedFiltersPanel"));
             var itemLevel = Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder"));
-            var baseRoll = Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText"));
+            var links = Assert.IsType<Border>(window.FindName("LinksFilterBorder"));
             var baseCriterion = Assert.IsType<Button>(window.FindName("BaseCriterionButton"));
             var baseCriterionText = Assert.IsType<TextBlock>(window.FindName("BaseCriterionText"));
             var rarity = Assert.IsType<ComboBox>(window.FindName("RarityComboBox"));
@@ -929,12 +929,13 @@ Item Level: 82
             };
             Assert.Equal(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, window.MinWidth);
             Assert.True(header.ActualWidth >= header.DesiredSize.Width - 0.5d);
+            Assert.Null(window.FindName("BaseRollMetadataText"));
             Assert.InRange(
                 Math.Abs(itemLevel.TranslatePoint(new Point(0, 0), header).Y -
-                    baseRoll.TranslatePoint(new Point(0, 0), header).Y),
+                    links.TranslatePoint(new Point(0, 0), header).Y),
                 0d,
                 3d);
-            Assert.True(baseRoll.TranslatePoint(new Point(baseRoll.ActualWidth, 0), window).X <=
+            Assert.True(links.TranslatePoint(new Point(links.ActualWidth, 0), window).X <=
                 window.ActualWidth - 12d);
             Assert.Equal(68d, rarity.ActualWidth);
             Assert.True(baseCriterion.ActualWidth >= 72d);

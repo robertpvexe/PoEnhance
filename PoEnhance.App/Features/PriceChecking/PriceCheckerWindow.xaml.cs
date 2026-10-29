@@ -170,6 +170,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             filter.Kind == TradeSearchRequestedItemFilterKind.Links)
             ? Visibility.Visible
             : Visibility.Collapsed;
+        BasePercentileFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
+            filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         foreach (var requestedFilter in draft.RequestedItemFilters)
         {
             UpdateRequestedItemFilter(requestedFilter);
@@ -201,12 +205,6 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             FracturedStateButton,
             TradeItemStateKind.Fractured,
             draft.ItemStateCriteria.Fractured);
-        BaseRollMetadataText.Text = draft.BaseRollPercentile.HasValue
-            ? $"Base Roll: {decimal.Round(draft.BaseRollPercentile.Value, 0, MidpointRounding.AwayFromZero):0}%"
-            : string.Empty;
-        BaseRollMetadataText.Visibility = draft.BaseRollPercentile.HasValue
-            ? Visibility.Visible
-            : Visibility.Collapsed;
         StatsCountText.Text = FormatStatsCount(
             draft.ItemProperties.Count(property => property.IsSelected) +
                 draft.ModifierFilters.Count(modifier => modifier.IsSelected),
@@ -779,6 +777,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 (LinksFilterBorder, LinksFilterTextBox),
             TradeSearchRequestedItemFilterKind.Sockets =>
                 (SocketFilterBorder, SocketFilterTextBox),
+            TradeSearchRequestedItemFilterKind.BasePercentile =>
+                (BasePercentileFilterBorder, BasePercentileFilterTextBox),
             _ => (null!, null!),
         };
         return border is not null && textBox is not null;
@@ -838,6 +838,13 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ReferenceEquals(element, SocketFilterWhiteTextBox))
         {
             kind = TradeSearchRequestedItemFilterKind.Sockets;
+            return true;
+        }
+
+        if (ReferenceEquals(element, BasePercentileFilterBorder) ||
+            ReferenceEquals(element, BasePercentileFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.BasePercentile;
             return true;
         }
 

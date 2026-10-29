@@ -982,9 +982,19 @@
                                      TextChanged="OnRequestedItemFilterColourTextChanged" />
                         </StackPanel>
                     </Border>
-                    <TextBlock x:Name="BaseRollMetadataText"
-                               Margin="0,3,0,0"
-                               Foreground="#CFCFCF" />
+                    <Border x:Name="BasePercentileFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Base Percentile:" />
+                            <TextBox x:Name="BasePercentileFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <Grid x:Name="StatsHeader"

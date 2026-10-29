@@ -17,18 +17,23 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         var catalog = RequestedCatalog();
 
         Assert.Equal(
-            ["ilvl", "quality", "sockets", "links"],
+            ["base_defence_percentile", "ilvl", "quality", "sockets", "links"],
             catalog.NumericFilterDefinitions
-                .Where(definition => definition.GroupId is "misc_filters" or "socket_filters")
+                .Where(definition => definition.GroupId is "misc_filters" or "socket_filters" or "armour_filters")
                 .Select(definition => definition.FilterId));
         Assert.All(
             catalog.NumericFilterDefinitions.Where(definition =>
-                definition.FilterId is "ilvl" or "quality" or "links" or "sockets"),
+                definition.FilterId is "ilvl" or "quality" or "links" or "sockets" or "base_defence_percentile"),
             definition => Assert.True(definition.SupportsMinMax));
         Assert.All(
             catalog.NumericFilterDefinitions.Where(definition =>
                 definition.FilterId is "links" or "sockets"),
             definition => Assert.True(definition.SupportsSockets));
+        var basePercentile = Assert.Single(
+            catalog.NumericFilterDefinitions,
+            definition => definition.FilterId == "base_defence_percentile");
+        Assert.Equal("armour_filters", basePercentile.GroupId);
+        Assert.Equal("Base Percentile", basePercentile.Text);
     }
 
     [Theory]
@@ -36,6 +41,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     [InlineData(TradeSearchRequestedItemFilterKind.Quality, "misc_filters", "quality", 5)]
     [InlineData(TradeSearchRequestedItemFilterKind.Links, "socket_filters", "links", 3)]
     [InlineData(TradeSearchRequestedItemFilterKind.Sockets, "socket_filters", "sockets", 6)]
+    [InlineData(TradeSearchRequestedItemFilterKind.BasePercentile, "armour_filters", "base_defence_percentile", 83)]
     public void Build_OneActiveRequestedFilterSerializesMinimumWithoutMaximum(
         TradeSearchRequestedItemFilterKind kind,
         string groupId,
@@ -61,6 +67,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     [InlineData(TradeSearchRequestedItemFilterKind.Quality, "misc_filters", "quality")]
     [InlineData(TradeSearchRequestedItemFilterKind.Links, "socket_filters", "links")]
     [InlineData(TradeSearchRequestedItemFilterKind.Sockets, "socket_filters", "sockets")]
+    [InlineData(TradeSearchRequestedItemFilterKind.BasePercentile, "armour_filters", "base_defence_percentile")]
     public void Build_ActiveEmptyRequestedFilterIsOmittedWithoutBlocking(
         TradeSearchRequestedItemFilterKind kind,
         string groupId,
@@ -251,6 +258,77 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         using var document = JsonDocument.Parse(result.SerializedJson!);
         var filters = document.RootElement.GetProperty("query").GetProperty("filters");
         Assert.False(filters.TryGetProperty("misc_filters", out _));
+        Assert.False(filters.TryGetProperty("armour_filters", out _));
+    }
+
+    [Fact]
+    public void Build_ActiveBasePercentileSerializesOnlyArmourMinAndOmitsWhenInactive()
+    {
+        var catalog = RequestedCatalog();
+        var active = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (TradeSearchRequestedItemFilterKind.BasePercentile, 83),
+                (TradeSearchRequestedItemFilterKind.ItemLevel, 84),
+                (TradeSearchRequestedItemFilterKind.Quality, 20)),
+            catalog);
+
+        var activeResult = Build(active, catalog);
+        Assert.True(activeResult.IsSuccess, SingleOrDefault(activeResult.Diagnostics)?.Message);
+        using (var document = JsonDocument.Parse(activeResult.SerializedJson!))
+        {
+            AssertMinimumOnly(document, "armour_filters", "base_defence_percentile", 83);
+            AssertMinimumOnly(document, "misc_filters", "ilvl", 84);
+            AssertMinimumOnly(document, "misc_filters", "quality", 20);
+            Assert.False(document.RootElement.GetProperty("query").GetProperty("filters")
+                .GetProperty("armour_filters").GetProperty("filters").TryGetProperty("ar", out _));
+            Assert.False(document.RootElement.GetProperty("query").GetProperty("filters")
+                .TryGetProperty("weapon_filters", out _));
+        }
+
+        var inactive = ResolveRequested(active with
+        {
+            RequestedItemFilters = active.RequestedItemFilters
+                .Select(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile
+                    ? filter with { IsActive = false }
+                    : filter)
+                .ToImmutableArray(),
+        }, catalog);
+        var inactiveResult = Build(inactive, catalog);
+        Assert.True(inactiveResult.IsSuccess, SingleOrDefault(inactiveResult.Diagnostics)?.Message);
+        using var inactiveDocument = JsonDocument.Parse(inactiveResult.SerializedJson!);
+        var filters = inactiveDocument.RootElement.GetProperty("query").GetProperty("filters");
+        Assert.False(filters.TryGetProperty("armour_filters", out _));
+        AssertMinimumOnly(inactiveDocument, "misc_filters", "ilvl", 84);
+        AssertMinimumOnly(inactiveDocument, "misc_filters", "quality", 20);
+    }
+
+    [Fact]
+    public void Resolve_EffectiveDraftMarksActiveBasePercentileExactAgainstOfficialShapedCatalog()
+    {
+        var catalog = RequestedCatalog();
+        var draft = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (TradeSearchRequestedItemFilterKind.BasePercentile, 83)),
+            catalog);
+        var filter = Assert.Single(
+            draft.RequestedItemFilters,
+            item => item.Kind == TradeSearchRequestedItemFilterKind.BasePercentile);
+
+        Assert.True(filter.IsActive);
+        Assert.Equal(
+            TradeSearchItemPropertyProviderResolutionStatus.Exact,
+            filter.ProviderResolutionStatus);
+        Assert.Null(filter.DiagnosticReason);
+
+        var mapping = new PathOfExileTradeRequestedItemFilterResolver().MapSelected(draft, catalog);
+        Assert.True(mapping.IsSuccess);
+        var selected = Assert.Single(mapping.Filters);
+        Assert.Equal("armour_filters", selected.ProviderGroupId);
+        Assert.Equal("base_defence_percentile", selected.ProviderFilterId);
+        Assert.Equal(83, selected.MinimumValue);
+        Assert.Null(selected.Red);
     }
 
     [Fact]
@@ -525,6 +603,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         var filters = document.RootElement.GetProperty("query").GetProperty("filters");
         Assert.False(filters.TryGetProperty("misc_filters", out _));
         Assert.False(filters.TryGetProperty("socket_filters", out _));
+        Assert.False(filters.TryGetProperty("armour_filters", out _));
     }
 
     private static TradeSearchDraft WithRequestedFilters(
@@ -544,6 +623,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                         TradeSearchRequestedItemFilterKind.Quality => "Quality",
                         TradeSearchRequestedItemFilterKind.Links => "Links",
                         TradeSearchRequestedItemFilterKind.Sockets => "Sockets",
+                        TradeSearchRequestedItemFilterKind.BasePercentile => "Base Percentile",
                         _ => kind.ToString(),
                     },
                     ObservedValue = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0,
@@ -634,6 +714,19 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                   "hidden": true,
                   "filters": [
                     { "id": "pdps", "text": "Physical DPS", "minMax": true }
+                  ]
+                },
+                {
+                  "id": "armour_filters",
+                  "title": "Armour Filters",
+                  "hidden": true,
+                  "filters": [
+                    {
+                      "id": "base_defence_percentile",
+                      "text": "Base Percentile",
+                      "tip": "The percentile of all base defence rolls, averaged (0-100%)",
+                      "minMax": true
+                    }
                   ]
                 },
                 {

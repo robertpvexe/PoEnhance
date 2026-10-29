@@ -6,4 +6,5 @@ public enum TradeSearchRequestedItemFilterKind
     Quality,
     Links,
     Sockets,
+    BasePercentile,
 }

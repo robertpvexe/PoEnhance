@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-10-29-socket-colours",
+  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-10-29-base-defence-percentile",
   "mappings": [
     {
       "kind": "ItemLevel",
@@ -41,6 +41,16 @@
       "requiresSocketColourSupport": true,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 6
+    },
+    {
+      "kind": "BasePercentile",
+      "providerGroupId": "armour_filters",
+      "providerFilterId": "base_defence_percentile",
+      "expectedOfficialText": "Base Percentile",
+      "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": false,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 100
     }
   ]
 }

@@ -12,7 +12,7 @@ namespace PoEnhance.App.Tests.Features.PriceChecking;
 public sealed class PriceCheckerRequestedItemFilterPresentationTests
 {
     [Fact]
-    public void WindowXaml_OrdersCompactHeaderWithEditableSocketColourRowsAndBaseRollLast()
+    public void WindowXaml_OrdersCompactHeaderWithEditableSocketColourRowsAndBasePercentileLast()
     {
         var xaml = LoadWindowXaml();
         var header = ExtractElement(
@@ -23,23 +23,26 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         var quality = header.IndexOf("QualityFilterBorder", StringComparison.Ordinal);
         var sockets = header.IndexOf("SocketFilterBorder", StringComparison.Ordinal);
         var links = header.IndexOf("LinksFilterBorder", StringComparison.Ordinal);
-        var baseRoll = header.IndexOf("BaseRollMetadataText", StringComparison.Ordinal);
+        var basePercentile = header.IndexOf("BasePercentileFilterBorder", StringComparison.Ordinal);
 
         Assert.True(itemLevel >= 0 && itemLevel < quality && quality < sockets && sockets < links &&
-            links < baseRoll);
+            links < basePercentile);
         Assert.Contains("Text=\"Item Level:\"", header);
         Assert.Contains("Text=\"Quality:\"", header);
         Assert.Contains("Text=\"Links:\"", header);
         Assert.Contains("Text=\"Sockets:\"", header);
+        Assert.Contains("Text=\"Base Percentile:\"", header);
+        Assert.Contains("x:Name=\"BasePercentileFilterTextBox\"", header);
         Assert.Contains("x:Name=\"SocketFilterRedTextBox\"", header);
         Assert.Contains("x:Name=\"LinksFilterWhiteTextBox\"", header);
         Assert.DoesNotContain("SocketMetadataText", header);
+        Assert.DoesNotContain("BaseRollMetadataText", header);
+        Assert.DoesNotContain("Base Roll:", header);
         Assert.DoesNotContain("CheckBox", header);
         Assert.Contains("Orientation=\"Horizontal\"", header);
-        Assert.Equal(4, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
-        Assert.Equal(12, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
-        Assert.Equal(4, header.Split("Margin=\"0,0,8,0\"", StringSplitOptions.None).Length - 1);
-        Assert.Contains("<TextBlock x:Name=\"BaseRollMetadataText\"", header);
+        Assert.Equal(5, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(13, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(5, header.Split("Margin=\"0,0,8,0\"", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -226,15 +229,17 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
             var label = Assert.IsType<TextBlock>(Assert.IsType<StackPanel>(border.Child).Children[0]);
             var textBox = Assert.IsType<TextBox>(window.FindName("SocketFilterTextBox"));
             var red = Assert.IsType<TextBox>(window.FindName("SocketFilterRedTextBox"));
-            var baseRoll = Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText"));
+            var basePercentile = Assert.IsType<Border>(window.FindName("BasePercentileFilterBorder"));
+            var basePercentileText = Assert.IsType<TextBox>(window.FindName("BasePercentileFilterTextBox"));
 
             Assert.Equal("5", textBox.Text);
             Assert.Equal(string.Empty, red.Text);
             Assert.Equal(string.Empty, Assert.IsType<TextBox>(window.FindName("SocketFilterGreenTextBox")).Text);
             Assert.Equal(string.Empty, Assert.IsType<TextBox>(window.FindName("SocketFilterBlueTextBox")).Text);
             Assert.Equal(string.Empty, Assert.IsType<TextBox>(window.FindName("SocketFilterWhiteTextBox")).Text);
-            Assert.Equal("Base Roll: 83%", baseRoll.Text);
-            Assert.False(baseRoll.Focusable);
+            Assert.Equal(Visibility.Visible, basePercentile.Visibility);
+            Assert.Equal("83", basePercentileText.Text);
+            Assert.Null(window.FindName("BaseRollMetadataText"));
 
             RaisePreviewLeftClick(label);
             var toggle = Assert.Single(activations);
@@ -260,7 +265,7 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
     }
 
     [Fact]
-    public void WindowRuntime_MissingSocketAndBaseRollFactsAreNotFabricated()
+    public void WindowRuntime_MissingSocketAndBasePercentileFactsAreNotFabricated()
     {
         RunOnSta(() =>
         {
@@ -273,7 +278,8 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
                 RequestedItemFilters = draft.RequestedItemFilters
                     .Where(filter => filter.Kind is not (
                         TradeSearchRequestedItemFilterKind.Sockets or
-                        TradeSearchRequestedItemFilterKind.Links))
+                        TradeSearchRequestedItemFilterKind.Links or
+                        TradeSearchRequestedItemFilterKind.BasePercentile))
                     .ToImmutableArray(),
             }));
 
@@ -282,7 +288,8 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
             Assert.Equal(Visibility.Collapsed,
                 Assert.IsType<Border>(window.FindName("LinksFilterBorder")).Visibility);
             Assert.Equal(Visibility.Collapsed,
-                Assert.IsType<TextBlock>(window.FindName("BaseRollMetadataText")).Visibility);
+                Assert.IsType<Border>(window.FindName("BasePercentileFilterBorder")).Visibility);
+            Assert.Null(window.FindName("BaseRollMetadataText"));
         });
     }
 
@@ -329,6 +336,7 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
             Requested(TradeSearchRequestedItemFilterKind.Quality, "Quality", 0),
             Requested(TradeSearchRequestedItemFilterKind.Sockets, "Sockets", 5),
             Requested(TradeSearchRequestedItemFilterKind.Links, "Links", 3),
+            Requested(TradeSearchRequestedItemFilterKind.BasePercentile, "Base Percentile", 83),
         ],
     };
 

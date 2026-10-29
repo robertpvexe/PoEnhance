@@ -60,6 +60,7 @@ public sealed partial class TradeSearchDraftMapper
         var itemPropertyContributionGroups = TradeSearchItemPropertyContributionGroupBuilder.Create(
             itemProperties,
             aggregation.Components);
+        var baseRollPercentile = DerivedBaseRollPercentileCalculator.Calculate(derivedDefensiveProperties);
         var draft = new TradeSearchDraft
         {
             ItemClass = TrimToNull(parsedItem.ItemClass),
@@ -80,8 +81,8 @@ public sealed partial class TradeSearchDraftMapper
             Base = CreateBaseDraft(parsedItem, effectiveItemBaseResolution),
             ItemLevel = parsedItem.ItemLevel,
             SocketText = ReadSocketText(parsedItem),
-            BaseRollPercentile = DerivedBaseRollPercentileCalculator.Calculate(derivedDefensiveProperties),
-            RequestedItemFilters = CreateRequestedItemFilters(parsedItem),
+            BaseRollPercentile = baseRollPercentile,
+            RequestedItemFilters = CreateRequestedItemFilters(parsedItem, baseRollPercentile),
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
             InfluenceCriteria = TradeSearchInfluenceCriteriaFactory.Create(
@@ -104,7 +105,8 @@ public sealed partial class TradeSearchDraftMapper
     }
 
     private static ImmutableArray<TradeSearchRequestedItemFilter> CreateRequestedItemFilters(
-        ParsedItem parsedItem)
+        ParsedItem parsedItem,
+        decimal? baseRollPercentile)
     {
         var filters = ImmutableArray.CreateBuilder<TradeSearchRequestedItemFilter>();
         filters.Add(CreateDefaultItemLevelFilter(parsedItem));
@@ -119,7 +121,38 @@ public sealed partial class TradeSearchDraftMapper
             filters.Add(links);
         }
 
+        if (CreateDefaultBasePercentileFilter(baseRollPercentile) is { } basePercentile)
+        {
+            filters.Add(basePercentile);
+        }
+
         return filters.ToImmutable();
+    }
+
+    /// <summary>
+    /// Optional Min-only Trade constraint seeded from a trustworthy derived Base Roll percentile.
+    /// Omitted when the calculator cannot prove a single shared defence-base percentile.
+    /// Always starts inactive on every Ctrl+D draft — never auto-enabled by roll, rarity, or quality.
+    /// </summary>
+    private static TradeSearchRequestedItemFilter? CreateDefaultBasePercentileFilter(
+        decimal? baseRollPercentile)
+    {
+        if (baseRollPercentile is not { } percentile)
+        {
+            return null;
+        }
+
+        var observed = (int)decimal.Round(percentile, 0, MidpointRounding.AwayFromZero);
+        if (observed is < 0 or > 100)
+        {
+            return null;
+        }
+
+        return CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.BasePercentile,
+            "Base Percentile",
+            observed,
+            observed.ToString(CultureInfo.InvariantCulture));
     }
 
     private static TradeSearchRequestedItemFilter CreateDefaultItemLevelFilter(ParsedItem parsedItem)

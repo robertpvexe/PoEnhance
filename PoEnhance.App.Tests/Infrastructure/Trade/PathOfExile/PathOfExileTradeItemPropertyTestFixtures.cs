@@ -63,6 +63,12 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                   "text": "Block",
                   "tip": "Includes base value and local modifiers",
                   "minMax": true
+                },
+                {
+                  "id": "base_defence_percentile",
+                  "text": "Base Percentile",
+                  "tip": "The percentile of all base defence rolls, averaged (0-100%)",
+                  "minMax": true
                 }
               ]
             },

@@ -51,6 +51,10 @@ public sealed class PathOfExileTradeFiltersResponseParserTests
         "block",
         "Block",
         "Includes base value and local modifiers")]
+    [InlineData(
+        "base_defence_percentile",
+        "Base Percentile",
+        "The percentile of all base defence rolls, averaged (0-100%)")]
     public void Parse_CurrentOfficialDefensiveEntryRetainsIdentityNumericCapabilityAndSemanticTip(
         string filterId,
         string expectedText,
