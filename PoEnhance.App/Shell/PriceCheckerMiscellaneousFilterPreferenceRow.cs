@@ -17,7 +17,8 @@ internal sealed class PriceCheckerMiscellaneousFilterPreferenceRow : INotifyProp
         Key = definition.Key;
         DisplayName = definition.DisplayName;
         Description = definition.Description;
-        this.isVisible = isVisible;
+        CanToggleVisibility = definition.CanToggleVisibility;
+        this.isVisible = definition.CanToggleVisibility ? isVisible : true;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -28,17 +29,20 @@ internal sealed class PriceCheckerMiscellaneousFilterPreferenceRow : INotifyProp
 
     public string Description { get; }
 
+    public bool CanToggleVisibility { get; }
+
     public bool IsVisible
     {
         get => isVisible;
         set
         {
-            if (isVisible == value)
+            var normalized = CanToggleVisibility ? value : true;
+            if (isVisible == normalized)
             {
                 return;
             }
 
-            isVisible = value;
+            isVisible = normalized;
             OnPropertyChanged();
         }
     }
@@ -75,7 +79,10 @@ internal sealed class PriceCheckerMiscellaneousFilterPreferenceRow : INotifyProp
 
     public PriceCheckerMiscellaneousFilterPreference ToPreference(int order)
     {
-        return new PriceCheckerMiscellaneousFilterPreference(Key, IsVisible, order);
+        return new PriceCheckerMiscellaneousFilterPreference(
+            Key,
+            CanToggleVisibility ? IsVisible : true,
+            order);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

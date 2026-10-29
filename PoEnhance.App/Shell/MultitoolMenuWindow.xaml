@@ -853,7 +853,7 @@
                                Foreground="#969FB2"
                                FontSize="13"
                                TextWrapping="Wrap"
-                               Text="Choose which Miscellaneous control groups are visible, and reorder how they will appear in the Price Checker popup after a later update." />
+                               Text="Core Miscellaneous filters always appear in the Price Checker popup. Optional filters can be hidden. Use the arrows to change the shared order for every group." />
 
                     <Border Padding="18,16"
                             HorizontalAlignment="Stretch"
@@ -869,7 +869,7 @@
                                        Foreground="#969FB2"
                                        FontSize="12"
                                        TextWrapping="Wrap"
-                                       Text="Turning a group off only hides it from the future Price Checker layout. It does not change Trade search behavior yet. Use the arrows to change their order. Changes save automatically." />
+                                       Text="Turning an optional group off only hides it from the Price Checker popup. It does not activate a Trade filter. Core groups have no switch and always stay available. Use the arrows to change their order. Changes save automatically." />
 
                             <ItemsControl x:Name="PriceCheckerMiscFiltersItemsControl"
                                           PreviewKeyDown="PriceCheckerMiscFiltersItemsControl_OnPreviewKeyDown">
@@ -900,14 +900,29 @@
                                                                Text="{Binding Description}" />
                                                 </StackPanel>
                                                 <ToggleButton Grid.Column="1"
+                                                              Width="44"
+                                                              Height="24"
                                                               Margin="0,0,12,0"
                                                               VerticalAlignment="Center"
-                                                              Style="{StaticResource SettingsToggleSwitchStyle}"
                                                               IsChecked="{Binding IsVisible, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                               Checked="PriceCheckerMiscFilterVisibility_OnChanged"
                                                               Unchecked="PriceCheckerMiscFilterVisibility_OnChanged"
                                                               AutomationProperties.Name="{Binding DisplayName}"
-                                                              ToolTip="Show or hide this Miscellaneous group in the Price Checker popup after a later update" />
+                                                              ToolTip="Show or hide this optional Miscellaneous group in the Price Checker popup">
+                                                    <ToggleButton.Style>
+                                                        <Style BasedOn="{StaticResource SettingsToggleSwitchStyle}" TargetType="ToggleButton">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Setter Property="IsHitTestVisible" Value="True" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding CanToggleVisibility}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Hidden" />
+                                                                    <Setter Property="IsHitTestVisible" Value="False" />
+                                                                    <Setter Property="IsEnabled" Value="False" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </ToggleButton.Style>
+                                                </ToggleButton>
                                                 <StackPanel Grid.Column="2"
                                                             VerticalAlignment="Center">
                                                     <Button Style="{StaticResource SettingsReorderArrowButtonStyle}"

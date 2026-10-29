@@ -63,6 +63,7 @@ internal sealed class PriceCheckerSearchController
         this.externalUrlLauncher = externalUrlLauncher ?? new SystemExternalUrlLauncher();
         this.tradeSearchUrlBuilder = tradeSearchUrlBuilder ?? new PathOfExileTradeSearchUrlBuilder();
         leagueSetting.Changed += OnLeagueSettingChanged;
+        leagueSetting.PriceCheckerMiscellaneousFiltersChanged += OnMiscellaneousFilterPreferencesChanged;
         CurrentViewState = CreateIdleOrValidationState();
     }
 
@@ -358,12 +359,19 @@ internal sealed class PriceCheckerSearchController
             Modifiers = CreateModifierRows(),
         });
 
+        var searchDraft = PriceCheckerMiscellaneousFilterPreferenceApplicator.ForSearch(
+            draft,
+            leagueSetting.PriceCheckerMiscellaneousFilters);
+        var searchValidation = ReferenceEquals(searchDraft, draft)
+            ? validationResult
+            : draftValidator.Validate(searchDraft);
+
         PathOfExileTradePriceCheckResult result;
         try
         {
             result = await priceCheckService.CheckAsync(
-                draft,
-                validationResult,
+                searchDraft,
+                searchValidation,
                 resolvedLeague.ProviderId,
                 InitialFetchResultCount(),
                 requestCancellation.Token);
@@ -402,12 +410,15 @@ internal sealed class PriceCheckerSearchController
         var effectiveDraft = result.EffectiveDraft;
         if (effectiveDraft is not null)
         {
-            currentDraft = effectiveDraft;
-            currentValidationResult = draftValidator.Validate(effectiveDraft);
+            currentDraft = PriceCheckerMiscellaneousFilterPreferenceApplicator.RestoreHiddenOptionalUiState(
+                effectiveDraft,
+                draft,
+                leagueSetting.PriceCheckerMiscellaneousFilters);
+            currentValidationResult = draftValidator.Validate(currentDraft);
             PublishCurrentContent();
         }
 
-        ApplyState(MapResult(result, effectiveDraft, resolvedLeague));
+        ApplyState(MapResult(result, currentDraft ?? effectiveDraft, resolvedLeague));
     }
 
     public async Task LoadMoreAsync()
@@ -1284,7 +1295,26 @@ internal sealed class PriceCheckerSearchController
         window?.UpdateContent(new PriceCheckerWindowState(currentDraft, currentValidationResult)
         {
             Presentation = currentPresentation,
+            MiscellaneousFilterPreferences = leagueSetting.PriceCheckerMiscellaneousFilters,
         });
+    }
+
+    private void OnMiscellaneousFilterPreferencesChanged(object? sender, EventArgs e)
+    {
+        PublishCurrentContent();
+        if (CurrentViewState.Status is PriceCheckerSearchViewStatus.Success or
+            PriceCheckerSearchViewStatus.ZeroResults or
+            PriceCheckerSearchViewStatus.Loading)
+        {
+            ApplyState(CreateBoundChangeInvalidatedState());
+        }
+        else
+        {
+            ApplyState(CurrentViewState with
+            {
+                CanSearch = CanStartSearch(),
+            });
+        }
     }
 
     private bool IsCurrentRequest(
@@ -1371,9 +1401,15 @@ internal sealed class PriceCheckerSearchController
             return ValidationState("Contributor Min and Max must be finite decimal numbers.");
         }
 
-        if (!currentValidationResult.IsValid)
+        var searchDraft = PriceCheckerMiscellaneousFilterPreferenceApplicator.ForSearch(
+            currentDraft,
+            leagueSetting.PriceCheckerMiscellaneousFilters);
+        var searchValidation = ReferenceEquals(searchDraft, currentDraft)
+            ? currentValidationResult
+            : draftValidator.Validate(searchDraft);
+        if (!searchValidation.IsValid)
         {
-            return ValidationState(LocalValidationMessage(currentValidationResult));
+            return ValidationState(LocalValidationMessage(searchValidation));
         }
 
         return null;

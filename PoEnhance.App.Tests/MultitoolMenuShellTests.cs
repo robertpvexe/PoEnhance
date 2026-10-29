@@ -293,9 +293,10 @@ public sealed class MultitoolMenuShellTests
         Assert.Contains("Text=\"General\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"Hotkeys\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains(
-            "Choose which Miscellaneous control groups are visible",
+            "Core Miscellaneous filters always appear",
             menuXaml,
             StringComparison.Ordinal);
+        Assert.Contains("CanToggleVisibility", menuXaml, StringComparison.Ordinal);
         Assert.Contains("Use the arrows to change their order.", menuXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Drag the handle to reorder", menuXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("AllowDrop=\"True\"", menuXaml, StringComparison.Ordinal);
@@ -327,14 +328,24 @@ public sealed class MultitoolMenuShellTests
                 window.PendingPriceCheckerMiscellaneousFilters,
                 preference => Assert.True(preference.IsVisible));
 
-            Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
+            Assert.False(window.CanTogglePriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.ItemLevel));
+            Assert.False(window.SetPriceCheckerMiscellaneousFilterVisibility(
                 PriceCheckerMiscellaneousFilterRegistry.ItemLevel,
                 isVisible: false));
+            Assert.False(window.SetPriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.Quality,
+                isVisible: false));
+            Assert.True(window.CanTogglePriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem));
             Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
-                PriceCheckerMiscellaneousFilterRegistry.ItemLevel,
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
+                isVisible: false));
+            Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
                 isVisible: true));
             Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
-                PriceCheckerMiscellaneousFilterRegistry.Quality,
+                PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
                 isVisible: false));
 
             // Default order: Fractured, ItemLevel, Quality, Sockets, Links, BasePercentile
@@ -350,10 +361,15 @@ public sealed class MultitoolMenuShellTests
                     PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
                 ],
                 window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
-            Assert.False(
+            Assert.True(
                 window.PendingPriceCheckerMiscellaneousFilters
                     .Single(preference =>
                         preference.Key == PriceCheckerMiscellaneousFilterRegistry.Quality)
+                    .IsVisible);
+            Assert.False(
+                window.PendingPriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.BasePercentile)
                     .IsVisible);
 
             Assert.True(window.MovePriceCheckerMiscellaneousFilterDown(
@@ -392,6 +408,11 @@ public sealed class MultitoolMenuShellTests
             Assert.False(
                 setting.PriceCheckerMiscellaneousFilters
                     .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.BasePercentile)
+                    .IsVisible);
+            Assert.True(
+                setting.PriceCheckerMiscellaneousFilters
+                    .Single(preference =>
                         preference.Key == PriceCheckerMiscellaneousFilterRegistry.Quality)
                     .IsVisible);
             Assert.Equal(
@@ -411,7 +432,7 @@ public sealed class MultitoolMenuShellTests
             Assert.False(
                 restoredWindow.PendingPriceCheckerMiscellaneousFilters
                     .Single(preference =>
-                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.Quality)
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.BasePercentile)
                     .IsVisible);
             Assert.Equal(
                 PriceCheckerMiscellaneousFilterRegistry.Links,
@@ -455,7 +476,8 @@ public sealed class MultitoolMenuShellTests
                     .Select(preference => preference.Key),
                 window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
 
-            Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(middle, isVisible: false));
+            Assert.False(window.CanTogglePriceCheckerMiscellaneousFilterVisibility(middle));
+            Assert.False(window.SetPriceCheckerMiscellaneousFilterVisibility(middle, isVisible: false));
             Assert.True(window.MovePriceCheckerMiscellaneousFilterUp(middle));
             Assert.Equal(
                 PriceCheckerMiscellaneousFilterRegistry.ItemLevel,
@@ -463,14 +485,25 @@ public sealed class MultitoolMenuShellTests
             Assert.Equal(
                 PriceCheckerMiscellaneousFilterRegistry.Quality,
                 window.PendingPriceCheckerMiscellaneousFilters[1].Key);
-            Assert.False(window.PendingPriceCheckerMiscellaneousFilters[1].IsVisible);
+            Assert.True(window.PendingPriceCheckerMiscellaneousFilters[1].IsVisible);
+
+            Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
+                isVisible: false));
+            Assert.True(window.MovePriceCheckerMiscellaneousFilterDown(
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem));
+            Assert.False(
+                window.PendingPriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.FracturedItem)
+                    .IsVisible);
 
             window.CloseForApplicationExit();
         });
     }
 
     [Fact]
-    public void Ui03Preferences_DoNotWireIntoPriceCheckerPopupOrTradeQueryBuilderYet()
+    public void Ui04APreferences_WirePopupLayoutThroughPreferencesWithoutChangingTradeQueryBuilder()
     {
         var priceCheckerWindowCode = ReadRepositoryFile(
             "PoEnhance.App",
@@ -494,16 +527,16 @@ public sealed class MultitoolMenuShellTests
             "PathOfExile",
             "PathOfExileTradeQueryBuilder.cs");
 
-        Assert.DoesNotContain(
-            "PriceCheckerMiscellaneousFilters",
+        Assert.Contains(
+            "ApplyMiscellaneousFilterLayout",
             priceCheckerWindowCode,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
+        Assert.Contains(
             "PriceCheckerMiscellaneousFilterRegistry",
             priceCheckerWindowCode,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "PriceCheckerMiscellaneousFilters",
+        Assert.Contains(
+            "PriceCheckerMiscellaneousFilterPreferenceApplicator.ForSearch",
             searchControllerCode,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

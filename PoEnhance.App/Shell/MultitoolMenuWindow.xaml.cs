@@ -610,13 +610,19 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     {
         var row = priceCheckerMiscFilterRows.FirstOrDefault(candidate =>
             string.Equals(candidate.Key, key, StringComparison.Ordinal));
-        if (row is null)
+        if (row is null || !row.CanToggleVisibility)
         {
             return false;
         }
 
         row.IsVisible = isVisible;
         return PersistPriceCheckerMiscellaneousFilters();
+    }
+
+    internal bool CanTogglePriceCheckerMiscellaneousFilterVisibility(string key)
+    {
+        var row = FindPriceCheckerMiscellaneousFilter(key);
+        return row?.CanToggleVisibility == true;
     }
 
     internal bool MovePriceCheckerMiscellaneousFilterUp(string key)

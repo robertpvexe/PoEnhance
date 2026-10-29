@@ -1,5 +1,6 @@
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
+using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Tests.Infrastructure.Settings;
 
@@ -58,7 +59,7 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         reordered.Insert(0, sockets);
         for (var index = 0; index < reordered.Count; index++)
         {
-            var isVisible = reordered[index].Key != PriceCheckerMiscellaneousFilterRegistry.Quality;
+            var isVisible = reordered[index].Key != PriceCheckerMiscellaneousFilterRegistry.BasePercentile;
             reordered[index] = reordered[index] with
             {
                 IsVisible = isVisible,
@@ -75,18 +76,22 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         Assert.Equal(
             PriceCheckerMiscellaneousFilterRegistry.Sockets,
             restored.PriceCheckerMiscellaneousFilters[0].Key);
-        Assert.False(
+        Assert.True(
             restored.PriceCheckerMiscellaneousFilters
                 .Single(preference => preference.Key == PriceCheckerMiscellaneousFilterRegistry.Quality)
                 .IsVisible);
+        Assert.False(
+            restored.PriceCheckerMiscellaneousFilters
+                .Single(preference => preference.Key == PriceCheckerMiscellaneousFilterRegistry.BasePercentile)
+                .IsVisible);
         Assert.All(
             restored.PriceCheckerMiscellaneousFilters.Where(preference =>
-                preference.Key != PriceCheckerMiscellaneousFilterRegistry.Quality),
+                preference.Key != PriceCheckerMiscellaneousFilterRegistry.BasePercentile),
             preference => Assert.True(preference.IsVisible));
     }
 
     [Fact]
-    public void UnknownObsoleteAndPartialEntries_MergeSafelyWithDefaultsOnForNewKeys()
+    public void UnknownObsoleteAndPartialEntries_MergeSafelyAndNormalizePermanentVisibility()
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Path, "settings.json");
@@ -99,7 +104,8 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 { "Key": "quality", "IsVisible": false, "Order": 0 },
                 { "Key": "obsolete-filter", "IsVisible": false, "Order": 1 },
                 { "Key": "quality", "IsVisible": true, "Order": 2 },
-                { "Key": "  ", "IsVisible": false, "Order": 3 }
+                { "Key": "fractured-item", "IsVisible": false, "Order": 3 },
+                { "Key": "  ", "IsVisible": false, "Order": 4 }
               ]
             }
             """);
@@ -110,16 +116,18 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         Assert.Equal(
             PriceCheckerMiscellaneousFilterRegistry.Quality,
             setting.PriceCheckerMiscellaneousFilters[0].Key);
-        Assert.False(setting.PriceCheckerMiscellaneousFilters[0].IsVisible);
+        Assert.True(setting.PriceCheckerMiscellaneousFilters[0].IsVisible);
+        Assert.False(
+            setting.PriceCheckerMiscellaneousFilters
+                .Single(preference =>
+                    preference.Key == PriceCheckerMiscellaneousFilterRegistry.FracturedItem)
+                .IsVisible);
         Assert.DoesNotContain(
             setting.PriceCheckerMiscellaneousFilters,
             preference => preference.Key == "obsolete-filter");
         Assert.Equal(
             PriceCheckerMiscellaneousFilterRegistry.Definitions.Count,
             setting.PriceCheckerMiscellaneousFilters.Count);
-        Assert.All(
-            setting.PriceCheckerMiscellaneousFilters.Skip(1),
-            preference => Assert.True(preference.IsVisible));
         Assert.Equal(
             [
                 PriceCheckerMiscellaneousFilterRegistry.Quality,
@@ -130,6 +138,83 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
             ],
             setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
+        Assert.False(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Quality));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.FracturedItem));
+    }
+
+    [Fact]
+    public void ForSearch_ExcludesHiddenOptionalConstraintsWithoutMutatingPermanentGroups()
+    {
+        var draft = new TradeSearchDraft
+        {
+            ItemClass = "Rings",
+            Rarity = "Rare",
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Fractured = TradeTriState.Yes,
+                Corrupted = TradeTriState.No,
+            },
+            RequestedItemFilters =
+            [
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.Quality,
+                    Label = "Quality",
+                    CurrentText = "20",
+                    RequestedMinimum = 20,
+                    IsActive = true,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                },
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.BasePercentile,
+                    Label = "Base Percentile",
+                    CurrentText = "80",
+                    RequestedMinimum = 80,
+                    IsActive = true,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                },
+            ],
+        };
+        var preferences = PriceCheckerMiscellaneousFilterRegistry.CreateDefaults()
+            .Select(preference => preference.Key switch
+            {
+                PriceCheckerMiscellaneousFilterRegistry.FracturedItem =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.BasePercentile =>
+                    preference with { IsVisible = false },
+                _ => preference,
+            })
+            .ToArray();
+
+        var searchDraft = PriceCheckerMiscellaneousFilterPreferenceApplicator.ForSearch(
+            draft,
+            preferences);
+
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.No, searchDraft.ItemStateCriteria.Corrupted);
+        Assert.True(
+            searchDraft.RequestedItemFilters
+                .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Quality)
+                .IsActive);
+        Assert.False(
+            searchDraft.RequestedItemFilters
+                .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
+                .IsActive);
+
+        var restored = PriceCheckerMiscellaneousFilterPreferenceApplicator.RestoreHiddenOptionalUiState(
+            searchDraft,
+            draft,
+            preferences);
+        Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Fractured);
+        Assert.True(
+            restored.RequestedItemFilters
+                .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
+                .IsActive);
     }
 
     [Fact]
@@ -156,7 +241,7 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         var preferences = setting.PriceCheckerMiscellaneousFilters
             .Select((preference, index) => preference with
             {
-                IsVisible = preference.Key != PriceCheckerMiscellaneousFilterRegistry.Links,
+                IsVisible = preference.Key != PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
                 Order = index,
             })
             .ToArray();
@@ -167,6 +252,10 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         var restored = new ApplicationLeagueSetting(path);
         Assert.Equal("Hardcore", restored.EffectiveLeague);
         Assert.False(
+            restored.PriceCheckerMiscellaneousFilters
+                .Single(preference => preference.Key == PriceCheckerMiscellaneousFilterRegistry.FracturedItem)
+                .IsVisible);
+        Assert.True(
             restored.PriceCheckerMiscellaneousFilters
                 .Single(preference => preference.Key == PriceCheckerMiscellaneousFilterRegistry.Links)
                 .IsVisible);

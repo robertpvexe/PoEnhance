@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Globalization;
 using PoEnhance.App.Infrastructure.PathOfExile;
+using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.Core.Trade;
 
 namespace PoEnhance.App.Features.PriceChecking;
@@ -162,22 +163,11 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
         TitleDisplayNameText.Foreground = (Brush)FindResource(
             TitleForegroundResourceKey(draft.Rarity));
-        SocketFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
-            filter.Kind == TradeSearchRequestedItemFilterKind.Sockets)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        LinksFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
-            filter.Kind == TradeSearchRequestedItemFilterKind.Links)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        BasePercentileFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
-            filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
         foreach (var requestedFilter in draft.RequestedItemFilters)
         {
             UpdateRequestedItemFilter(requestedFilter);
         }
+        ApplyMiscellaneousFilterLayout(state.MiscellaneousFilterPreferences, draft);
         var activeCriterionText = FormatActiveCriterion(
             draft.Base.ActiveCriterion,
             state.Presentation.CategoryDisplayLabel);
@@ -808,6 +798,60 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         RequestedItemFilterActivationChanged?.Invoke(
             this,
             new PriceCheckerRequestedItemFilterActivationChangedEventArgs(kind, !filter.IsActive));
+    }
+
+    private void ApplyMiscellaneousFilterLayout(
+        IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> preferences,
+        TradeSearchDraft draft)
+    {
+        var panel = HeaderRequestedFiltersPanel;
+        var elementsByKey = new Dictionary<string, UIElement>(StringComparer.Ordinal)
+        {
+            [PriceCheckerMiscellaneousFilterRegistry.FracturedItem] = FracturedStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.ItemLevel] = ItemLevelFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.Quality] = QualityFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.Sockets] = SocketFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.Links] = LinksFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.BasePercentile] = BasePercentileFilterBorder,
+        };
+
+        panel.Children.Clear();
+        foreach (var preference in preferences.OrderBy(candidate => candidate.Order))
+        {
+            if (!elementsByKey.TryGetValue(preference.Key, out var element))
+            {
+                continue;
+            }
+
+            element.Visibility = ShouldShowMiscellaneousFilterGroup(preference, draft)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            panel.Children.Add(element);
+        }
+    }
+
+    internal static bool ShouldShowMiscellaneousFilterGroup(
+        PriceCheckerMiscellaneousFilterPreference preference,
+        TradeSearchDraft draft)
+    {
+        if (!PriceCheckerMiscellaneousFilterRegistry.IsPreferenceVisibleInPopup(preference))
+        {
+            return false;
+        }
+
+        return preference.Key switch
+        {
+            PriceCheckerMiscellaneousFilterRegistry.Sockets =>
+                draft.RequestedItemFilters.Any(filter =>
+                    filter.Kind == TradeSearchRequestedItemFilterKind.Sockets),
+            PriceCheckerMiscellaneousFilterRegistry.Links =>
+                draft.RequestedItemFilters.Any(filter =>
+                    filter.Kind == TradeSearchRequestedItemFilterKind.Links),
+            PriceCheckerMiscellaneousFilterRegistry.BasePercentile =>
+                draft.RequestedItemFilters.Any(filter =>
+                    filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile),
+            _ => true,
+        };
     }
 
     private void UpdateRequestedItemFilter(TradeSearchRequestedItemFilter filter)

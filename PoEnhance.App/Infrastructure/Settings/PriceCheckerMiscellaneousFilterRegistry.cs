@@ -2,9 +2,9 @@ namespace PoEnhance.App.Infrastructure.Settings;
 
 /// <summary>
 /// Stable registry of Miscellaneous Panel 2 groups currently implemented in the Price Checker.
-/// Display order matches the existing popup layout until UI 04 consumes preferences.
+/// Permanent groups always appear in the popup; optional groups honor saved visibility.
 /// </summary>
-internal static class PriceCheckerMiscellaneousFilterRegistry
+public static class PriceCheckerMiscellaneousFilterRegistry
 {
     public const string FracturedItem = "fractured-item";
     public const string ItemLevel = "item-level";
@@ -13,32 +13,38 @@ internal static class PriceCheckerMiscellaneousFilterRegistry
     public const string Links = "links";
     public const string BasePercentile = "base-percentile";
 
-    public static IReadOnlyList<PriceCheckerMiscellaneousFilterDefinition> Definitions { get; } =
+    internal static IReadOnlyList<PriceCheckerMiscellaneousFilterDefinition> Definitions { get; } =
     [
         new(
             FracturedItem,
             "Fractured Item",
-            "Cycles Any, Yes, or No for the fractured-item state filter."),
+            "Cycles Any, Yes, or No for the fractured-item state filter.",
+            CanToggleVisibility: true),
         new(
             ItemLevel,
             "Item Level",
-            "Filters results by the item level value entered in the Price Checker."),
+            "Filters results by the item level value entered in the Price Checker.",
+            CanToggleVisibility: false),
         new(
             Quality,
             "Quality",
-            "Filters results by the quality value entered in the Price Checker."),
+            "Filters results by the quality value entered in the Price Checker.",
+            CanToggleVisibility: false),
         new(
             Sockets,
             "Sockets",
-            "Socket count together with optional red, green, blue, and white colour counts."),
+            "Socket count together with optional red, green, blue, and white colour counts.",
+            CanToggleVisibility: false),
         new(
             Links,
             "Links",
-            "Link count together with optional red, green, blue, and white colour counts."),
+            "Link count together with optional red, green, blue, and white colour counts.",
+            CanToggleVisibility: false),
         new(
             BasePercentile,
             "Base Percentile",
-            "Optional base-percentile filter for applicable item bases."),
+            "Optional base-percentile filter for applicable item bases.",
+            CanToggleVisibility: true),
     ];
 
     public static IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> CreateDefaults()
@@ -51,13 +57,29 @@ internal static class PriceCheckerMiscellaneousFilterRegistry
             .ToArray();
     }
 
-    public static bool TryGetDefinition(
+    internal static bool TryGetDefinition(
         string key,
         out PriceCheckerMiscellaneousFilterDefinition definition)
     {
         definition = Definitions.FirstOrDefault(candidate =>
             string.Equals(candidate.Key, key, StringComparison.Ordinal))!;
         return definition is not null;
+    }
+
+    public static bool CanToggleVisibility(string key)
+    {
+        return TryGetDefinition(key, out var definition) && definition.CanToggleVisibility;
+    }
+
+    public static bool IsPreferenceVisibleInPopup(
+        PriceCheckerMiscellaneousFilterPreference preference)
+    {
+        if (!TryGetDefinition(preference.Key, out var definition))
+        {
+            return false;
+        }
+
+        return !definition.CanToggleVisibility || preference.IsVisible;
     }
 
     public static IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> MergeStoredPreferences(
@@ -79,14 +101,15 @@ internal static class PriceCheckerMiscellaneousFilterRegistry
                 var key = entry.Key?.Trim();
                 if (string.IsNullOrWhiteSpace(key) ||
                     !knownKeys.Contains(key) ||
-                    !seen.Add(key))
+                    !seen.Add(key) ||
+                    !TryGetDefinition(key, out var definition))
                 {
                     continue;
                 }
 
                 ordered.Add(new PriceCheckerMiscellaneousFilterPreference(
                     key,
-                    entry.IsVisible,
+                    definition.CanToggleVisibility ? entry.IsVisible : true,
                     ordered.Count));
             }
         }
