@@ -49,12 +49,37 @@ public sealed class PathOfExileTradeImplicitProductionTests
         var recovery = Assert.Single(fixture.Window.CurrentSearchState.Modifiers, modifier =>
             modifier.Text == "24% increased Stun and Block Recovery");
         Assert.Equal(2, recovery.Contributors.Count);
+
+        var state = Assert.IsType<PriceCheckerWindowState>(fixture.Window.CurrentState);
+        Assert.Equal(BaseSearchMode.ExactBase, state.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Supreme Spiked Shield", state.Draft.Base.ActiveCriterion?.ExactBaseName);
+        var selectedImplicit = Assert.Single(state.Draft.ModifierFilters, modifier =>
+            modifier.OriginalText.Contains("chance to Suppress Spell Damage", StringComparison.Ordinal));
+        Assert.True(selectedImplicit.IsSelected);
+        Assert.True(selectedImplicit.IsBaseImplicit);
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.BaseGuaranteed,
+            selectedImplicit.ProviderResolutionStatus);
+        Assert.Null(selectedImplicit.ProviderStatId);
+        Assert.Contains(state.ValidationResult.Diagnostics, diagnostic =>
+            diagnostic.Code == TradeSearchValidationDiagnosticCodes.SelectedModifierRepresentedByExactBase &&
+            diagnostic.Severity == TradeSearchValidationSeverity.Info);
+
         var json = fixture.SingleSearchJson();
         using var document = JsonDocument.Parse(json);
         var query = document.RootElement.GetProperty("query");
         Assert.Equal("magic", Rarity(query));
-        Assert.Equal("armour.shield", Category(query));
-        Assert.Equal(["implicit.suppress"], StatIds(query));
+        Assert.Equal("Supreme Spiked Shield", query.GetProperty("type").GetString());
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.False(query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .TryGetProperty("category", out _));
+        Assert.DoesNotContain("Wasp's Supreme Spiked Shield of Thick Skin", json, StringComparison.Ordinal);
+        // Exact Base already identifies Supreme Spiked Shield, so the native base implicit is
+        // BaseGuaranteed and must not be duplicated as a provider stat filter.
+        Assert.Empty(StatIds(query));
     }
 
     [Fact]

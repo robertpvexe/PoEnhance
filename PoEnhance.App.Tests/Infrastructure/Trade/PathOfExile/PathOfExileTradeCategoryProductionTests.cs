@@ -13,10 +13,95 @@ namespace PoEnhance.App.Tests.Infrastructure.Trade.PathOfExile;
 public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
 {
     [Fact]
+    public async Task PriceCheckerProductionPath_MagicOneHandAxeDefaultsToExactBaseWithoutGeneratedName()
+    {
+        var fixture = ProductionTradeCategoryFixture.Create(new PathOfExileTradeStatCatalog([]));
+        Assert.Equal(BaseSearchMode.ExactBase, fixture.MagicReaverAxeDraft.Base.ActiveCriterion?.Mode);
+        fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        await fixture.Controller.SearchAsync();
+
+        Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        var json = PathOfExileTradeJson.SerializeSearchRequest(call.Request!);
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+
+        Assert.Equal("Reaver Axe", query.GetProperty("type").GetString());
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal("magic", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+        Assert.False(query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .TryGetProperty("category", out _));
+        Assert.DoesNotContain("Flaming Reaver Axe of the Marksman", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PriceCheckerProductionPath_RareOneHandAxeDefaultsToCategoryWithoutGeneratedNameOrExactBase()
+    {
+        var fixture = ProductionTradeCategoryFixture.CreateForItem(
+            new PathOfExileTradeStatCatalog([]),
+            """
+Item Class: One Hand Axes
+Rarity: Rare
+Storm Shell
+Reaver Axe
+--------
+One Handed Axe
+Physical Damage: 38-114
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.20
+Weapon Range: 1.1 metres
+--------
+Item Level: 84
+""",
+            expectedRarity: "Rare",
+            expectedModifierCount: 0);
+        Assert.Equal(BaseSearchMode.Category, fixture.MagicReaverAxeDraft.Base.ActiveCriterion?.Mode);
+        fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.SearchClient.Calls);
+        var json = PathOfExileTradeJson.SerializeSearchRequest(call.Request!);
+        using var document = JsonDocument.Parse(json);
+        var query = document.RootElement.GetProperty("query");
+
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal("rare", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("rarity")
+            .GetProperty("option")
+            .GetString());
+        Assert.Equal("weapon.oneaxe", query
+            .GetProperty("filters")
+            .GetProperty("type_filters")
+            .GetProperty("filters")
+            .GetProperty("category")
+            .GetProperty("option")
+            .GetString());
+        Assert.DoesNotContain("Storm Shell", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reaver Axe", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PriceCheckerProductionPath_TradeCategoryMagicOneHandAxeZeroModifiersCreatesCategoryOnlyRequest()
     {
         var fixture = ProductionTradeCategoryFixture.Create(new PathOfExileTradeStatCatalog([]));
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState!.Draft.Base.ActiveCriterion?.Mode);
         await fixture.Controller.SearchAsync();
 
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
@@ -49,6 +134,9 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             .EnumerateArray());
         Assert.DoesNotContain("Reaver Axe", json, StringComparison.Ordinal);
         Assert.DoesNotContain("Reaver Axe of Celebration", json, StringComparison.Ordinal);
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState!.Draft.Base.ActiveCriterion?.Mode);
     }
 
     [Fact]
@@ -56,6 +144,7 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
     {
         var fixture = ProductionTradeCategoryFixture.Create(AttackSpeedStatCatalog());
         fixture.Controller.UpdateCurrentDraft(fixture.MagicReaverAxeDraft, fixture.MagicReaverAxeValidation);
+        fixture.Window.RaiseBaseCriterionToggleRequested();
         var row = ExpandAttackSpeedChild(fixture);
         Assert.True(row.SupportsValueBounds);
         Assert.Equal("26", row.MinimumText);
@@ -1028,8 +1117,22 @@ public sealed class PathOfExileTradeQueryBuilderCategoryProductionTests
             Assert.True(draftResult.IsSuccess);
             Assert.NotNull(draftResult.Draft);
             Assert.Equal(expectedRarity, draftResult.Draft!.Rarity);
-            Assert.Equal(expectedCategory, draftResult.Draft.Base.ActiveCriterion?.Category);
-            Assert.Equal(BaseSearchMode.Category, draftResult.Draft.Base.ActiveCriterion?.Mode);
+            Assert.Equal(expectedCategory, draftResult.Draft.Base.Observed?.Category);
+            var expectedDefaultMode =
+                string.Equals(expectedRarity, "Normal", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(expectedRarity, "Magic", StringComparison.OrdinalIgnoreCase)
+                    ? BaseSearchMode.ExactBase
+                    : BaseSearchMode.Category;
+            Assert.Equal(expectedDefaultMode, draftResult.Draft.Base.ActiveCriterion?.Mode);
+            if (expectedDefaultMode == BaseSearchMode.ExactBase)
+            {
+                Assert.Equal(expectedBaseName, draftResult.Draft.Base.ActiveCriterion?.ExactBaseName);
+            }
+            else
+            {
+                Assert.Equal(expectedCategory, draftResult.Draft.Base.ActiveCriterion?.Category);
+            }
+
             Assert.Equal(expectedModifierCount, draftResult.Draft.ModifierFilters.Count);
 
             var searchClient = new FakeSearchClient();
@@ -1572,6 +1675,11 @@ Adds 14(11-15) to 25(23-26) Cold Damage
         public void RaiseTradeRequested()
         {
             TradeRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseBaseCriterionToggleRequested()
+        {
+            BaseCriterionToggleRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 #pragma warning restore CS0067

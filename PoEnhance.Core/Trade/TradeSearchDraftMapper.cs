@@ -606,7 +606,10 @@ public sealed partial class TradeSearchDraftMapper
                 {
                     Category = categoryCriterion,
                 },
-                ActiveCriterion = categoryCriterion,
+                ActiveCriterion = SelectDefaultActiveBaseCriterion(
+                    parsedItem.Rarity,
+                    categoryCriterion,
+                    exactBaseCriterion: null),
             };
         }
 
@@ -622,8 +625,36 @@ public sealed partial class TradeSearchDraftMapper
                 Category = categoryCriterion,
                 ExactBase = exactBaseCriterion,
             },
-            ActiveCriterion = categoryCriterion ?? exactBaseCriterion,
+            ActiveCriterion = SelectDefaultActiveBaseCriterion(
+                parsedItem.Rarity,
+                categoryCriterion,
+                exactBaseCriterion),
         };
+    }
+
+    /// <summary>
+    /// Ordinary Normal/Magic default to Exact Base when a resolved catalog base exists.
+    /// Ordinary Rare (and Unique/other) keep Category-first so Rare identity stays broad by default
+    /// and Unique query identity continues to rely on provider name/type, not this criterion.
+    /// </summary>
+    private static BaseSearchCriterion? SelectDefaultActiveBaseCriterion(
+        string? rarity,
+        BaseSearchCriterion? categoryCriterion,
+        BaseSearchCriterion? exactBaseCriterion)
+    {
+        if (IsOrdinaryExactBaseDefaultRarity(rarity))
+        {
+            return exactBaseCriterion ?? categoryCriterion;
+        }
+
+        return categoryCriterion ?? exactBaseCriterion;
+    }
+
+    private static bool IsOrdinaryExactBaseDefaultRarity(string? rarity)
+    {
+        var trimmed = rarity?.Trim();
+        return string.Equals(trimmed, "Normal", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "Magic", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<ResolvedSearchComponent> CreateSearchComponents(

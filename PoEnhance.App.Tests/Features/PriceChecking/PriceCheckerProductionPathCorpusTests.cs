@@ -444,8 +444,11 @@ Item Level: 85
         Assert.Null(snapshot.Draft.ParsedBaseType);
         Assert.Equal("Reaver Axe", snapshot.Draft.Base.ResolvedBaseName);
         Assert.Equal("Reaver Axe", snapshot.Draft.Base.Observed?.ExactBaseName);
-        Assert.Equal("One Hand Axe", snapshot.Draft.Base.ActiveCriterion?.Category);
-        Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("One Hand Axe", snapshot.Draft.Base.Observed?.Category);
+        Assert.Equal(BaseSearchMode.ExactBase, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Reaver Axe", snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal("One Hand Axe", snapshot.Draft.Base.AvailableCriteria.Category?.Category);
+        Assert.NotEqual(snapshot.Draft.DisplayName, snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
         Assert.Single(snapshot.Draft.ModifierFilters);
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
@@ -516,8 +519,11 @@ Item Level: 84
         Assert.Null(snapshot.Draft.ParsedBaseType);
         Assert.Equal("Supreme Spiked Shield", snapshot.Draft.Base.ResolvedBaseName);
         Assert.Equal("Supreme Spiked Shield", snapshot.Draft.Base.Observed?.ExactBaseName);
-        Assert.Equal("Shield", snapshot.Draft.Base.ActiveCriterion?.Category);
-        Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Shield", snapshot.Draft.Base.Observed?.Category);
+        Assert.Equal(BaseSearchMode.ExactBase, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Supreme Spiked Shield", snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal("Shield", snapshot.Draft.Base.AvailableCriteria.Category?.Category);
+        Assert.NotEqual(snapshot.Draft.DisplayName, snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
         Assert.Equal(3, snapshot.Draft.ModifierFilters.Count);
 
         Assert.Equal("Magic", snapshot.WindowState.Draft.Rarity);
@@ -623,8 +629,24 @@ Item Level: 84
         Assert.Equal(expectedName, snapshot.Draft.DisplayName);
         Assert.Equal(expectedBase, snapshot.Draft.ParsedBaseType);
         Assert.Equal(expectedBase, snapshot.Draft.Base.Observed?.ExactBaseName);
-        Assert.Equal(expectedCategory, snapshot.Draft.Base.ActiveCriterion?.Category);
-        Assert.Equal(BaseSearchMode.Category, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal(expectedCategory, snapshot.Draft.Base.Observed?.Category);
+        var expectedMode =
+            string.Equals(expectedRarity, "Normal", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(expectedRarity, "Magic", StringComparison.OrdinalIgnoreCase)
+                ? BaseSearchMode.ExactBase
+                : BaseSearchMode.Category;
+        Assert.Equal(expectedMode, snapshot.Draft.Base.ActiveCriterion?.Mode);
+        if (expectedMode == BaseSearchMode.ExactBase)
+        {
+            Assert.Equal(expectedBase, snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
+            Assert.Equal(expectedCategory, snapshot.Draft.Base.AvailableCriteria.Category?.Category);
+        }
+        else
+        {
+            Assert.Equal(expectedCategory, snapshot.Draft.Base.ActiveCriterion?.Category);
+            Assert.Null(snapshot.Draft.Base.ActiveCriterion?.ExactBaseName);
+        }
+
         var searchState = !snapshot.Draft.ItemPropertyContributionGroups.Any()
             ? snapshot.SearchState
             : harness.ExpandProperty(Assert.Single(snapshot.Draft.ItemPropertyContributionGroups).ParentKind);

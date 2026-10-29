@@ -4262,6 +4262,48 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task OrdinaryIdentity_ManualBaseModeAndRaritySurviveSearchAndNewItemResetsObservedDefaults()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([], 0);
+        var rareCategory = DraftWithBothBaseCriteria() with { Rarity = "Rare" };
+        fixture.Controller.UpdateCurrentDraft(rareCategory, ValidationSuccess());
+        Assert.Equal(BaseSearchMode.Category, fixture.Window.CurrentState!.Draft.Base.ActiveCriterion?.Mode);
+
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+        fixture.Window.RaiseRarityChanged("Magic");
+        await fixture.Controller.SearchAsync();
+
+        var firstCall = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(BaseSearchMode.ExactBase, firstCall.Draft?.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Magic", firstCall.Draft?.Rarity);
+        Assert.Equal("Reaver Axe", firstCall.Draft?.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal("Rare", rareCategory.Rarity);
+
+        var normalExact = DraftWithBothBaseCriteria() with
+        {
+            Rarity = "Normal",
+            DisplayName = "Reaver Axe",
+            Base = rareCategory.Base with
+            {
+                ActiveCriterion = rareCategory.Base.AvailableCriteria.ExactBase,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(normalExact, ValidationSuccess());
+
+        Assert.Equal("Normal", fixture.Window.CurrentState!.Draft.Rarity);
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            fixture.Window.CurrentState.Draft.Base.ActiveCriterion?.Mode);
+        await fixture.Controller.SearchAsync();
+        Assert.Equal(2, fixture.PriceCheckService.Calls.Count);
+        Assert.Equal("Normal", fixture.PriceCheckService.Calls[1].Draft?.Rarity);
+        Assert.Equal(
+            BaseSearchMode.ExactBase,
+            fixture.PriceCheckService.Calls[1].Draft?.Base.ActiveCriterion?.Mode);
+    }
+
+    [Fact]
     public async Task SearchAsync_StygianForcedExactBaseResultRemainsReflectedInTheCurrentDraft()
     {
         var fixture = SearchFixture.Create();

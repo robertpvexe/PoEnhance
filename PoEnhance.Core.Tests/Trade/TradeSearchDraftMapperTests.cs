@@ -1008,13 +1008,13 @@ Item Level: 83
     [InlineData("Quivers", "Fire Arrow Quiver", "Quiver", "Quiver")]
     [InlineData("Jewels", "Cobalt Jewel", "Jewel", "Jewel")]
     [InlineData("Abyss Jewels", "Murderous Eye Jewel", "AbyssJewel", "AbyssJewel")]
-    public void CreateDraft_OrdinaryExactBaseDefaultsToCategoryCriterion(
+    public void CreateDraft_RareExactBaseDefaultsToCategoryCriterion(
         string itemClass,
         string baseName,
         string gameDataItemClass,
         string expectedCategory)
     {
-        var item = ParseOrdinaryItem(itemClass, baseName);
+        var item = ParseOrdinaryItem(itemClass, baseName, rarity: "Rare");
         var baseRecord = Base($"base.{baseName.Replace(' ', '-').ToLowerInvariant()}", baseName, gameDataItemClass);
 
         var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ExactBase(baseRecord)));
@@ -1026,8 +1026,67 @@ Item Level: 83
         Assert.Equal(expectedCategory, draft.Base.Observed?.Category);
         Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
         Assert.Equal(expectedCategory, draft.Base.ActiveCriterion?.Category);
+        Assert.Null(draft.Base.ActiveCriterion?.ExactBaseName);
         Assert.Equal(BaseSearchMode.ExactBase, draft.Base.AvailableCriteria.ExactBase?.Mode);
         Assert.Equal(baseName, draft.Base.AvailableCriteria.ExactBase?.ExactBaseName);
+    }
+
+    [Theory]
+    [InlineData("Normal")]
+    [InlineData("Magic")]
+    public void CreateDraft_NormalOrMagicExactBaseDefaultsToExactBaseCriterion(string rarity)
+    {
+        var item = ParseOrdinaryItem("Gloves", "Sorcerer Gloves", rarity: rarity, displayName: rarity == "Magic"
+            ? "Blasting Sorcerer Gloves of the Magus"
+            : "Sorcerer Gloves");
+        var baseRecord = Base("base.sorcerer-gloves", "Sorcerer Gloves", "Gloves");
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ExactBase(baseRecord)));
+
+        Assert.Equal(rarity, draft.Rarity);
+        Assert.Equal(baseRecord.Id, draft.Base.Observed?.ExactBaseId);
+        Assert.Equal("Sorcerer Gloves", draft.Base.Observed?.ExactBaseName);
+        Assert.Equal("Gloves", draft.Base.Observed?.Category);
+        Assert.Equal(BaseSearchMode.ExactBase, draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Sorcerer Gloves", draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal("Gloves", draft.Base.AvailableCriteria.Category?.Category);
+        Assert.Equal("Sorcerer Gloves", draft.Base.AvailableCriteria.ExactBase?.ExactBaseName);
+        if (string.Equals(rarity, "Magic", StringComparison.Ordinal))
+        {
+            Assert.Equal("Blasting Sorcerer Gloves of the Magus", draft.DisplayName);
+            Assert.NotEqual(draft.DisplayName, draft.Base.ActiveCriterion?.ExactBaseName);
+        }
+    }
+
+    [Fact]
+    public void CreateDraft_NormalAmbiguousBase_DoesNotFabricateExactBaseAndKeepsCategoryAvailable()
+    {
+        var item = ParseOrdinaryItem("Gloves", "Unknown Gloves", rarity: "Normal");
+        var ambiguous = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+            Candidates =
+            [
+                Base("base.candidate-a", "Candidate A", "Gloves"),
+                Base("base.candidate-b", "Candidate B", "Gloves"),
+            ],
+            Diagnostics =
+            [
+                new ItemBaseResolutionDiagnostic(
+                    ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
+                    "Multiple equally specific catalog base-name candidates remain."),
+            ],
+        };
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ambiguous));
+
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, draft.Base.Status);
+        Assert.Equal(ItemBaseResolutionStatus.Unknown, draft.Base.Observed?.Status);
+        Assert.Null(draft.Base.ResolvedBaseName);
+        Assert.Null(draft.Base.AvailableCriteria.ExactBase);
+        Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", draft.Base.ActiveCriterion?.Category);
+        Assert.Null(draft.Base.ActiveCriterion?.ExactBaseName);
     }
 
     [Fact]
@@ -1369,13 +1428,20 @@ Item Level: 84
 
     private ParsedItem ParseOrdinaryItem(
         string itemClass,
-        string baseName)
+        string baseName,
+        string rarity = "Rare",
+        string? displayName = null)
     {
+        var identityLines = rarity is "Normal"
+            ? baseName
+            : $"""
+{displayName ?? "Storm Shell"}
+{baseName}
+""";
         return parser.Parse($$"""
 Item Class: {{itemClass}}
-Rarity: Rare
-Storm Shell
-{{baseName}}
+Rarity: {{rarity}}
+{{identityLines}}
 --------
 Item Level: 84
 """);

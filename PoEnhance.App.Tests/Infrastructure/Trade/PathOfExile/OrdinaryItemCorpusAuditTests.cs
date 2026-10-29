@@ -1098,7 +1098,7 @@ internal static class AnchorExpectations
                 ParserBaseText = "Necrotic Armour",
                 Category = "Body Armour",
                 EffectCount = 0,
-                ExactBaseByDefault = false,
+                ExactBaseByDefault = true,
             },
             new("Flaming Reaver Axe of the Marksman", item => item.SourceIndex == 1)
             {
@@ -1106,6 +1106,7 @@ internal static class AnchorExpectations
                 Rarity = "Magic",
                 Category = "One Hand Axe",
                 EffectCount = 2,
+                ExactBaseByDefault = true,
                 RequiredEffectFragments =
                 [
                     "Adds 26(24-33) to 57(49-57) Fire Damage",
