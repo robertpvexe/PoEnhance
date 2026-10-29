@@ -32,6 +32,8 @@ public sealed class TradeSearchBasePercentileRequestedFilterTests
                 TradeSearchRequestedItemFilterKind.ItemLevel,
                 TradeSearchRequestedItemFilterKind.Quality,
                 TradeSearchRequestedItemFilterKind.BasePercentile,
+                TradeSearchRequestedItemFilterKind.MemoryStrands,
+                TradeSearchRequestedItemFilterKind.Intangibility,
             ],
             draft.RequestedItemFilters.Select(item => item.Kind));
     }

@@ -59,17 +59,27 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
             .ToHashSet();
 
         var itemStateCriteria = draft.ItemStateCriteria;
+        var itemStateChanged = false;
         foreach (var (_, kind) in hiddenItemStates)
         {
             if (itemStateCriteria.Get(kind) is TradeTriState.Yes or TradeTriState.No)
             {
                 itemStateCriteria = itemStateCriteria.With(kind, TradeTriState.Any);
+                itemStateChanged = true;
             }
         }
 
-        var requestedItemFilters = draft.RequestedItemFilters.IsDefaultOrEmpty
+        var needsRequestedRewrite = !draft.RequestedItemFilters.IsDefaultOrEmpty &&
+            draft.RequestedItemFilters.Any(filter =>
+                HasUnsupportedMaximum(filter) ||
+                (hiddenRequested.Contains(filter.Kind) && filter.IsActive));
+        if (!itemStateChanged && !needsRequestedRewrite)
+        {
+            return draft;
+        }
+
+        var requestedItemFilters = needsRequestedRewrite
             ? draft.RequestedItemFilters
-            : draft.RequestedItemFilters
                 .Select(filter =>
                 {
                     var normalized = StripUnsupportedMaximum(filter);
@@ -77,7 +87,8 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
                         ? normalized with { IsActive = false }
                         : normalized;
                 })
-                .ToImmutableArray();
+                .ToImmutableArray()
+            : draft.RequestedItemFilters;
 
         return draft with
         {
@@ -140,9 +151,13 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         };
     }
 
+    private static bool HasUnsupportedMaximum(TradeSearchRequestedItemFilter filter) =>
+        filter.IsMinimumOnly &&
+        (filter.RequestedMaximum.HasValue || filter.MaximumText.Length > 0);
+
     private static TradeSearchRequestedItemFilter StripUnsupportedMaximum(
         TradeSearchRequestedItemFilter filter) =>
-        filter.IsMinimumOnly
+        HasUnsupportedMaximum(filter)
             ? filter with
             {
                 MaximumText = string.Empty,

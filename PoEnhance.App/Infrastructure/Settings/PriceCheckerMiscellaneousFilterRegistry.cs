@@ -98,12 +98,12 @@ public static class PriceCheckerMiscellaneousFilterRegistry
         new(
             MemoryStrands,
             "Memory Strands",
-            "Optional Min/Max range for Memory Strands on the copied item.",
+            "Optional Min lower bound for Memory Strands on the copied item.",
             CanToggleVisibility: true),
         new(
             Intangibility,
             "Intangibility",
-            "Optional Min/Max range for Intangibility percentage on the copied item.",
+            "Optional Min lower bound for Intangibility percentage on the copied item.",
             CanToggleVisibility: true),
     ];
 
