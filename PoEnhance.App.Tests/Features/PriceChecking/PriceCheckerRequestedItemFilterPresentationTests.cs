@@ -17,7 +17,7 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         var xaml = LoadWindowXaml();
         var header = ExtractElement(
             xaml,
-            "<StackPanel x:Name=\"HeaderRequestedFiltersPanel\"",
+            "<WrapPanel x:Name=\"HeaderRequestedFiltersPanel\"",
             "<Grid x:Name=\"StatsHeader\"");
         var itemLevel = header.IndexOf("ItemLevelFilterBorder", StringComparison.Ordinal);
         var quality = header.IndexOf("QualityFilterBorder", StringComparison.Ordinal);
@@ -35,14 +35,23 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         Assert.Contains("x:Name=\"BasePercentileFilterTextBox\"", header);
         Assert.Contains("x:Name=\"SocketFilterRedTextBox\"", header);
         Assert.Contains("x:Name=\"LinksFilterWhiteTextBox\"", header);
+        Assert.Contains("SocketColourTextBoxStyle", header);
+        Assert.Contains("ToolTip=\"Red sockets\"", header);
+        Assert.Contains("ToolTip=\"White links\"", header);
+        Assert.Contains("AutomationProperties.Name=\"Red sockets\"", header);
+        Assert.DoesNotContain("Text=\"R\"", header);
+        Assert.DoesNotContain("Text=\"G\"", header);
+        Assert.DoesNotContain("Text=\"B\"", header);
+        Assert.DoesNotContain("Text=\"W\"", header);
         Assert.DoesNotContain("SocketMetadataText", header);
         Assert.DoesNotContain("BaseRollMetadataText", header);
         Assert.DoesNotContain("Base Roll:", header);
         Assert.DoesNotContain("CheckBox", header);
         Assert.Contains("Orientation=\"Horizontal\"", header);
-        Assert.Equal(5, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
-        Assert.Equal(13, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
-        Assert.Equal(5, header.Split("Margin=\"0,0,8,0\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("x:Name=\"MiscellaneousFiltersPanelBorder\"", xaml);
+        Assert.Equal(7, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(7, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
+        Assert.Equal(8, header.Split("SocketColourTextBoxStyle", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

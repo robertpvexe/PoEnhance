@@ -620,6 +620,46 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         button.Tag = kind;
         button.DataContext = state;
         button.ToolTip = $"{FormatItemStateLabel(kind)}: click to cycle Any → Yes → No";
+        EnsureStableItemStateButtonWidth(button, kind);
+    }
+
+    internal static void EnsureStableItemStateButtonWidth(Button button, TradeItemStateKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(button);
+
+        var label = FormatItemStateLabel(kind);
+        var typeface = new Typeface(
+            button.FontFamily,
+            button.FontStyle,
+            button.FontWeight,
+            button.FontStretch);
+        var pixelsPerDip = button.IsLoaded
+            ? VisualTreeHelper.GetDpi(button).PixelsPerDip
+            : 1.0;
+
+        double Measure(string text) =>
+            new FormattedText(
+                text,
+                CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                button.FontSize,
+                Brushes.Black,
+                pixelsPerDip).Width;
+
+        var contentWidth = Math.Max(
+            Measure($"{label}: Any"),
+            Math.Max(Measure($"{label}: Yes"), Measure($"{label}: No")));
+        var chrome = button.Padding.Left +
+            button.Padding.Right +
+            button.BorderThickness.Left +
+            button.BorderThickness.Right +
+            2d;
+        var required = Math.Ceiling(contentWidth + chrome);
+        if (button.MinWidth < required)
+        {
+            button.MinWidth = required;
+        }
     }
 
     internal static TradeTriState CycleItemState(TradeTriState state) => state switch

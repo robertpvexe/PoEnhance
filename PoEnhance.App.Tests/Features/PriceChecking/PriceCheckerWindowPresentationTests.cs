@@ -105,13 +105,50 @@ public sealed class PriceCheckerWindowPresentationTests
     }
 
     [Fact]
+    public void ItemStateButtons_KeepStableMinWidthAcrossAnyYesNoLabels()
+    {
+        RunOnSta(() =>
+        {
+            var button = new Button
+            {
+                FontSize = 12,
+                Padding = new Thickness(8, 4, 8, 4),
+                BorderThickness = new Thickness(1),
+                FontFamily = new FontFamily("Segoe UI"),
+            };
+
+            PriceCheckerWindow.EnsureStableItemStateButtonWidth(button, TradeItemStateKind.Foulborn);
+            var locked = button.MinWidth;
+            Assert.True(locked > 0);
+
+            foreach (var state in new[] { TradeTriState.Any, TradeTriState.Yes, TradeTriState.No })
+            {
+                button.Content = PriceCheckerWindow.FormatItemState(TradeItemStateKind.Foulborn, state);
+                PriceCheckerWindow.EnsureStableItemStateButtonWidth(button, TradeItemStateKind.Foulborn);
+                Assert.Equal(locked, button.MinWidth);
+            }
+
+            Assert.True(
+                locked >=
+                new FormattedText(
+                    "Foulborn: Any",
+                    CultureInfo.CurrentUICulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(button.FontFamily, button.FontStyle, button.FontWeight, button.FontStretch),
+                    button.FontSize,
+                    Brushes.Black,
+                    1.0).Width);
+        });
+    }
+
+    [Fact]
     public void WindowXaml_PresentsBasicFiltersWithWrappingAndFracturedInMiscellaneous()
     {
         var xaml = LoadWindowXaml();
         var categoryBar = ExtractElement(
             xaml,
             "<Border Grid.Row=\"0\"",
-            "<WrapPanel x:Name=\"HeaderRequestedFiltersPanel\"");
+            "<Border x:Name=\"MiscellaneousFiltersPanelBorder\"");
         var miscellaneous = ExtractElement(
             xaml,
             "<WrapPanel x:Name=\"HeaderRequestedFiltersPanel\"",
@@ -133,7 +170,8 @@ public sealed class PriceCheckerWindowPresentationTests
         var vestigial = ExtractElement(miscellaneous, "<Button x:Name=\"VestigialStateButton\"", "/>" );
         var rarity = ExtractElement(categoryBar, "<ComboBox x:Name=\"RarityComboBox\"", "</ComboBox>");
 
-        Assert.Contains("WrapPanel x:Name=\"BasicFiltersPanel\"", categoryBar);
+        Assert.Contains("Grid x:Name=\"BasicFiltersPanel\"", categoryBar);
+        Assert.Contains("x:Name=\"MiscellaneousFiltersPanelBorder\"", xaml);
         Assert.DoesNotContain("InfluenceChipsPanel", categoryBar);
         Assert.DoesNotContain("FracturedStateButton", categoryBar);
         Assert.DoesNotContain("SynthesisedStateButton", categoryBar);
@@ -177,6 +215,10 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Contains("ExactBaseActiveBorderBrush", stateStyle);
         Assert.Contains("Value=\"Yes\"", stateStyle);
         Assert.Contains("Value=\"No\"", stateStyle);
+        Assert.Contains("Value=\"12\"", stateStyle);
+        Assert.Contains("SocketColourTextBoxStyle", xaml);
+        Assert.Contains("HorizontalAlignment=\"Stretch\"", baseCriterion);
+        Assert.DoesNotContain("MaxWidth=\"220\"", baseCriterion);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", mirrored);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", corrupted);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", identified);
@@ -270,8 +312,9 @@ public sealed class PriceCheckerWindowPresentationTests
                 PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
             Assert.All(optionalPanel2, control => Assert.False(
                 PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
-            Assert.IsType<WrapPanel>(window.FindName("BasicFiltersPanel"));
+            Assert.IsType<Grid>(window.FindName("BasicFiltersPanel"));
             Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            Assert.IsType<Border>(window.FindName("MiscellaneousFiltersPanelBorder"));
             Assert.Same(
                 window.FindName("ItemStateFiltersPanel"),
                 LogicalTreeHelper.GetParent(identified));
@@ -1024,7 +1067,8 @@ Item Level: 82
             window.UpdateLayout();
 
             var header = Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
-            var basicFilters = Assert.IsType<WrapPanel>(window.FindName("BasicFiltersPanel"));
+            var basicFilters = Assert.IsType<Grid>(window.FindName("BasicFiltersPanel"));
+            var miscellaneousBorder = Assert.IsType<Border>(window.FindName("MiscellaneousFiltersPanelBorder"));
             var itemLevel = Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder"));
             var links = Assert.IsType<Border>(window.FindName("LinksFilterBorder"));
             var baseCriterion = Assert.IsType<Button>(window.FindName("BaseCriterionButton"));
@@ -1040,10 +1084,12 @@ Item Level: 82
             Assert.Equal(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, window.MinWidth);
             Assert.True(header.ActualWidth <= window.ActualWidth);
             Assert.True(basicFilters.ActualWidth <= window.ActualWidth);
+            Assert.True(miscellaneousBorder.ActualWidth <= window.ActualWidth);
+            Assert.Same(miscellaneousBorder, LogicalTreeHelper.GetParent(header));
             Assert.Null(window.FindName("BaseRollMetadataText"));
             Assert.True(links.TranslatePoint(new Point(links.ActualWidth, 0), window).X <=
                 window.ActualWidth - 12d);
-            Assert.Equal(68d, rarity.ActualWidth);
+            Assert.Equal(78d, rarity.ActualWidth);
             Assert.True(baseCriterion.ActualWidth >= 72d);
             Assert.Contains(baseCriterionText.Text, baseCriterion.ToolTip?.ToString(), StringComparison.Ordinal);
             Assert.True(rarity.TranslatePoint(new Point(rarity.ActualWidth, 0), window).X <=
