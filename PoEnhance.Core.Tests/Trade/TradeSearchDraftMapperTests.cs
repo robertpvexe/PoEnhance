@@ -1059,6 +1059,127 @@ Item Level: 83
     }
 
     [Theory]
+    [InlineData("Rare", 20, BaseSearchMode.Category, false, false)]
+    [InlineData("Rare", 21, BaseSearchMode.ExactBase, true, true)]
+    [InlineData("Rare", 28, BaseSearchMode.ExactBase, true, true)]
+    [InlineData("Magic", 28, BaseSearchMode.ExactBase, true, true)]
+    [InlineData("Normal", 0, BaseSearchMode.ExactBase, true, false)]
+    [InlineData("Normal", 20, BaseSearchMode.ExactBase, true, false)]
+    public void CreateDraft_OverqualityPresetSelectsExactBaseAndActivatesIlvlQuality(
+        string rarity,
+        int quality,
+        BaseSearchMode expectedBaseMode,
+        bool expectedItemLevelActive,
+        bool expectedQualityActive)
+    {
+        var displayName = rarity switch
+        {
+            "Magic" => "Blasting Sorcerer Gloves of the Magus",
+            "Rare" => "Storm Shell",
+            _ => null,
+        };
+        var item = ParseOrdinaryItem(
+            "Gloves",
+            "Sorcerer Gloves",
+            rarity: rarity,
+            displayName: displayName,
+            quality: quality);
+        var baseRecord = Base("base.sorcerer-gloves", "Sorcerer Gloves", "Gloves");
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ExactBase(baseRecord)));
+
+        Assert.Equal(expectedBaseMode, draft.Base.ActiveCriterion?.Mode);
+        if (expectedBaseMode == BaseSearchMode.ExactBase)
+        {
+            Assert.Equal("Sorcerer Gloves", draft.Base.ActiveCriterion?.ExactBaseName);
+        }
+        else
+        {
+            Assert.Equal("Gloves", draft.Base.ActiveCriterion?.Category);
+            Assert.Null(draft.Base.ActiveCriterion?.ExactBaseName);
+        }
+
+        var itemLevel = Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel);
+        var qualityFilter = Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.Quality);
+        Assert.Equal(expectedItemLevelActive, itemLevel.IsActive);
+        Assert.Equal(84, itemLevel.ObservedValue);
+        Assert.Equal(84, itemLevel.RequestedMinimum);
+        Assert.Equal(expectedQualityActive, qualityFilter.IsActive);
+        Assert.Equal(quality, qualityFilter.ObservedValue);
+        Assert.Equal(quality, qualityFilter.RequestedMinimum);
+        Assert.Equal(BaseSearchMode.ExactBase, draft.Base.AvailableCriteria.ExactBase?.Mode);
+        Assert.Equal(BaseSearchMode.Category, draft.Base.AvailableCriteria.Category?.Mode);
+    }
+
+    [Fact]
+    public void CreateDraft_RareOverqualityWithoutExactBaseDoesNotFabricateBaseOrFallBackToCategory()
+    {
+        var item = ParseOrdinaryItem(
+            "Gloves",
+            "Unknown Gloves",
+            rarity: "Rare",
+            quality: 28);
+        var ambiguous = new ItemBaseResolutionResult
+        {
+            Status = ItemBaseResolutionStatus.Unknown,
+            Candidates =
+            [
+                Base("base.candidate-a", "Candidate A", "Gloves"),
+                Base("base.candidate-b", "Candidate B", "Gloves"),
+            ],
+            Diagnostics =
+            [
+                new ItemBaseResolutionDiagnostic(
+                    ItemBaseResolutionDiagnosticCodes.BaseAmbiguous,
+                    "Multiple equally specific catalog base-name candidates remain."),
+            ],
+        };
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ambiguous));
+
+        Assert.Null(draft.Base.ActiveCriterion);
+        Assert.Null(draft.Base.AvailableCriteria.ExactBase);
+        Assert.Equal(BaseSearchMode.Category, draft.Base.AvailableCriteria.Category?.Mode);
+        Assert.True(Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.Quality).IsActive);
+        Assert.True(Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
+    }
+
+    [Fact]
+    public void CreateDraft_UniqueOverqualityKeepsCategoryFirstAndInactiveNumericDefaults()
+    {
+        var item = parser.Parse("""
+            Item Class: Gloves
+            Rarity: Unique
+            Shadow Mitts
+            Sorcerer Gloves
+            --------
+            Quality: +28% (augmented)
+            --------
+            Item Level: 84
+            """);
+        var baseRecord = Base("base.sorcerer-gloves", "Sorcerer Gloves", "Gloves");
+
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ExactBase(baseRecord)));
+
+        Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", draft.Base.ActiveCriterion?.Category);
+        Assert.False(Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.Quality).IsActive);
+        Assert.False(Assert.Single(
+            draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
+    }
+
+    [Theory]
     [InlineData("Normal")]
     [InlineData("Magic")]
     public void CreateDraft_NormalOrMagicAmbiguousBase_DoesNotAutoSelectCategoryOrFabricateExactBase(
@@ -1586,7 +1707,8 @@ Corrupted
         string itemClass,
         string baseName,
         string rarity = "Rare",
-        string? displayName = null)
+        string? displayName = null,
+        int? quality = null)
     {
         var identityLines = rarity is "Normal"
             ? baseName
@@ -1594,10 +1716,17 @@ Corrupted
 {displayName ?? "Storm Shell"}
 {baseName}
 """;
+        var qualitySection = quality is null
+            ? string.Empty
+            : $"""
+--------
+Quality: +{quality}% (augmented)
+""";
         return parser.Parse($$"""
 Item Class: {{itemClass}}
 Rarity: {{rarity}}
 {{identityLines}}
+{{qualitySection}}
 --------
 Item Level: 84
 """);

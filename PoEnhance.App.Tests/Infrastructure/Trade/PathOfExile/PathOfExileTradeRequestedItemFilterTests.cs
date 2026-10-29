@@ -166,6 +166,127 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     }
 
     [Fact]
+    public void Build_ActiveQualityAndItemLevelCoexistWithStatesAndEldritchInfluencesInMiscFilters()
+    {
+        var catalog = RequestedCatalogWithEldritch();
+        var draft = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (TradeSearchRequestedItemFilterKind.ItemLevel, 84),
+                (TradeSearchRequestedItemFilterKind.Quality, 28)),
+            catalog);
+        draft = draft with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.No,
+                Corrupted = TradeTriState.Yes,
+                Identified = TradeTriState.Yes,
+                Fractured = TradeTriState.No,
+            },
+            InfluenceCriteria = TradeSearchInfluenceCriteriaFactory.Create(
+                [],
+                ["Searing Exarch Item", "Eater of Worlds Item"]),
+        };
+        var influence = new PathOfExileTradeInfluenceFilterResolver()
+            .MapSelected(draft, statCatalog: null, catalog);
+        Assert.True(influence.IsSuccess);
+        var requested = new PathOfExileTradeRequestedItemFilterResolver().MapSelected(draft, catalog);
+        Assert.True(requested.IsSuccess);
+
+        var result = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            new TradeSearchDraftValidator().Validate(draft),
+            League,
+            selectedModifierFilters: [],
+            providerItemIdentity: null,
+            providerFilterCatalog: catalog,
+            selectedItemPropertyFilters: [],
+            selectedRequestedItemFilters: requested.Filters,
+            selectedInfluenceFilters: influence.Filters);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var misc = document.RootElement.GetProperty("query").GetProperty("filters")
+            .GetProperty("misc_filters").GetProperty("filters");
+        AssertMinimumOnly(misc.GetProperty("ilvl"), 84);
+        AssertMinimumOnly(misc.GetProperty("quality"), 28);
+        Assert.Equal("false", misc.GetProperty("mirrored").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("corrupted").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("identified").GetProperty("option").GetString());
+        Assert.Equal("false", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("searing_item").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("tangled_item").GetProperty("option").GetString());
+        Assert.Equal(8, misc.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public void Build_InactiveQualityAndItemLevelOmitMiscCriteriaEvenWhenPrefillsExist()
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        var draft = ResolveRequested(source with
+        {
+            RequestedItemFilters = source.RequestedItemFilters
+                .Select(filter => filter.Kind is TradeSearchRequestedItemFilterKind.ItemLevel
+                        or TradeSearchRequestedItemFilterKind.Quality
+                    ? filter with
+                    {
+                        IsActive = false,
+                        CurrentText = filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel ? "84" : "28",
+                        RequestedMinimum = filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 28,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    }
+                    : filter)
+                .ToImmutableArray(),
+        }, catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        Assert.False(filters.TryGetProperty("misc_filters", out _));
+    }
+
+    [Fact]
+    public void Build_ExactBaseWithIndependentActiveQualityAndItemLevelSerializesAllThree()
+    {
+        var catalog = RequestedCatalog();
+        var draft = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (TradeSearchRequestedItemFilterKind.ItemLevel, 84),
+                (TradeSearchRequestedItemFilterKind.Quality, 28)),
+            catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.Equal("Reaver Axe", query.GetProperty("type").GetString());
+        AssertMinimumOnly(document, "misc_filters", "ilvl", 84);
+        AssertMinimumOnly(document, "misc_filters", "quality", 28);
+
+        var inactiveQuality = ResolveRequested(draft with
+        {
+            RequestedItemFilters = draft.RequestedItemFilters
+                .Select(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Quality
+                    ? filter with { IsActive = false }
+                    : filter)
+                .ToImmutableArray(),
+        }, catalog);
+        var withoutQuality = Build(inactiveQuality, catalog);
+        Assert.True(withoutQuality.IsSuccess, SingleOrDefault(withoutQuality.Diagnostics)?.Message);
+        using var withoutQualityDocument = JsonDocument.Parse(withoutQuality.SerializedJson!);
+        Assert.Equal("Reaver Axe", withoutQualityDocument.RootElement.GetProperty("query").GetProperty("type").GetString());
+        AssertMinimumOnly(withoutQualityDocument, "misc_filters", "ilvl", 84);
+        Assert.False(withoutQualityDocument.RootElement.GetProperty("query").GetProperty("filters")
+            .GetProperty("misc_filters").GetProperty("filters").TryGetProperty("quality", out _));
+    }
+
+    [Fact]
     public void Build_AllRequestedFiltersCoexistWithSelectedModifierStatGroup()
     {
         var catalog = RequestedCatalog();
@@ -350,9 +471,35 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
             requested.Filters);
     }
 
-    private static PathOfExileTradeFilterCatalog RequestedCatalog()
+    private static PathOfExileTradeFilterCatalog RequestedCatalog() =>
+        RequestedCatalogFromJson(includeEldritch: false);
+
+    private static PathOfExileTradeFilterCatalog RequestedCatalogWithEldritch() =>
+        RequestedCatalogFromJson(includeEldritch: true);
+
+    private static PathOfExileTradeFilterCatalog RequestedCatalogFromJson(bool includeEldritch)
     {
-        const string json = """
+        var extraMiscFilters = includeEldritch
+            ? """
+                ,
+                    { "id": "fractured_item", "text": "Fractured Item", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } },
+                    { "id": "searing_item", "text": "Searing Exarch Item", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } },
+                    { "id": "tangled_item", "text": "Eater of Worlds Item", "option": { "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ] } }
+              """
+            : string.Empty;
+        var json = $$"""
             {
               "result": [
                 {
@@ -396,7 +543,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                       { "id": null, "text": "Any" },
                       { "id": "true", "text": "Yes" },
                       { "id": "false", "text": "No" }
-                    ] } }
+                    ] } }{{extraMiscFilters}}
                   ]
                 },
                 {

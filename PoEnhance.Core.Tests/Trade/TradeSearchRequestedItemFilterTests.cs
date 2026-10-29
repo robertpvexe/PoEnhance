@@ -33,7 +33,10 @@ public sealed class TradeSearchRequestedItemFilterTests
             draft.RequestedItemFilters.Select(filter => filter.Kind));
         Assert.Equal([85, 0, 3, 5], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
         Assert.Equal(["85", "0", "3", "5"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
-        Assert.All(draft.RequestedItemFilters, filter => Assert.False(filter.IsActive));
+        Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
+        Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
+        Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Links).IsActive);
+        Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Sockets).IsActive);
         Assert.Equal("G-R-R G-B", draft.SocketText);
     }
 
@@ -48,18 +51,137 @@ public sealed class TradeSearchRequestedItemFilterTests
     }
 
     [Theory]
-    [InlineData("Quality: +10% (augmented)", 10)]
-    [InlineData("Quality: +20% (augmented)", 20)]
-    [InlineData("Quality: +28% (augmented)", 28)]
-    public void CreateDraft_ValidQualityRetainsExactObservedInteger(string qualityLine, int expected)
+    [InlineData("Quality: +10% (augmented)", 10, false)]
+    [InlineData("Quality: +20% (augmented)", 20, false)]
+    [InlineData("Quality: +21% (augmented)", 21, true)]
+    [InlineData("Quality: +28% (augmented)", 28, true)]
+    public void CreateDraft_ValidQualityRetainsExactObservedInteger(
+        string qualityLine,
+        int expected,
+        bool expectedActive)
     {
         var draft = CreateDraft(ItemWithProperty(qualityLine));
 
         var quality = Filter(draft, TradeSearchRequestedItemFilterKind.Quality);
         Assert.Equal(expected, quality.ObservedValue);
         Assert.Equal(expected.ToString(System.Globalization.CultureInfo.InvariantCulture), quality.CurrentText);
+        Assert.Equal(expected, quality.RequestedMinimum);
         Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, quality.LocalValidationStatus);
-        Assert.False(quality.IsActive);
+        Assert.Equal(expectedActive, quality.IsActive);
+    }
+
+    [Theory]
+    [InlineData("Normal", true)]
+    [InlineData("Magic", false)]
+    [InlineData("Rare", false)]
+    public void CreateDraft_ItemLevelDefaultActivationDependsOnCopiedRarityWhenQualityIsAtMostTwenty(
+        string rarity,
+        bool expectedActive)
+    {
+        var draft = CreateDraft(ItemWithRarity(rarity, "Quality: +20% (augmented)"));
+
+        var itemLevel = Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel);
+        Assert.Equal(85, itemLevel.ObservedValue);
+        Assert.Equal("85", itemLevel.CurrentText);
+        Assert.Equal(85, itemLevel.RequestedMinimum);
+        Assert.Equal(expectedActive, itemLevel.IsActive);
+        Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
+    }
+
+    [Theory]
+    [InlineData("Normal", 21)]
+    [InlineData("Magic", 28)]
+    [InlineData("Rare", 28)]
+    public void CreateDraft_OverqualityActivatesItemLevelForOrdinaryItems(
+        string rarity,
+        int quality)
+    {
+        var draft = CreateDraft(ItemWithRarity(rarity, $"Quality: +{quality}% (augmented)"));
+
+        var itemLevel = Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel);
+        var qualityFilter = Filter(draft, TradeSearchRequestedItemFilterKind.Quality);
+        Assert.True(itemLevel.IsActive);
+        Assert.Equal(85, itemLevel.RequestedMinimum);
+        Assert.True(qualityFilter.IsActive);
+        Assert.Equal(quality, qualityFilter.RequestedMinimum);
+    }
+
+    [Fact]
+    public void CreateDraft_QualityAboveTwentyDefaultsOnForOrdinaryItemsButNotUnique()
+    {
+        var rare = CreateDraft(ItemWithRarity("Rare", "Quality: +28% (augmented)"));
+        var unique = CreateDraft(ItemWithRarity("Unique", "Quality: +28% (augmented)"));
+
+        var rareQuality = Filter(rare, TradeSearchRequestedItemFilterKind.Quality);
+        Assert.True(rareQuality.IsActive);
+        Assert.Equal(28, rareQuality.RequestedMinimum);
+        Assert.True(Filter(rare, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
+        Assert.Equal(85, Filter(rare, TradeSearchRequestedItemFilterKind.ItemLevel).RequestedMinimum);
+
+        var uniqueQuality = Filter(unique, TradeSearchRequestedItemFilterKind.Quality);
+        Assert.False(uniqueQuality.IsActive);
+        Assert.Equal(28, uniqueQuality.ObservedValue);
+        Assert.Equal("28", uniqueQuality.CurrentText);
+        Assert.False(Filter(unique, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
+    }
+
+    [Fact]
+    public void CreateDraft_OverqualityWithoutItemLevelDoesNotFabricateIlvl()
+    {
+        var draft = CreateDraft("""
+            Item Class: One Hand Axes
+            Rarity: Rare
+            Header Test
+            Reaver Axe
+            --------
+            Quality: +28% (augmented)
+            """);
+
+        var itemLevel = Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel);
+        Assert.Null(itemLevel.ObservedValue);
+        Assert.Null(itemLevel.RequestedMinimum);
+        Assert.False(itemLevel.IsActive);
+        Assert.True(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
+    }
+
+    [Fact]
+    public void CreateDraft_UnknownItemLevelDoesNotFabricateActiveCriterion()
+    {
+        var draft = CreateDraft("""
+            Item Class: One Hand Axes
+            Rarity: Normal
+            Header Test
+            Reaver Axe
+            --------
+            Quality: +20% (augmented)
+            """);
+
+        var itemLevel = Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel);
+        Assert.Null(itemLevel.ObservedValue);
+        Assert.Null(itemLevel.RequestedMinimum);
+        Assert.False(itemLevel.IsActive);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Empty, itemLevel.LocalValidationStatus);
+    }
+
+    [Fact]
+    public void ParseRequestedText_EditingMinDoesNotToggleActivation()
+    {
+        var source = Filter(CreateDraft(ItemWithProperty("Quality: +20% (augmented)")),
+            TradeSearchRequestedItemFilterKind.Quality);
+
+        var editedWhileOff = TradeSearchDraftMapper.ParseRequestedItemFilterText(source, "28");
+        var activated = TradeSearchDraftMapper.ParseRequestedItemFilterText(
+            editedWhileOff,
+            editedWhileOff.CurrentText,
+            isActive: true);
+        var editedWhileOn = TradeSearchDraftMapper.ParseRequestedItemFilterText(activated, "15");
+
+        Assert.False(editedWhileOff.IsActive);
+        Assert.Equal(28, editedWhileOff.RequestedMinimum);
+        Assert.Equal(20, editedWhileOff.ObservedValue);
+        Assert.True(editedWhileOn.IsActive);
+        Assert.Equal(15, editedWhileOn.RequestedMinimum);
+        Assert.Equal(20, editedWhileOn.ObservedValue);
     }
 
     [Fact]
@@ -195,9 +317,12 @@ public sealed class TradeSearchRequestedItemFilterTests
                 .ToImmutableArray(),
         };
 
-    private static string ItemWithProperty(string propertyLine) => $$"""
+    private static string ItemWithProperty(string propertyLine) =>
+        ItemWithRarity("Rare", propertyLine);
+
+    private static string ItemWithRarity(string rarity, string propertyLine) => $$"""
         Item Class: One Hand Axes
-        Rarity: Rare
+        Rarity: {{rarity}}
         Header Test
         Reaver Axe
         --------

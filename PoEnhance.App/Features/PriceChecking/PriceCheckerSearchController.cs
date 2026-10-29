@@ -613,16 +613,14 @@ internal sealed class PriceCheckerSearchController
 
         var filter = currentDraft.RequestedItemFilters.FirstOrDefault(filter => filter.Kind == kind);
         if (filter is null ||
-            filter.IsActive && string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
+            string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
         {
             return;
         }
 
+        // Editing Min must not toggle inclusion; only the activation surface controls IsActive.
         UpdateRequestedItemFilter(
-            TradeSearchDraftMapper.ParseRequestedItemFilterText(
-                filter,
-                text,
-                isActive: true));
+            TradeSearchDraftMapper.ParseRequestedItemFilterText(filter, text));
     }
 
     private void UpdateRequestedItemFilter(TradeSearchRequestedItemFilter updatedFilter)

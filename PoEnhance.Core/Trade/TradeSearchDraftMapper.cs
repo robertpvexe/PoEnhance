@@ -106,16 +106,10 @@ public sealed partial class TradeSearchDraftMapper
     private static ImmutableArray<TradeSearchRequestedItemFilter> CreateRequestedItemFilters(
         ParsedItem parsedItem)
     {
-        var quality = ReadObservedQualityFilter(parsedItem);
         var links = ReadObservedLinksFilter(parsedItem);
         var filters = ImmutableArray.CreateBuilder<TradeSearchRequestedItemFilter>();
-        filters.Add(CreateRequestedFilter(
-            TradeSearchRequestedItemFilterKind.ItemLevel,
-            "Item Level",
-            parsedItem.ItemLevel,
-            parsedItem.ItemLevel?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-            parsedItem.ItemLevel.HasValue ? null : "The copied item has no valid Item Level."));
-        filters.Add(quality);
+        filters.Add(CreateDefaultItemLevelFilter(parsedItem));
+        filters.Add(CreateDefaultQualityFilter(parsedItem));
         filters.Add(links);
         if (ReadObservedSocketCountFilter(parsedItem) is { } sockets)
         {
@@ -124,6 +118,60 @@ public sealed partial class TradeSearchDraftMapper
 
         return filters.ToImmutable();
     }
+
+    private static TradeSearchRequestedItemFilter CreateDefaultItemLevelFilter(ParsedItem parsedItem)
+    {
+        var filter = CreateRequestedFilter(
+            TradeSearchRequestedItemFilterKind.ItemLevel,
+            "Item Level",
+            parsedItem.ItemLevel,
+            parsedItem.ItemLevel?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            parsedItem.ItemLevel.HasValue ? null : "The copied item has no valid Item Level.");
+        // Normal always; Magic/Rare only as part of the one-time overquality (>=21) clipboard preset.
+        var activateByDefault = filter.ObservedValue.HasValue &&
+            filter.LocalValidationStatus == TradeSearchRequestedItemFilterValidationStatus.Valid &&
+            (IsCopiedRarity(parsedItem, "Normal") || HasOrdinaryObservedOverquality(parsedItem));
+        return activateByDefault
+            ? filter with { IsActive = true }
+            : filter;
+    }
+
+    private static TradeSearchRequestedItemFilter CreateDefaultQualityFilter(ParsedItem parsedItem)
+    {
+        var filter = ReadObservedQualityFilter(parsedItem);
+        // Ordinary NMR overquality only; Unique and non-ordinary rarities keep inactive Quality defaults.
+        if (!HasOrdinaryObservedOverquality(parsedItem))
+        {
+            return filter;
+        }
+
+        return filter with { IsActive = true };
+    }
+
+    /// <summary>
+    /// One-time Ctrl+D preset: observed Quality strictly greater than 20 on Normal/Magic/Rare.
+    /// Derived only from clipboard facts — never from a manually edited requested Min.
+    /// </summary>
+    private static bool HasOrdinaryObservedOverquality(ParsedItem parsedItem)
+    {
+        if (!IsOrdinaryCopiedRarity(parsedItem))
+        {
+            return false;
+        }
+
+        var quality = ReadObservedQualityFilter(parsedItem);
+        return quality.LocalValidationStatus == TradeSearchRequestedItemFilterValidationStatus.Valid &&
+            quality.ObservedValue is { } observed &&
+            observed > 20;
+    }
+
+    private static bool IsOrdinaryCopiedRarity(ParsedItem parsedItem) =>
+        IsCopiedRarity(parsedItem, "Normal")
+        || IsCopiedRarity(parsedItem, "Magic")
+        || IsCopiedRarity(parsedItem, "Rare");
+
+    private static bool IsCopiedRarity(ParsedItem parsedItem, string rarity) =>
+        string.Equals(parsedItem.Rarity?.Trim(), rarity, StringComparison.OrdinalIgnoreCase);
 
     public static TradeSearchRequestedItemFilter ParseRequestedItemFilterText(
         TradeSearchRequestedItemFilter source,
@@ -605,7 +653,7 @@ public sealed partial class TradeSearchDraftMapper
                     Category = categoryCriterion,
                 },
                 ActiveCriterion = SelectDefaultActiveBaseCriterion(
-                    parsedItem.Rarity,
+                    parsedItem,
                     categoryCriterion,
                     exactBaseCriterion: null),
             };
@@ -624,7 +672,7 @@ public sealed partial class TradeSearchDraftMapper
                 ExactBase = exactBaseCriterion,
             },
             ActiveCriterion = SelectDefaultActiveBaseCriterion(
-                parsedItem.Rarity,
+                parsedItem,
                 categoryCriterion,
                 exactBaseCriterion),
         };
@@ -634,15 +682,21 @@ public sealed partial class TradeSearchDraftMapper
     /// Ordinary Normal/Magic default to Exact Base when a resolved catalog base exists.
     /// When Exact Base is unavailable (unknown/ambiguous), do not silently activate Category —
     /// leave ActiveCriterion unset so Search stays blocked until the user chooses Category.
-    /// Ordinary Rare (and Unique/other) keep Category-first so Rare identity stays broad by default
-    /// and Unique query identity continues to rely on provider name/type, not this criterion.
+    /// Ordinary Rare keeps Category-first, except the one-time overquality (&gt;20) clipboard preset
+    /// which prefers Exact Base when safely resolved (no fabricated identifier / no Category fallback).
+    /// Unique/other keep Category-first so Unique query identity continues to rely on provider name/type.
     /// </summary>
     private static BaseSearchCriterion? SelectDefaultActiveBaseCriterion(
-        string? rarity,
+        ParsedItem parsedItem,
         BaseSearchCriterion? categoryCriterion,
         BaseSearchCriterion? exactBaseCriterion)
     {
-        if (IsOrdinaryExactBaseDefaultRarity(rarity))
+        if (HasOrdinaryObservedOverquality(parsedItem))
+        {
+            return exactBaseCriterion;
+        }
+
+        if (IsOrdinaryExactBaseDefaultRarity(parsedItem.Rarity))
         {
             return exactBaseCriterion;
         }
