@@ -1380,15 +1380,16 @@ Item Level: 84
     }
 
     [Theory]
-    [InlineData(null, TradeTriState.No, TradeTriState.No, TradeTriState.Yes)]
-    [InlineData("Corrupted", TradeTriState.No, TradeTriState.Yes, TradeTriState.Yes)]
-    [InlineData("Mirrored", TradeTriState.Yes, TradeTriState.No, TradeTriState.Yes)]
-    [InlineData("Unidentified", TradeTriState.No, TradeTriState.No, TradeTriState.No)]
-    public void CreateDraft_InitializesProviderNeutralItemStateCriteriaFromCanonicalFlags(
+    [InlineData(null, TradeTriState.Any, false, true)]
+    [InlineData("Corrupted", TradeTriState.Any, true, true)]
+    [InlineData("Mirrored", TradeTriState.Yes, false, true)]
+    [InlineData("Unidentified", TradeTriState.Any, false, false)]
+    [InlineData("Fractured Item", TradeTriState.Any, false, true)]
+    public void CreateDraft_RequestedItemStatesDefaultIndependentlyOfObservedFacts(
         string? state,
-        TradeTriState mirrored,
-        TradeTriState corrupted,
-        TradeTriState identified)
+        TradeTriState expectedMirrored,
+        bool expectedObservedCorrupted,
+        bool expectedObservedIdentified)
     {
         var stateSection = state is null ? string.Empty : $"--------\n{state}";
         var item = parser.Parse($"""
@@ -1403,9 +1404,103 @@ Item Level: 84
 
         var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
 
-        Assert.Equal(mirrored, draft.ItemStateCriteria.Mirrored);
-        Assert.Equal(corrupted, draft.ItemStateCriteria.Corrupted);
-        Assert.Equal(identified, draft.ItemStateCriteria.Identified);
+        Assert.Equal(expectedMirrored, draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Fractured);
+        Assert.Equal(expectedObservedCorrupted, draft.IsCorrupted);
+        Assert.Equal(expectedObservedIdentified, item.IsIdentified);
+        Assert.Equal(expectedMirrored == TradeTriState.Yes, item.IsMirrored);
+        if (state is not null)
+        {
+            Assert.Contains(state, draft.ItemStates);
+        }
+    }
+
+    [Theory]
+    [InlineData("Normal")]
+    [InlineData("Magic")]
+    [InlineData("Rare")]
+    public void CreateDraft_OrdinaryRaritiesKeepObservedMirroredDistinctFromRequestedDefaults(string rarity)
+    {
+        var mirrored = AssertSuccessfulDraft(mapper.CreateDraft(parser.Parse($"""
+Item Class: Amulets
+Rarity: {rarity}
+Coral Amulet
+--------
+Quality: +12% (augmented)
+--------
+Item Level: 70
+--------
+Mirrored
+""")));
+        var plain = AssertSuccessfulDraft(mapper.CreateDraft(parser.Parse($"""
+Item Class: Amulets
+Rarity: {rarity}
+Coral Amulet
+--------
+Quality: +20% (augmented)
+--------
+Item Level: 71
+""")));
+
+        Assert.Equal(TradeTriState.Yes, mirrored.ItemStateCriteria.Mirrored);
+        Assert.Contains("Mirrored", mirrored.ItemStates);
+        Assert.Equal(TradeTriState.Any, mirrored.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, mirrored.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, mirrored.ItemStateCriteria.Fractured);
+
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Mirrored);
+        Assert.DoesNotContain("Mirrored", plain.ItemStates);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
+    public void CreateDraft_UniqueIdentifiedDefaultsToAnyWithoutUniqueSpecificStateLogic()
+    {
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Unique
+Test Unique Ring
+Iron Ring
+--------
+Item Level: 80
+""");
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.Equal("Unique", draft.Rarity);
+        Assert.True(item.IsIdentified);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Mirrored);
+    }
+
+    [Fact]
+    public void CreateDraft_CorruptedMarkerDoesNotRequestCorruptedItemStateCriterion()
+    {
+        var item = parser.Parse("""
+Item Class: Rings
+Rarity: Rare
+Hexed Loop
+Iron Ring
+--------
+Item Level: 84
+--------
++20 to maximum Life
+--------
+Corrupted
+""");
+        var draft = AssertSuccessfulDraft(mapper.CreateDraft(item));
+
+        Assert.True(draft.IsCorrupted);
+        Assert.Contains("Corrupted", draft.ItemStates);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Fractured);
     }
 
     [Fact]

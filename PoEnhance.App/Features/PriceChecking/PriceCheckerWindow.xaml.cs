@@ -194,6 +194,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             IdentifiedStateButton,
             TradeItemStateKind.Identified,
             draft.ItemStateCriteria.Identified);
+        UpdateItemStateButton(
+            FracturedStateButton,
+            TradeItemStateKind.Fractured,
+            draft.ItemStateCriteria.Fractured);
         SocketMetadataText.Text = draft.SocketText is null ? string.Empty : $"· {draft.SocketText}";
         SocketMetadataText.Visibility = draft.SocketText is null
             ? Visibility.Collapsed
@@ -511,23 +515,38 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         button.Content = FormatItemState(kind, state);
         button.Tag = kind;
         button.DataContext = state;
+        button.ToolTip = $"{FormatItemStateLabel(kind)}: click to cycle Any → Yes → No";
     }
 
     internal static TradeTriState CycleItemState(TradeTriState state) => state switch
     {
-        TradeTriState.No => TradeTriState.Yes,
-        TradeTriState.Yes => TradeTriState.Any,
-        TradeTriState.Any or TradeTriState.Auto => TradeTriState.No,
-        _ => TradeTriState.No,
+        TradeTriState.Any or TradeTriState.Auto => TradeTriState.Yes,
+        TradeTriState.Yes => TradeTriState.No,
+        TradeTriState.No => TradeTriState.Any,
+        _ => TradeTriState.Yes,
     };
 
     internal static string FormatItemState(TradeItemStateKind kind, TradeTriState state) =>
-        $"{kind}: {state switch
-        {
-            TradeTriState.Yes => "Yes",
-            TradeTriState.No => "No",
-            _ => "Any",
-        }}";
+        $"{FormatItemStateLabel(kind)}: {FormatItemStateValue(state)}";
+
+    internal static string FormatItemStateValue(TradeTriState state) => state switch
+    {
+        TradeTriState.Yes => "Yes",
+        TradeTriState.No => "No",
+        _ => "Any",
+    };
+
+    internal static string FormatItemStateLabel(TradeItemStateKind kind) => kind switch
+    {
+        TradeItemStateKind.Mirrored => "Mirrored",
+        TradeItemStateKind.Corrupted => "Corrupted",
+        TradeItemStateKind.Identified => "Identified",
+        TradeItemStateKind.Fractured => "Fractured Item",
+        _ => kind.ToString(),
+    };
+
+    internal static bool IsItemStateFilterActive(TradeTriState state) =>
+        state is TradeTriState.Yes or TradeTriState.No;
 
     private void OnSearchButtonClick(object sender, RoutedEventArgs e)
     {

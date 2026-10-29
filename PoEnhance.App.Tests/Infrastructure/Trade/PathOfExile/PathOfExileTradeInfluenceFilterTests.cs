@@ -254,6 +254,139 @@ public sealed class PathOfExileTradeInfluenceFilterTests
                 PathOfExileTradeQueryDiagnosticCodes.SelectedInfluencesMissingProviderMapping);
     }
 
+    [Fact]
+    public void Build_EldritchInfluencesCoexistWithSelectedItemStatesInMiscFiltersExactlyOnce()
+    {
+        var draft = DraftWithInfluences(
+            TradeSearchInfluenceCriteriaFactory.Create(
+                [],
+                ["Searing Exarch Item", "Eater of Worlds Item"])) with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Corrupted = TradeTriState.Yes,
+                Mirrored = TradeTriState.Any,
+                Identified = TradeTriState.Any,
+                Fractured = TradeTriState.No,
+            },
+        };
+        var catalog = CombinedEldritchAndItemStateCatalog();
+        var mapped = new PathOfExileTradeInfluenceFilterResolver()
+            .MapSelected(draft, statCatalog: null, catalog);
+        Assert.True(mapped.IsSuccess);
+
+        var withStates = BuildSuccessful(
+            mapped.Draft!,
+            providerFilterCatalog: catalog,
+            selectedInfluenceFilters: mapped.Filters);
+
+        using (var document = JsonDocument.Parse(withStates.SerializedJson!))
+        {
+            var misc = document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters");
+            Assert.Equal("true", misc.GetProperty("searing_item").GetProperty("option").GetString());
+            Assert.Equal("true", misc.GetProperty("tangled_item").GetProperty("option").GetString());
+            Assert.Equal("true", misc.GetProperty("corrupted").GetProperty("option").GetString());
+            Assert.Equal("false", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+            Assert.False(misc.TryGetProperty("mirrored", out _));
+            Assert.False(misc.TryGetProperty("identified", out _));
+            Assert.Equal(4, misc.EnumerateObject().Count());
+        }
+
+        var withoutCorrupted = BuildSuccessful(
+            mapped.Draft! with
+            {
+                ItemStateCriteria = mapped.Draft!.ItemStateCriteria with
+                {
+                    Corrupted = TradeTriState.Any,
+                },
+            },
+            providerFilterCatalog: catalog,
+            selectedInfluenceFilters: mapped.Filters);
+
+        using (var document = JsonDocument.Parse(withoutCorrupted.SerializedJson!))
+        {
+            var misc = document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters");
+            Assert.Equal("true", misc.GetProperty("searing_item").GetProperty("option").GetString());
+            Assert.Equal("true", misc.GetProperty("tangled_item").GetProperty("option").GetString());
+            Assert.Equal("false", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+            Assert.False(misc.TryGetProperty("corrupted", out _));
+            Assert.Equal(3, misc.EnumerateObject().Count());
+        }
+
+        var influencesOff = BuildSuccessful(
+            mapped.Draft! with
+            {
+                InfluenceCriteria = mapped.Draft!.InfluenceCriteria
+                    .Select(criterion => criterion with { IsEnabled = false })
+                    .ToImmutableArray(),
+            },
+            providerFilterCatalog: catalog,
+            selectedInfluenceFilters: []);
+
+        using (var document = JsonDocument.Parse(influencesOff.SerializedJson!))
+        {
+            var misc = document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters");
+            Assert.Equal("true", misc.GetProperty("corrupted").GetProperty("option").GetString());
+            Assert.Equal("false", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+            Assert.False(misc.TryGetProperty("searing_item", out _));
+            Assert.False(misc.TryGetProperty("tangled_item", out _));
+            Assert.Equal(2, misc.EnumerateObject().Count());
+        }
+    }
+
+    [Fact]
+    public void Build_TraditionalInfluenceAndItemStateRemainIndependent()
+    {
+        var draft = DraftWithInfluences(
+            TradeSearchInfluenceCriteriaFactory.Create(["Shaper Item"], [])) with
+        {
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Identified = TradeTriState.No,
+            },
+        };
+        var mapped = new PathOfExileTradeInfluenceFilterResolver()
+            .MapSelected(draft, TraditionalStatCatalog(), filterCatalog: null);
+        Assert.True(mapped.IsSuccess);
+
+        var result = BuildSuccessful(
+            mapped.Draft!,
+            providerFilterCatalog: CombinedEldritchAndItemStateCatalog(),
+            selectedInfluenceFilters: mapped.Filters);
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal(
+            "pseudo.pseudo_has_shaper_influence",
+            Assert.Single(
+                    document.RootElement.GetProperty("query").GetProperty("stats")[0]
+                        .GetProperty("filters")
+                        .EnumerateArray())
+                .GetProperty("id")
+                .GetString());
+        Assert.Equal(
+            "false",
+            document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters")
+                .GetProperty("identified")
+                .GetProperty("option")
+                .GetString());
+    }
+
     private static PathOfExileTradeQueryBuildResult BuildSuccessful(
         TradeSearchDraft draft,
         PathOfExileTradeFilterCatalog? providerFilterCatalog = null,
@@ -359,6 +492,21 @@ public sealed class PathOfExileTradeInfluenceFilterTests
             [
                 Option("searing_item", "Searing Exarch Item"),
                 Option("tangled_item", "Eater of Worlds Item"),
+            ]);
+    }
+
+    private static PathOfExileTradeFilterCatalog CombinedEldritchAndItemStateCatalog()
+    {
+        return new PathOfExileTradeFilterCatalog(
+            [],
+            optionFilterDefinitions:
+            [
+                Option("searing_item", "Searing Exarch Item"),
+                Option("tangled_item", "Eater of Worlds Item"),
+                Option("mirrored", "Mirrored"),
+                Option("corrupted", "Corrupted"),
+                Option("identified", "Identified"),
+                Option("fractured_item", "Fractured Item"),
             ]);
     }
 

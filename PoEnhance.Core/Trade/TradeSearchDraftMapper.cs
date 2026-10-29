@@ -69,12 +69,7 @@ public sealed partial class TradeSearchDraftMapper
             ParsedBaseType = TrimToNull(parsedItem.BaseType),
             ItemStates = parsedItem.ItemStates.ToArray(),
             IsCorrupted = parsedItem.IsCorrupted,
-            ItemStateCriteria = new TradeItemStateCriteria
-            {
-                Mirrored = parsedItem.IsMirrored ? TradeTriState.Yes : TradeTriState.No,
-                Corrupted = parsedItem.IsCorrupted ? TradeTriState.Yes : TradeTriState.No,
-                Identified = parsedItem.IsIdentified ? TradeTriState.Yes : TradeTriState.No,
-            },
+            ItemStateCriteria = TradeItemStateCriteriaFactory.CreateRequestedDefaults(parsedItem),
             ItemVariantCriteria = new TradeItemVariantCriteria
             {
                 Foulborn = uniqueItemResolution?.Status == UniqueItemResolutionStatus.ExactIdentity

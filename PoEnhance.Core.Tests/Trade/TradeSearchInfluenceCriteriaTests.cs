@@ -107,8 +107,10 @@ Item Level: 84
                 Assert.Equal(TradeSearchInfluenceFamily.Eldritch, criterion.Family);
                 Assert.True(criterion.IsEnabled);
             });
-        Assert.Equal(TradeTriState.No, draft.ItemStateCriteria.Mirrored);
-        Assert.Equal(TradeTriState.No, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Fractured);
     }
 
     [Fact]

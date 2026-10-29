@@ -85,16 +85,27 @@ public sealed class PriceCheckerWindowPresentationTests
     }
 
     [Theory]
-    [InlineData(TradeTriState.No, TradeTriState.Yes)]
-    [InlineData(TradeTriState.Yes, TradeTriState.Any)]
-    [InlineData(TradeTriState.Any, TradeTriState.No)]
-    public void ItemStateCycleUsesNoYesAnyOrder(TradeTriState current, TradeTriState expected)
+    [InlineData(TradeTriState.Any, TradeTriState.Yes)]
+    [InlineData(TradeTriState.Auto, TradeTriState.Yes)]
+    [InlineData(TradeTriState.Yes, TradeTriState.No)]
+    [InlineData(TradeTriState.No, TradeTriState.Any)]
+    public void ItemStateCycleUsesAnyYesNoOrder(TradeTriState current, TradeTriState expected)
     {
         Assert.Equal(expected, PriceCheckerWindow.CycleItemState(current));
     }
 
+    [Theory]
+    [InlineData(TradeTriState.Any, false)]
+    [InlineData(TradeTriState.Auto, false)]
+    [InlineData(TradeTriState.Yes, true)]
+    [InlineData(TradeTriState.No, true)]
+    public void ItemStateFilterActiveBorderMatchesYesAndNoOnly(TradeTriState state, bool isActive)
+    {
+        Assert.Equal(isActive, PriceCheckerWindow.IsItemStateFilterActive(state));
+    }
+
     [Fact]
-    public void WindowXaml_PresentsRarityAndThreeStableClickableItemStateControlsInOneHeaderRow()
+    public void WindowXaml_PresentsFourCyclingItemStateTilesInOneHeaderRow()
     {
         var xaml = LoadWindowXaml();
         var categoryBar = ExtractElement(
@@ -107,18 +118,22 @@ public sealed class PriceCheckerWindowPresentationTests
         var mirrored = ExtractElement(categoryBar, "<Button x:Name=\"MirroredStateButton\"", "/>" );
         var corrupted = ExtractElement(categoryBar, "<Button x:Name=\"CorruptedStateButton\"", "/>" );
         var identified = ExtractElement(categoryBar, "<Button x:Name=\"IdentifiedStateButton\"", "/>" );
+        var fractured = ExtractElement(categoryBar, "<Button x:Name=\"FracturedStateButton\"", "/>" );
         var rarity = ExtractElement(categoryBar, "<ComboBox x:Name=\"RarityComboBox\"", "</ComboBox>");
 
         Assert.True(categoryBar.IndexOf("BaseCriterionButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal) <
-            categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal));
+            categoryBar.IndexOf("ItemStateFiltersPanel", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("MirroredStateButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal));
-        Assert.Contains("Grid.Column=\"4\"", identified);
+        Assert.True(categoryBar.IndexOf("IdentifiedStateButton", StringComparison.Ordinal) <
+            categoryBar.IndexOf("FracturedStateButton", StringComparison.Ordinal));
         Assert.DoesNotContain("WrapPanel", categoryBar);
+        Assert.DoesNotContain("ComboBox x:Name=\"MirroredStateComboBox\"", categoryBar);
+        Assert.DoesNotContain("OnItemStateSelectionChanged", categoryBar);
         Assert.Contains("MinWidth=\"72\"", baseCriterion);
         Assert.Contains("HorizontalAlignment=\"Stretch\"", baseCriterion);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", baseCriterionText);
@@ -128,21 +143,23 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Contains("ComboBoxItem Content=\"Magic\"", rarity);
         Assert.Contains("ComboBoxItem Content=\"Rare\"", rarity);
         Assert.Contains("BasedOn=\"{StaticResource PriceCheckerButtonStyle}\"", stateStyle);
+        Assert.Contains("ExactBaseActiveBorderBrush", stateStyle);
+        Assert.Contains("Value=\"Yes\"", stateStyle);
+        Assert.Contains("Value=\"No\"", stateStyle);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", mirrored);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", corrupted);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", identified);
-        Assert.Contains("Content=\"Mirrored: No\"", mirrored);
-        Assert.Contains("Content=\"Corrupted: No\"", corrupted);
-        Assert.Contains("Content=\"Identified: Yes\"", identified);
-        Assert.Contains("ToolTip=\"Click to cycle: No → Yes → Any\"", mirrored);
-        Assert.Contains("Width=\"78\"", mirrored);
-        Assert.Contains("Width=\"82\"", corrupted);
-        Assert.Contains("Width=\"82\"", identified);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", fractured);
+        Assert.Contains("Content=\"Mirrored: Any\"", mirrored);
+        Assert.Contains("Content=\"Corrupted: Any\"", corrupted);
+        Assert.Contains("Content=\"Identified: Any\"", identified);
+        Assert.Contains("Content=\"Fractured Item: Any\"", fractured);
+        Assert.Contains("ToolTip=\"Miscellaneous item-state filters\"", categoryBar);
         Assert.DoesNotContain("Path", categoryBar);
     }
 
     [Fact]
-    public void ItemStateControls_RuntimeStayVisibleStableAndClickableAtMinimumWidth()
+    public void ItemStateControls_RuntimeCycleAnyYesNoAndShowActiveBorderForFilteringValues()
     {
         RunOnSta(() =>
         {
@@ -154,15 +171,16 @@ public sealed class PriceCheckerWindowPresentationTests
                 ParsedBaseType = "Iron Ring",
                 ItemStateCriteria = new TradeItemStateCriteria
                 {
-                    Mirrored = TradeTriState.No,
-                    Corrupted = TradeTriState.No,
-                    Identified = TradeTriState.Yes,
+                    Mirrored = TradeTriState.Any,
+                    Corrupted = TradeTriState.Any,
+                    Identified = TradeTriState.Any,
+                    Fractured = TradeTriState.Any,
                 },
             };
             var validation = TradeSearchValidationResult.FromDiagnostics([]);
             var window = new PriceCheckerWindow
             {
-                Width = PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+                Width = Math.Max(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, 980),
                 Height = 720,
             };
             PriceCheckerItemStateChangedEventArgs? changed = null;
@@ -177,14 +195,14 @@ public sealed class PriceCheckerWindowPresentationTests
             var mirrored = Assert.IsType<Button>(window.FindName("MirroredStateButton"));
             var corrupted = Assert.IsType<Button>(window.FindName("CorruptedStateButton"));
             var identified = Assert.IsType<Button>(window.FindName("IdentifiedStateButton"));
-            var buttons = new[] { mirrored, corrupted, identified };
-            var widths = buttons.Select(button => button.ActualWidth).ToArray();
-            var tops = buttons.Select(button => button.TranslatePoint(new Point(0, 0), window).Y).ToArray();
-            Assert.All(buttons, button => Assert.Equal(Visibility.Visible, button.Visibility));
-            Assert.Equal([78d, 82d, 82d], widths);
-            Assert.All(tops, top => Assert.Equal(tops[0], top, 3));
-            Assert.All(buttons, button => Assert.True(
-                button.TranslatePoint(new Point(button.ActualWidth, 0), window).X <= window.ActualWidth));
+            var fractured = Assert.IsType<Button>(window.FindName("FracturedStateButton"));
+            var controls = new[] { mirrored, corrupted, identified, fractured };
+            Assert.All(controls, control => Assert.Equal(Visibility.Visible, control.Visibility));
+            Assert.Equal(
+                ["Mirrored: Any", "Corrupted: Any", "Identified: Any", "Fractured Item: Any"],
+                controls.Select(control => control.Content?.ToString()));
+            Assert.All(controls, control => Assert.False(
+                PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
 
             mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
             Assert.NotNull(changed);
@@ -196,9 +214,10 @@ public sealed class PriceCheckerWindowPresentationTests
                 {
                     ItemStateCriteria = new TradeItemStateCriteria
                     {
-                        Mirrored = TradeTriState.Any,
-                        Corrupted = TradeTriState.Any,
+                        Mirrored = TradeTriState.Yes,
+                        Corrupted = TradeTriState.No,
                         Identified = TradeTriState.Any,
+                        Fractured = TradeTriState.Yes,
                     },
                 },
                 validation)
@@ -206,9 +225,41 @@ public sealed class PriceCheckerWindowPresentationTests
                 Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
             });
             window.UpdateLayout();
-            Assert.Equal(widths, buttons.Select(button => button.ActualWidth));
-            Assert.Equal(["Mirrored: Any", "Corrupted: Any", "Identified: Any"],
-                buttons.Select(button => button.Content?.ToString()));
+            Assert.Equal(
+                ["Mirrored: Yes", "Corrupted: No", "Identified: Any", "Fractured Item: Yes"],
+                controls.Select(control => control.Content?.ToString()));
+            Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)mirrored.DataContext));
+            Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)corrupted.DataContext));
+            Assert.False(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)identified.DataContext));
+            Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)fractured.DataContext));
+            Assert.Equal(
+                ((SolidColorBrush)window.FindResource("ExactBaseActiveBorderBrush")).Color,
+                ((SolidColorBrush)mirrored.BorderBrush).Color);
+            Assert.Equal(
+                ((SolidColorBrush)window.FindResource("ExactBaseActiveBorderBrush")).Color,
+                ((SolidColorBrush)corrupted.BorderBrush).Color);
+            Assert.NotEqual(
+                ((SolidColorBrush)window.FindResource("ExactBaseActiveBorderBrush")).Color,
+                ((SolidColorBrush)identified.BorderBrush).Color);
+
+            mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
+            Assert.Equal(TradeTriState.No, changed.State);
+            window.UpdateContent(new PriceCheckerWindowState(
+                draft with
+                {
+                    ItemStateCriteria = new TradeItemStateCriteria
+                    {
+                        Mirrored = TradeTriState.No,
+                    },
+                },
+                validation)
+            {
+                Presentation = new PriceCheckerItemPresentation { IsRarityEditable = true },
+            });
+            window.UpdateLayout();
+            mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
+            Assert.Equal(TradeTriState.Any, changed.State);
+
             Assert.Equal(Visibility.Collapsed,
                 Assert.IsType<ToggleButton>(window.FindName("AdvancedToggle")).Visibility);
             Assert.Equal(Visibility.Visible,
@@ -839,14 +890,15 @@ Item Level: 82
                 },
                 ItemStateCriteria = new TradeItemStateCriteria
                 {
-                    Mirrored = TradeTriState.No,
-                    Corrupted = TradeTriState.No,
-                    Identified = TradeTriState.Yes,
+                    Mirrored = TradeTriState.Any,
+                    Corrupted = TradeTriState.Any,
+                    Identified = TradeTriState.Any,
+                    Fractured = TradeTriState.Any,
                 },
             };
             var window = new PriceCheckerWindow
             {
-                Width = PriceCheckerPlacementCalculator.UserPanelMinimumWidth,
+                Width = Math.Max(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, 980),
                 Height = 720,
             };
             window.UpdateContent(new PriceCheckerWindowState(
@@ -868,11 +920,12 @@ Item Level: 82
             var baseCriterion = Assert.IsType<Button>(window.FindName("BaseCriterionButton"));
             var baseCriterionText = Assert.IsType<TextBlock>(window.FindName("BaseCriterionText"));
             var rarity = Assert.IsType<ComboBox>(window.FindName("RarityComboBox"));
-            var stateButtons = new[]
+            var stateControls = new[]
             {
                 Assert.IsType<Button>(window.FindName("MirroredStateButton")),
                 Assert.IsType<Button>(window.FindName("CorruptedStateButton")),
                 Assert.IsType<Button>(window.FindName("IdentifiedStateButton")),
+                Assert.IsType<Button>(window.FindName("FracturedStateButton")),
             };
             Assert.Equal(PriceCheckerPlacementCalculator.UserPanelMinimumWidth, window.MinWidth);
             Assert.True(header.ActualWidth >= header.DesiredSize.Width - 0.5d);
@@ -888,11 +941,11 @@ Item Level: 82
             Assert.Contains(baseCriterionText.Text, baseCriterion.ToolTip?.ToString(), StringComparison.Ordinal);
             Assert.True(rarity.TranslatePoint(new Point(rarity.ActualWidth, 0), window).X <=
                 window.ActualWidth);
-            Assert.All(stateButtons, button => Assert.True(
-                button.TranslatePoint(new Point(button.ActualWidth, 0), window).X <= window.ActualWidth));
-            Assert.All(stateButtons, button => Assert.Equal(
-                stateButtons[0].TranslatePoint(new Point(0, 0), window).Y,
-                button.TranslatePoint(new Point(0, 0), window).Y,
+            Assert.All(stateControls, control => Assert.True(
+                control.TranslatePoint(new Point(control.ActualWidth, 0), window).X <= window.ActualWidth));
+            Assert.All(stateControls, control => Assert.Equal(
+                stateControls[0].TranslatePoint(new Point(0, 0), window).Y,
+                control.TranslatePoint(new Point(0, 0), window).Y,
                 3));
             window.Close();
         });

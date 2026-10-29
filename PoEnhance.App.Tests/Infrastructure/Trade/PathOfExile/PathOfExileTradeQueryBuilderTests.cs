@@ -291,12 +291,95 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 Mirrored = TradeTriState.Any,
                 Corrupted = TradeTriState.Any,
                 Identified = TradeTriState.Any,
+                Fractured = TradeTriState.Any,
             },
         });
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
         var filters = document.RootElement.GetProperty("query").GetProperty("filters");
         Assert.False(filters.TryGetProperty("misc_filters", out _));
+    }
+
+    [Fact]
+    public void Build_ReturningOneItemStateToAnyRemovesOnlyThatCriterion()
+    {
+        var withCorrupted = BuildSuccessful(
+            Draft() with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Mirrored = TradeTriState.Yes,
+                    Corrupted = TradeTriState.No,
+                    Identified = TradeTriState.Any,
+                    Fractured = TradeTriState.Yes,
+                },
+            },
+            providerFilterCatalog: StateFilterCatalog());
+
+        using (var document = JsonDocument.Parse(withCorrupted.SerializedJson!))
+        {
+            var misc = document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters");
+            Assert.Equal("true", misc.GetProperty("mirrored").GetProperty("option").GetString());
+            Assert.Equal("false", misc.GetProperty("corrupted").GetProperty("option").GetString());
+            Assert.False(misc.TryGetProperty("identified", out _));
+            Assert.Equal("true", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+            Assert.Equal(3, misc.EnumerateObject().Count());
+        }
+
+        var withoutCorrupted = BuildSuccessful(
+            Draft() with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Mirrored = TradeTriState.Yes,
+                    Corrupted = TradeTriState.Any,
+                    Identified = TradeTriState.Any,
+                    Fractured = TradeTriState.Yes,
+                },
+            },
+            providerFilterCatalog: StateFilterCatalog());
+
+        using (var document = JsonDocument.Parse(withoutCorrupted.SerializedJson!))
+        {
+            var misc = document.RootElement
+                .GetProperty("query")
+                .GetProperty("filters")
+                .GetProperty("misc_filters")
+                .GetProperty("filters");
+            Assert.Equal("true", misc.GetProperty("mirrored").GetProperty("option").GetString());
+            Assert.False(misc.TryGetProperty("corrupted", out _));
+            Assert.False(misc.TryGetProperty("identified", out _));
+            Assert.Equal("true", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+            Assert.Equal(2, misc.EnumerateObject().Count());
+        }
+    }
+
+    [Fact]
+    public void Build_SelectedItemStateWithoutCompatibleCatalogFailsInsteadOfOmitting()
+    {
+        var result = new PathOfExileTradeQueryBuilder().Build(
+            Draft() with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Corrupted = TradeTriState.Yes,
+                },
+            },
+            ValidValidation(),
+            "Standard",
+            selectedModifierFilters: null,
+            providerItemIdentity: null,
+            providerFilterCatalog: new PathOfExileTradeFilterCatalog([]),
+            selectedItemPropertyFilters: null,
+            selectedRequestedItemFilters: null,
+            selectedInfluenceFilters: null);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.InvalidItemStateFilterMapping);
+        Assert.DoesNotContain("\"corrupted\"", result.SerializedJson ?? string.Empty, StringComparison.Ordinal);
     }
 
     [Fact]

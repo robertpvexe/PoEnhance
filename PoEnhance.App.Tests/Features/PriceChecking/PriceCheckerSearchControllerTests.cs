@@ -221,6 +221,120 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public void FracturedItemState_IsIndependentFromSelectedFracturedModifier()
+    {
+        var fixture = SearchFixture.Create();
+        var fracturedIdentity = PathOfExileTradeProviderIdentity.Create("fractured.stat_life");
+        var fracturedVariant = new SearchFilterVariant
+        {
+            Identity = fracturedIdentity,
+            Label = "Fractured",
+            Description = "+# to maximum Life",
+            ProviderKind = "fractured",
+            SupportsValueBounds = true,
+        };
+        var fractured = Modifier(
+            "+84 to maximum Life",
+            ParsedModifierKind.Suffix,
+            supportsValueBounds: true,
+            minimum: 84m) with
+        {
+            IsFractured = true,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = "fractured.stat_life",
+            ProviderStatText = "+# to maximum Life",
+            FilterVariants = [fracturedVariant],
+            SelectedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantIdentity = fracturedVariant.Identity,
+            RequestedFilterVariantKind = fracturedVariant.ProviderKind,
+            IsSearchable = true,
+        };
+        var draft = Draft("Fracture Shell", modifiers: [fractured]) with
+        {
+            ItemStates = ["Fractured Item"],
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Fractured = TradeTriState.Any,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        Assert.True(fixture.Window.CurrentState!.Draft.ModifierFilters[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsFractured);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Fractured, TradeTriState.Yes);
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState.Draft.ItemStateCriteria.Fractured);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsFractured);
+        Assert.Equal("fractured.stat_life", fixture.Window.CurrentState.Draft.ModifierFilters[0].ProviderStatId);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Fractured, TradeTriState.No);
+        Assert.Equal(TradeTriState.No, fixture.Window.CurrentState.Draft.ItemStateCriteria.Fractured);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsFractured);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Fractured, TradeTriState.Any);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Fractured);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[0].IsFractured);
+        Assert.Equal("fractured.stat_life", fixture.Window.CurrentState.Draft.ModifierFilters[0].ProviderStatId);
+    }
+
+    [Fact]
+    public void NewItemLoad_ResetsRequestedItemStatesToPerItemDefaultsWithoutLeakingPriorChoices()
+    {
+        var fixture = SearchFixture.Create();
+        var mirroredDraft = Draft("Mirrored Shell") with
+        {
+            ItemStates = ["Mirrored"],
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.Yes,
+                Corrupted = TradeTriState.Any,
+                Identified = TradeTriState.Any,
+                Fractured = TradeTriState.Any,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(mirroredDraft, ValidationSuccess());
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Corrupted, TradeTriState.Yes);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Identified, TradeTriState.No);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Fractured, TradeTriState.Yes);
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState.Draft.ItemStateCriteria.Corrupted);
+
+        var plainDraft = Draft("Plain Shell") with
+        {
+            Rarity = "Magic",
+            ItemStates = [],
+            ItemStateCriteria = new TradeItemStateCriteria(),
+        };
+        fixture.Controller.UpdateCurrentDraft(plainDraft, ValidationSuccess());
+
+        var plain = fixture.Window.CurrentState!.Draft;
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, plain.ItemStateCriteria.Fractured);
+        Assert.Empty(plain.ItemStates);
+
+        var mirroredAgain = Draft("Mirrored Shell Again") with
+        {
+            Rarity = "Normal",
+            ItemStates = ["Mirrored"],
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Mirrored = TradeTriState.Yes,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(mirroredAgain, ValidationSuccess());
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Mirrored);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Corrupted);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Identified);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Fractured);
+        Assert.Contains("Mirrored", fixture.Window.CurrentState.Draft.ItemStates);
+    }
+
+    [Fact]
     public async Task RarityChangeInvalidatesSearchPreservesDraftAndResetUsesTheCurrentItemSnapshot()
     {
         var fixture = SearchFixture.Create();
