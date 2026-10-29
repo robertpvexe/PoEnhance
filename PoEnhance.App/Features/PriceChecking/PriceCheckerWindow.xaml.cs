@@ -797,7 +797,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         PanelInteraction?.Invoke(this, EventArgs.Empty);
         RequestedItemFilterValueChanged?.Invoke(
             this,
-            new PriceCheckerRequestedItemFilterValueChangedEventArgs(kind, textBox.Text));
+            new PriceCheckerRequestedItemFilterValueChangedEventArgs(
+                kind,
+                textBox.Text,
+                TradeSearchRequestedItemFilterBound.Minimum));
     }
 
     private void OnRequestedItemFilterColourTextChanged(object sender, TextChangedEventArgs e)
@@ -861,6 +864,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             [PriceCheckerMiscellaneousFilterRegistry.CrucibleItem] = CrucibleStateButton,
             [PriceCheckerMiscellaneousFilterRegistry.Foulborn] = FoulbornStateButton,
             [PriceCheckerMiscellaneousFilterRegistry.Vestigial] = VestigialStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.MemoryStrands] = MemoryStrandsFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.Intangibility] = IntangibilityFilterBorder,
         };
 
         panel.Children.Clear();
@@ -912,6 +917,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         border.Tag = filter.IsActive ? "Active" : null;
         border.ToolTip = filter.DiagnosticReason;
         SyncRequestedFilterTextBox(textBox, filter.CurrentText);
+
         if (!filter.SupportsSocketColours ||
             !TryGetRequestedItemFilterColourControls(filter.Kind, out var colourBoxes))
         {
@@ -956,6 +962,10 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                 (SocketFilterBorder, SocketFilterTextBox),
             TradeSearchRequestedItemFilterKind.BasePercentile =>
                 (BasePercentileFilterBorder, BasePercentileFilterTextBox),
+            TradeSearchRequestedItemFilterKind.MemoryStrands =>
+                (MemoryStrandsFilterBorder, MemoryStrandsFilterTextBox),
+            TradeSearchRequestedItemFilterKind.Intangibility =>
+                (IntangibilityFilterBorder, IntangibilityFilterTextBox),
             _ => (null!, null!),
         };
         return border is not null && textBox is not null;
@@ -1022,6 +1032,20 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ReferenceEquals(element, BasePercentileFilterTextBox))
         {
             kind = TradeSearchRequestedItemFilterKind.BasePercentile;
+            return true;
+        }
+
+        if (ReferenceEquals(element, MemoryStrandsFilterBorder) ||
+            ReferenceEquals(element, MemoryStrandsFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.MemoryStrands;
+            return true;
+        }
+
+        if (ReferenceEquals(element, IntangibilityFilterBorder) ||
+            ReferenceEquals(element, IntangibilityFilterTextBox))
+        {
+            kind = TradeSearchRequestedItemFilterKind.Intangibility;
             return true;
         }
 

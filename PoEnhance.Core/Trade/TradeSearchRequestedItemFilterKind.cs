@@ -7,4 +7,6 @@ public enum TradeSearchRequestedItemFilterKind
     Links,
     Sockets,
     BasePercentile,
+    MemoryStrands,
+    Intangibility,
 }

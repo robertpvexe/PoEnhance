@@ -126,7 +126,34 @@ public sealed partial class TradeSearchDraftMapper
             filters.Add(basePercentile);
         }
 
+        // Always present, always empty/inactive on Ctrl+D — user must choose Min explicitly.
+        filters.Add(CreateEmptyMinimumOnlyRequestedFilter(
+            TradeSearchRequestedItemFilterKind.MemoryStrands,
+            "Memory Strands"));
+        filters.Add(CreateEmptyMinimumOnlyRequestedFilter(
+            TradeSearchRequestedItemFilterKind.Intangibility,
+            "Intangibility"));
+
         return filters.ToImmutable();
+    }
+
+    private static TradeSearchRequestedItemFilter CreateEmptyMinimumOnlyRequestedFilter(
+        TradeSearchRequestedItemFilterKind kind,
+        string label)
+    {
+        return new TradeSearchRequestedItemFilter
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = null,
+            CurrentText = string.Empty,
+            RequestedMinimum = null,
+            MaximumText = string.Empty,
+            RequestedMaximum = null,
+            IsActive = false,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
     }
 
     /// <summary>
@@ -220,10 +247,62 @@ public sealed partial class TradeSearchDraftMapper
         {
             CurrentText = currentText,
             RequestedMinimum = requestedValue,
+            // Product UI is Min-only for these kinds — never keep a stale Max constraint.
+            MaximumText = source.IsMinimumOnly ? string.Empty : source.MaximumText,
+            RequestedMaximum = source.IsMinimumOnly ? null : source.RequestedMaximum,
             IsActive = isActive ?? source.IsActive,
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
         };
         return FinalizeRequestedItemFilterValidation(updated, minimumStatus);
+    }
+
+    public static TradeSearchRequestedItemFilter ParseRequestedItemFilterBoundText(
+        TradeSearchRequestedItemFilter source,
+        TradeSearchRequestedItemFilterBound bound,
+        string? text,
+        bool? isActive = null)
+    {
+        return bound switch
+        {
+            TradeSearchRequestedItemFilterBound.Minimum =>
+                ParseRequestedItemFilterText(source, text, isActive),
+            TradeSearchRequestedItemFilterBound.Maximum =>
+                ParseRequestedItemFilterMaximumText(source, text, isActive),
+            _ => throw new ArgumentOutOfRangeException(nameof(bound)),
+        };
+    }
+
+    public static TradeSearchRequestedItemFilter ParseRequestedItemFilterMaximumText(
+        TradeSearchRequestedItemFilter source,
+        string? maximumText,
+        bool? isActive = null)
+    {
+        if (source.IsMinimumOnly)
+        {
+            // Max is not part of the product UI for these filters; ignore and clear any stale value.
+            var cleared = source with
+            {
+                MaximumText = string.Empty,
+                RequestedMaximum = null,
+                IsActive = isActive ?? source.IsActive,
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            };
+            return FinalizeRequestedItemFilterValidation(
+                cleared,
+                ParseUnsignedIntegerField(cleared.CurrentText, out _));
+        }
+
+        maximumText ??= string.Empty;
+        var maximumStatus = ParseUnsignedIntegerField(maximumText, out var requestedMaximum);
+        var updated = source with
+        {
+            MaximumText = maximumText,
+            RequestedMaximum = requestedMaximum,
+            IsActive = isActive ?? source.IsActive,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
+        var minimumStatus = ParseUnsignedIntegerField(updated.CurrentText, out _);
+        return FinalizeRequestedItemFilterValidation(updated, minimumStatus, maximumStatus);
     }
 
     public static TradeSearchRequestedItemFilter ParseRequestedItemFilterColourText(
@@ -280,7 +359,8 @@ public sealed partial class TradeSearchDraftMapper
 
     private static TradeSearchRequestedItemFilter FinalizeRequestedItemFilterValidation(
         TradeSearchRequestedItemFilter filter,
-        TradeSearchRequestedItemFilterValidationStatus minimumStatus)
+        TradeSearchRequestedItemFilterValidationStatus minimumStatus,
+        TradeSearchRequestedItemFilterValidationStatus? maximumStatus = null)
     {
         var colourStatuses = filter.SupportsSocketColours
             ?
@@ -291,9 +371,14 @@ public sealed partial class TradeSearchDraftMapper
                 ParseUnsignedIntegerField(filter.WhiteText, out _),
             ]
             : Array.Empty<TradeSearchRequestedItemFilterValidationStatus>();
-        var status = CombineRequestedFieldStatuses(minimumStatus, colourStatuses);
+        var resolvedMaximumStatus = maximumStatus ??
+            TradeSearchRequestedItemFilterValidationStatus.Empty;
+        var status = CombineRequestedFieldStatuses(minimumStatus, colourStatuses, resolvedMaximumStatus);
+
         return filter with
         {
+            MaximumText = filter.IsMinimumOnly ? string.Empty : filter.MaximumText,
+            RequestedMaximum = filter.IsMinimumOnly ? null : filter.RequestedMaximum,
             LocalValidationStatus = status,
             DiagnosticReason = status switch
             {
@@ -308,15 +393,19 @@ public sealed partial class TradeSearchDraftMapper
 
     private static TradeSearchRequestedItemFilterValidationStatus CombineRequestedFieldStatuses(
         TradeSearchRequestedItemFilterValidationStatus minimumStatus,
-        IReadOnlyList<TradeSearchRequestedItemFilterValidationStatus> colourStatuses)
+        IReadOnlyList<TradeSearchRequestedItemFilterValidationStatus> colourStatuses,
+        TradeSearchRequestedItemFilterValidationStatus maximumStatus =
+            TradeSearchRequestedItemFilterValidationStatus.Empty)
     {
         if (minimumStatus == TradeSearchRequestedItemFilterValidationStatus.Invalid ||
+            maximumStatus == TradeSearchRequestedItemFilterValidationStatus.Invalid ||
             colourStatuses.Any(status => status == TradeSearchRequestedItemFilterValidationStatus.Invalid))
         {
             return TradeSearchRequestedItemFilterValidationStatus.Invalid;
         }
 
         if (minimumStatus == TradeSearchRequestedItemFilterValidationStatus.Valid ||
+            maximumStatus == TradeSearchRequestedItemFilterValidationStatus.Valid ||
             colourStatuses.Any(status => status == TradeSearchRequestedItemFilterValidationStatus.Valid))
         {
             return TradeSearchRequestedItemFilterValidationStatus.Valid;

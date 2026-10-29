@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-10-29-base-defence-percentile",
+  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-10-29-memory-strands-intangibility",
   "mappings": [
     {
       "kind": "ItemLevel",
@@ -47,6 +47,26 @@
       "providerGroupId": "armour_filters",
       "providerFilterId": "base_defence_percentile",
       "expectedOfficialText": "Base Percentile",
+      "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": false,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 100
+    },
+    {
+      "kind": "MemoryStrands",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "memory_level",
+      "expectedOfficialText": "Memory Strands",
+      "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": false,
+      "minimumSupportedValue": 0,
+      "maximumSupportedValue": 100
+    },
+    {
+      "kind": "Intangibility",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "intangibility",
+      "expectedOfficialText": "Intangibility",
       "requiresNumericMinMax": true,
       "requiresSocketColourSupport": false,
       "minimumSupportedValue": 0,

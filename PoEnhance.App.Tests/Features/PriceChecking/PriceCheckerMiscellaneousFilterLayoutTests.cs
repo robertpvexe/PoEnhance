@@ -39,10 +39,18 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     window.FindName("CrucibleStateButton"),
                     window.FindName("FoulbornStateButton"),
                     window.FindName("VestigialStateButton"),
+                    window.FindName("MemoryStrandsFilterBorder"),
+                    window.FindName("IntangibilityFilterBorder"),
                 ],
                 panel.Children.Cast<UIElement>());
             Assert.All(panel.Children.Cast<UIElement>(), child =>
                 Assert.Equal(Visibility.Visible, child.Visibility));
+            Assert.NotNull(window.FindName("MemoryStrandsFilterTextBox"));
+            Assert.NotNull(window.FindName("IntangibilityFilterTextBox"));
+            Assert.Null(window.FindName("MemoryStrandsFilterMaxTextBox"));
+            Assert.Null(window.FindName("IntangibilityFilterMaxTextBox"));
+            Assert.Null(window.FindName("MemoryStrandsFilterMinTextBox"));
+            Assert.Null(window.FindName("IntangibilityFilterMinTextBox"));
             window.Close();
         });
     }
@@ -89,6 +97,10 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     PriceCheckerMiscellaneousFilterRegistry.Foulborn, false, 12),
                 new PriceCheckerMiscellaneousFilterPreference(
                     PriceCheckerMiscellaneousFilterRegistry.Vestigial, true, 13),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.MemoryStrands, false, 14),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Intangibility, true, 15),
             };
 
             Assert.False(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
@@ -132,6 +144,8 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     window.FindName("CrucibleStateButton"),
                     window.FindName("FoulbornStateButton"),
                     window.FindName("VestigialStateButton"),
+                    window.FindName("MemoryStrandsFilterBorder"),
+                    window.FindName("IntangibilityFilterBorder"),
                 ],
                 panel.Children.Cast<UIElement>());
             Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("LinksFilterBorder")).Visibility);
@@ -147,6 +161,8 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
             Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("CrucibleStateButton")).Visibility);
             Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("FoulbornStateButton")).Visibility);
             Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("VestigialStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(window.FindName("MemoryStrandsFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("IntangibilityFilterBorder")).Visibility);
             Assert.Equal(TradeTriState.Yes, draft.ItemStateCriteria.Fractured);
             window.Close();
         });
@@ -284,6 +300,24 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     IsActive = true,
                     LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
                     ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                },
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.MemoryStrands,
+                    Label = "Memory Strands",
+                    CurrentText = string.Empty,
+                    MaximumText = string.Empty,
+                    IsActive = false,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
+                },
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.Intangibility,
+                    Label = "Intangibility",
+                    CurrentText = string.Empty,
+                    MaximumText = string.Empty,
+                    IsActive = false,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
                 },
             ],
             ItemStateCriteria = new TradeItemStateCriteria

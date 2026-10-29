@@ -1062,6 +1062,32 @@
                             Content="Vestigial: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
                             ToolTip="Vestigial: click to cycle Any → Yes → No" />
+                    <Border x:Name="MemoryStrandsFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Memory Strands:" />
+                            <TextBox x:Name="MemoryStrandsFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="IntangibilityFilterBorder"
+                            Margin="0,0,8,0"
+                            PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
+                            Style="{StaticResource RequestedItemFilterBorderStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock VerticalAlignment="Center"
+                                       Foreground="#CFCFCF"
+                                       Text="Intangibility:" />
+                            <TextBox x:Name="IntangibilityFilterTextBox"
+                                     Style="{StaticResource RequestedItemFilterTextBoxStyle}"
+                                     TextChanged="OnRequestedItemFilterTextChanged" />
+                        </StackPanel>
+                    </Border>
                 </WrapPanel>
 
                 <Grid x:Name="StatsHeader"

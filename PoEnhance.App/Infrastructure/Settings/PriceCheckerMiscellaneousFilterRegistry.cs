@@ -20,6 +20,8 @@ public static class PriceCheckerMiscellaneousFilterRegistry
     public const string CrucibleItem = "crucible-item";
     public const string Foulborn = "foulborn";
     public const string Vestigial = "vestigial";
+    public const string MemoryStrands = "memory-strands";
+    public const string Intangibility = "intangibility";
 
     internal static IReadOnlyList<PriceCheckerMiscellaneousFilterDefinition> Definitions { get; } =
     [
@@ -92,6 +94,16 @@ public static class PriceCheckerMiscellaneousFilterRegistry
             Vestigial,
             "Vestigial",
             "Cycles Any, Yes, or No for the Vestigial state filter.",
+            CanToggleVisibility: true),
+        new(
+            MemoryStrands,
+            "Memory Strands",
+            "Optional Min/Max range for Memory Strands on the copied item.",
+            CanToggleVisibility: true),
+        new(
+            Intangibility,
+            "Intangibility",
+            "Optional Min/Max range for Intangibility percentage on the copied item.",
             CanToggleVisibility: true),
     ];
 

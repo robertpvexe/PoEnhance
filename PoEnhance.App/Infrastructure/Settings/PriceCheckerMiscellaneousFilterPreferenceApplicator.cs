@@ -22,6 +22,13 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         (PriceCheckerMiscellaneousFilterRegistry.Vestigial, TradeItemStateKind.Vestigial),
     ];
 
+    private static readonly (string Key, TradeSearchRequestedItemFilterKind Kind)[] OptionalRequestedFilterGroups =
+    [
+        (PriceCheckerMiscellaneousFilterRegistry.BasePercentile, TradeSearchRequestedItemFilterKind.BasePercentile),
+        (PriceCheckerMiscellaneousFilterRegistry.MemoryStrands, TradeSearchRequestedItemFilterKind.MemoryStrands),
+        (PriceCheckerMiscellaneousFilterRegistry.Intangibility, TradeSearchRequestedItemFilterKind.Intangibility),
+    ];
+
     public static bool IsHiddenOptional(
         string key,
         IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> preferences)
@@ -43,16 +50,13 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(preferences);
 
-        var hideBasePercentile = IsHiddenOptional(
-            PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
-            preferences);
         var hiddenItemStates = OptionalItemStateGroups
             .Where(group => IsHiddenOptional(group.Key, preferences))
             .ToArray();
-        if (hiddenItemStates.Length == 0 && !hideBasePercentile)
-        {
-            return draft;
-        }
+        var hiddenRequested = OptionalRequestedFilterGroups
+            .Where(group => IsHiddenOptional(group.Key, preferences))
+            .Select(group => group.Kind)
+            .ToHashSet();
 
         var itemStateCriteria = draft.ItemStateCriteria;
         foreach (var (_, kind) in hiddenItemStates)
@@ -63,16 +67,17 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
             }
         }
 
-        var requestedItemFilters = draft.RequestedItemFilters;
-        if (hideBasePercentile && !requestedItemFilters.IsDefaultOrEmpty)
-        {
-            requestedItemFilters = requestedItemFilters
+        var requestedItemFilters = draft.RequestedItemFilters.IsDefaultOrEmpty
+            ? draft.RequestedItemFilters
+            : draft.RequestedItemFilters
                 .Select(filter =>
-                    filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile && filter.IsActive
-                        ? filter with { IsActive = false }
-                        : filter)
+                {
+                    var normalized = StripUnsupportedMaximum(filter);
+                    return hiddenRequested.Contains(normalized.Kind) && normalized.IsActive
+                        ? normalized with { IsActive = false }
+                        : normalized;
+                })
                 .ToImmutableArray();
-        }
 
         return draft with
         {
@@ -90,13 +95,14 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         ArgumentNullException.ThrowIfNull(uiDraft);
         ArgumentNullException.ThrowIfNull(preferences);
 
-        var hideBasePercentile = IsHiddenOptional(
-            PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
-            preferences);
         var hiddenItemStates = OptionalItemStateGroups
             .Where(group => IsHiddenOptional(group.Key, preferences))
             .ToArray();
-        if (hiddenItemStates.Length == 0 && !hideBasePercentile)
+        var hiddenRequested = OptionalRequestedFilterGroups
+            .Where(group => IsHiddenOptional(group.Key, preferences))
+            .Select(group => group.Kind)
+            .ToHashSet();
+        if (hiddenItemStates.Length == 0 && hiddenRequested.Count == 0)
         {
             return searchEffectiveDraft;
         }
@@ -108,21 +114,23 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         }
 
         var requestedItemFilters = searchEffectiveDraft.RequestedItemFilters;
-        if (hideBasePercentile &&
+        if (hiddenRequested.Count > 0 &&
             !uiDraft.RequestedItemFilters.IsDefaultOrEmpty &&
             !requestedItemFilters.IsDefaultOrEmpty)
         {
-            var uiBasePercentile = uiDraft.RequestedItemFilters
-                .FirstOrDefault(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile);
-            if (uiBasePercentile is not null)
-            {
-                requestedItemFilters = requestedItemFilters
-                    .Select(filter =>
-                        filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile
-                            ? uiBasePercentile
-                            : filter)
-                    .ToImmutableArray();
-            }
+            requestedItemFilters = requestedItemFilters
+                .Select(filter =>
+                {
+                    if (!hiddenRequested.Contains(filter.Kind))
+                    {
+                        return filter;
+                    }
+
+                    var uiFilter = uiDraft.RequestedItemFilters
+                        .FirstOrDefault(candidate => candidate.Kind == filter.Kind);
+                    return StripUnsupportedMaximum(uiFilter ?? filter);
+                })
+                .ToImmutableArray();
         }
 
         return searchEffectiveDraft with
@@ -131,4 +139,14 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
             RequestedItemFilters = requestedItemFilters,
         };
     }
+
+    private static TradeSearchRequestedItemFilter StripUnsupportedMaximum(
+        TradeSearchRequestedItemFilter filter) =>
+        filter.IsMinimumOnly
+            ? filter with
+            {
+                MaximumText = string.Empty,
+                RequestedMaximum = null,
+            }
+            : filter;
 }

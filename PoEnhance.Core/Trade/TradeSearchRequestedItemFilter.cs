@@ -12,6 +12,10 @@ public sealed record TradeSearchRequestedItemFilter
 
     public int? RequestedMinimum { get; init; }
 
+    public string MaximumText { get; init; } = string.Empty;
+
+    public int? RequestedMaximum { get; init; }
+
     public string RedText { get; init; } = string.Empty;
 
     public string GreenText { get; init; } = string.Empty;
@@ -40,8 +44,16 @@ public sealed record TradeSearchRequestedItemFilter
     public bool SupportsSocketColours =>
         Kind is TradeSearchRequestedItemFilterKind.Sockets or TradeSearchRequestedItemFilterKind.Links;
 
+    /// <summary>
+    /// Memory Strands and Intangibility are product Min-only UI filters even though Trade catalogs them as minMax.
+    /// </summary>
+    public bool IsMinimumOnly =>
+        Kind is TradeSearchRequestedItemFilterKind.MemoryStrands
+            or TradeSearchRequestedItemFilterKind.Intangibility;
+
     public bool HasRequestedConstraint =>
         RequestedMinimum.HasValue ||
+        (!IsMinimumOnly && RequestedMaximum.HasValue) ||
         RequestedRed.HasValue ||
         RequestedGreen.HasValue ||
         RequestedBlue.HasValue ||

@@ -29,10 +29,25 @@ public sealed class TradeSearchRequestedItemFilterTests
                 TradeSearchRequestedItemFilterKind.Quality,
                 TradeSearchRequestedItemFilterKind.Sockets,
                 TradeSearchRequestedItemFilterKind.Links,
+                TradeSearchRequestedItemFilterKind.MemoryStrands,
+                TradeSearchRequestedItemFilterKind.Intangibility,
             ],
             draft.RequestedItemFilters.Select(filter => filter.Kind));
-        Assert.Equal([85, 0, 5, 3], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
-        Assert.Equal(["85", "0", "5", "3"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
+        Assert.Equal(
+            [85, 0, 5, 3, null, null],
+            draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
+        Assert.Equal(
+            ["85", "0", "5", "3", "", ""],
+            draft.RequestedItemFilters.Select(filter => filter.CurrentText));
+        Assert.All(
+            draft.RequestedItemFilters.Where(filter => filter.IsMinimumOnly),
+            filter =>
+            {
+                Assert.Equal(string.Empty, filter.MaximumText);
+                Assert.Null(filter.RequestedMaximum);
+                Assert.False(filter.IsActive);
+                Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Empty, filter.LocalValidationStatus);
+            });
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Links).IsActive);
@@ -40,6 +55,55 @@ public sealed class TradeSearchRequestedItemFilterTests
         Assert.Equal("G-R-R G-B", draft.SocketText);
         AssertSocketColoursBlank(Filter(draft, TradeSearchRequestedItemFilterKind.Sockets));
         AssertSocketColoursBlank(Filter(draft, TradeSearchRequestedItemFilterKind.Links));
+    }
+
+    [Fact]
+    public void ParseMinimumOnly_AcceptsZeroAndPositiveMinAndIgnoresStaleMaximum()
+    {
+        var empty = Filter(
+            CreateDraft(ItemWithProperty("Quality: +20% (augmented)")),
+            TradeSearchRequestedItemFilterKind.MemoryStrands);
+        var zeroMin = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            empty,
+            TradeSearchRequestedItemFilterBound.Minimum,
+            "0",
+            isActive: true);
+        Assert.Equal(0, zeroMin.RequestedMinimum);
+        Assert.Null(zeroMin.RequestedMaximum);
+        Assert.Equal(string.Empty, zeroMin.MaximumText);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, zeroMin.LocalValidationStatus);
+
+        var positiveMin = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            empty,
+            TradeSearchRequestedItemFilterBound.Minimum,
+            "40",
+            isActive: true);
+        Assert.Equal(40, positiveMin.RequestedMinimum);
+        Assert.Null(positiveMin.RequestedMaximum);
+
+        var withStaleMax = empty with
+        {
+            MaximumText = "100",
+            RequestedMaximum = 100,
+        };
+        var cleared = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            withStaleMax,
+            TradeSearchRequestedItemFilterBound.Minimum,
+            "10",
+            isActive: true);
+        Assert.Equal(10, cleared.RequestedMinimum);
+        Assert.Null(cleared.RequestedMaximum);
+        Assert.Equal(string.Empty, cleared.MaximumText);
+
+        var ignoredMaxWrite = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            cleared,
+            TradeSearchRequestedItemFilterBound.Maximum,
+            "80",
+            isActive: true);
+        Assert.Equal(10, ignoredMaxWrite.RequestedMinimum);
+        Assert.Null(ignoredMaxWrite.RequestedMaximum);
+        Assert.Equal(string.Empty, ignoredMaxWrite.MaximumText);
+        Assert.True(ignoredMaxWrite.HasRequestedConstraint);
     }
 
     [Fact]

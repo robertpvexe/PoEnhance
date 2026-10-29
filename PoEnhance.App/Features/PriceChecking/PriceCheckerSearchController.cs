@@ -616,7 +616,8 @@ internal sealed class PriceCheckerSearchController
     public void UpdateRequestedItemFilterValue(
         TradeSearchRequestedItemFilterKind kind,
         string? text,
-        TradeSearchRequestedItemFilterColour? colour = null)
+        TradeSearchRequestedItemFilterColour? colour = null,
+        TradeSearchRequestedItemFilterBound? bound = null)
     {
         if (currentDraft is null)
         {
@@ -645,14 +646,18 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
-        if (string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
+        var effectiveBound = bound ?? TradeSearchRequestedItemFilterBound.Minimum;
+        var currentBoundText = effectiveBound == TradeSearchRequestedItemFilterBound.Maximum
+            ? filter.MaximumText
+            : filter.CurrentText;
+        if (string.Equals(currentBoundText, text ?? string.Empty, StringComparison.Ordinal))
         {
             return;
         }
 
-        // Editing Min must not toggle inclusion; only the activation surface controls IsActive.
+        // Editing Min/Max must not toggle inclusion; only the activation surface controls IsActive.
         UpdateRequestedItemFilter(
-            TradeSearchDraftMapper.ParseRequestedItemFilterText(filter, text));
+            TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(filter, effectiveBound, text));
     }
 
     private void UpdateRequestedItemFilter(TradeSearchRequestedItemFilter updatedFilter)
@@ -1202,7 +1207,7 @@ internal sealed class PriceCheckerSearchController
         object? sender,
         PriceCheckerRequestedItemFilterValueChangedEventArgs e)
     {
-        UpdateRequestedItemFilterValue(e.Kind, e.Text, e.Colour);
+        UpdateRequestedItemFilterValue(e.Kind, e.Text, e.Colour, e.Bound);
     }
 
     private void OnModifierSelectionChanged(

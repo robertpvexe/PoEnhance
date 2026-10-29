@@ -78,6 +78,8 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
               "filters": [
                 { "id": "quality", "text": "Quality", "minMax": true },
                 { "id": "ilvl", "text": "Item Level", "minMax": true },
+                { "id": "memory_level", "text": "Memory Strands", "minMax": true },
+                { "id": "intangibility", "text": "Intangibility", "minMax": true },
                 {
                   "id": "fractured_item",
                   "text": "Fractured Item",

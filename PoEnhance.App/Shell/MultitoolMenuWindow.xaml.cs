@@ -573,7 +573,9 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     {
         if (sender is FrameworkElement { DataContext: PriceCheckerMiscellaneousFilterPreferenceRow row })
         {
-            _ = MovePriceCheckerMiscellaneousFilterUp(row.Key);
+            _ = (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                ? MovePriceCheckerMiscellaneousFilterToStart(row.Key)
+                : MovePriceCheckerMiscellaneousFilterUp(row.Key);
         }
     }
 
@@ -581,7 +583,9 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     {
         if (sender is FrameworkElement { DataContext: PriceCheckerMiscellaneousFilterPreferenceRow row })
         {
-            _ = MovePriceCheckerMiscellaneousFilterDown(row.Key);
+            _ = (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                ? MovePriceCheckerMiscellaneousFilterToEnd(row.Key)
+                : MovePriceCheckerMiscellaneousFilterDown(row.Key);
         }
     }
 
@@ -598,8 +602,8 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         }
 
         var moved = e.Key == Key.Up
-            ? MovePriceCheckerMiscellaneousFilterUp(row.Key)
-            : MovePriceCheckerMiscellaneousFilterDown(row.Key);
+            ? MovePriceCheckerMiscellaneousFilterToStart(row.Key)
+            : MovePriceCheckerMiscellaneousFilterToEnd(row.Key);
         if (moved)
         {
             e.Handled = true;
@@ -625,31 +629,19 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         return row?.CanToggleVisibility == true;
     }
 
-    internal bool MovePriceCheckerMiscellaneousFilterUp(string key)
-    {
-        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
-        if (index <= 0)
-        {
-            return false;
-        }
+    internal bool MovePriceCheckerMiscellaneousFilterUp(string key) =>
+        MovePriceCheckerMiscellaneousFilter(key, targetIndexOffset: -1);
 
-        priceCheckerMiscFilterRows.Move(index, index - 1);
-        RefreshPriceCheckerMiscellaneousMoveAffordances();
-        return PersistPriceCheckerMiscellaneousFilters();
-    }
+    internal bool MovePriceCheckerMiscellaneousFilterDown(string key) =>
+        MovePriceCheckerMiscellaneousFilter(key, targetIndexOffset: 1);
 
-    internal bool MovePriceCheckerMiscellaneousFilterDown(string key)
-    {
-        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
-        if (index < 0 || index >= priceCheckerMiscFilterRows.Count - 1)
-        {
-            return false;
-        }
+    internal bool MovePriceCheckerMiscellaneousFilterToStart(string key) =>
+        MovePriceCheckerMiscellaneousFilter(key, absoluteTargetIndex: 0);
 
-        priceCheckerMiscFilterRows.Move(index, index + 1);
-        RefreshPriceCheckerMiscellaneousMoveAffordances();
-        return PersistPriceCheckerMiscellaneousFilters();
-    }
+    internal bool MovePriceCheckerMiscellaneousFilterToEnd(string key) =>
+        MovePriceCheckerMiscellaneousFilter(
+            key,
+            absoluteTargetIndex: priceCheckerMiscFilterRows.Count - 1);
 
     internal bool CanMovePriceCheckerMiscellaneousFilterUp(string key)
     {
@@ -661,6 +653,48 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     {
         var row = FindPriceCheckerMiscellaneousFilter(key);
         return row?.CanMoveDown == true;
+    }
+
+    private bool MovePriceCheckerMiscellaneousFilter(
+        string key,
+        int? targetIndexOffset = null,
+        int? absoluteTargetIndex = null)
+    {
+        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var targetIndex = absoluteTargetIndex ?? (index + targetIndexOffset.GetValueOrDefault());
+        if (targetIndex < 0 ||
+            targetIndex >= priceCheckerMiscFilterRows.Count ||
+            targetIndex == index)
+        {
+            return false;
+        }
+
+        priceCheckerMiscFilterRows.Move(index, targetIndex);
+        RefreshPriceCheckerMiscellaneousMoveAffordances();
+        var persisted = PersistPriceCheckerMiscellaneousFilters();
+        EnsurePriceCheckerMiscellaneousFilterRowVisible(key);
+        return persisted;
+    }
+
+    private void EnsurePriceCheckerMiscellaneousFilterRowVisible(string key)
+    {
+        var row = FindPriceCheckerMiscellaneousFilter(key);
+        if (row is null)
+        {
+            return;
+        }
+
+        PriceCheckerMiscFiltersItemsControl.UpdateLayout();
+        if (PriceCheckerMiscFiltersItemsControl.ItemContainerGenerator.ContainerFromItem(row)
+            is FrameworkElement container)
+        {
+            container.BringIntoView();
+        }
     }
 
     private void RestoreLeagueSelection()

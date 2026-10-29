@@ -290,6 +290,8 @@ public sealed class MultitoolMenuShellTests
         Assert.Contains("x:Key=\"SettingsReorderArrowButtonStyle\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"Move up\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"Move down\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTip=\"Move up (Ctrl: to top)\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTip=\"Move down (Ctrl: to bottom)\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"General\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"Hotkeys\"", menuXaml, StringComparison.Ordinal);
         Assert.Contains(
@@ -297,7 +299,11 @@ public sealed class MultitoolMenuShellTests
             menuXaml,
             StringComparison.Ordinal);
         Assert.Contains("CanToggleVisibility", menuXaml, StringComparison.Ordinal);
-        Assert.Contains("Use the arrows to change their order.", menuXaml, StringComparison.Ordinal);
+        Assert.Contains(
+            "Use the arrows to change their order (Ctrl + arrow jumps to top or bottom).",
+            menuXaml,
+            StringComparison.Ordinal);
+        Assert.Contains("Hold Ctrl with an arrow to jump to the top or bottom.", menuXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Drag the handle to reorder", menuXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("AllowDrop=\"True\"", menuXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("PriceCheckerMiscFilterDragHandle", menuXaml, StringComparison.Ordinal);
@@ -367,6 +373,8 @@ public sealed class MultitoolMenuShellTests
                     PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
                     PriceCheckerMiscellaneousFilterRegistry.Foulborn,
                     PriceCheckerMiscellaneousFilterRegistry.Vestigial,
+                    PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                    PriceCheckerMiscellaneousFilterRegistry.Intangibility,
                 ],
                 window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
             Assert.True(
@@ -395,15 +403,15 @@ public sealed class MultitoolMenuShellTests
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.True(window.MovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
-            // Links is first and Vestigial remains last — boundary moves are no-ops.
+            // Links is first and Intangibility remains last — boundary moves are no-ops.
             Assert.False(window.MovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(window.MovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility));
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility));
 
             window.ShowSettingsView();
             window.ShowSettingsPriceCheckerSubpage();
@@ -439,6 +447,8 @@ public sealed class MultitoolMenuShellTests
                     PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
                     PriceCheckerMiscellaneousFilterRegistry.Foulborn,
                     PriceCheckerMiscellaneousFilterRegistry.Vestigial,
+                    PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                    PriceCheckerMiscellaneousFilterRegistry.Intangibility,
                 ],
                 setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
 
@@ -456,7 +466,7 @@ public sealed class MultitoolMenuShellTests
             Assert.False(restoredWindow.CanMovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(restoredWindow.CanMovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility));
             Assert.True(
                 restoredWindow.PendingPriceCheckerMiscellaneousFilters
                     .Single(preference =>
@@ -472,6 +482,11 @@ public sealed class MultitoolMenuShellTests
                     .Single(preference =>
                         preference.Key == PriceCheckerMiscellaneousFilterRegistry.CrucibleItem)
                     .IsVisible);
+            Assert.True(
+                restoredWindow.PendingPriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.MemoryStrands)
+                    .IsVisible);
 
             window.CloseForApplicationExit();
             restoredWindow.CloseForApplicationExit();
@@ -485,7 +500,7 @@ public sealed class MultitoolMenuShellTests
         {
             var window = new MultitoolMenuWindow(ApplicationLeagueSetting.CreateTransient());
             var first = PriceCheckerMiscellaneousFilterRegistry.FracturedItem;
-            var last = PriceCheckerMiscellaneousFilterRegistry.Vestigial;
+            var last = PriceCheckerMiscellaneousFilterRegistry.Intangibility;
             var middle = PriceCheckerMiscellaneousFilterRegistry.Quality;
 
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterUp(first));
@@ -525,6 +540,76 @@ public sealed class MultitoolMenuShellTests
                     .IsVisible);
 
             window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void PriceCheckerMiscellaneousCtrlArrowMoves_JumpToFirstOrLastInOneStep()
+    {
+        RunOnSta(() =>
+        {
+            using var directory = new TemporaryDirectory();
+            var path = Path.Combine(directory.Path, "settings.json");
+            var setting = new ApplicationLeagueSetting(path);
+            var window = new MultitoolMenuWindow(setting, LeagueProvider());
+            var last = PriceCheckerMiscellaneousFilterRegistry.Intangibility;
+            var first = PriceCheckerMiscellaneousFilterRegistry.FracturedItem;
+            var middle = PriceCheckerMiscellaneousFilterRegistry.Quality;
+
+            Assert.False(window.MovePriceCheckerMiscellaneousFilterToStart(first));
+            Assert.False(window.MovePriceCheckerMiscellaneousFilterToEnd(last));
+            Assert.Equal(
+                PriceCheckerMiscellaneousFilterRegistry.CreateDefaults()
+                    .Select(preference => preference.Key),
+                window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
+
+            Assert.True(window.SetPriceCheckerMiscellaneousFilterVisibility(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                isVisible: false));
+            Assert.True(window.MovePriceCheckerMiscellaneousFilterToStart(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands));
+            Assert.Equal(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                window.PendingPriceCheckerMiscellaneousFilters[0].Key);
+            Assert.False(window.PendingPriceCheckerMiscellaneousFilters[0].IsVisible);
+            Assert.False(window.CanMovePriceCheckerMiscellaneousFilterUp(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands));
+            Assert.True(window.CanMovePriceCheckerMiscellaneousFilterDown(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands));
+
+            Assert.True(window.MovePriceCheckerMiscellaneousFilterToEnd(middle));
+            Assert.Equal(
+                PriceCheckerMiscellaneousFilterRegistry.Quality,
+                window.PendingPriceCheckerMiscellaneousFilters[^1].Key);
+            Assert.True(window.PendingPriceCheckerMiscellaneousFilters[^1].IsVisible);
+            Assert.False(window.CanMovePriceCheckerMiscellaneousFilterDown(
+                PriceCheckerMiscellaneousFilterRegistry.Quality));
+            Assert.True(window.CanMovePriceCheckerMiscellaneousFilterUp(
+                PriceCheckerMiscellaneousFilterRegistry.Quality));
+
+            Assert.Equal(
+                window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key),
+                setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
+            Assert.False(
+                setting.PriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.MemoryStrands)
+                    .IsVisible);
+
+            var restored = new MultitoolMenuWindow(
+                new ApplicationLeagueSetting(path),
+                LeagueProvider());
+            Assert.Equal(
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                restored.PendingPriceCheckerMiscellaneousFilters[0].Key);
+            Assert.Equal(
+                PriceCheckerMiscellaneousFilterRegistry.Quality,
+                restored.PendingPriceCheckerMiscellaneousFilters[^1].Key);
+            Assert.False(
+                restored.PendingPriceCheckerMiscellaneousFilters[0].IsVisible);
+
+            window.CloseForApplicationExit();
+            restored.CloseForApplicationExit();
         });
     }
 
@@ -582,6 +667,12 @@ public sealed class MultitoolMenuShellTests
             "x:Name=\"BasePercentileFilterBorder\"",
             priceCheckerWindowXaml,
             StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"MemoryStrandsFilterTextBox\"", priceCheckerWindowXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"IntangibilityFilterTextBox\"", priceCheckerWindowXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("MemoryStrandsFilterMaxTextBox", priceCheckerWindowXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("IntangibilityFilterMaxTextBox", priceCheckerWindowXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("MemoryStrandsFilterMinTextBox", priceCheckerWindowXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("IntangibilityFilterMinTextBox", priceCheckerWindowXaml, StringComparison.Ordinal);
     }
 
     [Fact]

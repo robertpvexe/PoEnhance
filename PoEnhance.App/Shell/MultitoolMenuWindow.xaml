@@ -853,7 +853,7 @@
                                Foreground="#969FB2"
                                FontSize="13"
                                TextWrapping="Wrap"
-                               Text="Core Miscellaneous filters always appear in the Price Checker popup. Optional filters can be hidden. Use the arrows to change the shared order for every group." />
+                               Text="Core Miscellaneous filters always appear in the Price Checker popup. Optional filters can be hidden. Use the arrows to change the shared order for every group. Hold Ctrl with an arrow to jump to the top or bottom." />
 
                     <Border Padding="18,16"
                             HorizontalAlignment="Stretch"
@@ -869,7 +869,7 @@
                                        Foreground="#969FB2"
                                        FontSize="12"
                                        TextWrapping="Wrap"
-                                       Text="Turning an optional group off only hides it from the Price Checker popup. It does not activate a Trade filter. Core groups have no switch and always stay available. Use the arrows to change their order. Changes save automatically." />
+                                       Text="Turning an optional group off only hides it from the Price Checker popup. It does not activate a Trade filter. Core groups have no switch and always stay available. Use the arrows to change their order (Ctrl + arrow jumps to top or bottom). Changes save automatically." />
 
                             <ItemsControl x:Name="PriceCheckerMiscFiltersItemsControl"
                                           PreviewKeyDown="PriceCheckerMiscFiltersItemsControl_OnPreviewKeyDown">
@@ -929,14 +929,14 @@
                                                             Content="&#xE70E;"
                                                             IsEnabled="{Binding CanMoveUp}"
                                                             Click="PriceCheckerMiscFilterMoveUpButton_OnClick"
-                                                            ToolTip="Move up"
+                                                            ToolTip="Move up (Ctrl: to top)"
                                                             AutomationProperties.Name="Move up" />
                                                     <Button Margin="0,2,0,0"
                                                             Style="{StaticResource SettingsReorderArrowButtonStyle}"
                                                             Content="&#xE70D;"
                                                             IsEnabled="{Binding CanMoveDown}"
                                                             Click="PriceCheckerMiscFilterMoveDownButton_OnClick"
-                                                            ToolTip="Move down"
+                                                            ToolTip="Move down (Ctrl: to bottom)"
                                                             AutomationProperties.Name="Move down" />
                                                 </StackPanel>
                                             </Grid>

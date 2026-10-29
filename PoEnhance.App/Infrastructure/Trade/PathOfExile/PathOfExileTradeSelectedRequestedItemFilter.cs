@@ -12,6 +12,8 @@ internal sealed record PathOfExileTradeSelectedRequestedItemFilter
 
     public int? MinimumValue { get; init; }
 
+    public int? MaximumValue { get; init; }
+
     public int? Red { get; init; }
 
     public int? Green { get; init; }
@@ -22,6 +24,7 @@ internal sealed record PathOfExileTradeSelectedRequestedItemFilter
 
     public bool HasConstraint =>
         MinimumValue.HasValue ||
+        MaximumValue.HasValue ||
         Red.HasValue ||
         Green.HasValue ||
         Blue.HasValue ||

@@ -27,6 +27,8 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
                 PriceCheckerMiscellaneousFilterRegistry.Foulborn,
                 PriceCheckerMiscellaneousFilterRegistry.Vestigial,
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility,
             ],
             defaults.Select(preference => preference.Key));
         Assert.All(defaults, preference => Assert.True(preference.IsVisible));
@@ -49,6 +51,10 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             PriceCheckerMiscellaneousFilterRegistry.Foulborn));
         Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
             PriceCheckerMiscellaneousFilterRegistry.Vestigial));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.MemoryStrands));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Intangibility));
     }
 
     [Fact]
@@ -168,6 +174,8 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
                 PriceCheckerMiscellaneousFilterRegistry.Foulborn,
                 PriceCheckerMiscellaneousFilterRegistry.Vestigial,
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands,
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility,
             ],
             setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
         Assert.All(
@@ -180,7 +188,9 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                     PriceCheckerMiscellaneousFilterRegistry.Foreseeing or
                     PriceCheckerMiscellaneousFilterRegistry.CrucibleItem or
                     PriceCheckerMiscellaneousFilterRegistry.Foulborn or
-                    PriceCheckerMiscellaneousFilterRegistry.Vestigial),
+                    PriceCheckerMiscellaneousFilterRegistry.Vestigial or
+                    PriceCheckerMiscellaneousFilterRegistry.MemoryStrands or
+                    PriceCheckerMiscellaneousFilterRegistry.Intangibility),
             preference => Assert.True(preference.IsVisible));
         Assert.False(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
             PriceCheckerMiscellaneousFilterRegistry.Quality));
@@ -230,6 +240,30 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                     LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
                     ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
                 },
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.MemoryStrands,
+                    Label = "Memory Strands",
+                    CurrentText = "10",
+                    RequestedMinimum = 10,
+                    MaximumText = "40",
+                    RequestedMaximum = 40,
+                    IsActive = true,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                },
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.Intangibility,
+                    Label = "Intangibility",
+                    CurrentText = "0",
+                    RequestedMinimum = 0,
+                    MaximumText = "8",
+                    RequestedMaximum = 8,
+                    IsActive = true,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                },
             ],
         };
         var preferences = PriceCheckerMiscellaneousFilterRegistry.CreateDefaults()
@@ -254,6 +288,10 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.Foulborn =>
                     preference with { IsVisible = false },
                 PriceCheckerMiscellaneousFilterRegistry.Vestigial =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.MemoryStrands =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Intangibility =>
                     preference with { IsVisible = false },
                 _ => preference,
             })
@@ -281,6 +319,14 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             searchDraft.RequestedItemFilters
                 .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
                 .IsActive);
+        Assert.False(
+            searchDraft.RequestedItemFilters
+                .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.MemoryStrands)
+                .IsActive);
+        Assert.False(
+            searchDraft.RequestedItemFilters
+                .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Intangibility)
+                .IsActive);
 
         var restored = PriceCheckerMiscellaneousFilterPreferenceApplicator.RestoreHiddenOptionalUiState(
             searchDraft,
@@ -299,6 +345,19 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             restored.RequestedItemFilters
                 .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)
                 .IsActive);
+        var restoredMemory = restored.RequestedItemFilters
+            .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.MemoryStrands);
+        Assert.True(restoredMemory.IsActive);
+        Assert.Equal("10", restoredMemory.CurrentText);
+        Assert.Equal(10, restoredMemory.RequestedMinimum);
+        Assert.Equal(string.Empty, restoredMemory.MaximumText);
+        Assert.Null(restoredMemory.RequestedMaximum);
+        var restoredIntangibility = restored.RequestedItemFilters
+            .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.True(restoredIntangibility.IsActive);
+        Assert.Equal(0, restoredIntangibility.RequestedMinimum);
+        Assert.Equal(string.Empty, restoredIntangibility.MaximumText);
+        Assert.Null(restoredIntangibility.RequestedMaximum);
     }
 
     [Fact]
