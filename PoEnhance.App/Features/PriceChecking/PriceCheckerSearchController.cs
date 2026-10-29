@@ -974,11 +974,13 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
+        // Null ActiveCriterion (Exact Base intended but unresolved) may still advance to Category
+        // when the user explicitly toggles; never invent Exact Base from that click.
         var nextCriterion = baseDraft.ActiveCriterion?.Mode switch
         {
             BaseSearchMode.Category => baseDraft.AvailableCriteria.ExactBase,
             BaseSearchMode.ExactBase => baseDraft.AvailableCriteria.Category,
-            _ => null,
+            _ => baseDraft.AvailableCriteria.Category,
         };
         if (nextCriterion is null)
         {

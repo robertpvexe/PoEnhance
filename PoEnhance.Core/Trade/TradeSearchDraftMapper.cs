@@ -634,6 +634,8 @@ public sealed partial class TradeSearchDraftMapper
 
     /// <summary>
     /// Ordinary Normal/Magic default to Exact Base when a resolved catalog base exists.
+    /// When Exact Base is unavailable (unknown/ambiguous), do not silently activate Category —
+    /// leave ActiveCriterion unset so Search stays blocked until the user chooses Category.
     /// Ordinary Rare (and Unique/other) keep Category-first so Rare identity stays broad by default
     /// and Unique query identity continues to rely on provider name/type, not this criterion.
     /// </summary>
@@ -644,7 +646,7 @@ public sealed partial class TradeSearchDraftMapper
     {
         if (IsOrdinaryExactBaseDefaultRarity(rarity))
         {
-            return exactBaseCriterion ?? categoryCriterion;
+            return exactBaseCriterion;
         }
 
         return categoryCriterion ?? exactBaseCriterion;

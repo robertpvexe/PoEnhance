@@ -504,6 +504,14 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             }
         }
 
+        // Unknown/unresolved bases must not silently broaden via clipboard base text when the user
+        // has not activated Category or Exact Base. Callers fail closed with MissingBaseIdentity.
+        if (draft.Base.Status == ItemBaseResolutionStatus.Unknown ||
+            draft.Base.ActiveCriterion is null)
+        {
+            return null;
+        }
+
         return TrimToNull(draft.ParsedBaseType);
     }
 

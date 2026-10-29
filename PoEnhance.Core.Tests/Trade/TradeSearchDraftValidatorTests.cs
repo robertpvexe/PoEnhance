@@ -644,6 +644,79 @@ Item Level: 82
             TradeSearchValidationSeverity.Warning);
     }
 
+    [Theory]
+    [InlineData("Normal")]
+    [InlineData("Magic")]
+    public void Validate_NormalOrMagicUnknownBaseWithoutActiveCriterion_IsInvalid(string rarity)
+    {
+        var draft = ValidDraft() with
+        {
+            Rarity = rarity,
+            ParsedBaseType = "Unknown Gloves",
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Unknown,
+                Category = "Gloves",
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = "Gloves",
+                    },
+                },
+                ActiveCriterion = null,
+            },
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.False(result.IsValid);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.MissingBaseIdentity,
+            TradeSearchValidationSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("Normal")]
+    [InlineData("Magic")]
+    public void Validate_NormalOrMagicUnknownBaseWithManualCategory_IsValid(string rarity)
+    {
+        var draft = ValidDraft() with
+        {
+            Rarity = rarity,
+            ParsedBaseType = "Unknown Gloves",
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Unknown,
+                Category = "Gloves",
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = "Gloves",
+                    },
+                },
+                ActiveCriterion = new BaseSearchCriterion
+                {
+                    Mode = BaseSearchMode.Category,
+                    Category = "Gloves",
+                },
+            },
+        };
+
+        var result = validator.Validate(draft);
+
+        Assert.True(result.IsValid);
+        Assert.False(result.HasErrors);
+        AssertDiagnostic(
+            result,
+            TradeSearchValidationDiagnosticCodes.UnresolvedBase,
+            TradeSearchValidationSeverity.Warning);
+    }
+
     [Fact]
     public void Validate_MissingParsedAndResolvedBaseIdentity_IsInvalid()
     {

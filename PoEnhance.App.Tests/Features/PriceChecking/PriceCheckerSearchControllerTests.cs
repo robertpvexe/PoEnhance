@@ -4303,6 +4303,57 @@ public sealed class PriceCheckerSearchControllerTests
             fixture.PriceCheckService.Calls[1].Draft?.Base.ActiveCriterion?.Mode);
     }
 
+    [Theory]
+    [InlineData("Normal", "Unknown Gloves")]
+    [InlineData("Magic", "Blasting Unknown Gloves of the Magus")]
+    public async Task OrdinaryUnresolvedExactBase_BlocksSearchUntilUserSelectsCategory(
+        string rarity,
+        string displayName)
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([], 0);
+        var draft = DraftUnresolvedExactBaseWithCategoryAvailable(rarity, displayName);
+        var validation = new TradeSearchDraftValidator().Validate(draft);
+        fixture.Controller.UpdateCurrentDraft(draft, validation);
+
+        Assert.Equal(rarity, fixture.Window.CurrentState!.Draft.Rarity);
+        Assert.Null(fixture.Window.CurrentState.Draft.Base.ActiveCriterion);
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState.Draft.Base.AvailableCriteria.Category?.Mode);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.False(fixture.Window.CurrentSearchState?.CanSearch);
+
+        await fixture.Controller.SearchAsync();
+
+        Assert.Empty(fixture.PriceCheckService.Calls);
+        Assert.Equal(PriceCheckerSearchViewStatus.ValidationError, fixture.Window.CurrentSearchState?.Status);
+        Assert.Null(fixture.Window.CurrentState.Draft.Base.ActiveCriterion);
+
+        fixture.Window.RaiseBaseCriterionToggleRequested();
+
+        Assert.Equal(
+            BaseSearchMode.Category,
+            fixture.Window.CurrentState.Draft.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", fixture.Window.CurrentState.Draft.Base.ActiveCriterion?.Category);
+        Assert.Null(fixture.Window.CurrentState.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal(rarity, fixture.Window.CurrentState.Draft.Rarity);
+        Assert.NotEqual(
+            displayName,
+            fixture.Window.CurrentState.Draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.True(fixture.Window.CurrentSearchState?.CanSearch);
+
+        await fixture.Controller.SearchAsync();
+
+        var call = Assert.Single(fixture.PriceCheckService.Calls);
+        Assert.Equal(BaseSearchMode.Category, call.Draft?.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", call.Draft?.Base.ActiveCriterion?.Category);
+        Assert.Null(call.Draft?.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal(rarity, call.Draft?.Rarity);
+        Assert.Equal(displayName, call.Draft?.DisplayName);
+        Assert.NotEqual(displayName, call.Draft?.Base.ActiveCriterion?.ExactBaseName);
+    }
+
     [Fact]
     public async Task SearchAsync_StygianForcedExactBaseResultRemainsReflectedInTheCurrentDraft()
     {
@@ -5031,6 +5082,39 @@ public sealed class PriceCheckerSearchControllerTests
                     ExactBase = exactBase,
                 },
                 ActiveCriterion = category,
+            },
+        };
+    }
+
+    private static TradeSearchDraft DraftUnresolvedExactBaseWithCategoryAvailable(
+        string rarity,
+        string displayName)
+    {
+        var category = new BaseSearchCriterion
+        {
+            Mode = BaseSearchMode.Category,
+            Category = "Gloves",
+        };
+        return Draft(displayName) with
+        {
+            ItemClass = "Gloves",
+            Rarity = rarity,
+            ParsedBaseType = "Unknown Gloves",
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Unknown,
+                Category = "Gloves",
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = ItemBaseResolutionStatus.Unknown,
+                    ExactBaseName = "Unknown Gloves",
+                    Category = "Gloves",
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = category,
+                },
+                ActiveCriterion = null,
             },
         };
     }

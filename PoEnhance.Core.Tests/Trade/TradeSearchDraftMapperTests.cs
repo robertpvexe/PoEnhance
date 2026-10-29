@@ -1058,10 +1058,19 @@ Item Level: 83
         }
     }
 
-    [Fact]
-    public void CreateDraft_NormalAmbiguousBase_DoesNotFabricateExactBaseAndKeepsCategoryAvailable()
+    [Theory]
+    [InlineData("Normal")]
+    [InlineData("Magic")]
+    public void CreateDraft_NormalOrMagicAmbiguousBase_DoesNotAutoSelectCategoryOrFabricateExactBase(
+        string rarity)
     {
-        var item = ParseOrdinaryItem("Gloves", "Unknown Gloves", rarity: "Normal");
+        var item = ParseOrdinaryItem(
+            "Gloves",
+            "Unknown Gloves",
+            rarity: rarity,
+            displayName: rarity == "Magic"
+                ? "Blasting Unknown Gloves of the Magus"
+                : "Unknown Gloves");
         var ambiguous = new ItemBaseResolutionResult
         {
             Status = ItemBaseResolutionStatus.Unknown,
@@ -1080,13 +1089,42 @@ Item Level: 83
 
         var draft = AssertSuccessfulDraft(mapper.CreateDraft(item, ambiguous));
 
+        Assert.Equal(rarity, draft.Rarity);
         Assert.Equal(ItemBaseResolutionStatus.Unknown, draft.Base.Status);
         Assert.Equal(ItemBaseResolutionStatus.Unknown, draft.Base.Observed?.Status);
         Assert.Null(draft.Base.ResolvedBaseName);
         Assert.Null(draft.Base.AvailableCriteria.ExactBase);
-        Assert.Equal(BaseSearchMode.Category, draft.Base.ActiveCriterion?.Mode);
-        Assert.Equal("Gloves", draft.Base.ActiveCriterion?.Category);
-        Assert.Null(draft.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Null(draft.Base.ActiveCriterion);
+        Assert.Equal(BaseSearchMode.Category, draft.Base.AvailableCriteria.Category?.Mode);
+        Assert.Equal("Gloves", draft.Base.AvailableCriteria.Category?.Category);
+        Assert.Null(draft.Base.AvailableCriteria.Category?.ExactBaseName);
+        if (string.Equals(rarity, "Magic", StringComparison.Ordinal))
+        {
+            Assert.Equal("Blasting Unknown Gloves of the Magus", draft.DisplayName);
+            Assert.NotEqual(draft.DisplayName, draft.ParsedBaseType);
+        }
+
+        var validation = new TradeSearchDraftValidator().Validate(draft);
+        Assert.False(validation.IsValid);
+        Assert.Contains(
+            validation.Diagnostics,
+            diagnostic =>
+                diagnostic.Code == TradeSearchValidationDiagnosticCodes.MissingBaseIdentity &&
+                diagnostic.Severity == TradeSearchValidationSeverity.Error);
+
+        var manualCategory = draft with
+        {
+            Base = draft.Base with
+            {
+                ActiveCriterion = draft.Base.AvailableCriteria.Category,
+            },
+        };
+        var afterCategory = new TradeSearchDraftValidator().Validate(manualCategory);
+        Assert.True(afterCategory.IsValid);
+        Assert.False(afterCategory.HasErrors);
+        Assert.Equal(BaseSearchMode.Category, manualCategory.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", manualCategory.Base.ActiveCriterion?.Category);
+        Assert.Null(manualCategory.Base.ActiveCriterion?.ExactBaseName);
     }
 
     [Fact]

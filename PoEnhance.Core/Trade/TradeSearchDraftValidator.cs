@@ -118,6 +118,18 @@ public sealed class TradeSearchDraftValidator
             return;
         }
 
+        // Normal/Magic default to Exact Base. When that identity is unresolved and the user has not
+        // manually chosen Category (or another active criterion), Search must stay blocked.
+        if (IsOrdinaryExactBaseDefaultRarity(draft.Rarity) &&
+            !hasActiveBaseCriterion &&
+            (!hasResolvedBaseIdentity || draft.Base?.Status == ItemBaseResolutionStatus.Unknown))
+        {
+            diagnostics.Add(Error(
+                TradeSearchValidationDiagnosticCodes.MissingBaseIdentity,
+                "Exact Base is unavailable because the item base is unresolved. Select Category manually to search by item class."));
+            return;
+        }
+
         if (hasParsedBaseType &&
             (!hasResolvedBaseIdentity || draft.Base?.Status == ItemBaseResolutionStatus.Unknown))
         {
@@ -125,6 +137,13 @@ public sealed class TradeSearchDraftValidator
                 TradeSearchValidationDiagnosticCodes.UnresolvedBase,
                 "The draft uses parsed base text because no resolved catalog base identity is available."));
         }
+    }
+
+    private static bool IsOrdinaryExactBaseDefaultRarity(string? rarity)
+    {
+        var trimmed = rarity?.Trim();
+        return string.Equals(trimmed, "Normal", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "Magic", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ValidateItemLevel(

@@ -635,6 +635,86 @@ public sealed class PathOfExileTradeQueryBuilderTests
     }
 
     [Fact]
+    public void Build_UnknownBaseWithoutActiveCriterion_FailsClosedWithoutParsedTypeFallback()
+    {
+        var draft = Draft(
+            rarity: "Normal",
+            displayName: "Unknown Gloves",
+            parsedBaseType: "Unknown Gloves",
+            status: ItemBaseResolutionStatus.Unknown,
+            resolvedBaseName: null,
+            itemClass: "Gloves") with
+        {
+            Base = new TradeSearchBaseDraft
+            {
+                Status = ItemBaseResolutionStatus.Unknown,
+                Category = "Gloves",
+                Observed = new ObservedBaseIdentity
+                {
+                    Status = ItemBaseResolutionStatus.Unknown,
+                    ExactBaseName = "Unknown Gloves",
+                    Category = "Gloves",
+                },
+                AvailableCriteria = new AvailableBaseSearchCriteria
+                {
+                    Category = new BaseSearchCriterion
+                    {
+                        Mode = BaseSearchMode.Category,
+                        Category = "Gloves",
+                    },
+                },
+                ActiveCriterion = null,
+            },
+        };
+
+        var result = builder.Build(draft, ValidValidation(), League);
+
+        AssertFailure(result, PathOfExileTradeQueryDiagnosticCodes.MissingBaseIdentity);
+        Assert.Null(result.Request);
+        Assert.Null(result.SerializedJson);
+    }
+
+    [Theory]
+    [InlineData("Normal", "Unknown Gloves")]
+    [InlineData("Magic", "Blasting Unknown Gloves of the Magus")]
+    public void Build_OrdinaryUnknownBaseWithManualCategory_SerializesCategoryAndRarityWithoutTypeOrName(
+        string rarity,
+        string displayName)
+    {
+        var draft = WithCategoryMode(
+            Draft(
+                rarity: rarity,
+                displayName: displayName,
+                parsedBaseType: "Unknown Gloves",
+                status: ItemBaseResolutionStatus.Unknown,
+                resolvedBaseName: null,
+                itemClass: "Gloves"),
+            category: "Gloves");
+
+        var result = BuildSuccessful(
+            draft,
+            providerFilterCatalog: CategoryCatalog(("armour.gloves", "Gloves")));
+
+        Assert.Null(result.Request?.Query.Type);
+        Assert.Null(result.Request?.Query.Name);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var query = document.RootElement.GetProperty("query");
+        Assert.False(query.TryGetProperty("type", out _));
+        Assert.False(query.TryGetProperty("name", out _));
+        Assert.Equal(
+            "armour.gloves",
+            query.GetProperty("filters")
+                .GetProperty("type_filters")
+                .GetProperty("filters")
+                .GetProperty("category")
+                .GetProperty("option")
+                .GetString());
+        AssertRarityFilter(result.SerializedJson!, rarity.ToLowerInvariant());
+        Assert.DoesNotContain(displayName, result.SerializedJson!, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Unknown Gloves\"", result.SerializedJson!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_MissingAllBaseIdentities_Fails()
     {
         var result = builder.Build(
