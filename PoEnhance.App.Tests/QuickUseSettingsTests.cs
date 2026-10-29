@@ -20,11 +20,11 @@ public sealed class QuickUseSettingsTests
         Assert.Contains("Background=\"#202431\"", xaml, StringComparison.Ordinal);
         Assert.Contains("VerticalScrollBarVisibility=\"Auto\"", xaml, StringComparison.Ordinal);
         Assert.Contains(
-            "<Button x:Name=\"ApplyLeagueButton\"\n                                    Grid.Row=\"0\"\n                                    Grid.Column=\"2\"",
+            "<Button x:Name=\"ApplyLeagueButton\"\n                                        Grid.Row=\"0\"\n                                        Grid.Column=\"2\"",
             xaml,
             StringComparison.Ordinal);
         Assert.Contains("x:Name=\"CustomLeagueTextBox\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("TextChanged=\"CustomLeagueTextBox_OnTextChanged\"\n                                     Visibility=\"Collapsed\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextChanged=\"CustomLeagueTextBox_OnTextChanged\"\n                                         Visibility=\"Collapsed\"", xaml, StringComparison.Ordinal);
     }
 
     [Fact]

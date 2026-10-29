@@ -289,97 +289,167 @@
 
         <Border Grid.Column="0" Background="#151821" Padding="20">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+                <Grid x:Name="MainSidebarPanel">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Orientation="Horizontal">
-                    <Border Width="46"
-                            Height="46"
-                            Background="#202534"
-                            BorderBrush="#8D67F5"
+                    <StackPanel Grid.Row="0" Orientation="Horizontal">
+                        <Border Width="46"
+                                Height="46"
+                                Background="#202534"
+                                BorderBrush="#8D67F5"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <Image Width="32"
+                                   Height="32"
+                                   Source="/PoEnhance.App;component/Assets/poenhance.ico" />
+                        </Border>
+                        <StackPanel Margin="12,2,0,0">
+                            <TextBlock FontSize="20"
+                                       FontWeight="Bold"
+                                       Text="PoEnhance" />
+                            <TextBlock x:Name="VersionText"
+                                       Margin="0,3,0,0"
+                                       Foreground="#8E97AA"
+                                       FontSize="12"
+                                       Text="Version" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Button x:Name="StartNavigationButton"
+                            Grid.Row="1"
+                            Margin="0,24,0,0"
+                            Style="{StaticResource SidebarButtonStyle}"
+                            Tag="Active"
+                            Click="StartNavigationButton_OnClick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="28"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       FontSize="16"
+                                       Text="&#xE80F;" />
+                            <TextBlock Text="Start" />
+                        </StackPanel>
+                    </Button>
+
+                    <Border Grid.Row="2"
+                            Margin="0,14,0,0"
+                            Padding="12"
+                            Background="#1C202B"
+                            BorderBrush="#2B3140"
                             BorderThickness="1"
-                            CornerRadius="10">
-                        <Image Width="32"
-                               Height="32"
-                               Source="/PoEnhance.App;component/Assets/poenhance.ico" />
+                            CornerRadius="8">
+                        <StackPanel>
+                            <TextBlock Foreground="#8E97AA"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Text="GAME STATUS" />
+                            <TextBlock x:Name="PathOfExileStatusText"
+                                       Margin="0,6,0,0"
+                                       FontSize="13"
+                                       Text="Path of Exile: Not running"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
                     </Border>
-                    <StackPanel Margin="12,2,0,0">
-                        <TextBlock FontSize="20"
+
+                    <Button x:Name="SettingsNavigationButton"
+                            Grid.Row="4"
+                            Style="{StaticResource SidebarButtonStyle}"
+                            Click="SettingsNavigationButton_OnClick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="28"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       FontSize="16"
+                                       Text="&#xE713;" />
+                            <TextBlock Text="Settings" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Row="5"
+                            Style="{StaticResource SidebarButtonStyle}"
+                            Click="ExitButton_OnClick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="28"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       FontSize="16"
+                                       Text="&#xE7E8;" />
+                            <TextBlock Text="Exit" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Grid x:Name="SettingsSidebarPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="SettingsBackButton"
+                                Width="44"
+                                Height="44"
+                                Margin="0,0,10,0"
+                                Padding="0"
+                                HorizontalContentAlignment="Center"
+                                Style="{StaticResource SidebarButtonStyle}"
+                                AutomationProperties.Name="Back"
+                                ToolTip="Back"
+                                Click="SettingsBackButton_OnClick">
+                            <TextBlock FontFamily="Segoe MDL2 Assets"
+                                       FontSize="16"
+                                       Text="&#xE72B;" />
+                        </Button>
+                        <TextBlock VerticalAlignment="Center"
+                                   FontSize="20"
                                    FontWeight="Bold"
-                                   Text="PoEnhance" />
-                        <TextBlock x:Name="VersionText"
-                                   Margin="0,3,0,0"
-                                   Foreground="#8E97AA"
-                                   FontSize="12"
-                                   Text="Version" />
+                                   Text="Settings" />
                     </StackPanel>
-                </StackPanel>
 
-                <Button x:Name="StartNavigationButton"
-                        Grid.Row="1"
-                        Margin="0,24,0,0"
-                        Style="{StaticResource SidebarButtonStyle}"
-                        Tag="Active"
-                        Click="StartNavigationButton_OnClick">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Width="28"
-                                   FontFamily="Segoe MDL2 Assets"
-                                   FontSize="16"
-                                   Text="&#xE80F;" />
-                        <TextBlock Text="Start" />
+                    <StackPanel Grid.Row="1" Margin="0,24,0,0">
+                        <Button x:Name="GeneralSettingsNavigationButton"
+                                Style="{StaticResource SidebarButtonStyle}"
+                                AutomationProperties.Name="General"
+                                Click="GeneralSettingsNavigationButton_OnClick">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="28"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Text="&#xE713;" />
+                                <TextBlock Text="General" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="HotkeysSettingsNavigationButton"
+                                Style="{StaticResource SidebarButtonStyle}"
+                                AutomationProperties.Name="Hotkeys"
+                                Click="HotkeysSettingsNavigationButton_OnClick">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="28"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Text="&#xE765;" />
+                                <TextBlock Text="Hotkeys" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="PriceCheckerSettingsNavigationButton"
+                                Style="{StaticResource SidebarButtonStyle}"
+                                AutomationProperties.Name="Price Checker"
+                                Click="PriceCheckerSettingsNavigationButton_OnClick">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Width="28"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Text="&#xE8EA;" />
+                                <TextBlock Text="Price Checker" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
-                </Button>
-
-                <Border Grid.Row="2"
-                        Margin="0,14,0,0"
-                        Padding="12"
-                        Background="#1C202B"
-                        BorderBrush="#2B3140"
-                        BorderThickness="1"
-                        CornerRadius="8">
-                    <StackPanel>
-                        <TextBlock Foreground="#8E97AA"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   Text="GAME STATUS" />
-                        <TextBlock x:Name="PathOfExileStatusText"
-                                   Margin="0,6,0,0"
-                                   FontSize="13"
-                                   Text="Path of Exile: Not running"
-                                   TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-
-                <Button x:Name="SettingsNavigationButton"
-                        Grid.Row="4"
-                        Style="{StaticResource SidebarButtonStyle}"
-                        Click="SettingsNavigationButton_OnClick">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Width="28"
-                                   FontFamily="Segoe MDL2 Assets"
-                                   FontSize="16"
-                                   Text="&#xE713;" />
-                        <TextBlock Text="Settings" />
-                    </StackPanel>
-                </Button>
-
-                <Button Grid.Row="5"
-                        Style="{StaticResource SidebarButtonStyle}"
-                        Click="ExitButton_OnClick">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Width="28"
-                                   FontFamily="Segoe MDL2 Assets"
-                                   FontSize="16"
-                                   Text="&#xE7E8;" />
-                        <TextBlock Text="Exit" />
-                    </StackPanel>
-                </Button>
+                </Grid>
             </Grid>
         </Border>
 
@@ -520,198 +590,237 @@
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       Visibility="Collapsed">
-            <StackPanel MaxWidth="1120" HorizontalAlignment="Stretch">
-                <TextBlock FontSize="26"
-                           FontWeight="Bold"
-                           Text="Settings" />
-                <TextBlock Margin="0,5,0,20"
-                           Foreground="#969FB2"
-                           FontSize="13"
-                           Text="Configure PoEnhance application behavior." />
+            <Grid MaxWidth="1120" HorizontalAlignment="Stretch">
+                <StackPanel x:Name="SettingsGeneralContent">
+                    <TextBlock FontSize="26"
+                               FontWeight="Bold"
+                               Text="General" />
+                    <TextBlock Margin="0,5,0,20"
+                               Foreground="#969FB2"
+                               FontSize="13"
+                               Text="Configure PoEnhance application behavior." />
 
-                <Border Padding="24"
-                        HorizontalAlignment="Stretch"
-                        Background="#181B25"
-                        BorderBrush="#2A2F3F"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                    <StackPanel>
-                        <TextBlock FontSize="20"
-                                   FontWeight="SemiBold"
-                                   Text="Game" />
-
-                        <Grid Margin="0,22,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160" />
-                                <ColumnDefinition Width="360" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-
-                            <TextBlock Grid.Row="0"
-                                       Grid.Column="0"
-                                       VerticalAlignment="Center"
-                                       FontSize="15"
+                    <Border Padding="24"
+                            HorizontalAlignment="Stretch"
+                            Background="#181B25"
+                            BorderBrush="#2A2F3F"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock FontSize="20"
                                        FontWeight="SemiBold"
-                                       Text="League" />
+                                       Text="Game" />
 
-                            <ComboBox x:Name="LeagueComboBox"
-                                      Grid.Row="0"
-                                      Grid.Column="1"
-                                      Width="340"
-                                      HorizontalAlignment="Left"
-                                      Style="{StaticResource SettingsComboBoxStyle}"
-                                      SelectionChanged="LeagueComboBox_OnSelectionChanged">
-                                <ComboBoxItem Content="Select league" IsEnabled="False" />
-                            </ComboBox>
+                            <Grid Margin="0,22,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="360" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Row="1"
-                                       Grid.Column="0"
-                                       Margin="0,16,0,0"
-                                       VerticalAlignment="Center"
-                                       Foreground="#C7CBD5"
-                                       Text="Custom league"
-                                       Visibility="Collapsed" />
+                                <TextBlock Grid.Row="0"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Text="League" />
 
-                            <TextBox x:Name="CustomLeagueTextBox"
-                                     Grid.Row="1"
-                                     Grid.Column="1"
-                                     Width="340"
-                                     Margin="0,16,0,0"
-                                     HorizontalAlignment="Left"
-                                     IsEnabled="False"
-                                     Style="{StaticResource SettingsTextBoxStyle}"
-                                     TextChanged="CustomLeagueTextBox_OnTextChanged"
-                                     Visibility="Collapsed" />
+                                <ComboBox x:Name="LeagueComboBox"
+                                          Grid.Row="0"
+                                          Grid.Column="1"
+                                          Width="340"
+                                          HorizontalAlignment="Left"
+                                          Style="{StaticResource SettingsComboBoxStyle}"
+                                          SelectionChanged="LeagueComboBox_OnSelectionChanged">
+                                    <ComboBoxItem Content="Select league" IsEnabled="False" />
+                                </ComboBox>
 
-                            <Button x:Name="ApplyLeagueButton"
-                                    Grid.Row="0"
-                                    Grid.Column="2"
-                                    Width="96"
-                                    Margin="12,0,0,0"
-                                    HorizontalAlignment="Left"
-                                    Style="{StaticResource SettingsButtonStyle}"
-                                    Click="ApplyLeagueButton_OnClick"
-                                    Content="Apply" />
+                                <TextBlock Grid.Row="1"
+                                           Grid.Column="0"
+                                           Margin="0,16,0,0"
+                                           VerticalAlignment="Center"
+                                           Foreground="#C7CBD5"
+                                           Text="Custom league"
+                                           Visibility="Collapsed" />
 
-                            <TextBlock x:Name="LeagueFeedbackText"
-                                       Grid.Row="0"
-                                       Grid.Column="3"
-                                       Margin="16,0,0,0"
-                                       VerticalAlignment="Center"
+                                <TextBox x:Name="CustomLeagueTextBox"
+                                         Grid.Row="1"
+                                         Grid.Column="1"
+                                         Width="340"
+                                         Margin="0,16,0,0"
+                                         HorizontalAlignment="Left"
+                                         IsEnabled="False"
+                                         Style="{StaticResource SettingsTextBoxStyle}"
+                                         TextChanged="CustomLeagueTextBox_OnTextChanged"
+                                         Visibility="Collapsed" />
+
+                                <Button x:Name="ApplyLeagueButton"
+                                        Grid.Row="0"
+                                        Grid.Column="2"
+                                        Width="96"
+                                        Margin="12,0,0,0"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource SettingsButtonStyle}"
+                                        Click="ApplyLeagueButton_OnClick"
+                                        Content="Apply" />
+
+                                <TextBlock x:Name="LeagueFeedbackText"
+                                           Grid.Row="0"
+                                           Grid.Column="3"
+                                           Margin="16,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="SettingsHotkeysContent" Visibility="Collapsed">
+                    <TextBlock FontSize="26"
+                               FontWeight="Bold"
+                               Text="Hotkeys" />
+                    <TextBlock Margin="0,5,0,20"
+                               Foreground="#969FB2"
+                               FontSize="13"
+                               Text="Assign hotkeys to Path of Exile chat commands." />
+
+                    <Border Padding="24"
+                            HorizontalAlignment="Stretch"
+                            Background="#181B25"
+                            BorderBrush="#2A2F3F"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock FontSize="20"
+                                       FontWeight="SemiBold"
+                                       Text="Quick Use (TP)" />
+                            <TextBlock Margin="0,5,0,0"
+                                       Foreground="#969FB2"
                                        FontSize="13"
+                                       Text="Assign hotkeys to Path of Exile chat commands." />
+
+                            <Grid Margin="0,22,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="170" />
+                                    <ColumnDefinition Width="84" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="COMMAND" />
+                                <TextBlock Grid.Column="1" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="PRESS ENTER" />
+                                <TextBlock Grid.Column="2" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="HOTKEY" />
+                            </Grid>
+
+                            <ItemsControl x:Name="QuickUseCommandsItemsControl">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,9">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="130" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="84" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Grid.Column="0"
+                                                     Margin="0,0,14,0"
+                                                     Style="{StaticResource SettingsTextBoxStyle}"
+                                                     Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}"
+                                                     TextChanged="QuickUseCommandTextBox_OnTextChanged" />
+                                            <CheckBox Grid.Column="1"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding PressEnter}"
+                                                      Style="{StaticResource SettingsCheckBoxStyle}"
+                                                      Checked="QuickUsePendingValue_OnChanged"
+                                                      Unchecked="QuickUsePendingValue_OnChanged" />
+                                            <Button Grid.Column="2"
+                                                    Margin="8,0,14,0"
+                                                    Style="{StaticResource SettingsButtonStyle}"
+                                                    Click="QuickUseHotkeyButton_OnClick"
+                                                    Content="{Binding HotkeyLabel}" />
+                                            <Button Grid.Column="3"
+                                                    Padding="8,0"
+                                                    Click="RemoveQuickUseCommandButton_OnClick"
+                                                    Content="Remove">
+                                                <Button.Style>
+                                                    <Style BasedOn="{StaticResource SettingsButtonStyle}" TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCustom}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0"
+                                        Style="{StaticResource SettingsButtonStyle}"
+                                        Click="AddQuickUseCommandButton_OnClick"
+                                        Content="+ Add command" />
+                                <Button Grid.Column="1"
+                                        Width="92"
+                                        Margin="12,0,0,0"
+                                        Style="{StaticResource SettingsButtonStyle}"
+                                        Click="SaveQuickUseButton_OnClick"
+                                        Content="Save" />
+                                <TextBlock x:Name="QuickUseFeedbackText"
+                                           Grid.Column="2"
+                                           Margin="16,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="SettingsPriceCheckerContent" Visibility="Collapsed">
+                    <TextBlock FontSize="26"
+                               FontWeight="Bold"
+                               Text="Price Checker" />
+                    <TextBlock Margin="0,5,0,20"
+                               Foreground="#969FB2"
+                               FontSize="13"
+                               Text="Configure Price Checker preferences." />
+
+                    <Border Padding="24"
+                            HorizontalAlignment="Stretch"
+                            Background="#181B25"
+                            BorderBrush="#2A2F3F"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock FontSize="20"
                                        FontWeight="SemiBold"
-                                       TextWrapping="Wrap" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <Border Margin="0,18,0,0"
-                        Padding="24"
-                        HorizontalAlignment="Stretch"
-                        Background="#181B25"
-                        BorderBrush="#2A2F3F"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                    <StackPanel>
-                        <TextBlock FontSize="20"
-                                   FontWeight="SemiBold"
-                                   Text="Quick Use (TP)" />
-                        <TextBlock Margin="0,5,0,0"
-                                   Foreground="#969FB2"
-                                   FontSize="13"
-                                   Text="Assign hotkeys to Path of Exile chat commands." />
-
-                        <Grid Margin="0,22,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="130" />
-                                <ColumnDefinition Width="170" />
-                                <ColumnDefinition Width="84" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="COMMAND" />
-                            <TextBlock Grid.Column="1" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="PRESS ENTER" />
-                            <TextBlock Grid.Column="2" Foreground="#AEB5C5" FontSize="12" FontWeight="SemiBold" Text="HOTKEY" />
-                        </Grid>
-
-                        <ItemsControl x:Name="QuickUseCommandsItemsControl">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,0,0,9">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="130" />
-                                            <ColumnDefinition Width="170" />
-                                            <ColumnDefinition Width="84" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0"
-                                                 Margin="0,0,14,0"
-                                                 Style="{StaticResource SettingsTextBoxStyle}"
-                                                 Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}"
-                                                 TextChanged="QuickUseCommandTextBox_OnTextChanged" />
-                                        <CheckBox Grid.Column="1"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"
-                                                  IsChecked="{Binding PressEnter}"
-                                                  Style="{StaticResource SettingsCheckBoxStyle}"
-                                                  Checked="QuickUsePendingValue_OnChanged"
-                                                  Unchecked="QuickUsePendingValue_OnChanged" />
-                                        <Button Grid.Column="2"
-                                                Margin="8,0,14,0"
-                                                Style="{StaticResource SettingsButtonStyle}"
-                                                Click="QuickUseHotkeyButton_OnClick"
-                                                Content="{Binding HotkeyLabel}" />
-                                        <Button Grid.Column="3"
-                                                Padding="8,0"
-                                                Click="RemoveQuickUseCommandButton_OnClick"
-                                                Content="Remove">
-                                            <Button.Style>
-                                                <Style BasedOn="{StaticResource SettingsButtonStyle}" TargetType="Button">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsCustom}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                        </Button>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <Grid Margin="0,10,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0"
-                                    Style="{StaticResource SettingsButtonStyle}"
-                                    Click="AddQuickUseCommandButton_OnClick"
-                                    Content="+ Add command" />
-                            <Button Grid.Column="1"
-                                    Width="92"
-                                    Margin="12,0,0,0"
-                                    Style="{StaticResource SettingsButtonStyle}"
-                                    Click="SaveQuickUseButton_OnClick"
-                                    Content="Save" />
-                            <TextBlock x:Name="QuickUseFeedbackText"
-                                       Grid.Column="2"
-                                       Margin="16,0,0,0"
-                                       VerticalAlignment="Center"
+                                       Text="Filter visibility and order" />
+                            <TextBlock Margin="0,10,0,0"
+                                       Foreground="#969FB2"
                                        FontSize="13"
-                                       FontWeight="SemiBold"
-                                       TextWrapping="Wrap" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+                                       TextWrapping="Wrap"
+                                       Text="Miscellaneous filter visibility and ordering will be configured here in a later update. This page is a navigation placeholder and does not change Price Checker filtering yet." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
         </ScrollViewer>
     </Grid>
 </Window>

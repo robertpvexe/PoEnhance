@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 using PoEnhance.App.Features.PriceChecking;
 using PoEnhance.App.Infrastructure.Settings;
 using PoEnhance.App.Infrastructure.Shortcuts;
@@ -169,6 +170,8 @@ public sealed class MultitoolMenuShellTests
 
             Assert.True(window.IsStartViewVisible);
             Assert.False(window.IsSettingsViewVisible);
+            Assert.True(window.IsMainSidebarVisible);
+            Assert.False(window.IsSettingsSidebarVisible);
             Assert.True(window.IsStartNavigationActive);
             Assert.False(window.IsSettingsNavigationActive);
 
@@ -176,16 +179,123 @@ public sealed class MultitoolMenuShellTests
 
             Assert.False(window.IsStartViewVisible);
             Assert.True(window.IsSettingsViewVisible);
+            Assert.False(window.IsMainSidebarVisible);
+            Assert.True(window.IsSettingsSidebarVisible);
             Assert.False(window.IsStartNavigationActive);
             Assert.True(window.IsSettingsNavigationActive);
+            Assert.True(window.IsSettingsGeneralContentVisible);
+            Assert.False(window.IsSettingsHotkeysContentVisible);
+            Assert.False(window.IsSettingsPriceCheckerContentVisible);
+            Assert.True(window.IsGeneralSettingsNavigationActive);
 
             window.ShowStartView();
 
             Assert.True(window.IsStartViewVisible);
             Assert.False(window.IsSettingsViewVisible);
+            Assert.True(window.IsMainSidebarVisible);
+            Assert.False(window.IsSettingsSidebarVisible);
             Assert.True(window.IsStartNavigationActive);
             window.CloseForApplicationExit();
         });
+    }
+
+    [Fact]
+    public void SettingsSubpages_SwitchContentWithoutSavingPendingChanges()
+    {
+        RunOnSta(() =>
+        {
+            var setting = ApplicationLeagueSetting.CreateTransient("Standard");
+            var window = new MultitoolMenuWindow(setting, LeagueProvider());
+            window.RefreshLeagueChoicesAsync().GetAwaiter().GetResult();
+            var quickUseChangeCount = 0;
+            setting.QuickUseCommandsChanged += (_, _) => quickUseChangeCount++;
+
+            window.ShowSettingsView();
+            window.SelectPendingLeague("Current League");
+            window.AddPendingQuickUseCommand();
+            window.BeginHotkeyCapture(0);
+            Assert.True(window.CapturePendingHotkey(Key.F8, ModifierKeys.None));
+
+            window.ShowSettingsHotkeysSubpage();
+            Assert.False(window.IsSettingsGeneralContentVisible);
+            Assert.True(window.IsSettingsHotkeysContentVisible);
+            Assert.True(window.IsHotkeysSettingsNavigationActive);
+
+            window.ShowSettingsPriceCheckerSubpage();
+            Assert.True(window.IsSettingsPriceCheckerContentVisible);
+            Assert.True(window.IsPriceCheckerSettingsNavigationActive);
+            Assert.False(window.IsSettingsHotkeysContentVisible);
+
+            window.ShowSettingsGeneralSubpage();
+            Assert.True(window.IsSettingsGeneralContentVisible);
+            Assert.Equal("Current League", window.PendingLeagueChoice);
+            Assert.Equal("Standard", setting.EffectiveLeague);
+            Assert.Equal(7, window.PendingQuickUseCommands.Count);
+            Assert.Equal(6, setting.QuickUseCommands.Count);
+            Assert.Equal(ShortcutKey.F8, window.PendingQuickUseCommands[0].Hotkey?.PrimaryKey);
+            Assert.Equal(ShortcutKey.F5, setting.QuickUseCommands[0].Hotkey?.PrimaryKey);
+            Assert.Equal(0, quickUseChangeCount);
+
+            window.LeaveSettingsView();
+            Assert.True(window.IsStartViewVisible);
+            Assert.True(window.IsMainSidebarVisible);
+            Assert.False(window.IsSettingsSidebarVisible);
+            Assert.Equal("Standard", setting.EffectiveLeague);
+            Assert.Equal(6, setting.QuickUseCommands.Count);
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void SettingsBack_RestoresMainSidebarAndPriorStartView()
+    {
+        RunOnSta(() =>
+        {
+            var window = new MultitoolMenuWindow(ApplicationLeagueSetting.CreateTransient());
+            window.ShowSettingsView();
+            window.ShowSettingsHotkeysSubpage();
+
+            window.LeaveSettingsView();
+
+            Assert.True(window.IsStartViewVisible);
+            Assert.False(window.IsSettingsViewVisible);
+            Assert.True(window.IsMainSidebarVisible);
+            Assert.False(window.IsSettingsSidebarVisible);
+            Assert.True(window.IsStartNavigationActive);
+            Assert.False(window.IsSettingsNavigationActive);
+            window.CloseForApplicationExit();
+        });
+    }
+
+    [Fact]
+    public void SettingsNavigationMarkup_UsesSidebarSubmenuAndPlaceholderCopy()
+    {
+        var menuXaml = ReadRepositoryFile(
+            "PoEnhance.App",
+            "Shell",
+            "MultitoolMenuWindow.xaml");
+
+        Assert.Contains("x:Name=\"MainSidebarPanel\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SettingsSidebarPanel\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SettingsBackButton\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=\"Back\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"GeneralSettingsNavigationButton\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"HotkeysSettingsNavigationButton\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PriceCheckerSettingsNavigationButton\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SettingsGeneralContent\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SettingsHotkeysContent\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SettingsPriceCheckerContent\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"General\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Hotkeys\"", menuXaml, StringComparison.Ordinal);
+        Assert.Contains(
+            "Miscellaneous filter visibility and ordering will be configured here in a later update.",
+            menuXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "does not change Price Checker filtering yet.",
+            menuXaml,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Item Price Checker", menuXaml, StringComparison.Ordinal);
     }
 
     [Fact]

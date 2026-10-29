@@ -28,8 +28,17 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private readonly ObservableCollection<QuickUseCommandRow> quickUseRows = [];
     private bool allowApplicationClose;
     private bool isRestoringLeagueSelection;
+    private bool restoreStartViewOnSettingsBack = true;
+    private SettingsSubpage selectedSettingsSubpage = SettingsSubpage.General;
     private QuickUseCommandRow? capturingQuickUseRow;
     private ShortcutBinding? hotkeyBeforeCapture;
+
+    private enum SettingsSubpage
+    {
+        General,
+        Hotkeys,
+        PriceChecker,
+    }
 
     public MultitoolMenuWindow(ApplicationLeagueSetting leagueSetting)
         : this(leagueSetting, new UnavailableLeagueCatalogProvider())
@@ -60,6 +69,19 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
 
     internal bool IsSettingsViewVisible => SettingsContent.Visibility == Visibility.Visible;
 
+    internal bool IsMainSidebarVisible => MainSidebarPanel.Visibility == Visibility.Visible;
+
+    internal bool IsSettingsSidebarVisible => SettingsSidebarPanel.Visibility == Visibility.Visible;
+
+    internal bool IsSettingsGeneralContentVisible =>
+        SettingsGeneralContent.Visibility == Visibility.Visible;
+
+    internal bool IsSettingsHotkeysContentVisible =>
+        SettingsHotkeysContent.Visibility == Visibility.Visible;
+
+    internal bool IsSettingsPriceCheckerContentVisible =>
+        SettingsPriceCheckerContent.Visibility == Visibility.Visible;
+
     internal string? PendingLeagueChoice => SelectedLeagueChoice();
 
     internal IReadOnlyList<string> LeagueChoices => LeagueComboBox.Items
@@ -77,7 +99,17 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
 
     internal bool IsStartNavigationActive => Equals(StartNavigationButton.Tag, "Active");
 
-    internal bool IsSettingsNavigationActive => Equals(SettingsNavigationButton.Tag, "Active");
+    internal bool IsSettingsNavigationActive =>
+        IsSettingsSidebarVisible || Equals(SettingsNavigationButton.Tag, "Active");
+
+    internal bool IsGeneralSettingsNavigationActive =>
+        Equals(GeneralSettingsNavigationButton.Tag, "Active");
+
+    internal bool IsHotkeysSettingsNavigationActive =>
+        Equals(HotkeysSettingsNavigationButton.Tag, "Active");
+
+    internal bool IsPriceCheckerSettingsNavigationActive =>
+        Equals(PriceCheckerSettingsNavigationButton.Tag, "Active");
 
     internal IReadOnlyList<QuickUseCommandSetting> PendingQuickUseCommands =>
         quickUseRows.Select(row => row.ToSetting()).ToArray();
@@ -140,19 +172,46 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     internal void ShowStartView()
     {
         CancelHotkeyCapture();
+        ShowMainSidebar();
         StartContent.Visibility = Visibility.Visible;
         SettingsContent.Visibility = Visibility.Collapsed;
         StartNavigationButton.Tag = "Active";
         SettingsNavigationButton.Tag = null;
+        ClearSettingsSubpageSelection();
     }
 
     internal void ShowSettingsView()
     {
+        restoreStartViewOnSettingsBack = IsStartViewVisible || !IsSettingsViewVisible;
         StartContent.Visibility = Visibility.Collapsed;
         SettingsContent.Visibility = Visibility.Visible;
         StartNavigationButton.Tag = null;
         SettingsNavigationButton.Tag = "Active";
+        ShowSettingsSidebar();
+        ShowSettingsSubpage(SettingsSubpage.General);
         _ = RefreshLeagueChoicesAsync();
+    }
+
+    internal void ShowSettingsGeneralSubpage() => ShowSettingsSubpage(SettingsSubpage.General);
+
+    internal void ShowSettingsHotkeysSubpage() => ShowSettingsSubpage(SettingsSubpage.Hotkeys);
+
+    internal void ShowSettingsPriceCheckerSubpage() =>
+        ShowSettingsSubpage(SettingsSubpage.PriceChecker);
+
+    internal void LeaveSettingsView()
+    {
+        CancelHotkeyCapture();
+        if (restoreStartViewOnSettingsBack)
+        {
+            ShowStartView();
+            return;
+        }
+
+        ShowMainSidebar();
+        SettingsContent.Visibility = Visibility.Collapsed;
+        SettingsNavigationButton.Tag = null;
+        ClearSettingsSubpageSelection();
     }
 
     internal void SelectPendingLeague(string choice)
@@ -376,6 +435,72 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private void SettingsNavigationButton_OnClick(object sender, RoutedEventArgs e)
     {
         ShowSettingsView();
+    }
+
+    private void SettingsBackButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        LeaveSettingsView();
+    }
+
+    private void GeneralSettingsNavigationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowSettingsGeneralSubpage();
+    }
+
+    private void HotkeysSettingsNavigationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowSettingsHotkeysSubpage();
+    }
+
+    private void PriceCheckerSettingsNavigationButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowSettingsPriceCheckerSubpage();
+    }
+
+    private void ShowMainSidebar()
+    {
+        MainSidebarPanel.Visibility = Visibility.Visible;
+        SettingsSidebarPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowSettingsSidebar()
+    {
+        MainSidebarPanel.Visibility = Visibility.Collapsed;
+        SettingsSidebarPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ShowSettingsSubpage(SettingsSubpage subpage)
+    {
+        if (selectedSettingsSubpage == SettingsSubpage.Hotkeys &&
+            subpage != SettingsSubpage.Hotkeys)
+        {
+            CancelHotkeyCapture();
+        }
+
+        selectedSettingsSubpage = subpage;
+        SettingsGeneralContent.Visibility = subpage == SettingsSubpage.General
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SettingsHotkeysContent.Visibility = subpage == SettingsSubpage.Hotkeys
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SettingsPriceCheckerContent.Visibility = subpage == SettingsSubpage.PriceChecker
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        GeneralSettingsNavigationButton.Tag =
+            subpage == SettingsSubpage.General ? "Active" : null;
+        HotkeysSettingsNavigationButton.Tag =
+            subpage == SettingsSubpage.Hotkeys ? "Active" : null;
+        PriceCheckerSettingsNavigationButton.Tag =
+            subpage == SettingsSubpage.PriceChecker ? "Active" : null;
+    }
+
+    private void ClearSettingsSubpageSelection()
+    {
+        GeneralSettingsNavigationButton.Tag = null;
+        HotkeysSettingsNavigationButton.Tag = null;
+        PriceCheckerSettingsNavigationButton.Tag = null;
     }
 
     private void LeagueComboBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
