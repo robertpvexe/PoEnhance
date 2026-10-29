@@ -806,6 +806,14 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             return groups;
         }
 
+        // Panel-2 Foulborn (ItemStateCriteria → mutated) owns the wire filter when set.
+        // Unique identity Foulborn remains the approved auto path only when the panel is Any.
+        if (draft.ItemStateCriteria.Foulborn is TradeTriState.Yes or TradeTriState.No ||
+            MiscGroupAlreadyContainsFilter(groups, ProviderFoulbornFilterKey))
+        {
+            return groups;
+        }
+
         var option = providerItemIdentity.Foulborn == TradeTriState.Yes
             ? "true"
             : "false";
@@ -821,6 +829,15 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 },
             });
         return groups;
+    }
+
+    private static bool MiscGroupAlreadyContainsFilter(
+        IReadOnlyDictionary<string, object> groups,
+        string filterId)
+    {
+        return groups.TryGetValue(MiscFiltersKey, out var existing) &&
+            existing is PathOfExileTradeSearchFilterGroup group &&
+            group.Filters.ContainsKey(filterId);
     }
 
     private static object CreateRequestedFilterValue(

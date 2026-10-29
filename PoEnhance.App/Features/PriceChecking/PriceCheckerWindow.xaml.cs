@@ -195,6 +195,38 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             FracturedStateButton,
             TradeItemStateKind.Fractured,
             draft.ItemStateCriteria.Fractured);
+        UpdateItemStateButton(
+            SynthesisedStateButton,
+            TradeItemStateKind.Synthesised,
+            draft.ItemStateCriteria.Synthesised);
+        UpdateItemStateButton(
+            SplitStateButton,
+            TradeItemStateKind.Split,
+            draft.ItemStateCriteria.Split);
+        UpdateItemStateButton(
+            CraftedStateButton,
+            TradeItemStateKind.Crafted,
+            draft.ItemStateCriteria.Crafted);
+        UpdateItemStateButton(
+            VeiledStateButton,
+            TradeItemStateKind.Veiled,
+            draft.ItemStateCriteria.Veiled);
+        UpdateItemStateButton(
+            ForeseeingStateButton,
+            TradeItemStateKind.Foreseeing,
+            draft.ItemStateCriteria.Foreseeing);
+        UpdateItemStateButton(
+            CrucibleStateButton,
+            TradeItemStateKind.Crucible,
+            draft.ItemStateCriteria.Crucible);
+        UpdateItemStateButton(
+            FoulbornStateButton,
+            TradeItemStateKind.Foulborn,
+            draft.ItemStateCriteria.Foulborn);
+        UpdateItemStateButton(
+            VestigialStateButton,
+            TradeItemStateKind.Vestigial,
+            draft.ItemStateCriteria.Vestigial);
         StatsCountText.Text = FormatStatsCount(
             draft.ItemProperties.Count(property => property.IsSelected) +
                 draft.ModifierFilters.Count(modifier => modifier.IsSelected),
@@ -614,6 +646,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         TradeItemStateKind.Corrupted => "Corrupted",
         TradeItemStateKind.Identified => "Identified",
         TradeItemStateKind.Fractured => "Fractured Item",
+        TradeItemStateKind.Synthesised => "Synthesised Item",
+        TradeItemStateKind.Split => "Split",
+        TradeItemStateKind.Crafted => "Crafted",
+        TradeItemStateKind.Veiled => "Veiled",
+        TradeItemStateKind.Foreseeing => "Foreseeing",
+        TradeItemStateKind.Crucible => "Crucible Item",
+        TradeItemStateKind.Foulborn => "Foulborn",
+        TradeItemStateKind.Vestigial => "Vestigial",
         _ => kind.ToString(),
     };
 
@@ -813,6 +853,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             [PriceCheckerMiscellaneousFilterRegistry.Sockets] = SocketFilterBorder,
             [PriceCheckerMiscellaneousFilterRegistry.Links] = LinksFilterBorder,
             [PriceCheckerMiscellaneousFilterRegistry.BasePercentile] = BasePercentileFilterBorder,
+            [PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem] = SynthesisedStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Split] = SplitStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Crafted] = CraftedStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Veiled] = VeiledStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Foreseeing] = ForeseeingStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.CrucibleItem] = CrucibleStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Foulborn] = FoulbornStateButton,
+            [PriceCheckerMiscellaneousFilterRegistry.Vestigial] = VestigialStateButton,
         };
 
         panel.Children.Clear();

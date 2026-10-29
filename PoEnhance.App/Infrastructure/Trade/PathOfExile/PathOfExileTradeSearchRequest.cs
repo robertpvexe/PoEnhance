@@ -97,6 +97,15 @@ internal sealed record PathOfExileTradeSearchSocketFilterValue
 
 internal sealed record PathOfExileTradeSearchFilterGroup
 {
+    /// <summary>
+    /// Official Trade filter groups that are catalog-hidden (for example
+    /// <c>socket_filters</c>) stay inactive on the trade site unless the group is
+    /// explicitly enabled with <c>disabled: false</c>. Always emit false for groups we send.
+    /// </summary>
+    [JsonPropertyOrder(0)]
+    public bool Disabled { get; init; }
+
+    [JsonPropertyOrder(1)]
     public IReadOnlyDictionary<string, object> Filters { get; init; } =
         new Dictionary<string, object>();
 }

@@ -257,6 +257,22 @@ public sealed class PathOfExileTradeQueryBuilderTests
     [InlineData(TradeItemStateKind.Identified, TradeTriState.No, "identified", "false")]
     [InlineData(TradeItemStateKind.Fractured, TradeTriState.Yes, "fractured_item", "true")]
     [InlineData(TradeItemStateKind.Fractured, TradeTriState.No, "fractured_item", "false")]
+    [InlineData(TradeItemStateKind.Synthesised, TradeTriState.Yes, "synthesised_item", "true")]
+    [InlineData(TradeItemStateKind.Synthesised, TradeTriState.No, "synthesised_item", "false")]
+    [InlineData(TradeItemStateKind.Split, TradeTriState.Yes, "split", "true")]
+    [InlineData(TradeItemStateKind.Split, TradeTriState.No, "split", "false")]
+    [InlineData(TradeItemStateKind.Crafted, TradeTriState.Yes, "crafted", "true")]
+    [InlineData(TradeItemStateKind.Crafted, TradeTriState.No, "crafted", "false")]
+    [InlineData(TradeItemStateKind.Veiled, TradeTriState.Yes, "veiled", "true")]
+    [InlineData(TradeItemStateKind.Veiled, TradeTriState.No, "veiled", "false")]
+    [InlineData(TradeItemStateKind.Foreseeing, TradeTriState.Yes, "foreseeing", "true")]
+    [InlineData(TradeItemStateKind.Foreseeing, TradeTriState.No, "foreseeing", "false")]
+    [InlineData(TradeItemStateKind.Crucible, TradeTriState.Yes, "crucible_item", "true")]
+    [InlineData(TradeItemStateKind.Crucible, TradeTriState.No, "crucible_item", "false")]
+    [InlineData(TradeItemStateKind.Foulborn, TradeTriState.Yes, "mutated", "true")]
+    [InlineData(TradeItemStateKind.Foulborn, TradeTriState.No, "mutated", "false")]
+    [InlineData(TradeItemStateKind.Vestigial, TradeTriState.Yes, "vestigial", "true")]
+    [InlineData(TradeItemStateKind.Vestigial, TradeTriState.No, "vestigial", "false")]
     public void Build_ItemStateYesAndNoUseReviewedOfficialOptionShape(
         TradeItemStateKind kind,
         TradeTriState state,
@@ -286,18 +302,87 @@ public sealed class PathOfExileTradeQueryBuilderTests
     {
         var result = BuildSuccessful(Draft() with
         {
-            ItemStateCriteria = new TradeItemStateCriteria
-            {
-                Mirrored = TradeTriState.Any,
-                Corrupted = TradeTriState.Any,
-                Identified = TradeTriState.Any,
-                Fractured = TradeTriState.Any,
-            },
+            ItemStateCriteria = new TradeItemStateCriteria(),
         });
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
         var filters = document.RootElement.GetProperty("query").GetProperty("filters");
         Assert.False(filters.TryGetProperty("misc_filters", out _));
+    }
+
+    [Fact]
+    public void Build_MultipleOptionalItemStatesSerializeIndependentlyWithFractured()
+    {
+        var result = BuildSuccessful(
+            Draft() with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Fractured = TradeTriState.Yes,
+                    Synthesised = TradeTriState.Yes,
+                    Split = TradeTriState.No,
+                    Crafted = TradeTriState.Yes,
+                    Veiled = TradeTriState.No,
+                    Foreseeing = TradeTriState.Yes,
+                    Crucible = TradeTriState.No,
+                    Foulborn = TradeTriState.Yes,
+                    Vestigial = TradeTriState.No,
+                },
+            },
+            providerFilterCatalog: StateFilterCatalog());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var miscGroup = document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("misc_filters");
+        Assert.False(miscGroup.GetProperty("disabled").GetBoolean());
+        var misc = miscGroup.GetProperty("filters");
+        Assert.Equal("true", misc.GetProperty("fractured_item").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("synthesised_item").GetProperty("option").GetString());
+        Assert.Equal("false", misc.GetProperty("split").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("crafted").GetProperty("option").GetString());
+        Assert.Equal("false", misc.GetProperty("veiled").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("foreseeing").GetProperty("option").GetString());
+        Assert.Equal("false", misc.GetProperty("crucible_item").GetProperty("option").GetString());
+        Assert.Equal("true", misc.GetProperty("mutated").GetProperty("option").GetString());
+        Assert.Equal("false", misc.GetProperty("vestigial").GetProperty("option").GetString());
+        Assert.Equal(9, misc.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public void Build_PanelFoulbornOwnsMutatedOverUniqueIdentityAuto()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Unique",
+                displayName: "Foulborn Moonbender's Wing",
+                parsedBaseType: "Tomahawk",
+                resolvedBaseName: "Tomahawk",
+                itemClass: "One Hand Axes") with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria
+                {
+                    Foulborn = TradeTriState.No,
+                },
+            },
+            providerItemIdentity: new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Moonbender's Wing",
+                CanonicalType = "Tomahawk",
+                Foulborn = TradeTriState.Yes,
+            },
+            providerFilterCatalog: StateFilterCatalog());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.Equal("false", document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty("misc_filters")
+            .GetProperty("filters")
+            .GetProperty("mutated")
+            .GetProperty("option")
+            .GetString());
     }
 
     [Fact]
@@ -1694,6 +1779,14 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 OptionDefinition(1, "corrupted", "Corrupted"),
                 OptionDefinition(2, "mirrored", "Mirrored"),
                 OptionDefinition(3, "fractured_item", "Fractured Item"),
+                OptionDefinition(4, "synthesised_item", "Synthesised Item"),
+                OptionDefinition(5, "split", "Split"),
+                OptionDefinition(6, "crafted", "Crafted"),
+                OptionDefinition(7, "veiled", "Veiled"),
+                OptionDefinition(8, "foreseeing", "Foreseeing"),
+                OptionDefinition(9, "crucible_item", "Crucible Item"),
+                OptionDefinition(10, "mutated", "Foulborn"),
+                OptionDefinition(11, "vestigial", "Vestigial"),
             });
     }
 

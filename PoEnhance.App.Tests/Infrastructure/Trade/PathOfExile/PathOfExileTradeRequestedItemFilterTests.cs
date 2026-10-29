@@ -58,8 +58,34 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
 
         Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
         using var document = JsonDocument.Parse(result.SerializedJson!);
+        AssertFilterGroupEnabled(document, groupId);
         var value = RequestedValue(document, groupId, filterId);
         AssertMinimumOnly(value, minimumValue);
+    }
+
+    [Theory]
+    [InlineData(TradeSearchRequestedItemFilterKind.Sockets)]
+    [InlineData(TradeSearchRequestedItemFilterKind.Links)]
+    public void Build_ActiveSocketOrLinksGroupEmitsDisabledFalse(TradeSearchRequestedItemFilterKind kind)
+    {
+        var catalog = RequestedCatalog();
+        var draft = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (kind, 4)),
+            catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        AssertFilterGroupEnabled(document, "socket_filters");
+        Assert.True(filters.GetProperty("socket_filters").GetProperty("filters").TryGetProperty(
+            kind == TradeSearchRequestedItemFilterKind.Sockets ? "sockets" : "links",
+            out _));
+        Assert.False(filters.TryGetProperty("misc_filters", out _) &&
+            filters.GetProperty("misc_filters").GetProperty("filters").TryGetProperty("sockets", out _));
     }
 
     [Theory]
@@ -509,6 +535,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
 
         Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
         using var document = JsonDocument.Parse(result.SerializedJson!);
+        AssertFilterGroupEnabled(document, "socket_filters");
         var socketFilters = document.RootElement.GetProperty("query").GetProperty("filters")
             .GetProperty("socket_filters").GetProperty("filters");
         var sockets = socketFilters.GetProperty("sockets");
@@ -563,6 +590,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
 
         Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
         using var document = JsonDocument.Parse(result.SerializedJson!);
+        AssertFilterGroupEnabled(document, "socket_filters");
         var socketFilters = document.RootElement.GetProperty("query").GetProperty("filters")
             .GetProperty("socket_filters").GetProperty("filters");
         Assert.False(socketFilters.TryGetProperty("sockets", out _));
@@ -771,6 +799,16 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     private static JsonElement RequestedValue(JsonDocument document, string groupId, string filterId) =>
         document.RootElement.GetProperty("query").GetProperty("filters")
             .GetProperty(groupId).GetProperty("filters").GetProperty(filterId);
+
+    private static void AssertFilterGroupEnabled(JsonDocument document, string groupId)
+    {
+        var group = document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .GetProperty(groupId);
+        Assert.True(group.TryGetProperty("disabled", out var disabled));
+        Assert.False(disabled.GetBoolean());
+    }
 
     private static void AssertMinimumOnly(JsonDocument document, string groupId, string filterId, int value)
     {

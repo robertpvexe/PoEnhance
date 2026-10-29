@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewReference": "item-state-filter-trade-catalog-audit-2026-07-17",
+  "reviewReference": "item-state-filter-trade-catalog-audit-2026-10-29",
   "mappings": [
     {
       "kind": "Mirrored",
@@ -37,6 +37,86 @@
       "providerGroupId": "misc_filters",
       "providerFilterId": "fractured_item",
       "expectedOfficialText": "Fractured Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Synthesised",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "synthesised_item",
+      "expectedOfficialText": "Synthesised Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Split",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "split",
+      "expectedOfficialText": "Split",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Crafted",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "crafted",
+      "expectedOfficialText": "Crafted",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Veiled",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "veiled",
+      "expectedOfficialText": "Veiled",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Foreseeing",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "foreseeing",
+      "expectedOfficialText": "Foreseeing",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Crucible",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "crucible_item",
+      "expectedOfficialText": "Crucible Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Foulborn",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "mutated",
+      "expectedOfficialText": "Foulborn",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "Vestigial",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "vestigial",
+      "expectedOfficialText": "Vestigial",
       "yesOptionId": "true",
       "yesOptionText": "Yes",
       "noOptionId": "false",

@@ -1014,6 +1014,54 @@
                                      TextChanged="OnRequestedItemFilterTextChanged" />
                         </StackPanel>
                     </Border>
+                    <Button x:Name="SynthesisedStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Synthesised Item: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Synthesised Item: click to cycle Any → Yes → No" />
+                    <Button x:Name="SplitStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Split: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Split: click to cycle Any → Yes → No" />
+                    <Button x:Name="CraftedStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Crafted: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Crafted: click to cycle Any → Yes → No" />
+                    <Button x:Name="VeiledStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Veiled: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Veiled: click to cycle Any → Yes → No" />
+                    <Button x:Name="ForeseeingStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Foreseeing: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Foreseeing: click to cycle Any → Yes → No" />
+                    <Button x:Name="CrucibleStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Crucible Item: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Crucible Item: click to cycle Any → Yes → No" />
+                    <Button x:Name="FoulbornStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Foulborn: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Foulborn: click to cycle Any → Yes → No" />
+                    <Button x:Name="VestigialStateButton"
+                            Margin="0,0,8,4"
+                            Click="OnItemStateButtonClick"
+                            Content="Vestigial: Any"
+                            Style="{StaticResource ItemStateButtonStyle}"
+                            ToolTip="Vestigial: click to cycle Any → Yes → No" />
                 </WrapPanel>
 
                 <Grid x:Name="StatsHeader"

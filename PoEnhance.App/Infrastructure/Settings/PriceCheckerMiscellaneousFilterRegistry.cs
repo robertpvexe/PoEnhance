@@ -12,6 +12,14 @@ public static class PriceCheckerMiscellaneousFilterRegistry
     public const string Sockets = "sockets";
     public const string Links = "links";
     public const string BasePercentile = "base-percentile";
+    public const string SynthesisedItem = "synthesised-item";
+    public const string Split = "split";
+    public const string Crafted = "crafted";
+    public const string Veiled = "veiled";
+    public const string Foreseeing = "foreseeing";
+    public const string CrucibleItem = "crucible-item";
+    public const string Foulborn = "foulborn";
+    public const string Vestigial = "vestigial";
 
     internal static IReadOnlyList<PriceCheckerMiscellaneousFilterDefinition> Definitions { get; } =
     [
@@ -44,6 +52,46 @@ public static class PriceCheckerMiscellaneousFilterRegistry
             BasePercentile,
             "Base Percentile",
             "Optional base-percentile filter for applicable item bases.",
+            CanToggleVisibility: true),
+        new(
+            SynthesisedItem,
+            "Synthesised Item",
+            "Cycles Any, Yes, or No for the synthesised-item state filter.",
+            CanToggleVisibility: true),
+        new(
+            Split,
+            "Split",
+            "Cycles Any, Yes, or No for the split-item state filter.",
+            CanToggleVisibility: true),
+        new(
+            Crafted,
+            "Crafted",
+            "Cycles Any, Yes, or No for the crafted-mod status filter.",
+            CanToggleVisibility: true),
+        new(
+            Veiled,
+            "Veiled",
+            "Cycles Any, Yes, or No for items with an unrevealed veiled modifier.",
+            CanToggleVisibility: true),
+        new(
+            Foreseeing,
+            "Foreseeing",
+            "Cycles Any, Yes, or No for the Hinekora's Lock foreseeing state.",
+            CanToggleVisibility: true),
+        new(
+            CrucibleItem,
+            "Crucible Item",
+            "Cycles Any, Yes, or No for the Crucible item state filter.",
+            CanToggleVisibility: true),
+        new(
+            Foulborn,
+            "Foulborn",
+            "Cycles Any, Yes, or No for the Foulborn (mutated) state filter.",
+            CanToggleVisibility: true),
+        new(
+            Vestigial,
+            "Vestigial",
+            "Cycles Any, Yes, or No for the Vestigial state filter.",
             CanToggleVisibility: true),
     ];
 

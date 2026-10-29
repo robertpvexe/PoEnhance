@@ -281,6 +281,47 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public void OptionalPanel2ItemStates_DefaultAnyAndCycleIndependentlyWithoutTouchingMods()
+    {
+        var fixture = SearchFixture.Create();
+        var draft = Draft("Optional State Shell") with
+        {
+            ItemStates = ["Synthesised Item", "Split", "Foreseeing"],
+            ItemStateCriteria = new TradeItemStateCriteria(),
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, ValidationSuccess());
+
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Synthesised);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Split);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Crafted);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Veiled);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Foreseeing);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Crucible);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Foulborn);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Vestigial);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Synthesised, TradeTriState.Yes);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Split, TradeTriState.No);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Crafted, TradeTriState.Yes);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Veiled, TradeTriState.No);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Foreseeing, TradeTriState.Yes);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Crucible, TradeTriState.Yes);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Foulborn, TradeTriState.No);
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Vestigial, TradeTriState.Yes);
+
+        var criteria = fixture.Window.CurrentState.Draft.ItemStateCriteria;
+        Assert.Equal(TradeTriState.Yes, criteria.Synthesised);
+        Assert.Equal(TradeTriState.No, criteria.Split);
+        Assert.Equal(TradeTriState.Yes, criteria.Crafted);
+        Assert.Equal(TradeTriState.No, criteria.Veiled);
+        Assert.Equal(TradeTriState.Yes, criteria.Foreseeing);
+        Assert.Equal(TradeTriState.Yes, criteria.Crucible);
+        Assert.Equal(TradeTriState.No, criteria.Foulborn);
+        Assert.Equal(TradeTriState.Yes, criteria.Vestigial);
+        Assert.Equal(TradeTriState.Any, criteria.Fractured);
+    }
+
+    [Fact]
     public void NewItemLoad_ResetsRequestedItemStatesToPerItemDefaultsWithoutLeakingPriorChoices()
     {
         var fixture = SearchFixture.Create();

@@ -348,7 +348,7 @@ public sealed class MultitoolMenuShellTests
                 PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
                 isVisible: false));
 
-            // Default order: Fractured, ItemLevel, Quality, Sockets, Links, BasePercentile
+            // Default order ends with five new optional states after BasePercentile.
             Assert.True(window.MovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Sockets));
             Assert.Equal(
@@ -359,6 +359,14 @@ public sealed class MultitoolMenuShellTests
                     PriceCheckerMiscellaneousFilterRegistry.Quality,
                     PriceCheckerMiscellaneousFilterRegistry.Links,
                     PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
+                    PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem,
+                    PriceCheckerMiscellaneousFilterRegistry.Split,
+                    PriceCheckerMiscellaneousFilterRegistry.Crafted,
+                    PriceCheckerMiscellaneousFilterRegistry.Veiled,
+                    PriceCheckerMiscellaneousFilterRegistry.Foreseeing,
+                    PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
+                    PriceCheckerMiscellaneousFilterRegistry.Foulborn,
+                    PriceCheckerMiscellaneousFilterRegistry.Vestigial,
                 ],
                 window.PendingPriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
             Assert.True(
@@ -387,15 +395,15 @@ public sealed class MultitoolMenuShellTests
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.True(window.MovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
-            // Links is first and BasePercentile remains last — boundary moves are no-ops.
+            // Links is first and Vestigial remains last — boundary moves are no-ops.
             Assert.False(window.MovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(window.MovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.BasePercentile));
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.BasePercentile));
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
 
             window.ShowSettingsView();
             window.ShowSettingsPriceCheckerSubpage();
@@ -423,6 +431,14 @@ public sealed class MultitoolMenuShellTests
                     PriceCheckerMiscellaneousFilterRegistry.Quality,
                     PriceCheckerMiscellaneousFilterRegistry.Sockets,
                     PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
+                    PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem,
+                    PriceCheckerMiscellaneousFilterRegistry.Split,
+                    PriceCheckerMiscellaneousFilterRegistry.Crafted,
+                    PriceCheckerMiscellaneousFilterRegistry.Veiled,
+                    PriceCheckerMiscellaneousFilterRegistry.Foreseeing,
+                    PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
+                    PriceCheckerMiscellaneousFilterRegistry.Foulborn,
+                    PriceCheckerMiscellaneousFilterRegistry.Vestigial,
                 ],
                 setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
 
@@ -440,11 +456,21 @@ public sealed class MultitoolMenuShellTests
             Assert.False(restoredWindow.CanMovePriceCheckerMiscellaneousFilterUp(
                 PriceCheckerMiscellaneousFilterRegistry.Links));
             Assert.False(restoredWindow.CanMovePriceCheckerMiscellaneousFilterDown(
-                PriceCheckerMiscellaneousFilterRegistry.BasePercentile));
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial));
             Assert.True(
                 restoredWindow.PendingPriceCheckerMiscellaneousFilters
                     .Single(preference =>
                         preference.Key == PriceCheckerMiscellaneousFilterRegistry.ItemLevel)
+                    .IsVisible);
+            Assert.True(
+                restoredWindow.PendingPriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem)
+                    .IsVisible);
+            Assert.True(
+                restoredWindow.PendingPriceCheckerMiscellaneousFilters
+                    .Single(preference =>
+                        preference.Key == PriceCheckerMiscellaneousFilterRegistry.CrucibleItem)
                     .IsVisible);
 
             window.CloseForApplicationExit();
@@ -459,7 +485,7 @@ public sealed class MultitoolMenuShellTests
         {
             var window = new MultitoolMenuWindow(ApplicationLeagueSetting.CreateTransient());
             var first = PriceCheckerMiscellaneousFilterRegistry.FracturedItem;
-            var last = PriceCheckerMiscellaneousFilterRegistry.BasePercentile;
+            var last = PriceCheckerMiscellaneousFilterRegistry.Vestigial;
             var middle = PriceCheckerMiscellaneousFilterRegistry.Quality;
 
             Assert.False(window.CanMovePriceCheckerMiscellaneousFilterUp(first));

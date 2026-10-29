@@ -31,6 +31,14 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     window.FindName("SocketFilterBorder"),
                     window.FindName("LinksFilterBorder"),
                     window.FindName("BasePercentileFilterBorder"),
+                    window.FindName("SynthesisedStateButton"),
+                    window.FindName("SplitStateButton"),
+                    window.FindName("CraftedStateButton"),
+                    window.FindName("VeiledStateButton"),
+                    window.FindName("ForeseeingStateButton"),
+                    window.FindName("CrucibleStateButton"),
+                    window.FindName("FoulbornStateButton"),
+                    window.FindName("VestigialStateButton"),
                 ],
                 panel.Children.Cast<UIElement>());
             Assert.All(panel.Children.Cast<UIElement>(), child =>
@@ -65,6 +73,22 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     PriceCheckerMiscellaneousFilterRegistry.Sockets, true, 4),
                 new PriceCheckerMiscellaneousFilterPreference(
                     PriceCheckerMiscellaneousFilterRegistry.BasePercentile, false, 5),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem, false, 6),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Split, true, 7),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Crafted, false, 8),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Veiled, true, 9),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Foreseeing, false, 10),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.CrucibleItem, true, 11),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Foulborn, false, 12),
+                new PriceCheckerMiscellaneousFilterPreference(
+                    PriceCheckerMiscellaneousFilterRegistry.Vestigial, true, 13),
             };
 
             Assert.False(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
@@ -73,8 +97,14 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
             Assert.False(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
                 preferences[5],
                 draft));
+            Assert.False(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
+                preferences[6],
+                draft));
             Assert.True(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
                 preferences[0],
+                draft));
+            Assert.True(PriceCheckerWindow.ShouldShowMiscellaneousFilterGroup(
+                preferences[7],
                 draft));
 
             var window = CreateWindow(draft);
@@ -94,6 +124,14 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
                     window.FindName("ItemLevelFilterBorder"),
                     window.FindName("SocketFilterBorder"),
                     window.FindName("BasePercentileFilterBorder"),
+                    window.FindName("SynthesisedStateButton"),
+                    window.FindName("SplitStateButton"),
+                    window.FindName("CraftedStateButton"),
+                    window.FindName("VeiledStateButton"),
+                    window.FindName("ForeseeingStateButton"),
+                    window.FindName("CrucibleStateButton"),
+                    window.FindName("FoulbornStateButton"),
+                    window.FindName("VestigialStateButton"),
                 ],
                 panel.Children.Cast<UIElement>());
             Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("LinksFilterBorder")).Visibility);
@@ -101,7 +139,51 @@ public sealed class PriceCheckerMiscellaneousFilterLayoutTests
             Assert.Equal(
                 Visibility.Collapsed,
                 Assert.IsType<Border>(window.FindName("BasePercentileFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("SynthesisedStateButton")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("SplitStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("CraftedStateButton")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("VeiledStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("ForeseeingStateButton")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("CrucibleStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("FoulbornStateButton")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Button>(window.FindName("VestigialStateButton")).Visibility);
             Assert.Equal(TradeTriState.Yes, draft.ItemStateCriteria.Fractured);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void ZeroOptionalGroupsVisible_StillShowsPermanentGroupsWithoutCrash()
+    {
+        RunOnSta(() =>
+        {
+            var draft = CreateDraftWithAllRequestedFilters();
+            var preferences = PriceCheckerMiscellaneousFilterRegistry.CreateDefaults()
+                .Select(preference => preference with
+                {
+                    IsVisible = !PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(preference.Key),
+                })
+                .ToArray();
+
+            var window = CreateWindow(draft);
+            window.UpdateContent(new PriceCheckerWindowState(draft, TradeSearchValidationResult.FromDiagnostics([]))
+            {
+                MiscellaneousFilterPreferences = preferences,
+            });
+            window.Show();
+            window.UpdateLayout();
+
+            var panel = Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
+            Assert.Equal(4, panel.Children.Cast<UIElement>().Count(child => child.Visibility == Visibility.Visible));
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("ItemLevelFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("QualityFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("SocketFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(window.FindName("LinksFilterBorder")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("FracturedStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("SynthesisedStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("ForeseeingStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("CrucibleStateButton")).Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Button>(window.FindName("VestigialStateButton")).Visibility);
             window.Close();
         });
     }

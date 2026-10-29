@@ -19,12 +19,36 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.Sockets,
                 PriceCheckerMiscellaneousFilterRegistry.Links,
                 PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
+                PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem,
+                PriceCheckerMiscellaneousFilterRegistry.Split,
+                PriceCheckerMiscellaneousFilterRegistry.Crafted,
+                PriceCheckerMiscellaneousFilterRegistry.Veiled,
+                PriceCheckerMiscellaneousFilterRegistry.Foreseeing,
+                PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
+                PriceCheckerMiscellaneousFilterRegistry.Foulborn,
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial,
             ],
             defaults.Select(preference => preference.Key));
         Assert.All(defaults, preference => Assert.True(preference.IsVisible));
         Assert.Equal(
             Enumerable.Range(0, defaults.Count),
             defaults.Select(preference => preference.Order));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Split));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Crafted));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Veiled));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Foreseeing));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.CrucibleItem));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Foulborn));
+        Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
+            PriceCheckerMiscellaneousFilterRegistry.Vestigial));
     }
 
     [Fact]
@@ -136,8 +160,28 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                 PriceCheckerMiscellaneousFilterRegistry.Sockets,
                 PriceCheckerMiscellaneousFilterRegistry.Links,
                 PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
+                PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem,
+                PriceCheckerMiscellaneousFilterRegistry.Split,
+                PriceCheckerMiscellaneousFilterRegistry.Crafted,
+                PriceCheckerMiscellaneousFilterRegistry.Veiled,
+                PriceCheckerMiscellaneousFilterRegistry.Foreseeing,
+                PriceCheckerMiscellaneousFilterRegistry.CrucibleItem,
+                PriceCheckerMiscellaneousFilterRegistry.Foulborn,
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial,
             ],
             setting.PriceCheckerMiscellaneousFilters.Select(preference => preference.Key));
+        Assert.All(
+            setting.PriceCheckerMiscellaneousFilters.Where(preference =>
+                preference.Key is
+                    PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem or
+                    PriceCheckerMiscellaneousFilterRegistry.Split or
+                    PriceCheckerMiscellaneousFilterRegistry.Crafted or
+                    PriceCheckerMiscellaneousFilterRegistry.Veiled or
+                    PriceCheckerMiscellaneousFilterRegistry.Foreseeing or
+                    PriceCheckerMiscellaneousFilterRegistry.CrucibleItem or
+                    PriceCheckerMiscellaneousFilterRegistry.Foulborn or
+                    PriceCheckerMiscellaneousFilterRegistry.Vestigial),
+            preference => Assert.True(preference.IsVisible));
         Assert.False(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
             PriceCheckerMiscellaneousFilterRegistry.Quality));
         Assert.True(PriceCheckerMiscellaneousFilterRegistry.CanToggleVisibility(
@@ -155,6 +199,14 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             {
                 Fractured = TradeTriState.Yes,
                 Corrupted = TradeTriState.No,
+                Synthesised = TradeTriState.Yes,
+                Split = TradeTriState.No,
+                Crafted = TradeTriState.Yes,
+                Veiled = TradeTriState.No,
+                Foreseeing = TradeTriState.Yes,
+                Crucible = TradeTriState.No,
+                Foulborn = TradeTriState.Yes,
+                Vestigial = TradeTriState.No,
             },
             RequestedItemFilters =
             [
@@ -187,6 +239,22 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                     preference with { IsVisible = false },
                 PriceCheckerMiscellaneousFilterRegistry.BasePercentile =>
                     preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Split =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Crafted =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Veiled =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Foreseeing =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.CrucibleItem =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Foulborn =>
+                    preference with { IsVisible = false },
+                PriceCheckerMiscellaneousFilterRegistry.Vestigial =>
+                    preference with { IsVisible = false },
                 _ => preference,
             })
             .ToArray();
@@ -196,6 +264,14 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             preferences);
 
         Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Synthesised);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Split);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Crafted);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Veiled);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Foreseeing);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Crucible);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Foulborn);
+        Assert.Equal(TradeTriState.Any, searchDraft.ItemStateCriteria.Vestigial);
         Assert.Equal(TradeTriState.No, searchDraft.ItemStateCriteria.Corrupted);
         Assert.True(
             searchDraft.RequestedItemFilters
@@ -211,6 +287,14 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
             draft,
             preferences);
         Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Synthesised);
+        Assert.Equal(TradeTriState.No, restored.ItemStateCriteria.Split);
+        Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Crafted);
+        Assert.Equal(TradeTriState.No, restored.ItemStateCriteria.Veiled);
+        Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Foreseeing);
+        Assert.Equal(TradeTriState.No, restored.ItemStateCriteria.Crucible);
+        Assert.Equal(TradeTriState.Yes, restored.ItemStateCriteria.Foulborn);
+        Assert.Equal(TradeTriState.No, restored.ItemStateCriteria.Vestigial);
         Assert.True(
             restored.RequestedItemFilters
                 .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.BasePercentile)

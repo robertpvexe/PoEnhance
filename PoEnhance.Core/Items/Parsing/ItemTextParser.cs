@@ -501,6 +501,9 @@ public sealed partial class ItemTextParser
             || line.Equals("Split", StringComparison.OrdinalIgnoreCase)
             || line.Equals("Synthesised Item", StringComparison.OrdinalIgnoreCase)
             || line.Equals("Fractured Item", StringComparison.OrdinalIgnoreCase)
+            || line.Equals("Foreseeing", StringComparison.OrdinalIgnoreCase)
+            || line.Equals("Crucible Item", StringComparison.OrdinalIgnoreCase)
+            || line.Equals("Vestigial", StringComparison.OrdinalIgnoreCase)
             || line.Equals("Relic Unique", StringComparison.OrdinalIgnoreCase);
     }
 

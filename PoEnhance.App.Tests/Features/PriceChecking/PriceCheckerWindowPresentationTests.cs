@@ -123,11 +123,21 @@ public sealed class PriceCheckerWindowPresentationTests
         var corrupted = ExtractElement(categoryBar, "<Button x:Name=\"CorruptedStateButton\"", "/>" );
         var identified = ExtractElement(categoryBar, "<Button x:Name=\"IdentifiedStateButton\"", "/>" );
         var fractured = ExtractElement(miscellaneous, "<Button x:Name=\"FracturedStateButton\"", "/>" );
+        var synthesised = ExtractElement(miscellaneous, "<Button x:Name=\"SynthesisedStateButton\"", "/>" );
+        var split = ExtractElement(miscellaneous, "<Button x:Name=\"SplitStateButton\"", "/>" );
+        var crafted = ExtractElement(miscellaneous, "<Button x:Name=\"CraftedStateButton\"", "/>" );
+        var veiled = ExtractElement(miscellaneous, "<Button x:Name=\"VeiledStateButton\"", "/>" );
+        var foreseeing = ExtractElement(miscellaneous, "<Button x:Name=\"ForeseeingStateButton\"", "/>" );
+        var crucible = ExtractElement(miscellaneous, "<Button x:Name=\"CrucibleStateButton\"", "/>" );
+        var foulborn = ExtractElement(miscellaneous, "<Button x:Name=\"FoulbornStateButton\"", "/>" );
+        var vestigial = ExtractElement(miscellaneous, "<Button x:Name=\"VestigialStateButton\"", "/>" );
         var rarity = ExtractElement(categoryBar, "<ComboBox x:Name=\"RarityComboBox\"", "</ComboBox>");
 
         Assert.Contains("WrapPanel x:Name=\"BasicFiltersPanel\"", categoryBar);
         Assert.DoesNotContain("InfluenceChipsPanel", categoryBar);
         Assert.DoesNotContain("FracturedStateButton", categoryBar);
+        Assert.DoesNotContain("SynthesisedStateButton", categoryBar);
+        Assert.DoesNotContain("ForeseeingStateButton", categoryBar);
         Assert.True(categoryBar.IndexOf("BaseCriterionButton", StringComparison.Ordinal) <
             categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal));
         Assert.True(categoryBar.IndexOf("RarityComboBox", StringComparison.Ordinal) <
@@ -138,6 +148,22 @@ public sealed class PriceCheckerWindowPresentationTests
             categoryBar.IndexOf("CorruptedStateButton", StringComparison.Ordinal));
         Assert.True(miscellaneous.IndexOf("FracturedStateButton", StringComparison.Ordinal) <
             miscellaneous.IndexOf("ItemLevelFilterBorder", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("BasePercentileFilterBorder", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("SynthesisedStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("SynthesisedStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("SplitStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("SplitStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("CraftedStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("CraftedStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("VeiledStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("VeiledStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("ForeseeingStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("ForeseeingStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("CrucibleStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("CrucibleStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("FoulbornStateButton", StringComparison.Ordinal));
+        Assert.True(miscellaneous.IndexOf("FoulbornStateButton", StringComparison.Ordinal) <
+            miscellaneous.IndexOf("VestigialStateButton", StringComparison.Ordinal));
         Assert.DoesNotContain("ComboBox x:Name=\"MirroredStateComboBox\"", categoryBar);
         Assert.DoesNotContain("OnItemStateSelectionChanged", categoryBar);
         Assert.Contains("MinWidth=\"72\"", baseCriterion);
@@ -155,10 +181,26 @@ public sealed class PriceCheckerWindowPresentationTests
         Assert.Contains("Click=\"OnItemStateButtonClick\"", corrupted);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", identified);
         Assert.Contains("Click=\"OnItemStateButtonClick\"", fractured);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", synthesised);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", split);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", crafted);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", veiled);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", foreseeing);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", crucible);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", foulborn);
+        Assert.Contains("Click=\"OnItemStateButtonClick\"", vestigial);
         Assert.Contains("Content=\"Mirrored: Any\"", mirrored);
         Assert.Contains("Content=\"Corrupted: Any\"", corrupted);
         Assert.Contains("Content=\"Identified: Any\"", identified);
         Assert.Contains("Content=\"Fractured Item: Any\"", fractured);
+        Assert.Contains("Content=\"Synthesised Item: Any\"", synthesised);
+        Assert.Contains("Content=\"Split: Any\"", split);
+        Assert.Contains("Content=\"Crafted: Any\"", crafted);
+        Assert.Contains("Content=\"Veiled: Any\"", veiled);
+        Assert.Contains("Content=\"Foreseeing: Any\"", foreseeing);
+        Assert.Contains("Content=\"Crucible Item: Any\"", crucible);
+        Assert.Contains("Content=\"Foulborn: Any\"", foulborn);
+        Assert.Contains("Content=\"Vestigial: Any\"", vestigial);
         Assert.Contains("x:Name=\"LeagueHeaderText\"", xaml);
         Assert.DoesNotContain("LeagueStatusText", xaml);
         Assert.DoesNotContain("Text=\"Price Checker\"", xaml);
@@ -202,13 +244,31 @@ public sealed class PriceCheckerWindowPresentationTests
             var mirrored = Assert.IsType<Button>(window.FindName("MirroredStateButton"));
             var corrupted = Assert.IsType<Button>(window.FindName("CorruptedStateButton"));
             var fractured = Assert.IsType<Button>(window.FindName("FracturedStateButton"));
+            var synthesised = Assert.IsType<Button>(window.FindName("SynthesisedStateButton"));
+            var split = Assert.IsType<Button>(window.FindName("SplitStateButton"));
+            var crafted = Assert.IsType<Button>(window.FindName("CraftedStateButton"));
+            var veiled = Assert.IsType<Button>(window.FindName("VeiledStateButton"));
+            var foreseeing = Assert.IsType<Button>(window.FindName("ForeseeingStateButton"));
             var panel1Controls = new[] { identified, mirrored, corrupted };
             var controls = new[] { identified, mirrored, corrupted, fractured };
+            var optionalPanel2 = new[] { synthesised, split, crafted, veiled, foreseeing };
             Assert.All(controls, control => Assert.Equal(Visibility.Visible, control.Visibility));
+            Assert.All(optionalPanel2, control => Assert.Equal(Visibility.Visible, control.Visibility));
             Assert.Equal(
                 ["Identified: Any", "Mirrored: Any", "Corrupted: Any", "Fractured Item: Any"],
                 controls.Select(control => control.Content?.ToString()));
+            Assert.Equal(
+                [
+                    "Synthesised Item: Any",
+                    "Split: Any",
+                    "Crafted: Any",
+                    "Veiled: Any",
+                    "Foreseeing: Any",
+                ],
+                optionalPanel2.Select(control => control.Content?.ToString()));
             Assert.All(controls, control => Assert.False(
+                PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
+            Assert.All(optionalPanel2, control => Assert.False(
                 PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)control.DataContext)));
             Assert.IsType<WrapPanel>(window.FindName("BasicFiltersPanel"));
             Assert.IsType<WrapPanel>(window.FindName("HeaderRequestedFiltersPanel"));
@@ -224,11 +284,18 @@ public sealed class PriceCheckerWindowPresentationTests
             Assert.Same(
                 window.FindName("HeaderRequestedFiltersPanel"),
                 LogicalTreeHelper.GetParent(fractured));
+            Assert.Same(
+                window.FindName("HeaderRequestedFiltersPanel"),
+                LogicalTreeHelper.GetParent(synthesised));
             Assert.Equal(3, panel1Controls.Length);
 
             mirrored.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, mirrored));
             Assert.NotNull(changed);
             Assert.Equal(TradeItemStateKind.Mirrored, changed!.Kind);
+            Assert.Equal(TradeTriState.Yes, changed.State);
+
+            synthesised.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, synthesised));
+            Assert.Equal(TradeItemStateKind.Synthesised, changed.Kind);
             Assert.Equal(TradeTriState.Yes, changed.State);
 
             window.UpdateContent(new PriceCheckerWindowState(
@@ -240,6 +307,8 @@ public sealed class PriceCheckerWindowPresentationTests
                         Corrupted = TradeTriState.No,
                         Identified = TradeTriState.Any,
                         Fractured = TradeTriState.Yes,
+                        Synthesised = TradeTriState.Yes,
+                        Split = TradeTriState.No,
                     },
                 },
                 validation)
@@ -250,10 +319,14 @@ public sealed class PriceCheckerWindowPresentationTests
             Assert.Equal(
                 ["Identified: Any", "Mirrored: Yes", "Corrupted: No", "Fractured Item: Yes"],
                 controls.Select(control => control.Content?.ToString()));
+            Assert.Equal("Synthesised Item: Yes", synthesised.Content?.ToString());
+            Assert.Equal("Split: No", split.Content?.ToString());
             Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)mirrored.DataContext));
             Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)corrupted.DataContext));
             Assert.False(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)identified.DataContext));
             Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)fractured.DataContext));
+            Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)synthesised.DataContext));
+            Assert.True(PriceCheckerWindow.IsItemStateFilterActive((TradeTriState)split.DataContext));
             Assert.Equal(
                 ((SolidColorBrush)window.FindResource("ExactBaseActiveBorderBrush")).Color,
                 ((SolidColorBrush)mirrored.BorderBrush).Color);

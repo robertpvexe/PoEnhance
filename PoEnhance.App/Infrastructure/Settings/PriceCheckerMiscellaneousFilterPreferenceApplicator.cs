@@ -9,6 +9,19 @@ namespace PoEnhance.App.Infrastructure.Settings;
 /// </summary>
 internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
 {
+    private static readonly (string Key, TradeItemStateKind Kind)[] OptionalItemStateGroups =
+    [
+        (PriceCheckerMiscellaneousFilterRegistry.FracturedItem, TradeItemStateKind.Fractured),
+        (PriceCheckerMiscellaneousFilterRegistry.SynthesisedItem, TradeItemStateKind.Synthesised),
+        (PriceCheckerMiscellaneousFilterRegistry.Split, TradeItemStateKind.Split),
+        (PriceCheckerMiscellaneousFilterRegistry.Crafted, TradeItemStateKind.Crafted),
+        (PriceCheckerMiscellaneousFilterRegistry.Veiled, TradeItemStateKind.Veiled),
+        (PriceCheckerMiscellaneousFilterRegistry.Foreseeing, TradeItemStateKind.Foreseeing),
+        (PriceCheckerMiscellaneousFilterRegistry.CrucibleItem, TradeItemStateKind.Crucible),
+        (PriceCheckerMiscellaneousFilterRegistry.Foulborn, TradeItemStateKind.Foulborn),
+        (PriceCheckerMiscellaneousFilterRegistry.Vestigial, TradeItemStateKind.Vestigial),
+    ];
+
     public static bool IsHiddenOptional(
         string key,
         IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> preferences)
@@ -30,24 +43,24 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(preferences);
 
-        var hideFractured = IsHiddenOptional(
-            PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
-            preferences);
         var hideBasePercentile = IsHiddenOptional(
             PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
             preferences);
-        if (!hideFractured && !hideBasePercentile)
+        var hiddenItemStates = OptionalItemStateGroups
+            .Where(group => IsHiddenOptional(group.Key, preferences))
+            .ToArray();
+        if (hiddenItemStates.Length == 0 && !hideBasePercentile)
         {
             return draft;
         }
 
         var itemStateCriteria = draft.ItemStateCriteria;
-        if (hideFractured &&
-            itemStateCriteria.Fractured is TradeTriState.Yes or TradeTriState.No)
+        foreach (var (_, kind) in hiddenItemStates)
         {
-            itemStateCriteria = itemStateCriteria.With(
-                TradeItemStateKind.Fractured,
-                TradeTriState.Any);
+            if (itemStateCriteria.Get(kind) is TradeTriState.Yes or TradeTriState.No)
+            {
+                itemStateCriteria = itemStateCriteria.With(kind, TradeTriState.Any);
+            }
         }
 
         var requestedItemFilters = draft.RequestedItemFilters;
@@ -77,23 +90,21 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         ArgumentNullException.ThrowIfNull(uiDraft);
         ArgumentNullException.ThrowIfNull(preferences);
 
-        var hideFractured = IsHiddenOptional(
-            PriceCheckerMiscellaneousFilterRegistry.FracturedItem,
-            preferences);
         var hideBasePercentile = IsHiddenOptional(
             PriceCheckerMiscellaneousFilterRegistry.BasePercentile,
             preferences);
-        if (!hideFractured && !hideBasePercentile)
+        var hiddenItemStates = OptionalItemStateGroups
+            .Where(group => IsHiddenOptional(group.Key, preferences))
+            .ToArray();
+        if (hiddenItemStates.Length == 0 && !hideBasePercentile)
         {
             return searchEffectiveDraft;
         }
 
         var itemStateCriteria = searchEffectiveDraft.ItemStateCriteria;
-        if (hideFractured)
+        foreach (var (_, kind) in hiddenItemStates)
         {
-            itemStateCriteria = itemStateCriteria.With(
-                TradeItemStateKind.Fractured,
-                uiDraft.ItemStateCriteria.Fractured);
+            itemStateCriteria = itemStateCriteria.With(kind, uiDraft.ItemStateCriteria.Get(kind));
         }
 
         var requestedItemFilters = searchEffectiveDraft.RequestedItemFilters;
