@@ -20,10 +20,49 @@ public sealed class TradeSearchDraftValidator
         ValidateBaseIdentity(draft, diagnostics);
         ValidateItemLevel(draft, diagnostics);
         ValidateRequestedItemFilters(draft, diagnostics);
+        ValidateInfluenceCriteria(draft, diagnostics);
         ValidateItemProperties(draft, diagnostics);
         ValidateModifierFilters(draft, diagnostics);
 
         return TradeSearchValidationResult.FromDiagnostics(diagnostics);
+    }
+
+    private static void ValidateInfluenceCriteria(
+        TradeSearchDraft draft,
+        List<TradeSearchValidationDiagnostic> diagnostics)
+    {
+        for (var index = 0; index < draft.InfluenceCriteria.Length; index++)
+        {
+            var criterion = draft.InfluenceCriteria[index];
+            if (!criterion.IsEnabled)
+            {
+                continue;
+            }
+
+            if (criterion.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Exact)
+            {
+                continue;
+            }
+
+            // Unresolved is allowed until Search verifies the official catalogue mapping.
+            if (criterion.ProviderResolutionStatus == TradeSearchItemPropertyProviderResolutionStatus.Unresolved)
+            {
+                continue;
+            }
+
+            var code = criterion.ProviderResolutionStatus switch
+            {
+                TradeSearchItemPropertyProviderResolutionStatus.Unsupported =>
+                    TradeSearchValidationDiagnosticCodes.SelectedInfluenceUnsupported,
+                TradeSearchItemPropertyProviderResolutionStatus.Ambiguous =>
+                    TradeSearchValidationDiagnosticCodes.SelectedInfluenceAmbiguous,
+                _ => TradeSearchValidationDiagnosticCodes.SelectedInfluenceUnresolved,
+            };
+            diagnostics.Add(Error(
+                code,
+                criterion.DiagnosticReason ??
+                    $"Enabled influence '{criterion.DisplayLabel}' has no exact official Trade representation."));
+        }
     }
 
     private static void ValidateRequestedItemFilters(

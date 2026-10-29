@@ -1278,6 +1278,29 @@ Item Level: 84
 
         Assert.Equal(["Shaper Item"], draft.TraditionalInfluences);
         Assert.Equal(["Searing Exarch Item", "Eater of Worlds Item"], draft.EldritchInfluences);
+        Assert.Equal(3, draft.InfluenceCriteria.Length);
+        Assert.All(draft.InfluenceCriteria, criterion => Assert.True(criterion.IsEnabled));
+        Assert.Contains(
+            draft.InfluenceCriteria,
+            criterion => criterion is
+            {
+                Kind: TradeSearchInfluenceKind.Shaper,
+                Family: TradeSearchInfluenceFamily.Traditional,
+            });
+        Assert.Contains(
+            draft.InfluenceCriteria,
+            criterion => criterion is
+            {
+                Kind: TradeSearchInfluenceKind.SearingExarch,
+                Family: TradeSearchInfluenceFamily.Eldritch,
+            });
+        Assert.Contains(
+            draft.InfluenceCriteria,
+            criterion => criterion is
+            {
+                Kind: TradeSearchInfluenceKind.EaterOfWorlds,
+                Family: TradeSearchInfluenceFamily.Eldritch,
+            });
     }
 
     [Fact]

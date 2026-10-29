@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -106,6 +107,8 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
     public event EventHandler<PriceCheckerItemStateChangedEventArgs>? ItemStateChanged;
 
+    public event EventHandler<PriceCheckerInfluenceActivationChangedEventArgs>? InfluenceActivationChanged;
+
     public event EventHandler<PriceCheckerRarityChangedEventArgs>? RarityChanged;
 
     public event EventHandler<bool>? PinStateChanged;
@@ -178,6 +181,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             ? "ExactBase"
             : "Category";
         UpdateRarityControl(draft.Rarity, state.Presentation.IsRarityEditable);
+        UpdateInfluenceChips(draft.InfluenceCriteria);
         UpdateItemStateButton(
             MirroredStateButton,
             TradeItemStateKind.Mirrored,
@@ -391,6 +395,71 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             new PriceCheckerItemStateChangedEventArgs(
                 kind,
                 CycleItemState(CurrentState.Draft.ItemStateCriteria.Get(kind))));
+    }
+
+    private void UpdateInfluenceChips(ImmutableArray<TradeSearchInfluenceCriterion> criteria)
+    {
+        InfluenceChipsPanel.Children.Clear();
+        if (criteria.IsDefaultOrEmpty)
+        {
+            return;
+        }
+
+        var chipStyle = (Style)FindResource("InfluenceChipBorderStyle");
+        foreach (var criterion in criteria)
+        {
+            var label = criterion.ProviderResolutionStatus ==
+                TradeSearchItemPropertyProviderResolutionStatus.Unsupported
+                    ? $"{criterion.DisplayLabel} (Unsupported)"
+                    : criterion.DisplayLabel;
+            var isUnsupported = criterion.ProviderResolutionStatus ==
+                TradeSearchItemPropertyProviderResolutionStatus.Unsupported;
+            var border = new Border
+            {
+                Style = chipStyle,
+                Tag = isUnsupported && criterion.IsEnabled
+                    ? "Unsupported"
+                    : criterion.IsEnabled
+                        ? "Active"
+                        : null,
+                ToolTip = criterion.DiagnosticReason ??
+                    (criterion.IsEnabled
+                        ? $"{criterion.DisplayLabel} influence is enabled for Search"
+                        : $"{criterion.DisplayLabel} influence is disabled for Search"),
+                Child = new TextBlock
+                {
+                    Text = label,
+                    FontSize = 10,
+                    Foreground = isUnsupported && criterion.IsEnabled
+                        ? new SolidColorBrush(Color.FromRgb(0xCF, 0x9A, 0x9A))
+                        : new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            // Preserve criterion identity for toggle while using Tag for visual state.
+            border.DataContext = criterion;
+            border.PreviewMouseLeftButtonDown += OnInfluenceChipPreviewMouseLeftButtonDownFromDataContext;
+            InfluenceChipsPanel.Children.Add(border);
+        }
+    }
+
+    private void OnInfluenceChipPreviewMouseLeftButtonDownFromDataContext(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (sender is not Border { DataContext: TradeSearchInfluenceCriterion criterion } ||
+            criterion.Kind == TradeSearchInfluenceKind.Unknown)
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        InfluenceActivationChanged?.Invoke(
+            this,
+            new PriceCheckerInfluenceActivationChangedEventArgs(
+                criterion.Kind,
+                !criterion.IsEnabled));
+        e.Handled = true;
     }
 
     private void OnRaritySelectionChanged(object sender, SelectionChangedEventArgs e)

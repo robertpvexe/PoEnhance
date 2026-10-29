@@ -64,4 +64,13 @@ public static class TradeSearchValidationDiagnosticCodes
         "TRADE_VALIDATION_UNSUPPORTED_CONTRIBUTOR_PROJECTION";
 
     public const string UnsupportedSpecialItemFact = "TRADE_VALIDATION_UNSUPPORTED_SPECIAL_ITEM_FACT";
+
+    public const string SelectedInfluenceUnsupported =
+        "TRADE_VALIDATION_SELECTED_INFLUENCE_UNSUPPORTED";
+
+    public const string SelectedInfluenceUnresolved =
+        "TRADE_VALIDATION_SELECTED_INFLUENCE_UNRESOLVED";
+
+    public const string SelectedInfluenceAmbiguous =
+        "TRADE_VALIDATION_SELECTED_INFLUENCE_AMBIGUOUS";
 }

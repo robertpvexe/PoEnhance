@@ -20,6 +20,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
     private readonly PathOfExileTradeItemStateFilterResolver itemStateFilterResolver;
+    private readonly PathOfExileTradeInfluenceFilterResolver influenceFilterResolver;
     private readonly Func<GameDataCatalog?>? gameDataCatalogProvider;
 
     public PathOfExileTradePriceCheckService(
@@ -35,6 +36,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null,
         PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null,
         PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null,
+        PathOfExileTradeInfluenceFilterResolver? influenceFilterResolver = null,
         Func<GameDataCatalog?>? gameDataCatalogProvider = null)
     {
         this.queryBuilder = queryBuilder ?? throw new ArgumentNullException(nameof(queryBuilder));
@@ -51,6 +53,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             new PathOfExileTradeRequestedItemFilterResolver();
         this.itemStateFilterResolver = itemStateFilterResolver ??
             new PathOfExileTradeItemStateFilterResolver();
+        this.influenceFilterResolver = influenceFilterResolver ??
+            new PathOfExileTradeInfluenceFilterResolver();
         this.gameDataCatalogProvider = gameDataCatalogProvider;
     }
 
@@ -173,6 +177,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         IReadOnlyList<PathOfExileTradeSelectedModifierFilter> providerModifierFilters = [];
         IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> providerItemPropertyFilters = [];
         IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter> providerRequestedItemFilters = [];
+        IReadOnlyList<PathOfExileTradeSelectedInfluenceFilter> providerInfluenceFilters = [];
         PathOfExileTradeItemIdentity? providerItemIdentity = null;
         PathOfExileTradeFilterCatalog? providerFilterCatalog = null;
         PathOfExileTradeStatCatalog? providerStatCatalog = null;
@@ -184,10 +189,17 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         var hasRequestedItemFilters = draft?.RequestedItemFilters.IsDefaultOrEmpty == false;
         var hasActiveRequestedItemFilters = draft?.RequestedItemFilters.Any(filter => filter.IsActive) == true;
         var hasFracturedModifiers = draft?.ModifierFilters.Any(component => component.IsFractured) == true;
+        var hasInfluenceCriteria = draft?.InfluenceCriteria.IsDefaultOrEmpty == false;
+        var hasEnabledInfluences = draft?.InfluenceCriteria.Any(criterion => criterion.IsEnabled) == true;
+        var hasEnabledEldritchInfluences = draft?.InfluenceCriteria.Any(criterion =>
+            criterion.IsEnabled && criterion.Family == TradeSearchInfluenceFamily.Eldritch) == true;
+        var hasEnabledTraditionalInfluences = draft?.InfluenceCriteria.Any(criterion =>
+            criterion.IsEnabled && criterion.Family == TradeSearchInfluenceFamily.Traditional) == true;
         var needsCategoryCatalog = draft?.Base.ActiveCriterion?.Mode == BaseSearchMode.Category;
         if ((hasItemProperties ||
                 hasRequestedItemFilters ||
                 hasFracturedModifiers ||
+                hasInfluenceCriteria ||
                 needsCategoryCatalog) &&
             filterCatalogProvider is not null)
         {
@@ -215,7 +227,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                     effectiveDraft = draft;
                 }
 
-                if (hasSelectedItemProperties || hasActiveRequestedItemFilters || needsCategoryCatalog)
+                if (hasSelectedItemProperties ||
+                    hasActiveRequestedItemFilters ||
+                    hasEnabledEldritchInfluences ||
+                    needsCategoryCatalog)
                 {
                     return FilterCatalogFailure(filterCatalogResult, effectiveDraft);
                 }
@@ -230,7 +245,7 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 }
             }
         }
-        else if (draft is not null && (hasItemProperties || hasRequestedItemFilters))
+        else if (draft is not null && (hasItemProperties || hasRequestedItemFilters || hasEnabledEldritchInfluences))
         {
             draft = MarkFilterCatalogUnavailable(
                 draft,
@@ -266,7 +281,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             providerItemIdentity = identityResult.Identity;
         }
 
-        if (CanMapSelectedModifiers(draft, validationResult, leagueIdentifier))
+        if (CanMapSelectedModifiers(draft, validationResult, leagueIdentifier) ||
+            CanMapTraditionalInfluences(draft, validationResult, leagueIdentifier))
         {
             var catalogResult = await statCatalogProvider
                 .GetCatalogAsync(cancellationToken)
@@ -339,6 +355,29 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             }
         }
 
+        if (!hasValidationErrors && draft is not null && hasEnabledInfluences)
+        {
+            var influenceMapping = influenceFilterResolver.MapSelected(
+                draft,
+                providerStatCatalog,
+                providerFilterCatalog);
+            draft = influenceMapping.Draft ?? draft;
+            effectiveDraft = draft;
+            validationResult = ValidateEffectiveDraft(draft, validationResult);
+            hasValidationErrors = validationResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error);
+            if (!influenceMapping.IsSuccess || hasValidationErrors)
+            {
+                return InfluenceFilterMappingFailure(
+                    influenceMapping,
+                    catalogRateLimitSnapshot,
+                    catalogDiagnostics,
+                    effectiveDraft);
+            }
+
+            providerInfluenceFilters = influenceMapping.Filters;
+        }
+
         if (!hasValidationErrors &&
             draft?.ModifierFilters.Any(modifier =>
                 modifier.IsSelected ||
@@ -376,7 +415,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             providerItemIdentity,
             providerFilterCatalog,
             providerItemPropertyFilters,
-            providerRequestedItemFilters);
+            providerRequestedItemFilters,
+            providerInfluenceFilters);
         if (!buildResult.IsSuccess || buildResult.Request is null)
         {
             var buildDiagnostics = catalogDiagnostics.Concat(MapQueryDiagnostics(
@@ -764,6 +804,20 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         return draft?.ModifierFilters.Any(modifier =>
                 modifier.IsSelected ||
                 SearchComponentContributorActivation.IsFilteringActive(modifier)) == true &&
+            validationResult is not null &&
+            !validationResult.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
+            !string.IsNullOrWhiteSpace(leagueIdentifier);
+    }
+
+    private static bool CanMapTraditionalInfluences(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier)
+    {
+        return draft?.InfluenceCriteria.Any(criterion =>
+                criterion.IsEnabled &&
+                criterion.Family == TradeSearchInfluenceFamily.Traditional) == true &&
             validationResult is not null &&
             !validationResult.Diagnostics.Any(diagnostic =>
                 diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
@@ -2616,6 +2670,29 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         {
             Stage = PathOfExileTradePriceCheckStage.QueryBuild,
             EffectiveDraft = effectiveDraft,
+            CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
+            Diagnostics = catalogDiagnostics.Concat(mappingDiagnostics).ToArray(),
+        };
+    }
+
+    private static PathOfExileTradePriceCheckResult InfluenceFilterMappingFailure(
+        PathOfExileTradeInfluenceFilterMappingResult result,
+        PathOfExileTradeRateLimitSnapshot? catalogRateLimitSnapshot,
+        IReadOnlyList<PathOfExileTradePriceCheckDiagnostic> catalogDiagnostics,
+        TradeSearchDraft? effectiveDraft)
+    {
+        var mappingDiagnostics = result.Diagnostics
+            .DefaultIfEmpty("An enabled influence could not be mapped to an official Trade condition.")
+            .Select(message => new PathOfExileTradePriceCheckDiagnostic(
+                PathOfExileTradePriceCheckDiagnosticCodes.SelectedInfluenceMappingFailed,
+                message,
+                PathOfExileTradePriceCheckStage.QueryBuild,
+                "POE_TRADE_INFLUENCE_FILTER_NOT_EXACTLY_RESOLVED"))
+            .ToArray();
+        return new PathOfExileTradePriceCheckResult
+        {
+            Stage = PathOfExileTradePriceCheckStage.QueryBuild,
+            EffectiveDraft = result.Draft ?? effectiveDraft,
             CatalogRateLimitSnapshot = catalogRateLimitSnapshot,
             Diagnostics = catalogDiagnostics.Concat(mappingDiagnostics).ToArray(),
         };

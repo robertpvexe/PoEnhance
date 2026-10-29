@@ -60,6 +60,12 @@ internal interface IPriceCheckerWindow
         remove { }
     }
 
+    event EventHandler<PriceCheckerInfluenceActivationChangedEventArgs>? InfluenceActivationChanged
+    {
+        add { }
+        remove { }
+    }
+
     event EventHandler<PriceCheckerRarityChangedEventArgs>? RarityChanged
     {
         add { }

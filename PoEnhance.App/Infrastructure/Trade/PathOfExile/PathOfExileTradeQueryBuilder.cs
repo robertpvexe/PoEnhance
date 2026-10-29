@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Trade;
 using Serilog;
@@ -27,17 +28,21 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
     private readonly PathOfExileTradeItemPropertyResolver itemPropertyResolver;
     private readonly PathOfExileTradeRequestedItemFilterResolver requestedItemFilterResolver;
     private readonly PathOfExileTradeItemStateFilterResolver itemStateFilterResolver;
+    private readonly PathOfExileTradeInfluenceFilterResolver influenceFilterResolver;
 
     public PathOfExileTradeQueryBuilder(
         PathOfExileTradeItemPropertyResolver? itemPropertyResolver = null,
         PathOfExileTradeRequestedItemFilterResolver? requestedItemFilterResolver = null,
-        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null)
+        PathOfExileTradeItemStateFilterResolver? itemStateFilterResolver = null,
+        PathOfExileTradeInfluenceFilterResolver? influenceFilterResolver = null)
     {
         this.itemPropertyResolver = itemPropertyResolver ?? new PathOfExileTradeItemPropertyResolver();
         this.requestedItemFilterResolver = requestedItemFilterResolver ??
             new PathOfExileTradeRequestedItemFilterResolver();
         this.itemStateFilterResolver = itemStateFilterResolver ??
             new PathOfExileTradeItemStateFilterResolver();
+        this.influenceFilterResolver = influenceFilterResolver ??
+            new PathOfExileTradeInfluenceFilterResolver();
     }
 
     public PathOfExileTradeQueryBuildResult Build(
@@ -57,7 +62,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             providerItemIdentity,
             providerFilterCatalog,
             selectedItemPropertyFilters,
-            selectedRequestedItemFilters: null);
+            selectedRequestedItemFilters: null,
+            selectedInfluenceFilters: null);
     }
 
     public PathOfExileTradeQueryBuildResult Build(
@@ -69,6 +75,29 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         PathOfExileTradeFilterCatalog? providerFilterCatalog,
         IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? selectedItemPropertyFilters,
         IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter>? selectedRequestedItemFilters)
+    {
+        return Build(
+            draft,
+            validationResult,
+            leagueIdentifier,
+            selectedModifierFilters,
+            providerItemIdentity,
+            providerFilterCatalog,
+            selectedItemPropertyFilters,
+            selectedRequestedItemFilters,
+            selectedInfluenceFilters: null);
+    }
+
+    public PathOfExileTradeQueryBuildResult Build(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier,
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters,
+        PathOfExileTradeItemIdentity? providerItemIdentity,
+        PathOfExileTradeFilterCatalog? providerFilterCatalog,
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? selectedItemPropertyFilters,
+        IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter>? selectedRequestedItemFilters,
+        IReadOnlyList<PathOfExileTradeSelectedInfluenceFilter>? selectedInfluenceFilters)
     {
         if (draft is null)
         {
@@ -307,6 +336,92 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             providerItemStateFilters = stateMapping.Filters;
         }
 
+        var providerInfluenceFilters = selectedInfluenceFilters ?? [];
+        var enabledInfluenceKinds = draft.InfluenceCriteria
+            .Where(criterion => criterion.IsEnabled)
+            .Select(criterion => criterion.Kind)
+            .ToHashSet();
+        var mappedInfluenceKinds = providerInfluenceFilters
+            .Select(filter => filter.SourceKind)
+            .ToArray();
+        if (enabledInfluenceKinds.Count > 0 && providerInfluenceFilters.Count == 0)
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.SelectedInfluencesMissingProviderMapping,
+                "Enabled influences require verified official Trade mappings before query serialization.");
+        }
+
+        if (mappedInfluenceKinds.Distinct().Count() != mappedInfluenceKinds.Length ||
+            !enabledInfluenceKinds.SetEquals(mappedInfluenceKinds))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.SelectedInfluenceMappingMismatch,
+                "Influence provider mappings must cover exactly the enabled influences once each.");
+        }
+
+        if (providerInfluenceFilters.Any(filter =>
+                filter.Family == TradeSearchInfluenceFamily.Traditional &&
+                string.IsNullOrWhiteSpace(filter.StatId)))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedInfluenceMapping,
+                "Traditional influence mappings require verified pseudo stat identifiers.");
+        }
+
+        if (providerInfluenceFilters.Any(filter =>
+                filter.Family == TradeSearchInfluenceFamily.Eldritch &&
+                (string.IsNullOrWhiteSpace(filter.ProviderGroupId) ||
+                    string.IsNullOrWhiteSpace(filter.ProviderFilterId) ||
+                    string.IsNullOrWhiteSpace(filter.Option))))
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedInfluenceMapping,
+                "Eldritch influence mappings require verified misc_filters option identities.");
+        }
+
+        if (providerInfluenceFilters.Any(filter => filter.Family == TradeSearchInfluenceFamily.Eldritch) &&
+            providerFilterCatalog is null)
+        {
+            return Failure(
+                PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedInfluenceMapping,
+                "Eldritch influence filters require the session-verified Trade filter catalog.");
+        }
+
+        if (providerInfluenceFilters.Any(filter => filter.Family == TradeSearchInfluenceFamily.Eldritch))
+        {
+            var verifiedEldritch = influenceFilterResolver.MapSelected(
+                draft with
+                {
+                    InfluenceCriteria = draft.InfluenceCriteria
+                        .Select(criterion =>
+                            criterion.Family == TradeSearchInfluenceFamily.Eldritch && criterion.IsEnabled
+                                ? criterion
+                                : criterion with { IsEnabled = false })
+                        .ToImmutableArray(),
+                },
+                statCatalog: null,
+                providerFilterCatalog);
+            if (!verifiedEldritch.IsSuccess ||
+                !verifiedEldritch.Filters
+                    .Select(filter =>
+                        $"{filter.ProviderGroupId}\n{filter.ProviderFilterId}\n{filter.Option}")
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .SequenceEqual(
+                        providerInfluenceFilters
+                            .Where(filter => filter.Family == TradeSearchInfluenceFamily.Eldritch)
+                            .Select(filter =>
+                                $"{filter.ProviderGroupId}\n{filter.ProviderFilterId}\n{filter.Option}")
+                            .OrderBy(value => value, StringComparer.Ordinal)))
+            {
+                return Failure(
+                    PathOfExileTradeQueryDiagnosticCodes.InvalidSelectedInfluenceMapping,
+                    string.Join(
+                        " ",
+                        verifiedEldritch.Diagnostics.DefaultIfEmpty(
+                            "Enabled Eldritch influences no longer match the reviewed misc_filters mapping.")));
+            }
+        }
+
         if (!IsSupportedBaseOnlyIndividualItemPath(draft))
         {
             return Failure(
@@ -356,8 +471,16 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 itemNameResult.Name is not null);
         }
 
+        var traditionalInfluenceStatFilters = providerInfluenceFilters
+            .Where(filter => filter.Family == TradeSearchInfluenceFamily.Traditional)
+            .Select(filter => new PathOfExileTradeSearchStatFilter
+            {
+                Id = filter.StatId!.Trim(),
+            })
+            .ToArray();
+
         var statGroups = new List<PathOfExileTradeSearchStatsGroup>();
-        if (providerFilters.Count == 0)
+        if (providerFilters.Count == 0 && traditionalInfluenceStatFilters.Length == 0)
         {
             statGroups.Add(new PathOfExileTradeSearchStatsGroup
             {
@@ -379,6 +502,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     }
                     : null,
             })
+            .Concat(traditionalInfluenceStatFilters)
             .ToArray();
         if (conjunctiveFilters.Length > 0)
         {
@@ -430,7 +554,10 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     categoryOptionResult.Option,
                     providerPropertyFilters,
                     providerRequestedFilters,
-                    providerItemStateFilters),
+                    providerItemStateFilters,
+                    providerInfluenceFilters
+                        .Where(filter => filter.Family == TradeSearchInfluenceFamily.Eldritch)
+                        .ToArray()),
             },
             Sort = new PathOfExileTradeSearchSort(),
         };
@@ -578,7 +705,8 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
         PathOfExileTradeFilterOption? categoryOption,
         IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter> itemPropertyFilters,
         IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter> requestedItemFilters,
-        IReadOnlyList<PathOfExileTradeSelectedItemStateFilter> itemStateFilters)
+        IReadOnlyList<PathOfExileTradeSelectedItemStateFilter> itemStateFilters,
+        IReadOnlyList<PathOfExileTradeSelectedInfluenceFilter> eldritchInfluenceFilters)
     {
         var groups = new Dictionary<string, object>(StringComparer.Ordinal);
         var typeFilters = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -654,6 +782,22 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                     filter => (object)new PathOfExileTradeSearchOptionFilter
                     {
                         Option = filter.Option,
+                    },
+                    StringComparer.Ordinal));
+        }
+
+        foreach (var influenceGroup in eldritchInfluenceFilters.GroupBy(
+                     filter => filter.ProviderGroupId!.Trim(),
+                     StringComparer.Ordinal))
+        {
+            AddFilterGroup(
+                groups,
+                influenceGroup.Key,
+                influenceGroup.ToDictionary(
+                    filter => filter.ProviderFilterId!.Trim(),
+                    filter => (object)new PathOfExileTradeSearchOptionFilter
+                    {
+                        Option = filter.Option!,
                     },
                     StringComparer.Ordinal));
         }

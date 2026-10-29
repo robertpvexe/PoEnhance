@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "reviewReference": "influence-filter-trade-catalog-audit-2026-10-29",
+  "mappings": [
+    {
+      "kind": "Shaper",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Shaper Influence",
+      "expectedStatId": "pseudo.pseudo_has_shaper_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "Elder",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Elder Influence",
+      "expectedStatId": "pseudo.pseudo_has_elder_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "Crusader",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Crusader Influence",
+      "expectedStatId": "pseudo.pseudo_has_crusader_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "Hunter",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Hunter Influence",
+      "expectedStatId": "pseudo.pseudo_has_hunter_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "Redeemer",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Redeemer Influence",
+      "expectedStatId": "pseudo.pseudo_has_redeemer_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "Warlord",
+      "family": "Traditional",
+      "encoding": "PseudoStat",
+      "expectedOfficialText": "Has Warlord Influence",
+      "expectedStatId": "pseudo.pseudo_has_warlord_influence",
+      "expectedProviderKind": "pseudo"
+    },
+    {
+      "kind": "SearingExarch",
+      "family": "Eldritch",
+      "encoding": "MiscOptionFilter",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "searing_item",
+      "expectedOfficialText": "Searing Exarch Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    },
+    {
+      "kind": "EaterOfWorlds",
+      "family": "Eldritch",
+      "encoding": "MiscOptionFilter",
+      "providerGroupId": "misc_filters",
+      "providerFilterId": "tangled_item",
+      "expectedOfficialText": "Eater of Worlds Item",
+      "yesOptionId": "true",
+      "yesOptionText": "Yes",
+      "noOptionId": "false",
+      "noOptionText": "No"
+    }
+  ]
+}

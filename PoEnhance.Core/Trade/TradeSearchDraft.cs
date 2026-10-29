@@ -35,6 +35,12 @@ public sealed record TradeSearchDraft
 
     public IReadOnlyList<string> EldritchInfluences { get; init; } = [];
 
+    /// <summary>
+    /// Detected influences with independent Search enablement. Defaults ON for each newly loaded item.
+    /// Observed influence facts remain on <see cref="TraditionalInfluences"/> / <see cref="EldritchInfluences"/>.
+    /// </summary>
+    public ImmutableArray<TradeSearchInfluenceCriterion> InfluenceCriteria { get; init; } = [];
+
     public TradeItemVariantCriteria ItemVariantCriteria { get; init; } = new();
 
     public UniqueItemResolutionResult? UniqueItemResolution { get; init; }

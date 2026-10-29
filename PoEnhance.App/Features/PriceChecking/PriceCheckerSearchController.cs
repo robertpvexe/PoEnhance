@@ -110,6 +110,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierExpansionChanged += OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested += OnBaseCriterionToggleRequested;
         priceCheckerWindow.ItemStateChanged += OnItemStateChanged;
+        priceCheckerWindow.InfluenceActivationChanged += OnInfluenceActivationChanged;
         priceCheckerWindow.RarityChanged += OnRarityChanged;
         priceCheckerWindow.ResetItemRequested += OnResetItemRequested;
         priceCheckerWindow.UpdateSearch(CurrentViewState);
@@ -138,6 +139,7 @@ internal sealed class PriceCheckerSearchController
         priceCheckerWindow.ModifierExpansionChanged -= OnModifierExpansionChanged;
         priceCheckerWindow.BaseCriterionToggleRequested -= OnBaseCriterionToggleRequested;
         priceCheckerWindow.ItemStateChanged -= OnItemStateChanged;
+        priceCheckerWindow.InfluenceActivationChanged -= OnInfluenceActivationChanged;
         priceCheckerWindow.RarityChanged -= OnRarityChanged;
         priceCheckerWindow.ResetItemRequested -= OnResetItemRequested;
         priceCheckerWindow.Closed -= OnWindowClosed;
@@ -1025,6 +1027,45 @@ internal sealed class PriceCheckerSearchController
         ApplyState(CreateBoundChangeInvalidatedState());
     }
 
+    public void UpdateInfluenceActivation(TradeSearchInfluenceKind kind, bool isEnabled)
+    {
+        if (currentDraft is null || currentDraft.InfluenceCriteria.IsDefaultOrEmpty)
+        {
+            return;
+        }
+
+        var index = -1;
+        for (var i = 0; i < currentDraft.InfluenceCriteria.Length; i++)
+        {
+            if (currentDraft.InfluenceCriteria[i].Kind == kind)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0 || currentDraft.InfluenceCriteria[index].IsEnabled == isEnabled)
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            InfluenceCriteria = currentDraft.InfluenceCriteria
+                .Select((criterion, criterionIndex) =>
+                    criterionIndex == index
+                        ? criterion with { IsEnabled = isEnabled }
+                        : criterion)
+                .ToImmutableArray(),
+        };
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
     public void UpdateRarity(string? rarity)
     {
         if (currentDraft is null ||
@@ -1187,6 +1228,13 @@ internal sealed class PriceCheckerSearchController
     private void OnItemStateChanged(object? sender, PriceCheckerItemStateChangedEventArgs e)
     {
         UpdateItemStateCriterion(e.Kind, e.State);
+    }
+
+    private void OnInfluenceActivationChanged(
+        object? sender,
+        PriceCheckerInfluenceActivationChangedEventArgs e)
+    {
+        UpdateInfluenceActivation(e.Kind, e.IsEnabled);
     }
 
     private void OnRarityChanged(object? sender, PriceCheckerRarityChangedEventArgs e)

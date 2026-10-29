@@ -30,6 +30,29 @@ internal interface IPathOfExileTradeQueryBuilder
             selectedModifierFilters,
             providerItemIdentity,
             providerFilterCatalog,
+            selectedItemPropertyFilters,
+            selectedRequestedItemFilters,
+            selectedInfluenceFilters: null);
+    }
+
+    PathOfExileTradeQueryBuildResult Build(
+        TradeSearchDraft? draft,
+        TradeSearchValidationResult? validationResult,
+        string? leagueIdentifier,
+        IReadOnlyList<PathOfExileTradeSelectedModifierFilter>? selectedModifierFilters,
+        PathOfExileTradeItemIdentity? providerItemIdentity,
+        PathOfExileTradeFilterCatalog? providerFilterCatalog,
+        IReadOnlyList<PathOfExileTradeSelectedItemPropertyFilter>? selectedItemPropertyFilters,
+        IReadOnlyList<PathOfExileTradeSelectedRequestedItemFilter>? selectedRequestedItemFilters,
+        IReadOnlyList<PathOfExileTradeSelectedInfluenceFilter>? selectedInfluenceFilters)
+    {
+        return Build(
+            draft,
+            validationResult,
+            leagueIdentifier,
+            selectedModifierFilters,
+            providerItemIdentity,
+            providerFilterCatalog,
             selectedItemPropertyFilters);
     }
 }

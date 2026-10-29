@@ -89,6 +89,9 @@ public sealed partial class TradeSearchDraftMapper
             RequestedItemFilters = CreateRequestedItemFilters(parsedItem),
             TraditionalInfluences = parsedItem.TraditionalInfluences.ToArray(),
             EldritchInfluences = parsedItem.EldritchInfluences.ToArray(),
+            InfluenceCriteria = TradeSearchInfluenceCriteriaFactory.Create(
+                parsedItem.TraditionalInfluences,
+                parsedItem.EldritchInfluences),
             ItemProperties = itemProperties,
             ItemPropertyDiagnostics = derivedWeaponProperties.Diagnostics
                 .Select(diagnostic => new TradeSearchItemPropertyDiagnostic(

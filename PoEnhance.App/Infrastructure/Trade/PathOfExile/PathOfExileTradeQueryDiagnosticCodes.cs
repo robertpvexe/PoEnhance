@@ -46,6 +46,15 @@ internal static class PathOfExileTradeQueryDiagnosticCodes
     public const string InvalidItemStateFilterMapping =
         "POE_TRADE_QUERY_INVALID_ITEM_STATE_FILTER_MAPPING";
 
+    public const string SelectedInfluencesMissingProviderMapping =
+        "POE_TRADE_QUERY_SELECTED_INFLUENCES_MISSING_PROVIDER_MAPPING";
+
+    public const string SelectedInfluenceMappingMismatch =
+        "POE_TRADE_QUERY_SELECTED_INFLUENCE_MAPPING_MISMATCH";
+
+    public const string InvalidSelectedInfluenceMapping =
+        "POE_TRADE_QUERY_INVALID_SELECTED_INFLUENCE_MAPPING";
+
     public const string UnsupportedRarityOrItemPath = "POE_TRADE_QUERY_UNSUPPORTED_RARITY_OR_ITEM_PATH";
 
     public const string MissingCanonicalUniqueName = "POE_TRADE_QUERY_MISSING_CANONICAL_UNIQUE_NAME";
