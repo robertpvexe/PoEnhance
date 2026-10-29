@@ -26,8 +26,10 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
     private readonly ApplicationLeagueSetting leagueSetting;
     private readonly IPathOfExileTradeLeagueCatalogProvider leagueCatalogProvider;
     private readonly ObservableCollection<QuickUseCommandRow> quickUseRows = [];
+    private readonly ObservableCollection<PriceCheckerMiscellaneousFilterPreferenceRow> priceCheckerMiscFilterRows = [];
     private bool allowApplicationClose;
     private bool isRestoringLeagueSelection;
+    private bool isRestoringPriceCheckerMiscFilters;
     private bool restoreStartViewOnSettingsBack = true;
     private SettingsSubpage selectedSettingsSubpage = SettingsSubpage.General;
     private QuickUseCommandRow? capturingQuickUseRow;
@@ -54,9 +56,11 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
             throw new ArgumentNullException(nameof(leagueCatalogProvider));
         InitializeComponent();
         QuickUseCommandsItemsControl.ItemsSource = quickUseRows;
+        PriceCheckerMiscFiltersItemsControl.ItemsSource = priceCheckerMiscFilterRows;
         VersionText.Text = $"Version {GetApplicationVersion()}";
         RestoreLeagueSelection();
         RestoreQuickUseCommands();
+        RestorePriceCheckerMiscellaneousFilters();
         ShowStartView();
         Loaded += async (_, _) => await RefreshLeagueChoicesAsync();
     }
@@ -115,6 +119,11 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         quickUseRows.Select(row => row.ToSetting()).ToArray();
 
     internal string QuickUseFeedback => QuickUseFeedbackText.Text;
+
+    internal IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> PendingPriceCheckerMiscellaneousFilters =>
+        priceCheckerMiscFilterRows
+            .Select((row, index) => row.ToPreference(index))
+            .ToArray();
 
     IntPtr IMultitoolMenuWindow.EnsureHandle()
     {
@@ -555,6 +564,99 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         _ = SavePendingQuickUseCommands();
     }
 
+    private void PriceCheckerMiscFilterVisibility_OnChanged(object sender, RoutedEventArgs e)
+    {
+        PersistPriceCheckerMiscellaneousFilters();
+    }
+
+    private void PriceCheckerMiscFilterMoveUpButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PriceCheckerMiscellaneousFilterPreferenceRow row })
+        {
+            _ = MovePriceCheckerMiscellaneousFilterUp(row.Key);
+        }
+    }
+
+    private void PriceCheckerMiscFilterMoveDownButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PriceCheckerMiscellaneousFilterPreferenceRow row })
+        {
+            _ = MovePriceCheckerMiscellaneousFilterDown(row.Key);
+        }
+    }
+
+    private void PriceCheckerMiscFiltersItemsControl_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
+            e.Key is not (Key.Up or Key.Down) ||
+            Keyboard.FocusedElement is not FrameworkElement
+            {
+                DataContext: PriceCheckerMiscellaneousFilterPreferenceRow row,
+            })
+        {
+            return;
+        }
+
+        var moved = e.Key == Key.Up
+            ? MovePriceCheckerMiscellaneousFilterUp(row.Key)
+            : MovePriceCheckerMiscellaneousFilterDown(row.Key);
+        if (moved)
+        {
+            e.Handled = true;
+        }
+    }
+
+    internal bool SetPriceCheckerMiscellaneousFilterVisibility(string key, bool isVisible)
+    {
+        var row = priceCheckerMiscFilterRows.FirstOrDefault(candidate =>
+            string.Equals(candidate.Key, key, StringComparison.Ordinal));
+        if (row is null)
+        {
+            return false;
+        }
+
+        row.IsVisible = isVisible;
+        return PersistPriceCheckerMiscellaneousFilters();
+    }
+
+    internal bool MovePriceCheckerMiscellaneousFilterUp(string key)
+    {
+        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
+        if (index <= 0)
+        {
+            return false;
+        }
+
+        priceCheckerMiscFilterRows.Move(index, index - 1);
+        RefreshPriceCheckerMiscellaneousMoveAffordances();
+        return PersistPriceCheckerMiscellaneousFilters();
+    }
+
+    internal bool MovePriceCheckerMiscellaneousFilterDown(string key)
+    {
+        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
+        if (index < 0 || index >= priceCheckerMiscFilterRows.Count - 1)
+        {
+            return false;
+        }
+
+        priceCheckerMiscFilterRows.Move(index, index + 1);
+        RefreshPriceCheckerMiscellaneousMoveAffordances();
+        return PersistPriceCheckerMiscellaneousFilters();
+    }
+
+    internal bool CanMovePriceCheckerMiscellaneousFilterUp(string key)
+    {
+        var row = FindPriceCheckerMiscellaneousFilter(key);
+        return row?.CanMoveUp == true;
+    }
+
+    internal bool CanMovePriceCheckerMiscellaneousFilterDown(string key)
+    {
+        var row = FindPriceCheckerMiscellaneousFilter(key);
+        return row?.CanMoveDown == true;
+    }
+
     private void RestoreLeagueSelection()
     {
         isRestoringLeagueSelection = true;
@@ -577,6 +679,88 @@ internal partial class MultitoolMenuWindow : Window, IMultitoolMenuWindow
         {
             quickUseRows.Add(new QuickUseCommandRow(command));
         }
+    }
+
+    private void RestorePriceCheckerMiscellaneousFilters()
+    {
+        isRestoringPriceCheckerMiscFilters = true;
+        try
+        {
+            priceCheckerMiscFilterRows.Clear();
+            foreach (var preference in leagueSetting.PriceCheckerMiscellaneousFilters
+                .OrderBy(candidate => candidate.Order))
+            {
+                if (!PriceCheckerMiscellaneousFilterRegistry.TryGetDefinition(
+                        preference.Key,
+                        out var definition))
+                {
+                    continue;
+                }
+
+                priceCheckerMiscFilterRows.Add(
+                    new PriceCheckerMiscellaneousFilterPreferenceRow(
+                        definition,
+                        preference.IsVisible));
+            }
+
+            foreach (var definition in PriceCheckerMiscellaneousFilterRegistry.Definitions)
+            {
+                if (priceCheckerMiscFilterRows.Any(row =>
+                        string.Equals(row.Key, definition.Key, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                priceCheckerMiscFilterRows.Add(
+                    new PriceCheckerMiscellaneousFilterPreferenceRow(definition, isVisible: true));
+            }
+
+            RefreshPriceCheckerMiscellaneousMoveAffordances();
+        }
+        finally
+        {
+            isRestoringPriceCheckerMiscFilters = false;
+        }
+    }
+
+    private bool PersistPriceCheckerMiscellaneousFilters()
+    {
+        if (isRestoringPriceCheckerMiscFilters)
+        {
+            return true;
+        }
+
+        return leagueSetting.TrySavePriceCheckerMiscellaneousFilters(
+            PendingPriceCheckerMiscellaneousFilters);
+    }
+
+    private void RefreshPriceCheckerMiscellaneousMoveAffordances()
+    {
+        for (var index = 0; index < priceCheckerMiscFilterRows.Count; index++)
+        {
+            var row = priceCheckerMiscFilterRows[index];
+            row.CanMoveUp = index > 0;
+            row.CanMoveDown = index < priceCheckerMiscFilterRows.Count - 1;
+        }
+    }
+
+    private int IndexOfPriceCheckerMiscellaneousFilter(string key)
+    {
+        for (var index = 0; index < priceCheckerMiscFilterRows.Count; index++)
+        {
+            if (string.Equals(priceCheckerMiscFilterRows[index].Key, key, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private PriceCheckerMiscellaneousFilterPreferenceRow? FindPriceCheckerMiscellaneousFilter(string key)
+    {
+        var index = IndexOfPriceCheckerMiscellaneousFilter(key);
+        return index < 0 ? null : priceCheckerMiscFilterRows[index];
     }
 
     private string? SelectedLeagueChoice()

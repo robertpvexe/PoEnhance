@@ -22,11 +22,13 @@ internal sealed class ApplicationLeagueSetting
         LeagueSelection = settings.LeagueSelection;
         EffectiveLeague = LeagueSelection?.DisplayText;
         QuickUseCommands = settings.QuickUseCommands;
+        PriceCheckerMiscellaneousFilters = settings.PriceCheckerMiscellaneousFilters;
         Log.Information(
-            "Application settings loaded. LeagueConfigured={LeagueConfigured}; QuickUseRows={QuickUseRows}; QuickUseBindings={QuickUseBindings}",
+            "Application settings loaded. LeagueConfigured={LeagueConfigured}; QuickUseRows={QuickUseRows}; QuickUseBindings={QuickUseBindings}; MiscFilterPreferences={MiscFilterPreferences}",
             LeagueSelection is not null,
             QuickUseCommands.Count,
-            QuickUseCommands.Count(command => command.Hotkey is not null && !string.IsNullOrWhiteSpace(command.Command)));
+            QuickUseCommands.Count(command => command.Hotkey is not null && !string.IsNullOrWhiteSpace(command.Command)),
+            PriceCheckerMiscellaneousFilters.Count);
     }
 
     private ApplicationLeagueSetting()
@@ -37,12 +39,23 @@ internal sealed class ApplicationLeagueSetting
 
     public event EventHandler? QuickUseCommandsChanged;
 
+    public event EventHandler? PriceCheckerMiscellaneousFiltersChanged;
+
     public string? EffectiveLeague { get; private set; }
 
     public ApplicationLeagueSelection? LeagueSelection { get; private set; }
 
     public IReadOnlyList<QuickUseCommandSetting> QuickUseCommands { get; private set; }
         = QuickUseCommandSetting.CreateDefaults();
+
+    /// <summary>
+    /// Read-only Miscellaneous Panel 2 visibility/order preferences for Settings and future UI 04.
+    /// </summary>
+    public IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> PriceCheckerMiscellaneousFilters
+    {
+        get;
+        private set;
+    } = PriceCheckerMiscellaneousFilterRegistry.CreateDefaults();
 
     public string? FilePath => filePath;
 
@@ -62,6 +75,7 @@ internal sealed class ApplicationLeagueSetting
             LeagueSelection = selection,
             EffectiveLeague = selection?.DisplayText,
             QuickUseCommands = QuickUseCommandSetting.CreateDefaults(),
+            PriceCheckerMiscellaneousFilters = PriceCheckerMiscellaneousFilterRegistry.CreateDefaults(),
         };
     }
 
@@ -103,7 +117,8 @@ internal sealed class ApplicationLeagueSetting
         ApplicationLeagueSelection selection,
         bool notifyChanged)
     {
-        if (filePath is not null && !TryWrite(filePath, selection, QuickUseCommands))
+        if (filePath is not null &&
+            !TryWrite(filePath, selection, QuickUseCommands, PriceCheckerMiscellaneousFilters))
         {
             return false;
         }
@@ -137,7 +152,8 @@ internal sealed class ApplicationLeagueSetting
             return false;
         }
 
-        if (filePath is not null && !TryWrite(filePath, LeagueSelection, normalized))
+        if (filePath is not null &&
+            !TryWrite(filePath, LeagueSelection, normalized, PriceCheckerMiscellaneousFilters))
         {
             validationError = "Quick Use settings could not be saved. Try again.";
             return false;
@@ -152,13 +168,41 @@ internal sealed class ApplicationLeagueSetting
         return true;
     }
 
+    public bool TrySavePriceCheckerMiscellaneousFilters(
+        IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> preferences)
+    {
+        ArgumentNullException.ThrowIfNull(preferences);
+        var normalized = PriceCheckerMiscellaneousFilterRegistry.MergeStoredPreferences(preferences);
+        if (filePath is not null &&
+            !TryWrite(filePath, LeagueSelection, QuickUseCommands, normalized))
+        {
+            return false;
+        }
+
+        if (PriceCheckerMiscellaneousFilters.SequenceEqual(normalized))
+        {
+            return true;
+        }
+
+        PriceCheckerMiscellaneousFilters = normalized;
+        Log.Information(
+            "Price Checker Miscellaneous filter preferences saved. Rows={MiscFilterPreferences}; Visible={VisibleMiscFilters}",
+            PriceCheckerMiscellaneousFilters.Count,
+            PriceCheckerMiscellaneousFilters.Count(preference => preference.IsVisible));
+        PriceCheckerMiscellaneousFiltersChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     private static LoadedSettings Load(string filePath)
     {
         try
         {
             if (!File.Exists(filePath))
             {
-                return new LoadedSettings(null, QuickUseCommandSetting.CreateDefaults());
+                return new LoadedSettings(
+                    null,
+                    QuickUseCommandSetting.CreateDefaults(),
+                    PriceCheckerMiscellaneousFilterRegistry.CreateDefaults());
             }
 
             var json = File.ReadAllText(filePath);
@@ -171,25 +215,32 @@ internal sealed class ApplicationLeagueSetting
                 quickUseCommands = QuickUseCommandSetting.CreateDefaults();
             }
 
+            var miscFilters = PriceCheckerMiscellaneousFilterRegistry.MergeStoredPreferences(
+                settings?.PriceCheckerMiscellaneousFilters?.Select(ToPreference));
+
             var providerId = TrimToNull(settings?.TradeLeague?.ProviderId);
             var displayText = TrimToNull(settings?.TradeLeague?.DisplayText);
             var selection = providerId is not null && displayText is not null
                 ? new ApplicationLeagueSelection(providerId, displayText)
                 : CreateLegacySelection(settings?.League);
-            return new LoadedSettings(selection, quickUseCommands);
+            return new LoadedSettings(selection, quickUseCommands, miscFilters);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
             Log.Warning(exception, "Application settings could not be loaded from {FilePath}", filePath);
-            return new LoadedSettings(null, QuickUseCommandSetting.CreateDefaults());
+            return new LoadedSettings(
+                null,
+                QuickUseCommandSetting.CreateDefaults(),
+                PriceCheckerMiscellaneousFilterRegistry.CreateDefaults());
         }
     }
 
     private static bool TryWrite(
         string filePath,
         ApplicationLeagueSelection? leagueSelection,
-        IReadOnlyList<QuickUseCommandSetting> quickUseCommands)
+        IReadOnlyList<QuickUseCommandSetting> quickUseCommands,
+        IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> miscellaneousFilters)
     {
         string? temporaryPath = null;
         try
@@ -217,6 +268,9 @@ internal sealed class ApplicationLeagueSetting
                             }
                             : null,
                         QuickUse = quickUseCommands.Select(ToFile).ToArray(),
+                        PriceCheckerMiscellaneousFilters = miscellaneousFilters
+                            .Select(ToFile)
+                            .ToArray(),
                     },
                     JsonOptions));
 
@@ -266,6 +320,12 @@ internal sealed class ApplicationLeagueSetting
         public TradeLeagueFile? TradeLeague { get; init; }
 
         public QuickUseCommandFile[]? QuickUse { get; init; }
+
+        public PriceCheckerMiscellaneousFilterPreferenceFile[]? PriceCheckerMiscellaneousFilters
+        {
+            get;
+            init;
+        }
     }
 
     private sealed class TradeLeagueFile
@@ -286,6 +346,15 @@ internal sealed class ApplicationLeagueSetting
         public ShortcutModifiers Modifiers { get; init; }
 
         public bool IsCustom { get; init; }
+    }
+
+    private sealed class PriceCheckerMiscellaneousFilterPreferenceFile
+    {
+        public string? Key { get; init; }
+
+        public bool IsVisible { get; init; } = true;
+
+        public int Order { get; init; }
     }
 
     private static QuickUseCommandSetting ToSetting(QuickUseCommandFile command)
@@ -309,9 +378,30 @@ internal sealed class ApplicationLeagueSetting
         };
     }
 
+    private static PriceCheckerMiscellaneousFilterPreference ToPreference(
+        PriceCheckerMiscellaneousFilterPreferenceFile preference)
+    {
+        return new PriceCheckerMiscellaneousFilterPreference(
+            preference.Key ?? string.Empty,
+            preference.IsVisible,
+            preference.Order);
+    }
+
+    private static PriceCheckerMiscellaneousFilterPreferenceFile ToFile(
+        PriceCheckerMiscellaneousFilterPreference preference)
+    {
+        return new PriceCheckerMiscellaneousFilterPreferenceFile
+        {
+            Key = preference.Key,
+            IsVisible = preference.IsVisible,
+            Order = preference.Order,
+        };
+    }
+
     private sealed record LoadedSettings(
         ApplicationLeagueSelection? LeagueSelection,
-        IReadOnlyList<QuickUseCommandSetting> QuickUseCommands);
+        IReadOnlyList<QuickUseCommandSetting> QuickUseCommands,
+        IReadOnlyList<PriceCheckerMiscellaneousFilterPreference> PriceCheckerMiscellaneousFilters);
 
     private static ApplicationLeagueSelection? CreateLegacySelection(string? value)
     {
