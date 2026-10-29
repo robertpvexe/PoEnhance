@@ -604,7 +604,8 @@ internal sealed class PriceCheckerSearchController
 
     public void UpdateRequestedItemFilterValue(
         TradeSearchRequestedItemFilterKind kind,
-        string? text)
+        string? text,
+        TradeSearchRequestedItemFilterColour? colour = null)
     {
         if (currentDraft is null)
         {
@@ -612,8 +613,28 @@ internal sealed class PriceCheckerSearchController
         }
 
         var filter = currentDraft.RequestedItemFilters.FirstOrDefault(filter => filter.Kind == kind);
-        if (filter is null ||
-            string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
+        if (filter is null)
+        {
+            return;
+        }
+
+        if (colour is { } colourChannel)
+        {
+            if (string.Equals(
+                    filter.ColourText(colourChannel),
+                    text ?? string.Empty,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // Editing colour inputs must not toggle inclusion; only the activation surface controls IsActive.
+            UpdateRequestedItemFilter(
+                TradeSearchDraftMapper.ParseRequestedItemFilterColourText(filter, colourChannel, text));
+            return;
+        }
+
+        if (string.Equals(filter.CurrentText, text ?? string.Empty, StringComparison.Ordinal))
         {
             return;
         }
@@ -1170,7 +1191,7 @@ internal sealed class PriceCheckerSearchController
         object? sender,
         PriceCheckerRequestedItemFilterValueChangedEventArgs e)
     {
-        UpdateRequestedItemFilterValue(e.Kind, e.Text);
+        UpdateRequestedItemFilterValue(e.Kind, e.Text, e.Colour);
     }
 
     private void OnModifierSelectionChanged(

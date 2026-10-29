@@ -57,9 +57,8 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
         var filters = new List<PathOfExileTradeSelectedRequestedItemFilter>();
         var diagnostics = new List<string>();
         foreach (var filter in verified.RequestedItemFilters.Where(filter =>
-                     filter.IsActive && filter.RequestedMinimum.HasValue))
+                     filter.IsActive && filter.HasRequestedConstraint))
         {
-            var minimum = filter.RequestedMinimum!.Value;
             if (filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact ||
                 filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
                 !mappingCatalog.TryGet(filter.Kind, out var mapping))
@@ -74,7 +73,11 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
                 SourceKind = filter.Kind,
                 ProviderGroupId = mapping.ProviderGroupId,
                 ProviderFilterId = mapping.ProviderFilterId,
-                MinimumValue = minimum,
+                MinimumValue = filter.RequestedMinimum,
+                Red = filter.RequestedRed,
+                Green = filter.RequestedGreen,
+                Blue = filter.RequestedBlue,
+                White = filter.RequestedWhite,
             });
         }
 
@@ -95,7 +98,7 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
             };
         }
 
-        if (!filter.RequestedMinimum.HasValue)
+        if (!filter.HasRequestedConstraint)
         {
             return filter with
             {
@@ -109,12 +112,9 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
             return Unsupported(filter, "No reviewed provider mapping exists for this requested item filter.");
         }
 
-        if (filter.RequestedMinimum.Value < mapping.MinimumSupportedValue ||
-            filter.RequestedMinimum.Value > mapping.MaximumSupportedValue)
+        if (!TryValidateConstraintRange(filter, mapping, out var rangeReason))
         {
-            return Unsupported(
-                filter,
-                $"{filter.Label} must be between {mapping.MinimumSupportedValue} and {mapping.MaximumSupportedValue} for this Trade provider.");
+            return Unsupported(filter, rangeReason);
         }
 
         var definitions = catalog.FindNumericFilterDefinitions(
@@ -142,11 +142,78 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
                 "The official Trade catalog definition is incompatible with the reviewed requested item filter mapping.");
         }
 
+        var hasColours = filter.RequestedRed.HasValue ||
+            filter.RequestedGreen.HasValue ||
+            filter.RequestedBlue.HasValue ||
+            filter.RequestedWhite.HasValue;
+        if (hasColours &&
+            (!mapping.RequiresSocketColourSupport || !definition.SupportsSockets))
+        {
+            return Unsupported(
+                filter,
+                "The official Trade catalog does not substantiate nested socket colour constraints for this filter.");
+        }
+
+        if (mapping.RequiresSocketColourSupport && !definition.SupportsSockets)
+        {
+            return Unsupported(
+                filter,
+                "The official Trade catalog no longer marks this socket filter as colour-capable.");
+        }
+
         return filter with
         {
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
             DiagnosticReason = null,
         };
+    }
+
+    private static bool TryValidateConstraintRange(
+        TradeSearchRequestedItemFilter filter,
+        PathOfExileTradeRequestedItemFilterMapping mapping,
+        out string reason)
+    {
+        foreach (var (label, value) in EnumerateConstraints(filter))
+        {
+            if (value < mapping.MinimumSupportedValue || value > mapping.MaximumSupportedValue)
+            {
+                reason =
+                    $"{filter.Label} {label} must be between {mapping.MinimumSupportedValue} and {mapping.MaximumSupportedValue} for this Trade provider.";
+                return false;
+            }
+        }
+
+        reason = null!;
+        return true;
+    }
+
+    private static IEnumerable<(string Label, int Value)> EnumerateConstraints(
+        TradeSearchRequestedItemFilter filter)
+    {
+        if (filter.RequestedMinimum is { } minimum)
+        {
+            yield return ("Min", minimum);
+        }
+
+        if (filter.RequestedRed is { } red)
+        {
+            yield return ("R", red);
+        }
+
+        if (filter.RequestedGreen is { } green)
+        {
+            yield return ("G", green);
+        }
+
+        if (filter.RequestedBlue is { } blue)
+        {
+            yield return ("B", blue);
+        }
+
+        if (filter.RequestedWhite is { } white)
+        {
+            yield return ("W", white);
+        }
     }
 
     private static TradeSearchRequestedItemFilter Unsupported(

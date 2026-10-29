@@ -176,6 +176,12 @@ internal sealed record PathOfExileTradeNumericFilterDefinition
     public string? Tip { get; init; }
 
     public bool SupportsMinMax { get; init; }
+
+    /// <summary>
+    /// Official Trade catalog <c>sockets: true</c> marker — nested R/G/B/W colour inputs are valid
+    /// on this numeric filter (used by <c>socket_filters.sockets</c> and <c>socket_filters.links</c>).
+    /// </summary>
+    public bool SupportsSockets { get; init; }
 }
 
 internal sealed record PathOfExileTradeOptionFilterDefinition

@@ -79,7 +79,7 @@ public sealed class TradeSearchDraftValidator
                 continue;
             }
 
-            if (filter.RequestedMinimum.HasValue &&
+            if (filter.HasRequestedConstraint &&
                 filter.ProviderResolutionStatus != TradeSearchItemPropertyProviderResolutionStatus.Exact)
             {
                 diagnostics.Add(Error(

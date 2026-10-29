@@ -162,11 +162,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             draft.Base.Observed?.ExactBaseName ?? draft.Base.ResolvedBaseName ?? draft.ParsedBaseType);
         TitleDisplayNameText.Foreground = (Brush)FindResource(
             TitleForegroundResourceKey(draft.Rarity));
-        var socketFilter = draft.RequestedItemFilters.FirstOrDefault(filter =>
-            filter.Kind == TradeSearchRequestedItemFilterKind.Sockets);
-        SocketFilterBorder.Visibility = socketFilter is null
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        SocketFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
+            filter.Kind == TradeSearchRequestedItemFilterKind.Sockets)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        LinksFilterBorder.Visibility = draft.RequestedItemFilters.Any(filter =>
+            filter.Kind == TradeSearchRequestedItemFilterKind.Links)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         foreach (var requestedFilter in draft.RequestedItemFilters)
         {
             UpdateRequestedItemFilter(requestedFilter);
@@ -198,10 +201,6 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             FracturedStateButton,
             TradeItemStateKind.Fractured,
             draft.ItemStateCriteria.Fractured);
-        SocketMetadataText.Text = draft.SocketText is null ? string.Empty : $"· {draft.SocketText}";
-        SocketMetadataText.Visibility = draft.SocketText is null
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         BaseRollMetadataText.Text = draft.BaseRollPercentile.HasValue
             ? $"Base Roll: {decimal.Round(draft.BaseRollPercentile.Value, 0, MidpointRounding.AwayFromZero):0}%"
             : string.Empty;
@@ -688,6 +687,21 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             new PriceCheckerRequestedItemFilterValueChangedEventArgs(kind, textBox.Text));
     }
 
+    private void OnRequestedItemFilterColourTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox { IsKeyboardFocusWithin: true } textBox ||
+            !TryGetRequestedItemFilterKind(textBox, out var kind) ||
+            !TryGetRequestedItemFilterColour(textBox, out var colour))
+        {
+            return;
+        }
+
+        PanelInteraction?.Invoke(this, EventArgs.Empty);
+        RequestedItemFilterValueChanged?.Invoke(
+            this,
+            new PriceCheckerRequestedItemFilterValueChangedEventArgs(kind, textBox.Text, colour));
+    }
+
     private void OnRequestedItemFilterBorderPreviewMouseLeftButtonDown(
         object sender,
         MouseButtonEventArgs e)
@@ -722,14 +736,31 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
         border.Tag = filter.IsActive ? "Active" : null;
         border.ToolTip = filter.DiagnosticReason;
-        if (!string.Equals(textBox.Text, filter.CurrentText, StringComparison.Ordinal))
+        SyncRequestedFilterTextBox(textBox, filter.CurrentText);
+        if (!filter.SupportsSocketColours ||
+            !TryGetRequestedItemFilterColourControls(filter.Kind, out var colourBoxes))
         {
-            var caretIndex = textBox.CaretIndex;
-            textBox.Text = filter.CurrentText;
-            if (textBox.IsKeyboardFocusWithin)
-            {
-                textBox.CaretIndex = Math.Min(caretIndex, textBox.Text.Length);
-            }
+            return;
+        }
+
+        SyncRequestedFilterTextBox(colourBoxes.Red, filter.RedText);
+        SyncRequestedFilterTextBox(colourBoxes.Green, filter.GreenText);
+        SyncRequestedFilterTextBox(colourBoxes.Blue, filter.BlueText);
+        SyncRequestedFilterTextBox(colourBoxes.White, filter.WhiteText);
+    }
+
+    private static void SyncRequestedFilterTextBox(TextBox textBox, string expectedText)
+    {
+        if (string.Equals(textBox.Text, expectedText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var caretIndex = textBox.CaretIndex;
+        textBox.Text = expectedText;
+        if (textBox.IsKeyboardFocusWithin)
+        {
+            textBox.CaretIndex = Math.Min(caretIndex, textBox.Text.Length);
         }
     }
 
@@ -753,6 +784,23 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         return border is not null && textBox is not null;
     }
 
+    private bool TryGetRequestedItemFilterColourControls(
+        TradeSearchRequestedItemFilterKind kind,
+        out (TextBox Red, TextBox Green, TextBox Blue, TextBox White) colourBoxes)
+    {
+        colourBoxes = kind switch
+        {
+            TradeSearchRequestedItemFilterKind.Sockets =>
+                (SocketFilterRedTextBox, SocketFilterGreenTextBox, SocketFilterBlueTextBox,
+                    SocketFilterWhiteTextBox),
+            TradeSearchRequestedItemFilterKind.Links =>
+                (LinksFilterRedTextBox, LinksFilterGreenTextBox, LinksFilterBlueTextBox,
+                    LinksFilterWhiteTextBox),
+            _ => default,
+        };
+        return colourBoxes.Red is not null;
+    }
+
     private bool TryGetRequestedItemFilterKind(
         FrameworkElement element,
         out TradeSearchRequestedItemFilterKind kind)
@@ -772,20 +820,42 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         }
 
         if (ReferenceEquals(element, LinksFilterBorder) ||
-            ReferenceEquals(element, LinksFilterTextBox))
+            ReferenceEquals(element, LinksFilterTextBox) ||
+            ReferenceEquals(element, LinksFilterRedTextBox) ||
+            ReferenceEquals(element, LinksFilterGreenTextBox) ||
+            ReferenceEquals(element, LinksFilterBlueTextBox) ||
+            ReferenceEquals(element, LinksFilterWhiteTextBox))
         {
             kind = TradeSearchRequestedItemFilterKind.Links;
             return true;
         }
 
         if (ReferenceEquals(element, SocketFilterBorder) ||
-            ReferenceEquals(element, SocketFilterTextBox))
+            ReferenceEquals(element, SocketFilterTextBox) ||
+            ReferenceEquals(element, SocketFilterRedTextBox) ||
+            ReferenceEquals(element, SocketFilterGreenTextBox) ||
+            ReferenceEquals(element, SocketFilterBlueTextBox) ||
+            ReferenceEquals(element, SocketFilterWhiteTextBox))
         {
             kind = TradeSearchRequestedItemFilterKind.Sockets;
             return true;
         }
 
         kind = default;
+        return false;
+    }
+
+    private static bool TryGetRequestedItemFilterColour(
+        FrameworkElement element,
+        out TradeSearchRequestedItemFilterColour colour)
+    {
+        if (element is TextBox { Tag: string tag } &&
+            Enum.TryParse(tag, ignoreCase: false, out colour))
+        {
+            return true;
+        }
+
+        colour = default;
         return false;
     }
 

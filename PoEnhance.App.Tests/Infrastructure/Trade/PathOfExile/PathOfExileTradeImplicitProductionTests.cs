@@ -749,6 +749,7 @@ Item Level: 84
 
         private static PathOfExileTradeFilterCatalog FilterCatalog()
         {
+            var official = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
             return new PathOfExileTradeFilterCatalog(
             [
                 Category(0, "weapon.wand", "Wand"),
@@ -758,8 +759,9 @@ Item Level: 84
                 Category(4, "armour.boots", "Boots"),
                 Category(5, "armour.helmet", "Helmet"),
                 Category(6, "armour.chest", "Body Armour"),
-            ], optionFilterDefinitions:
-                PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog().OptionFilterDefinitions);
+            ],
+            numericFilterDefinitions: official.NumericFilterDefinitions,
+            optionFilterDefinitions: official.OptionFilterDefinitions);
         }
 
         private static PathOfExileTradeFilterOption Category(

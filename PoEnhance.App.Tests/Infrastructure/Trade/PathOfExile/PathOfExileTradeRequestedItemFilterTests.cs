@@ -17,7 +17,7 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         var catalog = RequestedCatalog();
 
         Assert.Equal(
-            ["ilvl", "quality", "links", "sockets"],
+            ["ilvl", "quality", "sockets", "links"],
             catalog.NumericFilterDefinitions
                 .Where(definition => definition.GroupId is "misc_filters" or "socket_filters")
                 .Select(definition => definition.FilterId));
@@ -25,6 +25,10 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
             catalog.NumericFilterDefinitions.Where(definition =>
                 definition.FilterId is "ilvl" or "quality" or "links" or "sockets"),
             definition => Assert.True(definition.SupportsMinMax));
+        Assert.All(
+            catalog.NumericFilterDefinitions.Where(definition =>
+                definition.FilterId is "links" or "sockets"),
+            definition => Assert.True(definition.SupportsSockets));
     }
 
     [Theory]
@@ -379,6 +383,115 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     }
 
     [Fact]
+    public void Build_ActiveSocketAndLinkColourConstraintsSerializeIntoDistinctOfficialFields()
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        var draft = ResolveRequested(source with
+        {
+            RequestedItemFilters = source.RequestedItemFilters
+                .Select(filter => filter.Kind switch
+                {
+                    TradeSearchRequestedItemFilterKind.Sockets => filter with
+                    {
+                        IsActive = true,
+                        CurrentText = "6",
+                        RequestedMinimum = 6,
+                        RedText = "2",
+                        RequestedRed = 2,
+                        GreenText = "1",
+                        RequestedGreen = 1,
+                        BlueText = string.Empty,
+                        RequestedBlue = null,
+                        WhiteText = "1",
+                        RequestedWhite = 1,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    },
+                    TradeSearchRequestedItemFilterKind.Links => filter with
+                    {
+                        IsActive = true,
+                        CurrentText = string.Empty,
+                        RequestedMinimum = null,
+                        RedText = string.Empty,
+                        RequestedRed = null,
+                        GreenText = "3",
+                        RequestedGreen = 3,
+                        BlueText = "3",
+                        RequestedBlue = 3,
+                        WhiteText = string.Empty,
+                        RequestedWhite = null,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    },
+                    _ => filter,
+                })
+                .ToImmutableArray(),
+        }, catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var socketFilters = document.RootElement.GetProperty("query").GetProperty("filters")
+            .GetProperty("socket_filters").GetProperty("filters");
+        var sockets = socketFilters.GetProperty("sockets");
+        Assert.Equal(6, sockets.GetProperty("min").GetInt32());
+        Assert.Equal(2, sockets.GetProperty("r").GetInt32());
+        Assert.Equal(1, sockets.GetProperty("g").GetInt32());
+        Assert.False(sockets.TryGetProperty("b", out _));
+        Assert.Equal(1, sockets.GetProperty("w").GetInt32());
+        Assert.False(sockets.TryGetProperty("max", out _));
+
+        var links = socketFilters.GetProperty("links");
+        Assert.False(links.TryGetProperty("min", out _));
+        Assert.False(links.TryGetProperty("r", out _));
+        Assert.Equal(3, links.GetProperty("g").GetInt32());
+        Assert.Equal(3, links.GetProperty("b").GetInt32());
+        Assert.False(links.TryGetProperty("w", out _));
+        Assert.DoesNotContain("socket_count", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("socket_colors", result.SerializedJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Build_InactiveSocketRowOmitsWholeFilterEvenWhenColourTextIsRetained()
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        var draft = ResolveRequested(source with
+        {
+            RequestedItemFilters = source.RequestedItemFilters
+                .Select(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Sockets
+                    ? filter with
+                    {
+                        IsActive = false,
+                        CurrentText = "6",
+                        RequestedMinimum = 6,
+                        RedText = "2",
+                        RequestedRed = 2,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    }
+                    : filter.Kind == TradeSearchRequestedItemFilterKind.Links
+                        ? filter with
+                        {
+                            IsActive = true,
+                            CurrentText = "4",
+                            RequestedMinimum = 4,
+                            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                        }
+                        : filter)
+                .ToImmutableArray(),
+        }, catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var socketFilters = document.RootElement.GetProperty("query").GetProperty("filters")
+            .GetProperty("socket_filters").GetProperty("filters");
+        Assert.False(socketFilters.TryGetProperty("sockets", out _));
+        AssertMinimumOnly(socketFilters.GetProperty("links"), 4);
+    }
+
+    [Fact]
     public void Resolve_OutOfRangeActiveFilterBlocksWhileInactiveUnsupportedDoesNot()
     {
         var catalog = RequestedCatalog();
@@ -548,10 +661,10 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
                 },
                 {
                   "id": "socket_filters",
-                  "title": "Sockets",
+                  "title": "Socket Filters",
                   "filters": [
-                    { "id": "links", "text": "Link Groups", "minMax": true },
-                    { "id": "sockets", "text": "Sockets", "minMax": true }
+                    { "id": "sockets", "text": "Sockets", "fullSpan": true, "sockets": true, "minMax": true },
+                    { "id": "links", "text": "Link Groups", "fullSpan": true, "sockets": true, "minMax": true }
                   ]
                 }
               ]

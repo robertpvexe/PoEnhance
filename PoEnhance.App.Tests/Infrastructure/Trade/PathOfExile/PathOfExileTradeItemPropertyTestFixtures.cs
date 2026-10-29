@@ -70,6 +70,41 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
               "id": "misc_filters",
               "title": "Miscellaneous",
               "filters": [
+                { "id": "quality", "text": "Quality", "minMax": true },
+                { "id": "ilvl", "text": "Item Level", "minMax": true },
+                {
+                  "id": "fractured_item",
+                  "text": "Fractured Item",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                },
+                {
+                  "id": "searing_item",
+                  "text": "Searing Exarch Item",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                },
+                {
+                  "id": "tangled_item",
+                  "text": "Eater of Worlds Item",
+                  "option": {
+                    "options": [
+                      { "id": null, "text": "Any" },
+                      { "id": "true", "text": "Yes" },
+                      { "id": "false", "text": "No" }
+                    ]
+                  }
+                },
                 {
                   "id": "identified",
                   "text": "Identified",
@@ -103,6 +138,15 @@ internal static class PathOfExileTradeItemPropertyTestFixtures
                     ]
                   }
                 }
+              ]
+            },
+            {
+              "id": "socket_filters",
+              "title": "Socket Filters",
+              "hidden": true,
+              "filters": [
+                { "id": "sockets", "text": "Sockets", "fullSpan": true, "sockets": true, "minMax": true },
+                { "id": "links", "text": "Link Groups", "fullSpan": true, "sockets": true, "minMax": true }
               ]
             }
           ]

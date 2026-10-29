@@ -73,6 +73,28 @@ internal sealed record PathOfExileTradeSearchStatValue
     public decimal? Max { get; init; }
 }
 
+/// <summary>
+/// Official Trade <c>socket_filters</c> value shape for <c>sockets</c>/<c>links</c>:
+/// nested min plus optional R/G/B/W colour counts (catalog <c>sockets: true</c>).
+/// </summary>
+internal sealed record PathOfExileTradeSearchSocketFilterValue
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Min { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? R { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? G { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? B { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? W { get; init; }
+}
+
 internal sealed record PathOfExileTradeSearchFilterGroup
 {
     public IReadOnlyDictionary<string, object> Filters { get; init; } =

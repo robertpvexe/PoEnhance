@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PoEnhance.Core.Items.GameData;
 using PoEnhance.Core.Items.Parsing;
 using PoEnhance.Core.Tests.Items.GameData;
@@ -1240,12 +1241,27 @@ Item Level: 83
                 ActiveCriterion = draft.Base.AvailableCriteria.Category,
             },
         };
-        var afterCategory = new TradeSearchDraftValidator().Validate(manualCategory);
+        // Mirror App PrepareEffectiveDraft/ResolveEffectiveDraft against official misc_filters.ilvl
+        // before Validate/Search. Core.Tests cannot host the App resolver; Exact here is the same
+        // post-resolve status that PathOfExileTradeRequestedItemFilterResolver assigns for ilvl.
+        var resolvedForSearch = ApplyOfficialItemLevelProviderResolution(manualCategory);
+        var afterCategory = new TradeSearchDraftValidator().Validate(resolvedForSearch);
         Assert.True(afterCategory.IsValid);
         Assert.False(afterCategory.HasErrors);
-        Assert.Equal(BaseSearchMode.Category, manualCategory.Base.ActiveCriterion?.Mode);
-        Assert.Equal("Gloves", manualCategory.Base.ActiveCriterion?.Category);
-        Assert.Null(manualCategory.Base.ActiveCriterion?.ExactBaseName);
+        Assert.Equal(BaseSearchMode.Category, resolvedForSearch.Base.ActiveCriterion?.Mode);
+        Assert.Equal("Gloves", resolvedForSearch.Base.ActiveCriterion?.Category);
+        Assert.Null(resolvedForSearch.Base.ActiveCriterion?.ExactBaseName);
+        if (string.Equals(rarity, "Normal", StringComparison.Ordinal))
+        {
+            var itemLevel = Assert.Single(
+                resolvedForSearch.RequestedItemFilters,
+                filter => filter.Kind == TradeSearchRequestedItemFilterKind.ItemLevel);
+            Assert.True(itemLevel.IsActive);
+            Assert.Equal(84, itemLevel.RequestedMinimum);
+            Assert.Equal(
+                TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                itemLevel.ProviderResolutionStatus);
+        }
     }
 
     [Fact]
@@ -1794,6 +1810,36 @@ Item Level: 84
             candidates,
             [],
             Locality: locality);
+    }
+
+    /// <summary>
+    /// Simulates App catalog resolve for official <c>misc_filters.ilvl</c> (min-capable Item Level).
+    /// Leaves inactive/empty filters unresolved, matching production resolver behavior.
+    /// </summary>
+    private static TradeSearchDraft ApplyOfficialItemLevelProviderResolution(TradeSearchDraft draft)
+    {
+        return draft with
+        {
+            RequestedItemFilters = draft.RequestedItemFilters
+                .Select(filter =>
+                {
+                    if (filter.Kind != TradeSearchRequestedItemFilterKind.ItemLevel ||
+                        !filter.IsActive ||
+                        filter.LocalValidationStatus != TradeSearchRequestedItemFilterValidationStatus.Valid ||
+                        filter.RequestedMinimum is not { } minimum ||
+                        minimum is < 0 or > 100)
+                    {
+                        return filter;
+                    }
+
+                    return filter with
+                    {
+                        ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
+                        DiagnosticReason = null,
+                    };
+                })
+                .ToImmutableArray(),
+        };
     }
 
     private static ItemBaseRecord Base(string id, string name, string itemClass)

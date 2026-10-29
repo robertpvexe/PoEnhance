@@ -70,6 +70,49 @@ public sealed class PathOfExileTradeFiltersResponseParserTests
     }
 
     [Fact]
+    public void Parse_OfficialSocketFiltersRetainSocketsColourCapabilityFlag()
+    {
+        var result = new PathOfExileTradeFiltersResponseParser().ParseFiltersResponse("""
+{
+  "result": [
+    {
+      "id": "type_filters",
+      "title": "Type Filters",
+      "filters": [
+        {
+          "id": "category",
+          "text": "Item Category",
+          "option": { "options": [ { "id": "weapon.oneaxe", "text": "One-Handed Axe" } ] }
+        }
+      ]
+    },
+    {
+      "id": "socket_filters",
+      "title": "Socket Filters",
+      "hidden": true,
+      "filters": [
+        { "id": "sockets", "text": "Sockets", "fullSpan": true, "sockets": true, "minMax": true },
+        { "id": "links", "text": "Link Groups", "fullSpan": true, "sockets": true, "minMax": true }
+      ]
+    }
+  ]
+}
+""");
+
+        Assert.True(result.IsSuccess);
+        var sockets = Assert.Single(result.Catalog!.NumericFilterDefinitions, definition =>
+            definition.FilterId == "sockets");
+        var links = Assert.Single(result.Catalog.NumericFilterDefinitions, definition =>
+            definition.FilterId == "links");
+        Assert.True(sockets.SupportsMinMax);
+        Assert.True(sockets.SupportsSockets);
+        Assert.True(links.SupportsMinMax);
+        Assert.True(links.SupportsSockets);
+        Assert.Equal("Sockets", sockets.Text);
+        Assert.Equal("Link Groups", links.Text);
+    }
+
+    [Fact]
     public void Parse_MalformedNumericEntryIsDiagnosedAndIgnoredConservatively()
     {
         var json = PathOfExileTradeItemPropertyTestFixtures.OfficialFiltersJson.Replace(

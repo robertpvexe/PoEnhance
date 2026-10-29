@@ -197,6 +197,21 @@ internal sealed class PathOfExileTradeFiltersResponseParser
                     continue;
                 }
 
+                var supportsSockets = false;
+                if (filterElement.TryGetProperty("sockets", out var socketsElement))
+                {
+                    if (socketsElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    {
+                        diagnostics.Add(Diagnostic(
+                            PathOfExileTradeFiltersDiagnosticCodes.MalformedNumericFilter,
+                            $"Numeric Trade filter at group index {groupIndex}, filter index {filterIndex} has a non-boolean sockets value; its numeric filters were ignored."));
+                        filterIndex++;
+                        continue;
+                    }
+
+                    supportsSockets = socketsElement.GetBoolean();
+                }
+
                 yield return new PathOfExileTradeNumericFilterDefinition
                 {
                     GroupProviderOrder = groupIndex,
@@ -208,6 +223,7 @@ internal sealed class PathOfExileTradeFiltersResponseParser
                     Text = ReadOptionalString(filterElement, "text")!,
                     Tip = ReadOptionalString(filterElement, "tip")?.Trim(),
                     SupportsMinMax = minMaxElement.GetBoolean(),
+                    SupportsSockets = supportsSockets,
                 };
                 filterIndex++;
             }

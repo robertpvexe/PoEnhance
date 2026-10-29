@@ -753,6 +753,7 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
 
     private static PathOfExileTradeFilterCatalog FracturedStateFilterCatalog()
     {
+        var official = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
         return new PathOfExileTradeFilterCatalog(
             [
                 new PathOfExileTradeFilterOption
@@ -780,49 +781,8 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
                     Text = "Gloves",
                 },
             ],
-            optionFilterDefinitions:
-            [
-                new PathOfExileTradeOptionFilterDefinition
-                {
-                    GroupProviderOrder = 0,
-                    ProviderOrder = 0,
-                    GroupId = "misc_filters",
-                    GroupTitle = "Miscellaneous",
-                    FilterId = "fractured_item",
-                    Text = "Fractured Item",
-                    Options =
-                    [
-                        new PathOfExileTradeOptionDefinition { Id = null, Text = "Any" },
-                        new PathOfExileTradeOptionDefinition { Id = "true", Text = "Yes" },
-                        new PathOfExileTradeOptionDefinition { Id = "false", Text = "No" },
-                    ],
-                },
-                BooleanStateDefinition(1, "mirrored", "Mirrored"),
-                BooleanStateDefinition(2, "corrupted", "Corrupted"),
-                BooleanStateDefinition(3, "identified", "Identified"),
-            ]);
-    }
-
-    private static PathOfExileTradeOptionFilterDefinition BooleanStateDefinition(
-        int providerOrder,
-        string filterId,
-        string text)
-    {
-        return new PathOfExileTradeOptionFilterDefinition
-        {
-            GroupProviderOrder = 0,
-            ProviderOrder = providerOrder,
-            GroupId = "misc_filters",
-            GroupTitle = "Miscellaneous",
-            FilterId = filterId,
-            Text = text,
-            Options =
-            [
-                new PathOfExileTradeOptionDefinition { Id = null, Text = "Any" },
-                new PathOfExileTradeOptionDefinition { Id = "true", Text = "Yes" },
-                new PathOfExileTradeOptionDefinition { Id = "false", Text = "No" },
-            ],
-        };
+            numericFilterDefinitions: official.NumericFilterDefinitions,
+            optionFilterDefinitions: official.OptionFilterDefinitions);
     }
 
     private const string SkullTrackText = """

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-07-17",
+  "reviewReference": "requested-item-filter-trade-catalog-audit-2026-10-29-socket-colours",
   "mappings": [
     {
       "kind": "ItemLevel",
@@ -8,6 +8,7 @@
       "providerFilterId": "ilvl",
       "expectedOfficialText": "Item Level",
       "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": false,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 100
     },
@@ -17,6 +18,7 @@
       "providerFilterId": "quality",
       "expectedOfficialText": "Quality",
       "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": false,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 30
     },
@@ -26,6 +28,7 @@
       "providerFilterId": "links",
       "expectedOfficialText": "Link Groups",
       "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": true,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 6
     },
@@ -35,6 +38,7 @@
       "providerFilterId": "sockets",
       "expectedOfficialText": "Sockets",
       "requiresNumericMinMax": true,
+      "requiresSocketColourSupport": true,
       "minimumSupportedValue": 0,
       "maximumSupportedValue": 6
     }

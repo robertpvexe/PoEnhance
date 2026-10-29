@@ -39,6 +39,8 @@ internal sealed record PathOfExileTradeRequestedItemFilterMapping
 
     public bool RequiresNumericMinMax { get; init; }
 
+    public bool RequiresSocketColourSupport { get; init; }
+
     public int MinimumSupportedValue { get; init; }
 
     public int MaximumSupportedValue { get; init; }

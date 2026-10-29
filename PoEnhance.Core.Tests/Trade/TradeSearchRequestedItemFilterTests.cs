@@ -27,17 +27,19 @@ public sealed class TradeSearchRequestedItemFilterTests
             [
                 TradeSearchRequestedItemFilterKind.ItemLevel,
                 TradeSearchRequestedItemFilterKind.Quality,
-                TradeSearchRequestedItemFilterKind.Links,
                 TradeSearchRequestedItemFilterKind.Sockets,
+                TradeSearchRequestedItemFilterKind.Links,
             ],
             draft.RequestedItemFilters.Select(filter => filter.Kind));
-        Assert.Equal([85, 0, 3, 5], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
-        Assert.Equal(["85", "0", "3", "5"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
+        Assert.Equal([85, 0, 5, 3], draft.RequestedItemFilters.Select(filter => filter.ObservedValue));
+        Assert.Equal(["85", "0", "5", "3"], draft.RequestedItemFilters.Select(filter => filter.CurrentText));
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Links).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Sockets).IsActive);
         Assert.Equal("G-R-R G-B", draft.SocketText);
+        AssertSocketColoursBlank(Filter(draft, TradeSearchRequestedItemFilterKind.Sockets));
+        AssertSocketColoursBlank(Filter(draft, TradeSearchRequestedItemFilterKind.Links));
     }
 
     [Fact]
@@ -47,7 +49,96 @@ public sealed class TradeSearchRequestedItemFilterTests
 
         Assert.DoesNotContain(draft.RequestedItemFilters,
             filter => filter.Kind == TradeSearchRequestedItemFilterKind.Sockets);
+        Assert.DoesNotContain(draft.RequestedItemFilters,
+            filter => filter.Kind == TradeSearchRequestedItemFilterKind.Links);
         Assert.Null(draft.SocketText);
+    }
+
+    [Theory]
+    [InlineData("Normal", "R-R-R-R G-G", true, false)]
+    [InlineData("Normal", "R-R-R-R-R-G", true, true)]
+    [InlineData("Normal", "R-R-R-R", false, false)]
+    [InlineData("Magic", "R-R-R-R-R-G", false, false)]
+    [InlineData("Rare", "R-R-R-R-R-G", false, false)]
+    [InlineData("Unique", "R-R-R-R-R-G", false, false)]
+    public void CreateDraft_SocketAndLinkDefaultActivationDependsOnNormalSixOnly(
+        string rarity,
+        string sockets,
+        bool expectedSocketsActive,
+        bool expectedLinksActive)
+    {
+        var draft = CreateDraft($$"""
+            Item Class: Body Armours
+            Rarity: {{rarity}}
+            Header Test
+            Plate Vest
+            --------
+            Sockets: {{sockets}}
+            --------
+            Item Level: 85
+            """);
+
+        var socketsFilter = Filter(draft, TradeSearchRequestedItemFilterKind.Sockets);
+        var linksFilter = Filter(draft, TradeSearchRequestedItemFilterKind.Links);
+        Assert.Equal(expectedSocketsActive, socketsFilter.IsActive);
+        Assert.Equal(expectedLinksActive, linksFilter.IsActive);
+        Assert.Equal(
+            sockets.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Sum(group => group.Split('-').Length),
+            socketsFilter.ObservedValue);
+        Assert.Equal(
+            sockets.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Max(group => group.Split('-').Length),
+            linksFilter.ObservedValue);
+        AssertSocketColoursBlank(socketsFilter);
+        AssertSocketColoursBlank(linksFilter);
+    }
+
+    [Fact]
+    public void CreateDraft_DisjointLinkedGroupsPrefillLinksFromLargestSingleGroup()
+    {
+        var draft = CreateDraft("""
+            Item Class: Body Armours
+            Rarity: Rare
+            Header Test
+            Plate Vest
+            --------
+            Sockets: R-R-R-G B-B
+            --------
+            Item Level: 85
+            """);
+
+        Assert.Equal(6, Filter(draft, TradeSearchRequestedItemFilterKind.Sockets).ObservedValue);
+        Assert.Equal(4, Filter(draft, TradeSearchRequestedItemFilterKind.Links).ObservedValue);
+        Assert.Equal("4", Filter(draft, TradeSearchRequestedItemFilterKind.Links).CurrentText);
+    }
+
+    [Fact]
+    public void ParseRequestedItemFilterColourText_DoesNotAutoActivateOrPopulateSiblingFields()
+    {
+        var source = Filter(CreateDraft("""
+            Item Class: One Hand Axes
+            Rarity: Rare
+            Header Test
+            Reaver Axe
+            --------
+            Sockets: W-W-W-W-W-W
+            --------
+            Item Level: 85
+            """), TradeSearchRequestedItemFilterKind.Sockets);
+
+        var edited = TradeSearchDraftMapper.ParseRequestedItemFilterColourText(
+            source,
+            TradeSearchRequestedItemFilterColour.White,
+            "3");
+
+        Assert.False(edited.IsActive);
+        Assert.Equal("3", edited.WhiteText);
+        Assert.Equal(3, edited.RequestedWhite);
+        Assert.Equal(string.Empty, edited.RedText);
+        Assert.Null(edited.RequestedRed);
+        Assert.Equal(source.CurrentText, edited.CurrentText);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, edited.LocalValidationStatus);
     }
 
     [Theory]
@@ -330,4 +421,16 @@ public sealed class TradeSearchRequestedItemFilterTests
         --------
         Item Level: 85
         """;
+
+    private static void AssertSocketColoursBlank(TradeSearchRequestedItemFilter filter)
+    {
+        Assert.Equal(string.Empty, filter.RedText);
+        Assert.Equal(string.Empty, filter.GreenText);
+        Assert.Equal(string.Empty, filter.BlueText);
+        Assert.Equal(string.Empty, filter.WhiteText);
+        Assert.Null(filter.RequestedRed);
+        Assert.Null(filter.RequestedGreen);
+        Assert.Null(filter.RequestedBlue);
+        Assert.Null(filter.RequestedWhite);
+    }
 }

@@ -88,7 +88,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
     {
         var (statCatalog, filterCatalog, gameDataCatalog) = await LoadFrozenAuditCatalogsAsync();
         var runeKeep = await LoadCorpusItemAsync("Rune Keep");
-        var draft = CreateResolvedDraft(
+        var draft = await CreateResolvedDraftAsync(
             runeKeep,
             statCatalog,
             filterCatalog,
@@ -383,10 +383,9 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
                 continue;
             }
 
-            var effective = service.ResolveProviderComponents(
-                draftResult.Draft,
-                statCatalog,
-                filterCatalog: filterCatalog);
+            // Match App PrepareEffectiveDraft: resolve requested numeric filters (quality/ilvl)
+            // against the session filter catalog before Validate/CheckAsync.
+            var effective = await service.PrepareEffectiveDraftAsync(draftResult.Draft);
 
             // Physical Fractured provenance lives on Sources/Contributors. Mixed-domain aggregates
             // intentionally keep parent.IsFractured=false; requiring the parent flag reintroduced
@@ -620,6 +619,18 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             return;
         }
 
+        var influenceMapping = new PathOfExileTradeInfluenceFilterResolver()
+            .MapSelected(selected, catalog, filterCatalog);
+        Assert.True(
+            influenceMapping.IsSuccess,
+            string.Join(" | ", influenceMapping.Diagnostics));
+        selected = influenceMapping.Draft ?? selected;
+        var requestedMapping = new PathOfExileTradeRequestedItemFilterResolver()
+            .MapSelected(selected, filterCatalog);
+        Assert.True(
+            requestedMapping.IsSuccess,
+            string.Join(" | ", requestedMapping.Diagnostics));
+
         var validation = new TradeSearchDraftValidator().Validate(selected);
         var build = new PathOfExileTradeQueryBuilder().Build(
             selected,
@@ -627,7 +638,10 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             "Mirage",
             mapping.Filters,
             providerItemIdentity: null,
-            providerFilterCatalog: filterCatalog);
+            providerFilterCatalog: filterCatalog,
+            selectedItemPropertyFilters: null,
+            selectedRequestedItemFilters: requestedMapping.Filters,
+            selectedInfluenceFilters: influenceMapping.Filters);
         Assert.True(
             build.IsSuccess,
             string.Join(" | ", build.Diagnostics.Select(diagnostic =>
@@ -826,6 +840,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             ("accessory.belt", "Belt"),
             ("accessory.amulet", "Amulet"),
         };
+        var official = PathOfExileTradeItemPropertyTestFixtures.OfficialCatalog();
         return new PathOfExileTradeFilterCatalog(
             categories.Select((category, index) => new PathOfExileTradeFilterOption
             {
@@ -835,34 +850,9 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
                 Id = category.Id,
                 Text = category.Text,
             }),
-            optionFilterDefinitions:
-            [
-                BooleanStateDefinition(0, "fractured_item", "Fractured Item"),
-                BooleanStateDefinition(1, "mirrored", "Mirrored"),
-                BooleanStateDefinition(2, "corrupted", "Corrupted"),
-                BooleanStateDefinition(3, "identified", "Identified"),
-            ]);
+            numericFilterDefinitions: official.NumericFilterDefinitions,
+            optionFilterDefinitions: official.OptionFilterDefinitions);
     }
-
-    private static PathOfExileTradeOptionFilterDefinition BooleanStateDefinition(
-        int providerOrder,
-        string filterId,
-        string text) =>
-        new()
-        {
-            GroupProviderOrder = 0,
-            ProviderOrder = providerOrder,
-            GroupId = "misc_filters",
-            GroupTitle = "Miscellaneous",
-            FilterId = filterId,
-            Text = text,
-            Options =
-            [
-                new PathOfExileTradeOptionDefinition { Id = null, Text = "Any" },
-                new PathOfExileTradeOptionDefinition { Id = "true", Text = "Yes" },
-                new PathOfExileTradeOptionDefinition { Id = "false", Text = "No" },
-            ],
-        };
 
     private static async Task<(
         PathOfExileTradeStatCatalog StatCatalog,
@@ -903,7 +893,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
         return item!;
     }
 
-    private static TradeSearchDraft CreateResolvedDraft(
+    private static async Task<TradeSearchDraft> CreateResolvedDraftAsync(
         string copiedText,
         PathOfExileTradeStatCatalog statCatalog,
         PathOfExileTradeFilterCatalog filterCatalog,
@@ -936,10 +926,7 @@ public sealed class PathOfExileTradeFracturedCoverageAuditTests
             new CorpusRecordingSearchClient(),
             new ThrowingFetchClient(),
             new StaticFilterCatalogProvider(filterCatalog));
-        return service.ResolveProviderComponents(
-            draftResult.Draft!,
-            statCatalog,
-            filterCatalog: filterCatalog);
+        return await service.PrepareEffectiveDraftAsync(draftResult.Draft!);
     }
 
     private static string FindRepoFile(params string[] relativeParts)

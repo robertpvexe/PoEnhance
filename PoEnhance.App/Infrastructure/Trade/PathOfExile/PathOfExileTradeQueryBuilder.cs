@@ -278,14 +278,15 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
 
         var providerRequestedFilters = selectedRequestedItemFilters ?? [];
         var activeRequestedKinds = draft.RequestedItemFilters
-            .Where(filter => filter.IsActive && filter.RequestedMinimum.HasValue)
+            .Where(filter => filter.IsActive && filter.HasRequestedConstraint)
             .Select(filter => filter.Kind)
             .ToHashSet();
         var mappedRequestedKinds = providerRequestedFilters
             .Select(filter => filter.SourceKind)
             .ToArray();
         if (mappedRequestedKinds.Distinct().Count() != mappedRequestedKinds.Length ||
-            !activeRequestedKinds.SetEquals(mappedRequestedKinds))
+            !activeRequestedKinds.SetEquals(mappedRequestedKinds) ||
+            providerRequestedFilters.Any(filter => !filter.HasConstraint))
         {
             return Failure(
                 PathOfExileTradeQueryDiagnosticCodes.SelectedRequestedItemFilterMappingMismatch,
@@ -763,10 +764,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 requestedGroup.Key,
                 requestedGroup.ToDictionary(
                     filter => filter.ProviderFilterId.Trim(),
-                    filter => (object)new PathOfExileTradeSearchStatValue
-                    {
-                        Min = filter.MinimumValue,
-                    },
+                    filter => (object)CreateRequestedFilterValue(filter),
                     StringComparer.Ordinal));
         }
 
@@ -823,6 +821,28 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 },
             });
         return groups;
+    }
+
+    private static object CreateRequestedFilterValue(
+        PathOfExileTradeSelectedRequestedItemFilter filter)
+    {
+        if (filter.SourceKind is TradeSearchRequestedItemFilterKind.Sockets
+            or TradeSearchRequestedItemFilterKind.Links)
+        {
+            return new PathOfExileTradeSearchSocketFilterValue
+            {
+                Min = filter.MinimumValue,
+                R = filter.Red,
+                G = filter.Green,
+                B = filter.Blue,
+                W = filter.White,
+            };
+        }
+
+        return new PathOfExileTradeSearchStatValue
+        {
+            Min = filter.MinimumValue,
+        };
     }
 
     private static void AddFilterGroup(

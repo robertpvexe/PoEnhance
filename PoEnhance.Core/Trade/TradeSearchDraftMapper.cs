@@ -106,14 +106,17 @@ public sealed partial class TradeSearchDraftMapper
     private static ImmutableArray<TradeSearchRequestedItemFilter> CreateRequestedItemFilters(
         ParsedItem parsedItem)
     {
-        var links = ReadObservedLinksFilter(parsedItem);
         var filters = ImmutableArray.CreateBuilder<TradeSearchRequestedItemFilter>();
         filters.Add(CreateDefaultItemLevelFilter(parsedItem));
         filters.Add(CreateDefaultQualityFilter(parsedItem));
-        filters.Add(links);
         if (ReadObservedSocketCountFilter(parsedItem) is { } sockets)
         {
             filters.Add(sockets);
+        }
+
+        if (ReadObservedLinksFilter(parsedItem) is { } links)
+        {
+            filters.Add(links);
         }
 
         return filters.ToImmutable();
@@ -179,29 +182,136 @@ public sealed partial class TradeSearchDraftMapper
         bool? isActive = null)
     {
         currentText ??= string.Empty;
-        var status = string.IsNullOrWhiteSpace(currentText)
-            ? TradeSearchRequestedItemFilterValidationStatus.Empty
-            : currentText.All(char.IsAsciiDigit) &&
-                int.TryParse(currentText, NumberStyles.None, CultureInfo.InvariantCulture, out _)
-                ? TradeSearchRequestedItemFilterValidationStatus.Valid
-                : TradeSearchRequestedItemFilterValidationStatus.Invalid;
-        var requestedValue = status == TradeSearchRequestedItemFilterValidationStatus.Valid
-            ? int.Parse(currentText, NumberStyles.None, CultureInfo.InvariantCulture)
-            : (int?)null;
-        return source with
+        var minimumStatus = ParseUnsignedIntegerField(currentText, out var requestedValue);
+        var updated = source with
         {
             CurrentText = currentText,
             RequestedMinimum = requestedValue,
             IsActive = isActive ?? source.IsActive,
-            LocalValidationStatus = status,
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
+        return FinalizeRequestedItemFilterValidation(updated, minimumStatus);
+    }
+
+    public static TradeSearchRequestedItemFilter ParseRequestedItemFilterColourText(
+        TradeSearchRequestedItemFilter source,
+        TradeSearchRequestedItemFilterColour colour,
+        string? currentText,
+        bool? isActive = null)
+    {
+        if (!source.SupportsSocketColours)
+        {
+            throw new ArgumentException(
+                $"Requested item filter '{source.Kind}' does not support socket colour constraints.",
+                nameof(source));
+        }
+
+        currentText ??= string.Empty;
+        ParseUnsignedIntegerField(currentText, out var requestedValue);
+        var updated = colour switch
+        {
+            TradeSearchRequestedItemFilterColour.Red => source with
+            {
+                RedText = currentText,
+                RequestedRed = requestedValue,
+                IsActive = isActive ?? source.IsActive,
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            },
+            TradeSearchRequestedItemFilterColour.Green => source with
+            {
+                GreenText = currentText,
+                RequestedGreen = requestedValue,
+                IsActive = isActive ?? source.IsActive,
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            },
+            TradeSearchRequestedItemFilterColour.Blue => source with
+            {
+                BlueText = currentText,
+                RequestedBlue = requestedValue,
+                IsActive = isActive ?? source.IsActive,
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            },
+            TradeSearchRequestedItemFilterColour.White => source with
+            {
+                WhiteText = currentText,
+                RequestedWhite = requestedValue,
+                IsActive = isActive ?? source.IsActive,
+                ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(colour), colour, null),
+        };
+        return FinalizeRequestedItemFilterValidation(
+            updated,
+            ParseUnsignedIntegerField(updated.CurrentText, out _));
+    }
+
+    private static TradeSearchRequestedItemFilter FinalizeRequestedItemFilterValidation(
+        TradeSearchRequestedItemFilter filter,
+        TradeSearchRequestedItemFilterValidationStatus minimumStatus)
+    {
+        var colourStatuses = filter.SupportsSocketColours
+            ?
+            [
+                ParseUnsignedIntegerField(filter.RedText, out _),
+                ParseUnsignedIntegerField(filter.GreenText, out _),
+                ParseUnsignedIntegerField(filter.BlueText, out _),
+                ParseUnsignedIntegerField(filter.WhiteText, out _),
+            ]
+            : Array.Empty<TradeSearchRequestedItemFilterValidationStatus>();
+        var status = CombineRequestedFieldStatuses(minimumStatus, colourStatuses);
+        return filter with
+        {
+            LocalValidationStatus = status,
             DiagnosticReason = status switch
             {
                 TradeSearchRequestedItemFilterValidationStatus.Invalid =>
-                    $"{source.Label} must be an unsigned integer.",
+                    filter.SupportsSocketColours
+                        ? $"{filter.Label} Min and R/G/B/W must be empty or unsigned integers."
+                        : $"{filter.Label} must be an unsigned integer.",
                 _ => null,
             },
         };
+    }
+
+    private static TradeSearchRequestedItemFilterValidationStatus CombineRequestedFieldStatuses(
+        TradeSearchRequestedItemFilterValidationStatus minimumStatus,
+        IReadOnlyList<TradeSearchRequestedItemFilterValidationStatus> colourStatuses)
+    {
+        if (minimumStatus == TradeSearchRequestedItemFilterValidationStatus.Invalid ||
+            colourStatuses.Any(status => status == TradeSearchRequestedItemFilterValidationStatus.Invalid))
+        {
+            return TradeSearchRequestedItemFilterValidationStatus.Invalid;
+        }
+
+        if (minimumStatus == TradeSearchRequestedItemFilterValidationStatus.Valid ||
+            colourStatuses.Any(status => status == TradeSearchRequestedItemFilterValidationStatus.Valid))
+        {
+            return TradeSearchRequestedItemFilterValidationStatus.Valid;
+        }
+
+        return TradeSearchRequestedItemFilterValidationStatus.Empty;
+    }
+
+    private static TradeSearchRequestedItemFilterValidationStatus ParseUnsignedIntegerField(
+        string? text,
+        out int? value)
+    {
+        text ??= string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            value = null;
+            return TradeSearchRequestedItemFilterValidationStatus.Empty;
+        }
+
+        if (text.All(char.IsAsciiDigit) &&
+            int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+        {
+            value = parsed;
+            return TradeSearchRequestedItemFilterValidationStatus.Valid;
+        }
+
+        value = null;
+        return TradeSearchRequestedItemFilterValidationStatus.Invalid;
     }
 
     private static TradeSearchRequestedItemFilter ReadObservedQualityFilter(ParsedItem parsedItem)
@@ -253,23 +363,21 @@ public sealed partial class TradeSearchDraftMapper
             observed.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static TradeSearchRequestedItemFilter ReadObservedLinksFilter(ParsedItem parsedItem)
+    private static TradeSearchRequestedItemFilter? ReadObservedLinksFilter(ParsedItem parsedItem)
     {
         var properties = parsedItem.Properties
             .Where(property => string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal))
             .ToArray();
         if (properties.Length == 0)
         {
-            return CreateRequestedFilter(
-                TradeSearchRequestedItemFilterKind.Links,
-                "Links",
-                0,
-                "0");
+            // Socketless clipboard items omit Links entirely — do not fabricate a zero Links row.
+            return null;
         }
 
         if (properties.Length != 1 || !TryReadMaximumLinkedGroup(properties[0].RawValueText, out var links))
         {
-            return CreateRequestedFilter(
+            return CreateSocketAwareRequestedFilter(
+                parsedItem,
                 TradeSearchRequestedItemFilterKind.Links,
                 "Links",
                 null,
@@ -277,7 +385,8 @@ public sealed partial class TradeSearchDraftMapper
                 "The copied socket/link representation is malformed or ambiguous.");
         }
 
-        return CreateRequestedFilter(
+        return CreateSocketAwareRequestedFilter(
+            parsedItem,
             TradeSearchRequestedItemFilterKind.Links,
             "Links",
             links,
@@ -289,17 +398,45 @@ public sealed partial class TradeSearchDraftMapper
         var properties = parsedItem.Properties
             .Where(property => string.Equals(property.NormalizedName, "sockets", StringComparison.Ordinal))
             .ToArray();
-        if (properties.Length != 1 ||
-            !TryReadSocketSummary(properties[0].RawValueText, out _, out var socketCount))
+        if (properties.Length == 0)
         {
             return null;
         }
 
-        return CreateRequestedFilter(
+        if (properties.Length != 1 ||
+            !TryReadSocketSummary(properties[0].RawValueText, out _, out var socketCount))
+        {
+            return CreateSocketAwareRequestedFilter(
+                parsedItem,
+                TradeSearchRequestedItemFilterKind.Sockets,
+                "Sockets",
+                null,
+                string.Empty,
+                "The copied socket/link representation is malformed or ambiguous.");
+        }
+
+        return CreateSocketAwareRequestedFilter(
+            parsedItem,
             TradeSearchRequestedItemFilterKind.Sockets,
             "Sockets",
             socketCount,
             socketCount.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static TradeSearchRequestedItemFilter CreateSocketAwareRequestedFilter(
+        ParsedItem parsedItem,
+        TradeSearchRequestedItemFilterKind kind,
+        string label,
+        int? observedValue,
+        string currentText,
+        string? diagnosticReason = null)
+    {
+        var filter = CreateRequestedFilter(kind, label, observedValue, currentText, diagnosticReason);
+        // One-time Ctrl+D defaults from observed rarity + socket facts only; never reactive later.
+        var activateByDefault = observedValue == 6 && IsCopiedRarity(parsedItem, "Normal");
+        return activateByDefault
+            ? filter with { IsActive = true }
+            : filter;
     }
 
     private static TradeSearchRequestedItemFilter CreateRequestedFilter(
@@ -316,6 +453,14 @@ public sealed partial class TradeSearchDraftMapper
             ObservedValue = observedValue,
             CurrentText = currentText,
             RequestedMinimum = observedValue,
+            RedText = string.Empty,
+            GreenText = string.Empty,
+            BlueText = string.Empty,
+            WhiteText = string.Empty,
+            RequestedRed = null,
+            RequestedGreen = null,
+            RequestedBlue = null,
+            RequestedWhite = null,
             IsActive = false,
             LocalValidationStatus = observedValue.HasValue
                 ? TradeSearchRequestedItemFilterValidationStatus.Valid
