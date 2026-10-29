@@ -606,6 +606,18 @@ internal sealed class PriceCheckerSearchController
             return;
         }
 
+        // Re-parse the bound that the sole Panel 2 input represents so Max-only kinds
+        // (Intangibility) keep MaximumText instead of re-reading empty CurrentText.
+        if (filter.IsMaximumOnly)
+        {
+            UpdateRequestedItemFilter(
+                TradeSearchDraftMapper.ParseRequestedItemFilterMaximumText(
+                    filter,
+                    filter.MaximumText,
+                    isActive));
+            return;
+        }
+
         UpdateRequestedItemFilter(
             TradeSearchDraftMapper.ParseRequestedItemFilterText(
                 filter,

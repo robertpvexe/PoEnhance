@@ -258,8 +258,8 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
                     Label = "Intangibility",
                     CurrentText = "0",
                     RequestedMinimum = 0,
-                    MaximumText = "8",
-                    RequestedMaximum = 8,
+                    MaximumText = "21",
+                    RequestedMaximum = 21,
                     IsActive = true,
                     LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
                     ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Exact,
@@ -355,9 +355,10 @@ public sealed class PriceCheckerMiscellaneousFilterPreferenceTests
         var restoredIntangibility = restored.RequestedItemFilters
             .Single(filter => filter.Kind == TradeSearchRequestedItemFilterKind.Intangibility);
         Assert.True(restoredIntangibility.IsActive);
-        Assert.Equal(0, restoredIntangibility.RequestedMinimum);
-        Assert.Equal(string.Empty, restoredIntangibility.MaximumText);
-        Assert.Null(restoredIntangibility.RequestedMaximum);
+        Assert.Null(restoredIntangibility.RequestedMinimum);
+        Assert.Equal(string.Empty, restoredIntangibility.CurrentText);
+        Assert.Equal("21", restoredIntangibility.MaximumText);
+        Assert.Equal(21, restoredIntangibility.RequestedMaximum);
     }
 
     [Fact]

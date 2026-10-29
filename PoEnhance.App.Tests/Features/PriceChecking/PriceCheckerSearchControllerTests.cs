@@ -4719,6 +4719,56 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public void RequestedIntangibility_ActivationTogglePreservesMaximumValue()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.EffectiveDraftResolver = ResolveRequestedHeaderForController;
+        var draft = DraftWithRequestedHeader() with
+        {
+            RequestedItemFilters = DraftWithRequestedHeader().RequestedItemFilters.Add(
+                new TradeSearchRequestedItemFilter
+                {
+                    Kind = TradeSearchRequestedItemFilterKind.Intangibility,
+                    Label = "Intangibility",
+                    ObservedValue = 10,
+                    CurrentText = string.Empty,
+                    RequestedMinimum = null,
+                    MaximumText = "10",
+                    RequestedMaximum = 10,
+                    IsActive = false,
+                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                }),
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        fixture.Controller.UpdateRequestedItemFilterActivation(
+            TradeSearchRequestedItemFilterKind.Intangibility,
+            isActive: true);
+        var active = RequestedHeader(fixture.Window.CurrentState!.Draft,
+            TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.True(active.IsActive);
+        Assert.Equal("10", active.MaximumText);
+        Assert.Equal(10, active.RequestedMaximum);
+        Assert.Null(active.RequestedMinimum);
+
+        fixture.Controller.UpdateRequestedItemFilterValue(
+            TradeSearchRequestedItemFilterKind.Intangibility,
+            "0",
+            bound: TradeSearchRequestedItemFilterBound.Maximum);
+        fixture.Controller.UpdateRequestedItemFilterActivation(
+            TradeSearchRequestedItemFilterKind.Intangibility,
+            isActive: false);
+        var inactive = RequestedHeader(fixture.Window.CurrentState.Draft,
+            TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.False(inactive.IsActive);
+        Assert.Equal("0", inactive.MaximumText);
+        Assert.Equal(0, inactive.RequestedMaximum);
+        Assert.Equal(string.Empty, inactive.CurrentText);
+        Assert.Null(inactive.RequestedMinimum);
+        Assert.Empty(fixture.PriceCheckService.Calls);
+    }
+
+    [Fact]
     public async Task RequestedHeader_MalformedInputBlocksSearchLocallyWithoutServiceCall()
     {
         var fixture = SearchFixture.Create();

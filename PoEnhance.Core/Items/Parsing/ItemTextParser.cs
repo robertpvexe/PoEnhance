@@ -187,7 +187,9 @@ public sealed partial class ItemTextParser
                             uniqueModifiers);
                     }
                 }
-                else if (pendingAdvancedModifier is null && IsPropertyLine(line, isModifierSection, isFlask))
+                else if (pendingAdvancedModifier is null &&
+                    (IsPropertyLine(line, isModifierSection, isFlask) ||
+                     IsItemHeaderNumericMetadataProperty(line)))
                 {
                     properties.Add(CreateItemProperty(line, properties.Count));
                 }
@@ -996,6 +998,14 @@ public sealed partial class ItemTextParser
 
         return isFlask && IsFlaskPropertyLine(line);
     }
+
+    /// <summary>
+    /// Clipboard headers such as Memory Strands / Intangibility often appear after Item Level.
+    /// Treat them as properties even inside the post-Item-Level section so they are not mistaken for mods.
+    /// </summary>
+    private static bool IsItemHeaderNumericMetadataProperty(string line) =>
+        line.StartsWith("Memory Strands:", StringComparison.OrdinalIgnoreCase) ||
+        line.StartsWith("Intangibility:", StringComparison.OrdinalIgnoreCase);
 
     private static ParsedItemProperty CreateItemProperty(string line, int sourceIndex)
     {

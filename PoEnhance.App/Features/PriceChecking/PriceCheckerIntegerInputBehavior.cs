@@ -59,11 +59,17 @@ public static class PriceCheckerIntegerInputBehavior
 
     private static void OnPreviewTextInput(object sender, TextCompositionEventArgs e)
     {
-        if (sender is TextBox textBox && !IsTextAllowed(ProspectiveText(
-                textBox.Text,
-                textBox.SelectionStart,
-                textBox.SelectionLength,
-                e.Text)))
+        if (sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        var prospective = ProspectiveText(
+            textBox.Text,
+            textBox.SelectionStart,
+            textBox.SelectionLength,
+            e.Text);
+        if (!IsTextAllowed(prospective) || ExceedsMaxLength(textBox, prospective))
         {
             e.Handled = true;
         }
@@ -74,14 +80,23 @@ public static class PriceCheckerIntegerInputBehavior
         if (sender is not TextBox textBox ||
             !e.SourceDataObject.GetDataPresent(DataFormats.UnicodeText, autoConvert: true) ||
             e.SourceDataObject.GetData(DataFormats.UnicodeText, autoConvert: true) is not string text ||
-            !IsPasteTextAllowed(text) ||
-            !IsTextAllowed(ProspectiveText(
-                textBox.Text,
-                textBox.SelectionStart,
-                textBox.SelectionLength,
-                text)))
+            !IsPasteTextAllowed(text))
+        {
+            e.CancelCommand();
+            return;
+        }
+
+        var prospective = ProspectiveText(
+            textBox.Text,
+            textBox.SelectionStart,
+            textBox.SelectionLength,
+            text);
+        if (!IsTextAllowed(prospective) || ExceedsMaxLength(textBox, prospective))
         {
             e.CancelCommand();
         }
     }
+
+    private static bool ExceedsMaxLength(TextBox textBox, string prospectiveText) =>
+        textBox.MaxLength > 0 && prospectiveText.Length > textBox.MaxLength;
 }

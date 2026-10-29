@@ -52,7 +52,7 @@ public static class PriceCheckerMiscellaneousFilterRegistry
             CanToggleVisibility: false),
         new(
             BasePercentile,
-            "Base Percentile",
+            "Base %",
             "Optional base-percentile filter for applicable item bases.",
             CanToggleVisibility: true),
         new(
@@ -103,7 +103,7 @@ public static class PriceCheckerMiscellaneousFilterRegistry
         new(
             Intangibility,
             "Intangibility",
-            "Optional Min lower bound for Intangibility percentage on the copied item.",
+            "Optional Max upper bound for Intangibility percentage on the copied item.",
             CanToggleVisibility: true),
     ];
 

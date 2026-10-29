@@ -858,12 +858,13 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
 
         return new PathOfExileTradeSearchStatValue
         {
-            Min = filter.MinimumValue,
-            // Memory Strands / Intangibility remain Min-only even if a stale MaximumValue lingers.
+            // Memory Strands is Min-only; Intangibility is Max-only — strip the unsupported bound.
+            Min = filter.SourceKind is TradeSearchRequestedItemFilterKind.Intangibility
+                ? null
+                : filter.MinimumValue,
             Max = filter.SourceKind is TradeSearchRequestedItemFilterKind.MemoryStrands
-                or TradeSearchRequestedItemFilterKind.Intangibility
-                    ? null
-                    : filter.MaximumValue,
+                ? null
+                : filter.MaximumValue,
         };
     }
 

@@ -44,7 +44,6 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     [InlineData(TradeSearchRequestedItemFilterKind.Sockets, "socket_filters", "sockets", 6)]
     [InlineData(TradeSearchRequestedItemFilterKind.BasePercentile, "armour_filters", "base_defence_percentile", 83)]
     [InlineData(TradeSearchRequestedItemFilterKind.MemoryStrands, "misc_filters", "memory_level", 40)]
-    [InlineData(TradeSearchRequestedItemFilterKind.Intangibility, "misc_filters", "intangibility", 8)]
     public void Build_OneActiveRequestedFilterSerializesMinimumWithoutMaximum(
         TradeSearchRequestedItemFilterKind kind,
         string groupId,
@@ -66,15 +65,61 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         AssertMinimumOnly(value, minimumValue);
     }
 
-    [Theory]
-    [InlineData(TradeSearchRequestedItemFilterKind.MemoryStrands, "memory_level")]
-    [InlineData(TradeSearchRequestedItemFilterKind.Intangibility, "intangibility")]
-    public void Build_MinimumOnlyRequestedFilterSerializesMinNeverMaxIncludingStaleMaximum(
-        TradeSearchRequestedItemFilterKind kind,
-        string filterId)
+    [Fact]
+    public void Build_OneActiveIntangibilitySerializesMaximumWithoutMinimum()
+    {
+        var catalog = RequestedCatalog();
+        var draft = ResolveRequested(
+            WithRequestedFilters(
+                PathOfExileTradeItemPropertyTestFixtures.WeaponDraft(),
+                (TradeSearchRequestedItemFilterKind.Intangibility, 21)),
+            catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        AssertFilterGroupEnabled(document, "misc_filters");
+        var value = RequestedValue(document, "misc_filters", "intangibility");
+        AssertMaximumOnly(value, 21);
+    }
+
+    [Fact]
+    public void Build_InactiveIntangibilityWithSeededMaximumOmitsCriterion()
     {
         var catalog = RequestedCatalog();
         var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        var draft = ResolveRequested(source with
+        {
+            RequestedItemFilters = UpsertMaximumOnlyFilter(
+                source.RequestedItemFilters,
+                TradeSearchRequestedItemFilterKind.Intangibility,
+                isActive: false,
+                maxText: "10"),
+        }, catalog);
+
+        var result = Build(draft, catalog);
+
+        Assert.True(result.IsSuccess, SingleOrDefault(result.Diagnostics)?.Message);
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+        Assert.False(
+            filters.TryGetProperty("misc_filters", out var misc) &&
+            misc.GetProperty("filters").TryGetProperty("intangibility", out _));
+        var filter = draft.RequestedItemFilters.Single(candidate =>
+            candidate.Kind == TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.False(filter.IsActive);
+        Assert.Equal(10, filter.RequestedMaximum);
+        Assert.Equal("10", filter.MaximumText);
+    }
+
+    [Fact]
+    public void Build_MinimumOnlyMemoryStrandsSerializesMinNeverMaxIncludingStaleMaximum()
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        const TradeSearchRequestedItemFilterKind kind = TradeSearchRequestedItemFilterKind.MemoryStrands;
+        const string filterId = "memory_level";
         var emptyActive = ResolveRequested(source with
         {
             RequestedItemFilters = UpsertMinimumOnlyFilter(
@@ -128,6 +173,65 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
             var value = RequestedValue(document, "misc_filters", filterId);
             Assert.Equal(10, value.GetProperty("min").GetInt32());
             Assert.False(value.TryGetProperty("max", out _));
+        }
+    }
+
+    [Fact]
+    public void Build_MaximumOnlyIntangibilitySerializesMaxNeverMinIncludingStaleMinimum()
+    {
+        var catalog = RequestedCatalog();
+        var source = WithRequestedFilters(PathOfExileTradeItemPropertyTestFixtures.WeaponDraft());
+        const TradeSearchRequestedItemFilterKind kind = TradeSearchRequestedItemFilterKind.Intangibility;
+        const string filterId = "intangibility";
+        var emptyActive = ResolveRequested(source with
+        {
+            RequestedItemFilters = UpsertMaximumOnlyFilter(
+                source.RequestedItemFilters,
+                kind,
+                isActive: true,
+                maxText: string.Empty),
+        }, catalog);
+        var zeroMax = ResolveRequested(source with
+        {
+            RequestedItemFilters = UpsertMaximumOnlyFilter(
+                source.RequestedItemFilters,
+                kind,
+                isActive: true,
+                maxText: "0"),
+        }, catalog);
+        var positiveMax = ResolveRequested(source with
+        {
+            RequestedItemFilters = UpsertMaximumOnlyFilter(
+                source.RequestedItemFilters,
+                kind,
+                isActive: true,
+                maxText: "21",
+                staleMinimum: 8),
+        }, catalog);
+
+        var emptyResult = Build(emptyActive, catalog);
+        Assert.True(emptyResult.IsSuccess, SingleOrDefault(emptyResult.Diagnostics)?.Message);
+        using (var document = JsonDocument.Parse(emptyResult.SerializedJson!))
+        {
+            var filters = document.RootElement.GetProperty("query").GetProperty("filters");
+            Assert.False(
+                filters.TryGetProperty("misc_filters", out var misc) &&
+                misc.GetProperty("filters").TryGetProperty(filterId, out _));
+        }
+
+        using (var document = JsonDocument.Parse(Build(zeroMax, catalog).SerializedJson!))
+        {
+            AssertFilterGroupEnabled(document, "misc_filters");
+            AssertMaximumOnly(RequestedValue(document, "misc_filters", filterId), 0);
+        }
+
+        var positiveFilter = positiveMax.RequestedItemFilters.Single(filter => filter.Kind == kind);
+        Assert.Null(positiveFilter.RequestedMinimum);
+        Assert.Equal(string.Empty, positiveFilter.CurrentText);
+        using (var document = JsonDocument.Parse(Build(positiveMax, catalog).SerializedJson!))
+        {
+            AssertFilterGroupEnabled(document, "misc_filters");
+            AssertMaximumOnly(RequestedValue(document, "misc_filters", filterId), 21);
         }
     }
 
@@ -741,6 +845,45 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         return filters.Add(parsed);
     }
 
+    private static ImmutableArray<TradeSearchRequestedItemFilter> UpsertMaximumOnlyFilter(
+        ImmutableArray<TradeSearchRequestedItemFilter> filters,
+        TradeSearchRequestedItemFilterKind kind,
+        bool isActive,
+        string maxText,
+        int? staleMinimum = null)
+    {
+        var seed = new TradeSearchRequestedItemFilter
+        {
+            Kind = kind,
+            Label = kind switch
+            {
+                TradeSearchRequestedItemFilterKind.MemoryStrands => "Memory Strands",
+                TradeSearchRequestedItemFilterKind.Intangibility => "Intangibility",
+                _ => kind.ToString(),
+            },
+            CurrentText = staleMinimum?.ToString(System.Globalization.CultureInfo.InvariantCulture) ??
+                string.Empty,
+            RequestedMinimum = staleMinimum,
+            MaximumText = string.Empty,
+            IsActive = isActive,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
+        };
+        var parsed = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            seed,
+            TradeSearchRequestedItemFilterBound.Maximum,
+            maxText,
+            isActive);
+
+        if (filters.Any(filter => filter.Kind == kind))
+        {
+            return filters
+                .Select(filter => filter.Kind == kind ? parsed : filter)
+                .ToImmutableArray();
+        }
+
+        return filters.Add(parsed);
+    }
+
     private static TradeSearchDraft WithRequestedFilters(
         TradeSearchDraft draft,
         params (TradeSearchRequestedItemFilterKind Kind, int Value)[] active)
@@ -749,29 +892,45 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
         return draft with
         {
             RequestedItemFilters = Enum.GetValues<TradeSearchRequestedItemFilterKind>()
-                .Select(kind => new TradeSearchRequestedItemFilter
+                .Select(kind =>
                 {
-                    Kind = kind,
-                    Label = kind switch
+                    var isMaximumOnly = kind == TradeSearchRequestedItemFilterKind.Intangibility;
+                    var isActive = activeByKind.ContainsKey(kind);
+                    activeByKind.TryGetValue(kind, out var requested);
+                    var defaultMinText = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? "84" : "0";
+                    var defaultMin = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0;
+                    return new TradeSearchRequestedItemFilter
                     {
-                        TradeSearchRequestedItemFilterKind.ItemLevel => "Item Level",
-                        TradeSearchRequestedItemFilterKind.Quality => "Quality",
-                        TradeSearchRequestedItemFilterKind.Links => "Links",
-                        TradeSearchRequestedItemFilterKind.Sockets => "Sockets",
-                        TradeSearchRequestedItemFilterKind.BasePercentile => "Base Percentile",
-                        TradeSearchRequestedItemFilterKind.MemoryStrands => "Memory Strands",
-                        TradeSearchRequestedItemFilterKind.Intangibility => "Intangibility",
-                        _ => kind.ToString(),
-                    },
-                    ObservedValue = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0,
-                    CurrentText = activeByKind.TryGetValue(kind, out var requested)
-                        ? requested.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                        : kind == TradeSearchRequestedItemFilterKind.ItemLevel ? "84" : "0",
-                    RequestedMinimum = activeByKind.TryGetValue(kind, out requested)
-                        ? requested
-                        : kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0,
-                    IsActive = activeByKind.ContainsKey(kind),
-                    LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                        Kind = kind,
+                        Label = kind switch
+                        {
+                            TradeSearchRequestedItemFilterKind.ItemLevel => "Item Level",
+                            TradeSearchRequestedItemFilterKind.Quality => "Quality",
+                            TradeSearchRequestedItemFilterKind.Links => "Links",
+                            TradeSearchRequestedItemFilterKind.Sockets => "Sockets",
+                            TradeSearchRequestedItemFilterKind.BasePercentile => "Base Percentile",
+                            TradeSearchRequestedItemFilterKind.MemoryStrands => "Memory Strands",
+                            TradeSearchRequestedItemFilterKind.Intangibility => "Intangibility",
+                            _ => kind.ToString(),
+                        },
+                        ObservedValue = kind == TradeSearchRequestedItemFilterKind.ItemLevel ? 84 : 0,
+                        CurrentText = isMaximumOnly
+                            ? string.Empty
+                            : isActive
+                                ? requested.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                : defaultMinText,
+                        RequestedMinimum = isMaximumOnly
+                            ? null
+                            : isActive
+                                ? requested
+                                : defaultMin,
+                        MaximumText = isMaximumOnly && isActive
+                            ? requested.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            : string.Empty,
+                        RequestedMaximum = isMaximumOnly && isActive ? requested : null,
+                        IsActive = isActive,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    };
                 })
                 .ToImmutableArray(),
         };
@@ -931,6 +1090,12 @@ public sealed class PathOfExileTradeRequestedItemFilterTests
     {
         Assert.Equal(value, element.GetProperty("min").GetInt32());
         Assert.False(element.TryGetProperty("max", out _));
+    }
+
+    private static void AssertMaximumOnly(JsonElement element, int value)
+    {
+        Assert.Equal(value, element.GetProperty("max").GetInt32());
+        Assert.False(element.TryGetProperty("min", out _));
     }
 
     private static T? SingleOrDefault<T>(IReadOnlyList<T> values) where T : class =>

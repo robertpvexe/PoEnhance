@@ -126,34 +126,10 @@ public sealed partial class TradeSearchDraftMapper
             filters.Add(basePercentile);
         }
 
-        // Always present, always empty/inactive on Ctrl+D — user must choose Min explicitly.
-        filters.Add(CreateEmptyMinimumOnlyRequestedFilter(
-            TradeSearchRequestedItemFilterKind.MemoryStrands,
-            "Memory Strands"));
-        filters.Add(CreateEmptyMinimumOnlyRequestedFilter(
-            TradeSearchRequestedItemFilterKind.Intangibility,
-            "Intangibility"));
+        filters.Add(CreateDefaultMemoryStrandsFilter(parsedItem));
+        filters.Add(CreateDefaultIntangibilityFilter(parsedItem));
 
         return filters.ToImmutable();
-    }
-
-    private static TradeSearchRequestedItemFilter CreateEmptyMinimumOnlyRequestedFilter(
-        TradeSearchRequestedItemFilterKind kind,
-        string label)
-    {
-        return new TradeSearchRequestedItemFilter
-        {
-            Kind = kind,
-            Label = label,
-            ObservedValue = null,
-            CurrentText = string.Empty,
-            RequestedMinimum = null,
-            MaximumText = string.Empty,
-            RequestedMaximum = null,
-            IsActive = false,
-            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
-            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
-        };
     }
 
     /// <summary>
@@ -177,9 +153,136 @@ public sealed partial class TradeSearchDraftMapper
 
         return CreateRequestedFilter(
             TradeSearchRequestedItemFilterKind.BasePercentile,
-            "Base Percentile",
+            "Base %",
             observed,
             observed.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static TradeSearchRequestedItemFilter CreateDefaultMemoryStrandsFilter(ParsedItem parsedItem)
+    {
+        if (!TryReadObservedHeaderInteger(parsedItem, "memory strands", requirePercentage: false, out var observed))
+        {
+            return CreateEmptyDirectionalRequestedFilter(
+                TradeSearchRequestedItemFilterKind.MemoryStrands,
+                "Memory Strands");
+        }
+
+        var text = observed.ToString(CultureInfo.InvariantCulture);
+        return new TradeSearchRequestedItemFilter
+        {
+            Kind = TradeSearchRequestedItemFilterKind.MemoryStrands,
+            Label = "Memory Strands",
+            ObservedValue = observed,
+            CurrentText = text,
+            RequestedMinimum = observed,
+            MaximumText = string.Empty,
+            RequestedMaximum = null,
+            IsActive = ShouldAutoActivateMemoryStrands(parsedItem, observed),
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
+    }
+
+    private static TradeSearchRequestedItemFilter CreateDefaultIntangibilityFilter(ParsedItem parsedItem)
+    {
+        if (!TryReadObservedHeaderInteger(parsedItem, "intangibility", requirePercentage: true, out var observed))
+        {
+            return CreateEmptyDirectionalRequestedFilter(
+                TradeSearchRequestedItemFilterKind.Intangibility,
+                "Intangibility");
+        }
+
+        var text = observed.ToString(CultureInfo.InvariantCulture);
+        return new TradeSearchRequestedItemFilter
+        {
+            Kind = TradeSearchRequestedItemFilterKind.Intangibility,
+            Label = "Intangibility",
+            ObservedValue = observed,
+            CurrentText = string.Empty,
+            RequestedMinimum = null,
+            MaximumText = text,
+            RequestedMaximum = observed,
+            // Always pre-fill, never auto-activate — user must explicitly opt in.
+            IsActive = false,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
+    }
+
+    /// <summary>
+    /// One-time Ctrl+D default for Memory Strands Min. Uses the copied item's rarity and
+    /// Corrupted/Mirrored flags — never the editable search UI item-state buttons.
+    /// </summary>
+    private static bool ShouldAutoActivateMemoryStrands(ParsedItem parsedItem, int observed)
+    {
+        if (parsedItem.IsCorrupted || parsedItem.IsMirrored)
+        {
+            return false;
+        }
+
+        if (IsCopiedRarity(parsedItem, "Normal") || IsCopiedRarity(parsedItem, "Magic"))
+        {
+            return observed >= 60;
+        }
+
+        if (IsCopiedRarity(parsedItem, "Rare"))
+        {
+            return observed >= 90;
+        }
+
+        return false;
+    }
+
+    private static TradeSearchRequestedItemFilter CreateEmptyDirectionalRequestedFilter(
+        TradeSearchRequestedItemFilterKind kind,
+        string label) =>
+        new()
+        {
+            Kind = kind,
+            Label = label,
+            ObservedValue = null,
+            CurrentText = string.Empty,
+            RequestedMinimum = null,
+            MaximumText = string.Empty,
+            RequestedMaximum = null,
+            IsActive = false,
+            LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Empty,
+            ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
+        };
+
+    private static bool TryReadObservedHeaderInteger(
+        ParsedItem parsedItem,
+        string normalizedName,
+        bool requirePercentage,
+        out int value)
+    {
+        value = default;
+        var properties = parsedItem.Properties
+            .Where(property => string.Equals(property.NormalizedName, normalizedName, StringComparison.Ordinal))
+            .ToArray();
+        if (properties.Length != 1)
+        {
+            return false;
+        }
+
+        var property = properties[0];
+        if (property.NumericGroups.Count != 1)
+        {
+            return false;
+        }
+
+        var group = property.NumericGroups[0];
+        if (group.ScalarValue is not { } scalar ||
+            scalar < 0 ||
+            scalar != decimal.Truncate(scalar) ||
+            scalar > int.MaxValue ||
+            group.IsPercentage != requirePercentage)
+        {
+            return false;
+        }
+
+        value = (int)scalar;
+        return true;
     }
 
     private static TradeSearchRequestedItemFilter CreateDefaultItemLevelFilter(ParsedItem parsedItem)
@@ -241,6 +344,12 @@ public sealed partial class TradeSearchDraftMapper
         string? currentText,
         bool? isActive = null)
     {
+        if (source.IsMaximumOnly)
+        {
+            // Sole Panel 2 input for Max-only kinds represents the upper bound.
+            return ParseRequestedItemFilterMaximumText(source, currentText, isActive);
+        }
+
         currentText ??= string.Empty;
         var minimumStatus = ParseUnsignedIntegerField(currentText, out var requestedValue);
         var updated = source with
@@ -298,10 +407,15 @@ public sealed partial class TradeSearchDraftMapper
         {
             MaximumText = maximumText,
             RequestedMaximum = requestedMaximum,
+            // Product UI is Max-only for these kinds — never keep a stale Min constraint.
+            CurrentText = source.IsMaximumOnly ? string.Empty : source.CurrentText,
+            RequestedMinimum = source.IsMaximumOnly ? null : source.RequestedMinimum,
             IsActive = isActive ?? source.IsActive,
             ProviderResolutionStatus = TradeSearchItemPropertyProviderResolutionStatus.Unresolved,
         };
-        var minimumStatus = ParseUnsignedIntegerField(updated.CurrentText, out _);
+        var minimumStatus = source.IsMaximumOnly
+            ? TradeSearchRequestedItemFilterValidationStatus.Empty
+            : ParseUnsignedIntegerField(updated.CurrentText, out _);
         return FinalizeRequestedItemFilterValidation(updated, minimumStatus, maximumStatus);
     }
 
@@ -377,6 +491,8 @@ public sealed partial class TradeSearchDraftMapper
 
         return filter with
         {
+            CurrentText = filter.IsMaximumOnly ? string.Empty : filter.CurrentText,
+            RequestedMinimum = filter.IsMaximumOnly ? null : filter.RequestedMinimum,
             MaximumText = filter.IsMinimumOnly ? string.Empty : filter.MaximumText,
             RequestedMaximum = filter.IsMinimumOnly ? null : filter.RequestedMaximum,
             LocalValidationStatus = status,

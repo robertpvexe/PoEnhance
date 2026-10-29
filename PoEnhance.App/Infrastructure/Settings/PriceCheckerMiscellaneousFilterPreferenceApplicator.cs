@@ -71,7 +71,7 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
 
         var needsRequestedRewrite = !draft.RequestedItemFilters.IsDefaultOrEmpty &&
             draft.RequestedItemFilters.Any(filter =>
-                HasUnsupportedMaximum(filter) ||
+                HasUnsupportedDirectionalBound(filter) ||
                 (hiddenRequested.Contains(filter.Kind) && filter.IsActive));
         if (!itemStateChanged && !needsRequestedRewrite)
         {
@@ -82,7 +82,7 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
             ? draft.RequestedItemFilters
                 .Select(filter =>
                 {
-                    var normalized = StripUnsupportedMaximum(filter);
+                    var normalized = StripUnsupportedDirectionalBounds(filter);
                     return hiddenRequested.Contains(normalized.Kind) && normalized.IsActive
                         ? normalized with { IsActive = false }
                         : normalized;
@@ -139,7 +139,7 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
 
                     var uiFilter = uiDraft.RequestedItemFilters
                         .FirstOrDefault(candidate => candidate.Kind == filter.Kind);
-                    return StripUnsupportedMaximum(uiFilter ?? filter);
+                    return StripUnsupportedDirectionalBounds(uiFilter ?? filter);
                 })
                 .ToImmutableArray();
         }
@@ -151,17 +151,36 @@ internal static class PriceCheckerMiscellaneousFilterPreferenceApplicator
         };
     }
 
-    private static bool HasUnsupportedMaximum(TradeSearchRequestedItemFilter filter) =>
-        filter.IsMinimumOnly &&
-        (filter.RequestedMaximum.HasValue || filter.MaximumText.Length > 0);
+    private static bool HasUnsupportedDirectionalBound(TradeSearchRequestedItemFilter filter) =>
+        (filter.IsMinimumOnly &&
+            (filter.RequestedMaximum.HasValue || filter.MaximumText.Length > 0)) ||
+        (filter.IsMaximumOnly &&
+            (filter.RequestedMinimum.HasValue || filter.CurrentText.Length > 0));
 
-    private static TradeSearchRequestedItemFilter StripUnsupportedMaximum(
-        TradeSearchRequestedItemFilter filter) =>
-        HasUnsupportedMaximum(filter)
-            ? filter with
+    private static TradeSearchRequestedItemFilter StripUnsupportedDirectionalBounds(
+        TradeSearchRequestedItemFilter filter)
+    {
+        var normalized = filter;
+        if (normalized.IsMinimumOnly &&
+            (normalized.RequestedMaximum.HasValue || normalized.MaximumText.Length > 0))
+        {
+            normalized = normalized with
             {
                 MaximumText = string.Empty,
                 RequestedMaximum = null,
-            }
-            : filter;
+            };
+        }
+
+        if (normalized.IsMaximumOnly &&
+            (normalized.RequestedMinimum.HasValue || normalized.CurrentText.Length > 0))
+        {
+            normalized = normalized with
+            {
+                CurrentText = string.Empty,
+                RequestedMinimum = null,
+            };
+        }
+
+        return normalized;
+    }
 }

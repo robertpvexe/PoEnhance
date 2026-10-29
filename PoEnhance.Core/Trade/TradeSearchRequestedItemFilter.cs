@@ -45,14 +45,17 @@ public sealed record TradeSearchRequestedItemFilter
         Kind is TradeSearchRequestedItemFilterKind.Sockets or TradeSearchRequestedItemFilterKind.Links;
 
     /// <summary>
-    /// Memory Strands and Intangibility are product Min-only UI filters even though Trade catalogs them as minMax.
+    /// Memory Strands is product Min-only even though Trade catalogs it as minMax.
     /// </summary>
-    public bool IsMinimumOnly =>
-        Kind is TradeSearchRequestedItemFilterKind.MemoryStrands
-            or TradeSearchRequestedItemFilterKind.Intangibility;
+    public bool IsMinimumOnly => Kind is TradeSearchRequestedItemFilterKind.MemoryStrands;
+
+    /// <summary>
+    /// Intangibility is product Max-only even though Trade catalogs it as minMax.
+    /// </summary>
+    public bool IsMaximumOnly => Kind is TradeSearchRequestedItemFilterKind.Intangibility;
 
     public bool HasRequestedConstraint =>
-        RequestedMinimum.HasValue ||
+        (!IsMaximumOnly && RequestedMinimum.HasValue) ||
         (!IsMinimumOnly && RequestedMaximum.HasValue) ||
         RequestedRed.HasValue ||
         RequestedGreen.HasValue ||

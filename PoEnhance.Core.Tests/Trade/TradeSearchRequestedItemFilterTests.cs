@@ -39,15 +39,20 @@ public sealed class TradeSearchRequestedItemFilterTests
         Assert.Equal(
             ["85", "0", "5", "3", "", ""],
             draft.RequestedItemFilters.Select(filter => filter.CurrentText));
-        Assert.All(
-            draft.RequestedItemFilters.Where(filter => filter.IsMinimumOnly),
-            filter =>
-            {
-                Assert.Equal(string.Empty, filter.MaximumText);
-                Assert.Null(filter.RequestedMaximum);
-                Assert.False(filter.IsActive);
-                Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Empty, filter.LocalValidationStatus);
-            });
+        var memory = Filter(draft, TradeSearchRequestedItemFilterKind.MemoryStrands);
+        Assert.True(memory.IsMinimumOnly);
+        Assert.False(memory.IsMaximumOnly);
+        Assert.Equal(string.Empty, memory.MaximumText);
+        Assert.Null(memory.RequestedMaximum);
+        Assert.False(memory.IsActive);
+        var intangibility = Filter(draft, TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.True(intangibility.IsMaximumOnly);
+        Assert.False(intangibility.IsMinimumOnly);
+        Assert.Equal(string.Empty, intangibility.CurrentText);
+        Assert.Null(intangibility.RequestedMinimum);
+        Assert.Equal(string.Empty, intangibility.MaximumText);
+        Assert.Null(intangibility.RequestedMaximum);
+        Assert.False(intangibility.IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.ItemLevel).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Quality).IsActive);
         Assert.False(Filter(draft, TradeSearchRequestedItemFilterKind.Links).IsActive);
@@ -105,6 +110,197 @@ public sealed class TradeSearchRequestedItemFilterTests
         Assert.Equal(string.Empty, ignoredMaxWrite.MaximumText);
         Assert.True(ignoredMaxWrite.HasRequestedConstraint);
     }
+
+    [Fact]
+    public void ParseMaximumOnly_AcceptsZeroAndPositiveMaxAndIgnoresStaleMinimum()
+    {
+        var empty = Filter(
+            CreateDraft(ItemWithProperty("Quality: +20% (augmented)")),
+            TradeSearchRequestedItemFilterKind.Intangibility);
+        var zeroMax = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            empty,
+            TradeSearchRequestedItemFilterBound.Maximum,
+            "0",
+            isActive: true);
+        Assert.Equal(0, zeroMax.RequestedMaximum);
+        Assert.Null(zeroMax.RequestedMinimum);
+        Assert.Equal(string.Empty, zeroMax.CurrentText);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, zeroMax.LocalValidationStatus);
+
+        var positiveMax = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            empty,
+            TradeSearchRequestedItemFilterBound.Maximum,
+            "21",
+            isActive: true);
+        Assert.Equal(21, positiveMax.RequestedMaximum);
+        Assert.Null(positiveMax.RequestedMinimum);
+
+        var withStaleMin = empty with
+        {
+            CurrentText = "8",
+            RequestedMinimum = 8,
+        };
+        var cleared = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            withStaleMin,
+            TradeSearchRequestedItemFilterBound.Maximum,
+            "21",
+            isActive: true);
+        Assert.Equal(21, cleared.RequestedMaximum);
+        Assert.Null(cleared.RequestedMinimum);
+        Assert.Equal(string.Empty, cleared.CurrentText);
+
+        var redirectedMinWrite = TradeSearchDraftMapper.ParseRequestedItemFilterBoundText(
+            cleared,
+            TradeSearchRequestedItemFilterBound.Minimum,
+            "15",
+            isActive: true);
+        Assert.Equal(15, redirectedMinWrite.RequestedMaximum);
+        Assert.Null(redirectedMinWrite.RequestedMinimum);
+        Assert.Equal(string.Empty, redirectedMinWrite.CurrentText);
+        Assert.True(redirectedMinWrite.HasRequestedConstraint);
+    }
+
+    [Theory]
+    [InlineData("Normal", 59, false)]
+    [InlineData("Normal", 60, true)]
+    [InlineData("Magic", 59, false)]
+    [InlineData("Magic", 60, true)]
+    [InlineData("Rare", 49, false)]
+    [InlineData("Rare", 89, false)]
+    [InlineData("Rare", 90, true)]
+    [InlineData("Unique", 100, false)]
+    public void CreateDraft_MemoryStrandsAutoActivationFollowsRarityThresholds(
+        string rarity,
+        int strands,
+        bool expectedActive)
+    {
+        var draft = CreateDraft(MemoryStrandsItem(rarity, strands));
+
+        var filter = Filter(draft, TradeSearchRequestedItemFilterKind.MemoryStrands);
+        Assert.Equal(strands, filter.ObservedValue);
+        Assert.Equal(strands.ToString(System.Globalization.CultureInfo.InvariantCulture), filter.CurrentText);
+        Assert.Equal(strands, filter.RequestedMinimum);
+        Assert.Null(filter.RequestedMaximum);
+        Assert.Equal(expectedActive, filter.IsActive);
+        Assert.True(filter.IsMinimumOnly);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, filter.LocalValidationStatus);
+    }
+
+    [Theory]
+    [InlineData("Corrupted")]
+    [InlineData("Mirrored")]
+    [InlineData("Corrupted\nMirrored")]
+    public void CreateDraft_MemoryStrandsNeverAutoActivatesWhenCorruptedOrMirrored(string states)
+    {
+        var draft = CreateDraft($$"""
+            Item Class: Gloves
+            Rarity: Rare
+            Morbid Vise
+            Martyr Gloves
+            --------
+            Quality: +20% (augmented)
+            Armour: 100
+            --------
+            Requires Level: 40
+            --------
+            Item Level: 84
+            --------
+            Memory Strands: 100
+            --------
+            {{states}}
+            """);
+
+        var filter = Filter(draft, TradeSearchRequestedItemFilterKind.MemoryStrands);
+        Assert.Equal(100, filter.ObservedValue);
+        Assert.Equal("100", filter.CurrentText);
+        Assert.Equal(100, filter.RequestedMinimum);
+        Assert.False(filter.IsActive);
+    }
+
+    [Fact]
+    public void CreateDraft_IntangibilityHeaderSeedsInactiveMaximum()
+    {
+        var draft = CreateDraft("""
+            Item Class: Amulets
+            Rarity: Rare
+            Grim Pendant
+            Amber Amulet
+            --------
+            Requires Level: 7
+            --------
+            Item Level: 84
+            --------
+            Intangibility: 21%
+            """);
+
+        var filter = Filter(draft, TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.Equal(21, filter.ObservedValue);
+        Assert.Equal("21", filter.MaximumText);
+        Assert.Equal(21, filter.RequestedMaximum);
+        Assert.Null(filter.RequestedMinimum);
+        Assert.Equal(string.Empty, filter.CurrentText);
+        Assert.False(filter.IsActive);
+        Assert.True(filter.IsMaximumOnly);
+        Assert.True(filter.HasRequestedConstraint);
+        Assert.Equal(TradeSearchRequestedItemFilterValidationStatus.Valid, filter.LocalValidationStatus);
+        Assert.DoesNotContain(
+            draft.RequestedItemFilters,
+            candidate => candidate.Kind == TradeSearchRequestedItemFilterKind.BasePercentile);
+    }
+
+    [Fact]
+    public void ParseMaximumOnly_TogglingActivationPreservesMaximumValue()
+    {
+        var seeded = Filter(
+            CreateDraft("""
+                Item Class: Amulets
+                Rarity: Rare
+                Grim Pendant
+                Amber Amulet
+                --------
+                Requires Level: 7
+                --------
+                Item Level: 84
+                --------
+                Intangibility: 10%
+                """),
+            TradeSearchRequestedItemFilterKind.Intangibility);
+        Assert.False(seeded.IsActive);
+        Assert.Equal(10, seeded.RequestedMaximum);
+
+        var activated = TradeSearchDraftMapper.ParseRequestedItemFilterMaximumText(
+            seeded,
+            seeded.MaximumText,
+            isActive: true);
+        Assert.True(activated.IsActive);
+        Assert.Equal("10", activated.MaximumText);
+        Assert.Equal(10, activated.RequestedMaximum);
+
+        var deactivated = TradeSearchDraftMapper.ParseRequestedItemFilterMaximumText(
+            activated,
+            activated.MaximumText,
+            isActive: false);
+        Assert.False(deactivated.IsActive);
+        Assert.Equal("10", deactivated.MaximumText);
+        Assert.Equal(10, deactivated.RequestedMaximum);
+        Assert.Null(deactivated.RequestedMinimum);
+    }
+
+    private static string MemoryStrandsItem(string rarity, int strands) => $$"""
+        Item Class: Gloves
+        Rarity: {{rarity}}
+        Morbid Vise
+        Martyr Gloves
+        --------
+        Quality: +20% (augmented)
+        Armour: 100
+        --------
+        Requires Level: 40
+        --------
+        Item Level: 84
+        --------
+        Memory Strands: {{strands}}
+        """;
 
     [Fact]
     public void CreateDraft_MissingSocketDataDoesNotFabricateSocketCountOrColours()

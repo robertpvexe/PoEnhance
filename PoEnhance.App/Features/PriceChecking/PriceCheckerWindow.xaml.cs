@@ -34,6 +34,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
     {
         InitializeComponent();
         PriceCheckerWindowChrome.Apply(this);
+        ApplyPanel2NumericFieldToolTips();
 
         PreviewMouseDown += (_, _) =>
             PanelInteraction?.Invoke(this, EventArgs.Empty);
@@ -527,6 +528,48 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         ToolTipService.SetShowDuration(target, 15000);
     }
 
+    private void ApplyPanel2NumericFieldToolTips()
+    {
+        ApplyPanel2NumericFieldToolTip(QualityFilterTextBox, "Minimum item quality.");
+        ApplyPanel2NumericFieldToolTip(ItemLevelFilterTextBox, "Minimum item level.");
+        ApplyPanel2NumericFieldToolTip(BasePercentileFilterTextBox, "Minimum base defence percentile.");
+        ApplyPanel2NumericFieldToolTip(SocketFilterTextBox, "Minimum number of sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(LinksFilterTextBox, "Minimum number of linked sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(SocketFilterRedTextBox, "Minimum number of red sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(SocketFilterGreenTextBox, "Minimum number of green sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(SocketFilterBlueTextBox, "Minimum number of blue sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(SocketFilterWhiteTextBox, "Minimum number of white sockets on the item.");
+        ApplyPanel2NumericFieldToolTip(
+            LinksFilterRedTextBox,
+            "Minimum number of red sockets in a linked group.");
+        ApplyPanel2NumericFieldToolTip(
+            LinksFilterGreenTextBox,
+            "Minimum number of green sockets in a linked group.");
+        ApplyPanel2NumericFieldToolTip(
+            LinksFilterBlueTextBox,
+            "Minimum number of blue sockets in a linked group.");
+        ApplyPanel2NumericFieldToolTip(
+            LinksFilterWhiteTextBox,
+            "Minimum number of white sockets in a linked group.");
+        ApplyPanel2NumericFieldToolTip(
+            MemoryStrandsFilterTextBox,
+            "Minimum number of Memory Strands on the item.");
+        ApplyPanel2NumericFieldToolTip(IntangibilityFilterTextBox, "Maximum item Intangibility.");
+    }
+
+    private static void ApplyPanel2NumericFieldToolTip(DependencyObject target, string description)
+    {
+        var toolTip = PriceCheckerHeaderIconCatalog.CreateNameOnlyToolTip(description);
+        if (target is FrameworkElement element)
+        {
+            element.ToolTip = toolTip;
+        }
+
+        ToolTipService.SetInitialShowDelay(target, 500);
+        ToolTipService.SetBetweenShowDelay(target, 500);
+        ToolTipService.SetShowDuration(target, 15000);
+    }
+
     private static Style CreateInfluenceIconButtonStyle()
     {
         var style = new Style(typeof(Button));
@@ -835,12 +878,15 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
         }
 
         PanelInteraction?.Invoke(this, EventArgs.Empty);
+        var bound = kind == TradeSearchRequestedItemFilterKind.Intangibility
+            ? TradeSearchRequestedItemFilterBound.Maximum
+            : TradeSearchRequestedItemFilterBound.Minimum;
         RequestedItemFilterValueChanged?.Invoke(
             this,
             new PriceCheckerRequestedItemFilterValueChangedEventArgs(
                 kind,
                 textBox.Text,
-                TradeSearchRequestedItemFilterBound.Minimum));
+                bound));
     }
 
     private void OnRequestedItemFilterColourTextChanged(object sender, TextChangedEventArgs e)
@@ -956,7 +1002,9 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
 
         border.Tag = filter.IsActive ? "Active" : null;
         border.ToolTip = filter.DiagnosticReason;
-        SyncRequestedFilterTextBox(textBox, filter.CurrentText);
+        SyncRequestedFilterTextBox(
+            textBox,
+            filter.IsMaximumOnly ? filter.MaximumText : filter.CurrentText);
 
         if (!filter.SupportsSocketColours ||
             !TryGetRequestedItemFilterColourControls(filter.Kind, out var colourBoxes))

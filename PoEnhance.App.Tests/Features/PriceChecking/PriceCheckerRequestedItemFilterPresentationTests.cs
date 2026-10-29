@@ -31,14 +31,15 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         Assert.Contains("Text=\"Quality:\"", header);
         Assert.Contains("Text=\"Links:\"", header);
         Assert.Contains("Text=\"Sockets:\"", header);
-        Assert.Contains("Text=\"Base Percentile:\"", header);
+        Assert.Contains("Text=\"Base %:\"", header);
         Assert.Contains("x:Name=\"BasePercentileFilterTextBox\"", header);
         Assert.Contains("x:Name=\"SocketFilterRedTextBox\"", header);
         Assert.Contains("x:Name=\"LinksFilterWhiteTextBox\"", header);
         Assert.Contains("SocketColourTextBoxStyle", header);
-        Assert.Contains("ToolTip=\"Red sockets\"", header);
-        Assert.Contains("ToolTip=\"White links\"", header);
         Assert.Contains("AutomationProperties.Name=\"Red sockets\"", header);
+        Assert.Contains("AutomationProperties.Name=\"White links\"", header);
+        Assert.DoesNotContain("ToolTip=\"Red sockets\"", header);
+        Assert.DoesNotContain("ToolTip=\"White links\"", header);
         Assert.DoesNotContain("Text=\"R\"", header);
         Assert.DoesNotContain("Text=\"G\"", header);
         Assert.DoesNotContain("Text=\"B\"", header);
@@ -52,6 +53,19 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         Assert.Equal(7, header.Split("RequestedItemFilterBorderStyle", StringSplitOptions.None).Length - 1);
         Assert.Equal(7, header.Split("RequestedItemFilterTextBoxStyle", StringSplitOptions.None).Length - 1);
         Assert.Equal(8, header.Split("SocketColourTextBoxStyle", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void WindowXaml_RequestedItemFilterInputsUseFixedThreeDigitWidth()
+    {
+        var xaml = LoadWindowXaml();
+        var style = ExtractElement(xaml, "<Style x:Key=\"RequestedItemFilterTextBoxStyle\"", "</Style>");
+
+        Assert.Contains("Property=\"Width\"", style);
+        Assert.Contains("Value=\"30\"", style);
+        Assert.Contains("Property=\"MaxLength\"", style);
+        Assert.Contains("Value=\"3\"", style);
+        Assert.DoesNotContain("Property=\"MinWidth\"", style);
     }
 
     [Fact]
@@ -302,6 +316,91 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         });
     }
 
+    [Fact]
+    public void WindowRuntime_Panel2NumericFieldsHaveDelayedDescriptiveToolTips()
+    {
+        RunOnSta(() =>
+        {
+            var window = new PriceCheckerWindow();
+            window.UpdateContent(State(Draft()));
+            window.Show();
+            window.UpdateLayout();
+
+            AssertToolTip(window, "QualityFilterTextBox", "Minimum item quality.");
+            AssertToolTip(window, "ItemLevelFilterTextBox", "Minimum item level.");
+            AssertToolTip(window, "BasePercentileFilterTextBox", "Minimum base defence percentile.");
+            AssertToolTip(window, "SocketFilterTextBox", "Minimum number of sockets on the item.");
+            AssertToolTip(window, "LinksFilterTextBox", "Minimum number of linked sockets on the item.");
+            AssertToolTip(window, "SocketFilterRedTextBox", "Minimum number of red sockets on the item.");
+            AssertToolTip(window, "SocketFilterGreenTextBox", "Minimum number of green sockets on the item.");
+            AssertToolTip(window, "SocketFilterBlueTextBox", "Minimum number of blue sockets on the item.");
+            AssertToolTip(window, "SocketFilterWhiteTextBox", "Minimum number of white sockets on the item.");
+            AssertToolTip(
+                window,
+                "LinksFilterRedTextBox",
+                "Minimum number of red sockets in a linked group.");
+            AssertToolTip(
+                window,
+                "LinksFilterGreenTextBox",
+                "Minimum number of green sockets in a linked group.");
+            AssertToolTip(
+                window,
+                "LinksFilterBlueTextBox",
+                "Minimum number of blue sockets in a linked group.");
+            AssertToolTip(
+                window,
+                "LinksFilterWhiteTextBox",
+                "Minimum number of white sockets in a linked group.");
+            AssertToolTip(
+                window,
+                "MemoryStrandsFilterTextBox",
+                "Minimum number of Memory Strands on the item.");
+            AssertToolTip(window, "IntangibilityFilterTextBox", "Maximum item Intangibility.");
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void WindowRuntime_IntangibilityEditEmitsMaximumBoundAndShowsMaximumText()
+    {
+        RunOnSta(() =>
+        {
+            var window = new PriceCheckerWindow { ShowActivated = true };
+            var values = new List<PriceCheckerRequestedItemFilterValueChangedEventArgs>();
+            window.RequestedItemFilterValueChanged += (_, e) => values.Add(e);
+            var draft = Draft() with
+            {
+                RequestedItemFilters = Draft().RequestedItemFilters.Add(
+                    new TradeSearchRequestedItemFilter
+                    {
+                        Kind = TradeSearchRequestedItemFilterKind.Intangibility,
+                        Label = "Intangibility",
+                        ObservedValue = 21,
+                        CurrentText = string.Empty,
+                        RequestedMinimum = null,
+                        MaximumText = "21",
+                        RequestedMaximum = 21,
+                        IsActive = true,
+                        LocalValidationStatus = TradeSearchRequestedItemFilterValidationStatus.Valid,
+                    }),
+            };
+            window.UpdateContent(State(draft));
+            window.Show();
+            window.UpdateLayout();
+
+            var textBox = Assert.IsType<TextBox>(window.FindName("IntangibilityFilterTextBox"));
+            Assert.Equal("21", textBox.Text);
+
+            textBox.Focus();
+            textBox.Text = "15";
+            var edit = Assert.Single(values);
+            Assert.Equal(TradeSearchRequestedItemFilterKind.Intangibility, edit.Kind);
+            Assert.Equal(TradeSearchRequestedItemFilterBound.Maximum, edit.Bound);
+            Assert.Equal("15", edit.Text);
+            window.Close();
+        });
+    }
+
     [Theory]
     [InlineData("", true)]
     [InlineData("123", true)]
@@ -398,6 +497,14 @@ public sealed class PriceCheckerRequestedItemFilterPresentationTests
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
+    }
+
+    private static void AssertToolTip(PriceCheckerWindow window, string name, string expected)
+    {
+        var textBox = Assert.IsType<TextBox>(window.FindName(name));
+        var toolTip = Assert.IsType<ToolTip>(textBox.ToolTip);
+        Assert.Equal(expected, toolTip.Content);
+        Assert.Equal(500, ToolTipService.GetInitialShowDelay(textBox));
     }
 
     private static void RaisePreviewLeftClick(UIElement source)

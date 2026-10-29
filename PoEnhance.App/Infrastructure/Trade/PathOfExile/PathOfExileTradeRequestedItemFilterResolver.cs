@@ -73,8 +73,8 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
                 SourceKind = filter.Kind,
                 ProviderGroupId = mapping.ProviderGroupId,
                 ProviderFilterId = mapping.ProviderFilterId,
-                MinimumValue = filter.RequestedMinimum,
-                // Memory Strands / Intangibility are product Min-only — never emit max.
+                // Memory Strands is Min-only; Intangibility is Max-only.
+                MinimumValue = filter.IsMaximumOnly ? null : filter.RequestedMinimum,
                 MaximumValue = filter.IsMinimumOnly ? null : filter.RequestedMaximum,
                 Red = filter.RequestedRed,
                 Green = filter.RequestedGreen,
@@ -192,7 +192,7 @@ internal sealed class PathOfExileTradeRequestedItemFilterResolver
     private static IEnumerable<(string Label, int Value)> EnumerateConstraints(
         TradeSearchRequestedItemFilter filter)
     {
-        if (filter.RequestedMinimum is { } minimum)
+        if (!filter.IsMaximumOnly && filter.RequestedMinimum is { } minimum)
         {
             yield return ("Min", minimum);
         }
