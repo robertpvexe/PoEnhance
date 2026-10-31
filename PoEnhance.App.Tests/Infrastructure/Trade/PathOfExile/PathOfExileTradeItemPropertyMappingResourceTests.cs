@@ -12,7 +12,7 @@ public sealed class PathOfExileTradeItemPropertyMappingResourceTests
     {
         var catalog = new PathOfExileTradeItemPropertyMappingResourceLoader().LoadDefaultOrThrow();
 
-        Assert.Equal("item-property-trade-mapping-audit-2026-07-17", catalog.ReviewReference);
+        Assert.Equal("item-property-trade-mapping-audit-2026-10-31-stage-03-8", catalog.ReviewReference);
         Assert.Equal(10, catalog.Mappings.Count(mapping => mapping.IsSupported));
         Assert.Equal(
             ["es", "ar", "ev", "ward", "block"],
@@ -53,7 +53,9 @@ public sealed class PathOfExileTradeItemPropertyMappingResourceTests
         Assert.False(chaos.IsSupported);
         Assert.Null(chaos.ProviderGroupId);
         Assert.Null(chaos.ProviderFilterId);
-        Assert.Contains("does not expose a Chaos DPS", chaos.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("no independent Chaos DPS filter", chaos.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("extended.dps equals pdps + edps + chaos", chaos.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("display-only", chaos.UnsupportedReason, StringComparison.Ordinal);
     }
 
     [Fact]

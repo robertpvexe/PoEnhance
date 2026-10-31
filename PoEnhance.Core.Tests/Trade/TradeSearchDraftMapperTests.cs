@@ -1517,14 +1517,15 @@ Item Level: 84
     }
 
     [Theory]
-    [InlineData(null, TradeTriState.Any, false, true)]
-    [InlineData("Corrupted", TradeTriState.Any, true, true)]
-    [InlineData("Mirrored", TradeTriState.Yes, false, true)]
-    [InlineData("Unidentified", TradeTriState.Any, false, false)]
-    [InlineData("Fractured Item", TradeTriState.Any, false, true)]
+    [InlineData(null, TradeTriState.Any, TradeTriState.Any, false, true)]
+    [InlineData("Corrupted", TradeTriState.Any, TradeTriState.Any, true, true)]
+    [InlineData("Mirrored", TradeTriState.Yes, TradeTriState.Any, false, true)]
+    [InlineData("Unidentified", TradeTriState.Any, TradeTriState.Any, false, false)]
+    [InlineData("Fractured Item", TradeTriState.Any, TradeTriState.Yes, false, true)]
     public void CreateDraft_RequestedItemStatesDefaultIndependentlyOfObservedFacts(
         string? state,
         TradeTriState expectedMirrored,
+        TradeTriState expectedFractured,
         bool expectedObservedCorrupted,
         bool expectedObservedIdentified)
     {
@@ -1544,7 +1545,8 @@ Item Level: 84
         Assert.Equal(expectedMirrored, draft.ItemStateCriteria.Mirrored);
         Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Corrupted);
         Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Identified);
-        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Fractured);
+        Assert.Equal(expectedFractured, draft.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.Any, draft.ItemStateCriteria.Foulborn);
         Assert.Equal(expectedObservedCorrupted, draft.IsCorrupted);
         Assert.Equal(expectedObservedIdentified, item.IsIdentified);
         Assert.Equal(expectedMirrored == TradeTriState.Yes, item.IsMirrored);

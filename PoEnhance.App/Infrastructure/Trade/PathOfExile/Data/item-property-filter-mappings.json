@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewReference": "item-property-trade-mapping-audit-2026-07-17",
+  "reviewReference": "item-property-trade-mapping-audit-2026-10-31-stage-03-8",
   "mappings": [
     {
       "kind": "TotalDps",
@@ -29,7 +29,7 @@
     {
       "kind": "ChaosDps",
       "supported": false,
-      "unsupportedReason": "The Path of Exile Trade weapon filter catalog does not expose a Chaos DPS range filter."
+      "unsupportedReason": "The Path of Exile Trade weapon_filters catalog has no independent Chaos DPS filter (live /api/trade/data/filters: dps/pdps/edps only). Official listing extended.dps equals pdps + edps + chaos contribution when Chaos Damage is present; PoEnhance Total DPS follows that Trade definition while Chaos DPS stays display-only and is never serialized."
     },
     {
       "kind": "AttacksPerSecond",

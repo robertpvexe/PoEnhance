@@ -18,7 +18,7 @@ public sealed class PathOfExileTradeItemIdentityMapperTests
         Assert.True(result.IsSuccess);
         Assert.Equal("Voices", result.Identity?.CanonicalName);
         Assert.Equal("Large Cluster Jewel", result.Identity?.CanonicalType);
-        Assert.Equal(TradeTriState.No, result.Identity?.Foulborn);
+        Assert.Equal(TradeTriState.Any, result.Identity?.Foulborn);
     }
 
     [Fact]
@@ -69,13 +69,13 @@ public sealed class PathOfExileTradeItemIdentityMapperTests
     }
 
     [Fact]
-    public void Map_OrdinaryMoonbendersWingAutoDefaultsFoulbornNo()
+    public void Map_OrdinaryMoonbendersWingAutoDefaultsFoulbornAny()
     {
         var result = Map(Draft("Moonbender's Wing", "Tomahawk"), Catalog(
             Unique("Moonbender's Wing", "Tomahawk", "weapon")));
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(TradeTriState.No, result.Identity?.Foulborn);
+        Assert.Equal(TradeTriState.Any, result.Identity?.Foulborn);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public sealed class PathOfExileTradeItemIdentityMapperTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Foulborn Moonbender's Wing", result.Identity?.CanonicalName);
-        Assert.Equal(TradeTriState.No, result.Identity?.Foulborn);
+        Assert.Equal(TradeTriState.Any, result.Identity?.Foulborn);
     }
 
     [Fact]

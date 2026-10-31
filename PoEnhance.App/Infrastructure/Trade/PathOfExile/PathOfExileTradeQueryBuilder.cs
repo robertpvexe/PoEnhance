@@ -806,9 +806,10 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             return groups;
         }
 
-        // Panel-2 Foulborn (ItemStateCriteria → mutated) owns the wire filter when set.
-        // Unique identity Foulborn remains the approved auto path only when the panel is Any.
-        if (draft.ItemStateCriteria.Foulborn is TradeTriState.Yes or TradeTriState.No ||
+        // Panel-2 Foulborn (ItemStateCriteria → mutated) is authoritative.
+        // Any means unconstrained (including after a manual clear of an auto-Yes).
+        // Unique-identity Foulborn may fill mutated only while the panel is still Auto.
+        if (draft.ItemStateCriteria.Foulborn is not TradeTriState.Auto ||
             MiscGroupAlreadyContainsFilter(groups, ProviderFoulbornFilterKey))
         {
             return groups;

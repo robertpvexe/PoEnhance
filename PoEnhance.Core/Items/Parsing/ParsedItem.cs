@@ -34,6 +34,22 @@ public sealed record ParsedItem(
 
     public bool IsIdentified => !ItemStates.Contains("Unidentified", StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Proven Fractured status from the clipboard marker and/or fractured modifier metadata.
+    /// </summary>
+    public bool IsFractured =>
+        ItemStates.Contains("Fractured Item", StringComparer.OrdinalIgnoreCase) ||
+        Modifiers.Any(static modifier => modifier.IsFractured);
+
+    /// <summary>
+    /// Proven Foulborn status from the decorated Unique display name and/or Foulborn Unique
+    /// modifier metadata. Does not invent status from UI labels alone.
+    /// </summary>
+    public bool IsFoulborn =>
+        (DisplayName?.StartsWith("Foulborn ", StringComparison.Ordinal) ?? false) ||
+        Modifiers.Any(static modifier =>
+            modifier.UniqueOrigin == ParsedUniqueModifierOrigin.Foulborn);
+
     public IReadOnlyList<string> PropertyLines { get; } = Properties
         .Select(property => property.OriginalText)
         .ToArray();

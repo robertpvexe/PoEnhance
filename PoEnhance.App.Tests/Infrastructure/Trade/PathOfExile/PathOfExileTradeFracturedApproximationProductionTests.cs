@@ -129,11 +129,14 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
             Assert.Equal(2, group.GetProperty("filters").GetArrayLength());
             Assert.All(group.GetProperty("filters").EnumerateArray(), filter =>
                 Assert.Equal(12m, filter.GetProperty("value").GetProperty("min").GetDecimal()));
-            Assert.False(query
+            // Stage 03.8A: proven Fractured clipboard initializes Fractured Item: Yes → misc.fractured_item.
+            Assert.Equal("true", query
                 .GetProperty("filters")
                 .GetProperty("misc_filters")
                 .GetProperty("filters")
-                .TryGetProperty("fractured_item", out _));
+                .GetProperty("fractured_item")
+                .GetProperty("option")
+                .GetString());
         }
 
         var explicitOption = Assert.Single(suppress.FilterVariants, option =>
@@ -162,11 +165,13 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
         Assert.Equal("count", explicitGroup.GetProperty("type").GetString());
         Assert.All(explicitGroup.GetProperty("filters").EnumerateArray(), filter =>
             Assert.StartsWith("explicit.", filter.GetProperty("id").GetString(), StringComparison.Ordinal));
-        Assert.False(explicitQuery
+        Assert.Equal("true", explicitQuery
             .GetProperty("filters")
             .GetProperty("misc_filters")
             .GetProperty("filters")
-            .TryGetProperty("fractured_item", out _));
+            .GetProperty("fractured_item")
+            .GetProperty("option")
+            .GetString());
         var explicitEffective = Assert.IsType<TradeSearchDraft>(explicitResult.EffectiveDraft);
         var explicitComponent = Assert.Single(explicitEffective.ModifierFilters, component =>
             component.ComponentId == suppress.ComponentId);
@@ -248,11 +253,14 @@ public sealed class PathOfExileTradeFracturedApproximationProductionTests
                 .GetProperty("value")
                 .GetProperty("min")
                 .GetDecimal()));
-        Assert.False(query
+        // Stage 03.8A: proven Fractured clipboard initializes Fractured Item: Yes → misc.fractured_item.
+        Assert.Equal("true", query
             .GetProperty("filters")
             .GetProperty("misc_filters")
             .GetProperty("filters")
-            .TryGetProperty("fractured_item", out _));
+            .GetProperty("fractured_item")
+            .GetProperty("option")
+            .GetString());
 
         var explicitLife = Assert.Single(life.FilterVariants, option =>
             option.ProviderKind == "explicit");

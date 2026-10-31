@@ -73,9 +73,12 @@ public sealed partial class TradeSearchDraftMapper
             ItemStateCriteria = TradeItemStateCriteriaFactory.CreateRequestedDefaults(parsedItem),
             ItemVariantCriteria = new TradeItemVariantCriteria
             {
-                Foulborn = uniqueItemResolution?.Status == UniqueItemResolutionStatus.ExactIdentity
-                    ? uniqueItemResolution.IsFoulborn ? TradeTriState.Yes : TradeTriState.No
-                    : TradeTriState.Auto,
+                // Panel-2 ItemStateCriteria owns misc.mutated. Keep variant Foulborn as Yes only
+                // when proven; otherwise Any (never automatic No) so ordinary Uniques do not
+                // silently constrain mutated=false.
+                Foulborn = uniqueItemResolution?.IsFoulborn == true || parsedItem.IsFoulborn
+                    ? TradeTriState.Yes
+                    : TradeTriState.Any,
             },
             UniqueItemResolution = uniqueItemResolution,
             Base = CreateBaseDraft(parsedItem, effectiveItemBaseResolution),

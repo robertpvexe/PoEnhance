@@ -322,6 +322,60 @@ public sealed class PriceCheckerSearchControllerTests
     }
 
     [Fact]
+    public async Task Stage038A_FoulbornAndFracturedAutoYes_ManualAnySurvivesSearch_AndNewItemReinitializes()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.PriceCheckService.Result = SuccessResult([Offer("stage038a-offer")], total: 1);
+
+        var foulbornDraft = Draft("Foulborn Rebuke of the Vaal") with
+        {
+            Rarity = "Unique",
+            ParsedBaseType = "Vaal Blade",
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Foulborn = TradeTriState.Yes,
+            },
+            ItemVariantCriteria = new TradeItemVariantCriteria
+            {
+                Foulborn = TradeTriState.Yes,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(foulbornDraft, ValidationSuccess());
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Foulborn);
+
+        fixture.Window.RaiseItemStateChanged(TradeItemStateKind.Foulborn, TradeTriState.Any);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Foulborn);
+
+        await fixture.Controller.SearchAsync();
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Foulborn);
+        Assert.Single(fixture.PriceCheckService.Calls);
+
+        var fracturedDraft = Draft("Death Twine") with
+        {
+            Rarity = "Rare",
+            ParsedBaseType = "Thicket Bow",
+            ItemStates = ["Fractured Item"],
+            ItemStateCriteria = new TradeItemStateCriteria
+            {
+                Fractured = TradeTriState.Yes,
+            },
+        };
+        fixture.Controller.UpdateCurrentDraft(fracturedDraft, ValidationSuccess());
+        Assert.Equal(TradeTriState.Yes, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Fractured);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Foulborn);
+
+        var ordinaryDraft = Draft("Reaver Axe") with
+        {
+            Rarity = "Normal",
+            ParsedBaseType = "Reaver Axe",
+            ItemStateCriteria = new TradeItemStateCriteria(),
+        };
+        fixture.Controller.UpdateCurrentDraft(ordinaryDraft, ValidationSuccess());
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Foulborn);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState.Draft.ItemStateCriteria.Fractured);
+    }
+
+    [Fact]
     public void NewItemLoad_ResetsRequestedItemStatesToPerItemDefaultsWithoutLeakingPriorChoices()
     {
         var fixture = SearchFixture.Create();

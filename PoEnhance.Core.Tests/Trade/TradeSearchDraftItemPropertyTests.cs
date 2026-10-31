@@ -136,6 +136,40 @@ public sealed class TradeSearchDraftItemPropertyTests
     }
 
     [Fact]
+    public void CreateDraft_SyntheticChaosRare_TotalIncludesChaosAndExposesDisplayOnlyChaosDps()
+    {
+        // SYNTHETIC clipboard — Stage 03.8; no N/M/R chaos weapon in zfortests_v2.txt.
+        var item = parser.Parse("""
+Item Class: One Hand Swords
+Rarity: Rare
+Synthetic Chaos Edge
+Corsair Sword
+--------
+One Handed Sword
+Physical Damage: 20-40
+Chaos Damage: 10-20 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.50
+--------
+Item Level: 70
+""");
+
+        var draft = CreateDraft(item);
+
+        Assert.Equal(67.5m, Property(draft, TradeSearchItemPropertyKind.TotalDps).ObservedValue);
+        Assert.Equal(45m, Property(draft, TradeSearchItemPropertyKind.PhysicalDps).ObservedValue);
+        Assert.Equal(22.5m, Property(draft, TradeSearchItemPropertyKind.ChaosDps).ObservedValue);
+        Assert.DoesNotContain(
+            draft.ItemProperties,
+            property => property.Kind == TradeSearchItemPropertyKind.ElementalDps);
+        Assert.Equal(1.50m, Property(draft, TradeSearchItemPropertyKind.AttacksPerSecond).ObservedValue);
+        Assert.Equal(5.00m, Property(draft, TradeSearchItemPropertyKind.CriticalStrikeChance).ObservedValue);
+        Assert.Contains(
+            Property(draft, TradeSearchItemPropertyKind.TotalDps).SourceProperties,
+            source => source.NormalizedName == "chaos damage");
+    }
+
+    [Fact]
     public void CreateDraft_NecroticArmourCreatesDefensiveParentsButNoWeaponDiagnostics()
     {
         var item = ParseFixture(0);

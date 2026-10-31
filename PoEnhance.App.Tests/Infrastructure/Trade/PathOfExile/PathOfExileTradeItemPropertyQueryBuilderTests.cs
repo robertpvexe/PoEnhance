@@ -503,6 +503,21 @@ public sealed class PathOfExileTradeItemPropertyQueryBuilderTests
     }
 
     [Fact]
+    public void Build_TotalDpsThatIncludesChaosUsesOfficialDpsFilterOnly()
+    {
+        // Stage 03.8: Trade weapon_filters.dps already includes chaos contribution;
+        // serialize Total DPS to dps and never invent a Chaos DPS filter field.
+        var (draft, filters) = ResolvedSelection(TradeSearchItemPropertyKind.TotalDps, 67.5m);
+
+        var result = Build(draft, filters);
+
+        Assert.Equal("67.5", WeaponFilter(result, "dps").GetProperty("min").GetRawText());
+        Assert.DoesNotContain("\"cdps\"", result.SerializedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"chaos_dps\"", result.SerializedJson, StringComparison.Ordinal);
+        Assert.False(WeaponFilter(result, "dps").TryGetProperty("max", out _));
+    }
+
+    [Fact]
     public void Build_WrongReviewedIdentityForPropertyKindIsRejected()
     {
         var (draft, filters) = ResolvedSelection(

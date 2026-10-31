@@ -169,8 +169,10 @@ internal sealed class PathOfExileTradeItemIdentityMapper : IPathOfExileTradeItem
         TradeTriState requested,
         bool detectedFoulborn)
     {
+        // Absence must stay Any (never automatic No) so ordinary Uniques do not constrain
+        // misc.mutated. Explicit Yes/No/Any from criteria win as requested.
         return requested == TradeTriState.Auto
-            ? detectedFoulborn ? TradeTriState.Yes : TradeTriState.No
+            ? detectedFoulborn ? TradeTriState.Yes : TradeTriState.Any
             : requested;
     }
 

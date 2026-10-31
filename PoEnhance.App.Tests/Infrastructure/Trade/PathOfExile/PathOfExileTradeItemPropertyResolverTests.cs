@@ -395,7 +395,8 @@ public sealed class PathOfExileTradeItemPropertyResolverTests
         var property = Assert.Single(result.ItemProperties);
         Assert.Equal(TradeSearchItemPropertyProviderResolutionStatus.Unsupported, property.ProviderResolutionStatus);
         Assert.False(property.IsSearchable);
-        Assert.Contains("does not expose a Chaos DPS", property.NotSearchableReason, StringComparison.Ordinal);
+        Assert.Contains("no independent Chaos DPS filter", property.NotSearchableReason, StringComparison.Ordinal);
+        Assert.Contains("display-only", property.NotSearchableReason, StringComparison.Ordinal);
     }
 
     [Fact]

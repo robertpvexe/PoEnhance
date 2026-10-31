@@ -148,13 +148,17 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 displayName: "Foulborn Moonbender's Wing",
                 parsedBaseType: "Tomahawk",
                 resolvedBaseName: "Tomahawk",
-                itemClass: "One Hand Axes"),
+                itemClass: "One Hand Axes") with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria { Foulborn = TradeTriState.Yes },
+            },
             providerItemIdentity: new PathOfExileTradeItemIdentity
             {
                 CanonicalName = "Moonbender's Wing",
                 CanonicalType = "Tomahawk",
                 Foulborn = TradeTriState.Yes,
-            });
+            },
+            providerFilterCatalog: StateFilterCatalog());
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
         var query = document.RootElement.GetProperty("query");
@@ -188,14 +192,18 @@ public sealed class PathOfExileTradeQueryBuilderTests
                 displayName: "Foulborn Test Unique",
                 parsedBaseType: "Test Base",
                 resolvedBaseName: "Test Base",
-                modifiers: [modifier]),
+                modifiers: [modifier]) with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria { Foulborn = TradeTriState.Yes },
+            },
             [ProviderFilter(0, "explicit.foulborn_replacement")],
             new PathOfExileTradeItemIdentity
             {
                 CanonicalName = "Test Unique",
                 CanonicalType = "Test Base",
                 Foulborn = TradeTriState.Yes,
-            });
+            },
+            providerFilterCatalog: StateFilterCatalog());
 
         Assert.Equal("explicit.foulborn_replacement", result.Request?.Query.Stats[0].Filters[0].Id);
         using var document = JsonDocument.Parse(result.SerializedJson!);
@@ -218,25 +226,30 @@ public sealed class PathOfExileTradeQueryBuilderTests
         bool expectedFilter,
         string? expectedOption)
     {
+        // Panel-2 ItemStateCriteria owns mutated; Unique identity alone must not constrain Any.
         var result = BuildSuccessful(
             Draft(
                 rarity: "Unique",
                 displayName: "Moonbender's Wing",
                 parsedBaseType: "Tomahawk",
                 resolvedBaseName: "Tomahawk",
-                itemClass: "One Hand Axes"),
+                itemClass: "One Hand Axes") with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria { Foulborn = foulborn },
+            },
             providerItemIdentity: new PathOfExileTradeItemIdentity
             {
                 CanonicalName = "Moonbender's Wing",
                 CanonicalType = "Tomahawk",
-                Foulborn = foulborn,
-            });
+                Foulborn = TradeTriState.Yes,
+            },
+            providerFilterCatalog: StateFilterCatalog());
 
         using var document = JsonDocument.Parse(result.SerializedJson!);
         var filters = document.RootElement.GetProperty("query").GetProperty("filters");
         if (!expectedFilter)
         {
-            Assert.Empty(filters.EnumerateObject());
+            Assert.False(filters.TryGetProperty("misc_filters", out _));
             return;
         }
 
@@ -246,6 +259,34 @@ public sealed class PathOfExileTradeQueryBuilderTests
             .GetProperty("mutated")
             .GetProperty("option")
             .GetString());
+    }
+
+    [Fact]
+    public void Build_PanelFoulbornAnyBlocksUniqueIdentityMutatedInjection()
+    {
+        var result = BuildSuccessful(
+            Draft(
+                rarity: "Unique",
+                displayName: "Foulborn Moonbender's Wing",
+                parsedBaseType: "Tomahawk",
+                resolvedBaseName: "Tomahawk",
+                itemClass: "One Hand Axes") with
+            {
+                ItemStateCriteria = new TradeItemStateCriteria { Foulborn = TradeTriState.Any },
+            },
+            providerItemIdentity: new PathOfExileTradeItemIdentity
+            {
+                CanonicalName = "Moonbender's Wing",
+                CanonicalType = "Tomahawk",
+                Foulborn = TradeTriState.Yes,
+            },
+            providerFilterCatalog: StateFilterCatalog());
+
+        using var document = JsonDocument.Parse(result.SerializedJson!);
+        Assert.False(document.RootElement
+            .GetProperty("query")
+            .GetProperty("filters")
+            .TryGetProperty("misc_filters", out _));
     }
 
     [Theory]
