@@ -575,7 +575,53 @@ internal static class PathOfExileTradeModifierVariantResolver
             Contributors = contributors,
         };
 
-        return ApplyBounds(resolved, selectedOption, selectedCandidates);
+        return MarkUnfaithfulAdditiveAggregateIfNeeded(
+            ApplyBounds(resolved, selectedOption, selectedCandidates),
+            options);
+    }
+
+    /// <summary>
+    /// Multi-source additive parents may only search when a Trade variant can faithfully express
+    /// the combined effect (same-identity Explicit Aggregate or Pseudo total). Standalone
+    /// domain filters carrying the summed Min are not equivalent and must not be emitted.
+    /// </summary>
+    private static ResolvedSearchComponent MarkUnfaithfulAdditiveAggregateIfNeeded(
+        ResolvedSearchComponent resolved,
+        IReadOnlyList<SearchFilterVariant> options)
+    {
+        if (resolved.Sources.Count <= 1 ||
+            resolved.ContributorProjection != SearchComponentContributorProjection.Additive ||
+            options.Any(option => option.SupportsContributorComposition))
+        {
+            return resolved;
+        }
+
+        var domains = resolved.Sources
+            .Select(source => source.ProviderDomain?.Trim())
+            .Where(domain => !string.IsNullOrWhiteSpace(domain))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(domain => domain, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var domainList = domains.Length == 0
+            ? "unknown"
+            : string.Join(", ", domains);
+        var message =
+            $"No aggregate-wide Trade variant covers contributor domains [{domainList}].";
+
+        return resolved with
+        {
+            IsSelected = false,
+            IsSearchable = false,
+            NotSearchableReason = message,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderStatId = null,
+            ProviderStatText = null,
+            ProviderStatAlternativeIds = [],
+            ProviderCandidateStatIds = [],
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            ProviderDiagnosticMessage = message,
+        };
     }
 
     internal static PathOfExileTradeModifierVariantDiscoveryResult DiscoverForAudit(

@@ -639,7 +639,30 @@ Item Level: 84
         var addedPhysical = Assert.Single(propertyRow.Children, modifier =>
             modifier.Text.Contains("Adds ", StringComparison.Ordinal) &&
             modifier.Text.Contains("Physical Damage", StringComparison.Ordinal));
+        // Catalog Pseudo text is not locality-compatible here, so the Explicit+Crafted
+        // increased-Physical aggregate has no faithful total Trade variant. Stage 03.10 keeps
+        // the observed sum visible but refuses a false Standalone Explicit total filter.
+        var increasedDraft = prepared.ModifierFilters[increasedPhysical.SourceIndex];
+        Assert.Equal(
+            SearchComponentProviderResolutionStatus.Unsupported,
+            increasedDraft.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            increasedDraft.ProviderDiagnosticCode);
+        Assert.Equal(146m, increasedDraft.RequestedMinimum);
+        Assert.Equal(2, increasedDraft.Contributors.Count);
+        Assert.False(increasedPhysical.IsInteractionEnabled);
         fixture.Window.RaiseModifierSelectionChanged(increasedPhysical.SourceIndex, isSelected: true);
+        Assert.False(fixture.Window.CurrentState!.Draft.ModifierFilters[increasedPhysical.SourceIndex].IsSelected);
+        // Independently selected real sources remain searchable (Death Pace / Armageddon Jack pattern).
+        fixture.Controller.UpdateModifierContributorSelection(
+            increasedPhysical.SourceIndex,
+            0,
+            isSelected: true);
+        fixture.Controller.UpdateModifierContributorSelection(
+            increasedPhysical.SourceIndex,
+            1,
+            isSelected: true);
         fixture.Window.RaiseModifierSelectionChanged(addedPhysical.SourceIndex, isSelected: true);
 
         await fixture.Controller.SearchAsync();
@@ -673,13 +696,26 @@ Item Level: 84
         var andGroup = Assert.Single(stats);
         Assert.Equal("and", andGroup.GetProperty("type").GetString());
         var filters = andGroup.GetProperty("filters").EnumerateArray().ToArray();
-        Assert.Equal(2, filters.Length);
+        Assert.Equal(3, filters.Length);
         Assert.Equal(
             [
-                "explicit.stat_1509134228",
                 "explicit.stat_1940865751",
+                "explicit.stat_1509134228",
+                "crafted.stat_1509134228",
             ],
             filters.Select(filter => filter.GetProperty("id").GetString()));
+        Assert.Equal(
+            30m,
+            filters.Single(filter => filter.GetProperty("id").GetString() == "explicit.stat_1509134228")
+                .GetProperty("value")
+                .GetProperty("min")
+                .GetDecimal());
+        Assert.Equal(
+            116m,
+            filters.Single(filter => filter.GetProperty("id").GetString() == "crafted.stat_1509134228")
+                .GetProperty("value")
+                .GetProperty("min")
+                .GetDecimal());
         Assert.DoesNotContain("ItemPropertyContribution", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain("ReviewedSemanticDescriptorId", serialized, StringComparison.Ordinal);
     }

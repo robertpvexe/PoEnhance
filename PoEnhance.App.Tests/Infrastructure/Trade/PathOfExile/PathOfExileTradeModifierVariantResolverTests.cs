@@ -724,14 +724,23 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             component,
             catalog,
             Candidate(catalog, "explicit.stat_3299347043"));
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(resolved));
 
         Assert.DoesNotContain(resolved.FilterVariants, option => option.Label == "Pseudo");
         Assert.All(resolved.FilterVariants, option =>
             Assert.Equal(SearchFilterVariantMode.Standalone, option.Mode));
-        Assert.NotEqual("fractured.stat_3299347043", resolved.ProviderStatId);
-        Assert.False(
-            Selected(resolved).SupportsContributorComposition,
-            "Standalone Explicit/Fractured cannot faithfully represent mixed-domain Life totals.");
+        Assert.Equal(78m, resolved.RequestedMinimum);
+        Assert.Equal(2, resolved.Contributors.Count);
+        Assert.False(resolved.IsSelected);
+        Assert.False(resolved.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, resolved.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            resolved.ProviderDiagnosticCode);
+        Assert.Null(resolved.ProviderStatId);
+        Assert.DoesNotContain(resolved.FilterVariants, option => option.SupportsContributorComposition);
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
     }
 
     [Fact]
@@ -763,6 +772,153 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
         var filter = Assert.Single(mapping.Filters);
         Assert.Equal("explicit.stat_3299347043", filter.StatId);
         Assert.Equal(78m, filter.Minimum);
+    }
+
+    [Fact]
+    public void SameDomainStunRecoveryAggregate_FourteenPlusTwentySevenUsesOfficialExplicitTotal()
+    {
+        // Official frozen catalog (2026-08-19): explicit.stat_2511217560 =
+        // "#% increased Stun and Block Recovery". No pseudo total for this effect.
+        // Same-domain Hybrid Prefix + Explicit Suffix may therefore search the Explicit
+        // aggregate with one min on the summed effect (14+27=41), never AND 14 and 27.
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.stat_2511217560", "#% increased Stun and Block Recovery", "Explicit"),
+            Entry(1, "fractured.stat_2511217560", "#% increased Stun and Block Recovery", "Fractured"),
+        ]);
+        var hybrid = StunSource(
+            "modifier:0:0",
+            0,
+            "14% increased Stun and Block Recovery",
+            14m,
+            "hybrid-stun-recovery",
+            ParsedModifierKind.Prefix,
+            isHybrid: true);
+        var suffix = StunSource(
+            "modifier:1:0",
+            1,
+            "27% increased Stun and Block Recovery",
+            27m,
+            "suffix-stun-recovery",
+            ParsedModifierKind.Suffix);
+        var component = Component() with
+        {
+            ComponentId = "aggregate:modifier:0:0:2",
+            OriginalText = "41% increased Stun and Block Recovery",
+            CanonicalSignature = "<number>% increased Stun and Block Recovery",
+            ParsedKind = ParsedModifierKind.Prefix,
+            Locality = ModifierLocality.Global,
+            ResolvedModifierId = "hybrid-stun-recovery",
+            ResolvedStatIds = ["base_stun_recovery_+%"],
+            ObservedNumericValues = [41m],
+            CanonicalNumericValues = [41m],
+            RequestedMinimum = 41m,
+            IsSelected = true,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Sources = [hybrid, suffix],
+        };
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_2511217560"));
+        var withRequestedMin = resolved with { RequestedMinimum = 45m };
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(withRequestedMin));
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            Draft(withRequestedMin),
+            new TradeSearchDraftValidator().Validate(Draft(withRequestedMin)),
+            "Mirage",
+            mapping.Filters);
+
+        Assert.Equal("41% increased Stun and Block Recovery", resolved.OriginalText);
+        Assert.Equal(41m, resolved.ObservedNumericValues.Single());
+        Assert.Equal(2, resolved.Contributors.Count);
+        Assert.Equal([14m, 27m], resolved.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.Equal([true, false], resolved.Sources.Select(source => source.IsHybrid));
+        Assert.Equal("explicit.stat_2511217560", resolved.ProviderStatId);
+        Assert.Equal(SearchFilterVariantMode.Aggregate, Selected(resolved).Mode);
+        Assert.True(Selected(resolved).SupportsContributorComposition);
+        Assert.DoesNotContain(resolved.FilterVariants, option => option.Label == "Pseudo");
+
+        Assert.True(mapping.IsSuccess);
+        var filter = Assert.Single(mapping.Filters);
+        Assert.Equal("explicit.stat_2511217560", filter.StatId);
+        Assert.Equal(45m, filter.Minimum);
+        Assert.True(build.IsSuccess);
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var group = Assert.Single(document.RootElement.GetProperty("query").GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        var jsonFilter = Assert.Single(group.GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_2511217560", jsonFilter.GetProperty("id").GetString());
+        Assert.Equal(45m, jsonFilter.GetProperty("value").GetProperty("min").GetDecimal());
+        Assert.Equal(1, group.GetProperty("filters").GetArrayLength());
+    }
+
+    [Fact]
+    public void MixedDomainStunRecoveryAggregate_WithoutPseudoIsUnsupported()
+    {
+        var catalog = new PathOfExileTradeStatCatalog(
+        [
+            Entry(0, "explicit.stat_2511217560", "#% increased Stun and Block Recovery", "Explicit"),
+            Entry(1, "fractured.stat_2511217560", "#% increased Stun and Block Recovery", "Fractured"),
+        ]);
+        var fractured = StunSource(
+            "modifier:0:0",
+            0,
+            "14% increased Stun and Block Recovery",
+            14m,
+            "fractured-stun-recovery",
+            ParsedModifierKind.Suffix,
+            providerDomain: "Fractured",
+            isFractured: true);
+        var explicitSource = StunSource(
+            "modifier:1:0",
+            1,
+            "27% increased Stun and Block Recovery",
+            27m,
+            "explicit-stun-recovery",
+            ParsedModifierKind.Suffix);
+        var component = Component() with
+        {
+            ComponentId = "aggregate:modifier:0:0:2",
+            OriginalText = "41% increased Stun and Block Recovery",
+            CanonicalSignature = "<number>% increased Stun and Block Recovery",
+            Locality = ModifierLocality.Global,
+            ResolvedModifierId = "fractured-stun-recovery",
+            ResolvedStatIds = ["base_stun_recovery_+%"],
+            ObservedNumericValues = [41m],
+            CanonicalNumericValues = [41m],
+            RequestedMinimum = 41m,
+            IsSelected = true,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Sources = [fractured, explicitSource],
+        };
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            component,
+            catalog,
+            Candidate(catalog, "explicit.stat_2511217560"));
+        var childOnly = resolved with
+        {
+            Contributors = resolved.Contributors
+                .Select((contributor, index) => contributor with { IsSelected = index == 1 })
+                .ToArray(),
+        };
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(childOnly), catalog);
+
+        Assert.Equal(41m, resolved.RequestedMinimum);
+        Assert.Equal(2, resolved.Contributors.Count);
+        Assert.False(resolved.IsSelected);
+        Assert.False(resolved.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, resolved.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            resolved.ProviderDiagnosticCode);
+        Assert.Null(resolved.ProviderStatId);
+        Assert.True(mapping.IsSuccess);
+        var childFilter = Assert.Single(mapping.Filters);
+        Assert.Equal("explicit.stat_2511217560", childFilter.StatId);
+        Assert.Equal(27m, childFilter.Minimum);
     }
 
     [Fact]
@@ -1112,7 +1268,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
     }
 
     [Fact]
-    public void MixedDomainPhysicalAggregate_WithoutPseudoUsesContextualStandaloneExactMode()
+    public void MixedDomainPhysicalAggregate_WithoutPseudoIsUnsupportedAndDoesNotEmitFalseTotal()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -1130,6 +1286,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             CanonicalNumericValues = [146m],
             RequestedMinimum = 146m,
             IsSelected = true,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
             Sources =
             [
                 Source("modifier:0:0", 0, "30% increased Physical Damage", 30m, "explicit-hybrid"),
@@ -1142,26 +1299,27 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             catalog,
             Candidate(catalog, "explicit.physical"));
         var draft = Draft(resolved);
-        var validation = new TradeSearchDraftValidator().Validate(draft);
         var mapping = new PathOfExileTradeSelectedModifierMapper().Map(draft);
 
         Assert.Equal("146% increased Physical Damage", resolved.OriginalText);
         Assert.Equal(2, resolved.SourceCount);
         Assert.Equal(146m, resolved.RequestedMinimum);
-        Assert.Equal(["Explicit", "Crafted"], resolved.FilterVariants.Select(option => option.Label));
+        Assert.Equal([30m, 116m], resolved.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.False(resolved.IsSelected);
+        Assert.False(resolved.IsSearchable);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, resolved.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            resolved.ProviderDiagnosticCode);
+        Assert.Contains("Crafted, Explicit", resolved.ProviderDiagnosticMessage, StringComparison.Ordinal);
+        Assert.Null(resolved.ProviderStatId);
         Assert.All(resolved.FilterVariants, option => Assert.Equal(SearchFilterVariantMode.Standalone, option.Mode));
-        Assert.Equal("Explicit", Selected(resolved).Label);
-        Assert.Equal("explicit.physical", resolved.ProviderStatId);
-        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
-        Assert.True(validation.IsValid);
         Assert.True(mapping.IsSuccess);
-        var filter = Assert.Single(mapping.Filters);
-        Assert.Equal("explicit.physical", filter.StatId);
-        Assert.Equal(146m, filter.Minimum);
+        Assert.Empty(mapping.Filters);
     }
 
     [Fact]
-    public void MixedDomainPhysicalAggregate_WithAmbiguousPseudoKindHidesPseudoAndKeepsStandaloneModes()
+    public void MixedDomainPhysicalAggregate_WithAmbiguousPseudoKindIsUnsupportedWithoutFalseTotal()
     {
         var catalog = new PathOfExileTradeStatCatalog(
         [
@@ -1181,6 +1339,7 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             CanonicalNumericValues = [146m],
             RequestedMinimum = 146m,
             IsSelected = true,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
             Sources =
             [
                 Source("modifier:0:0", 0, "30% increased Physical Damage", 30m, "explicit-hybrid"),
@@ -1192,18 +1351,22 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             component,
             catalog,
             Candidate(catalog, "explicit.physical"));
-        var validation = new TradeSearchDraftValidator().Validate(Draft(resolved));
+        var mapping = new PathOfExileTradeSelectedModifierMapper().Map(Draft(resolved));
 
-        Assert.Equal(SearchComponentProviderResolutionStatus.Exact, resolved.ProviderResolutionStatus);
-        Assert.Equal("explicit.physical", resolved.ProviderStatId);
+        Assert.Equal(SearchComponentProviderResolutionStatus.Unsupported, resolved.ProviderResolutionStatus);
+        Assert.Equal(
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            resolved.ProviderDiagnosticCode);
+        Assert.Null(resolved.ProviderStatId);
         Assert.Equal(["Explicit", "Crafted"], resolved.FilterVariants.Select(option => option.Label));
         Assert.Equal(
             resolved.FilterVariants.Count,
             resolved.FilterVariants.Select(option => option.Label).Distinct(StringComparer.Ordinal).Count());
         Assert.DoesNotContain(resolved.FilterVariants, option => option.Label == "Pseudo");
-        Assert.Contains("pseudo.total-physical", resolved.ProviderDiagnosticMessage, StringComparison.Ordinal);
-        Assert.Contains("pseudo.combined-physical", resolved.ProviderDiagnosticMessage, StringComparison.Ordinal);
-        Assert.True(validation.IsValid);
+        Assert.Equal(146m, resolved.RequestedMinimum);
+        Assert.False(resolved.IsSelected);
+        Assert.True(mapping.IsSuccess);
+        Assert.Empty(mapping.Filters);
     }
 
     private static SearchFilterVariant Selected(ResolvedSearchComponent component)
@@ -1361,6 +1524,43 @@ public sealed class PathOfExileTradeModifierVariantResolverTests
             TranslationHandlers = [[]],
             ProviderIdentity = PathOfExileTradeProviderIdentity.Create(
                 $"{providerDomain.ToLowerInvariant()}.stat_3299347043"),
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+        };
+    }
+
+    private static SearchComponentSourceProvenance StunSource(
+        string componentId,
+        int sourceModifierIndex,
+        string text,
+        decimal value,
+        string modifierId,
+        ParsedModifierKind parsedKind,
+        string providerDomain = "Explicit",
+        bool isHybrid = false,
+        bool isFractured = false)
+    {
+        return new SearchComponentSourceProvenance
+        {
+            ComponentId = componentId,
+            SourceModifierIndex = sourceModifierIndex,
+            OriginalText = text,
+            CanonicalSignature = "<number>% increased Stun and Block Recovery",
+            ParsedKind = parsedKind,
+            GenerationType = parsedKind == ParsedModifierKind.Suffix
+                ? ModifierGenerationType.Suffix
+                : ModifierGenerationType.Prefix,
+            Locality = ModifierLocality.Global,
+            ProviderDomain = providerDomain,
+            IsHybrid = isHybrid,
+            IsFractured = isFractured,
+            ResolvedModifierId = modifierId,
+            ResolvedStatIds = ["base_stun_recovery_+%"],
+            ObservedNumericValues = [value],
+            CanonicalNumericValues = [value],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create(
+                $"{providerDomain.ToLowerInvariant()}.stat_2511217560"),
             ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
         };
     }

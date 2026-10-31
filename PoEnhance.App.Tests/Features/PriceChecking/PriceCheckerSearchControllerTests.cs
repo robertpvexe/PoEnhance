@@ -2436,6 +2436,8 @@ public sealed class PriceCheckerSearchControllerTests
         var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
         Assert.False(row.IsInteractionEnabled);
         Assert.False(row.IsSelected);
+        Assert.Equal("146", row.MinimumText);
+        Assert.Equal("Unsupported", row.AvailabilityStatus);
         await fixture.Controller.SearchAsync();
 
         var call = Assert.Single(fixture.PriceCheckService.Calls);
@@ -2448,6 +2450,91 @@ public sealed class PriceCheckerSearchControllerTests
                     "No aggregate-wide Trade variant",
                     StringComparison.Ordinal));
         Assert.Equal(PriceCheckerSearchViewStatus.ZeroResults, fixture.Window.CurrentSearchState?.Status);
+    }
+
+    [Fact]
+    public void StunRecoveryAggregateCoverageUnavailable_RetainsObservedTotalAndAllowsChildSelection()
+    {
+        var fixture = SearchFixture.Create();
+        var hybrid = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:0:0",
+            OriginalText = "14% increased Stun and Block Recovery",
+            CanonicalSignature = "<number>% increased Stun and Block Recovery",
+            ParsedKind = ParsedModifierKind.Prefix,
+            ProviderDomain = "Explicit",
+            IsHybrid = true,
+            ResolvedStatIds = ["base_stun_recovery_+%"],
+            CanonicalNumericValues = [14m],
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_2511217560"),
+        };
+        var suffix = hybrid with
+        {
+            ComponentId = "modifier:1:0",
+            OriginalText = "27% increased Stun and Block Recovery",
+            ParsedKind = ParsedModifierKind.Suffix,
+            IsHybrid = false,
+            CanonicalNumericValues = [27m],
+        };
+        var aggregate = Modifier(
+            "41% increased Stun and Block Recovery",
+            supportsValueBounds: true,
+            minimum: 41m) with
+        {
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderDiagnosticCode =
+                PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            ProviderDiagnosticMessage =
+                "No aggregate-wide Trade variant covers contributor domains [Explicit, Fractured].",
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Sources = [hybrid, suffix with { ProviderDomain = "Fractured", IsFractured = true }],
+            Contributors =
+            [
+                new SearchComponentContributor
+                {
+                    ContributorId = "c0",
+                    Source = hybrid,
+                    DisplayText = hybrid.OriginalText,
+                    RequestedMinimum = 14m,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                    ProviderIdentity = hybrid.ProviderIdentity,
+                },
+                new SearchComponentContributor
+                {
+                    ContributorId = "c1",
+                    Source = suffix with { ProviderDomain = "Fractured", IsFractured = true },
+                    DisplayText = suffix.OriginalText,
+                    RequestedMinimum = 27m,
+                    SupportsValueBounds = true,
+                    ValueBoundShape = ModifierBoundShape.Scalar,
+                    ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                    ProviderIdentity = PathOfExileTradeProviderIdentity.Create("fractured.stat_2511217560"),
+                },
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            Draft("Synthetic Stun Aggregate", modifiers: [aggregate]),
+            ValidationSuccess());
+
+        var row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsInteractionEnabled);
+        Assert.False(row.IsSelected);
+        Assert.False(row.SupportsValueBounds);
+        Assert.Equal("41", row.MinimumText);
+        Assert.Equal("Unsupported", row.AvailabilityStatus);
+        Assert.Equal(2, row.Contributors.Count);
+        Assert.All(row.Contributors, contributor => Assert.True(contributor.IsInteractionEnabled));
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+        row = Assert.Single(fixture.Window.CurrentSearchState!.Modifiers);
+        Assert.False(row.IsSelected);
+        Assert.Equal("41", row.MinimumText);
+        Assert.True(row.Contributors[0].IsSelected);
+        Assert.False(row.Contributors[1].IsSelected);
+        Assert.Empty(fixture.PriceCheckService.Calls);
     }
 
     [Fact]

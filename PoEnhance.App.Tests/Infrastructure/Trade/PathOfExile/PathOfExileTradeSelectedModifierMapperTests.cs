@@ -1089,6 +1089,88 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
     }
 
     [Fact]
+    public void Map_SameDomainStunRecoveryAggregate_EmitsSingleOfficialExplicitTotalNotAndPair()
+    {
+        // Official catalog evidence: explicit.stat_2511217560 measures #% increased Stun and
+        // Block Recovery across Explicit sources. 14+27=41 is one min on that filter.
+        var parentVariant = new SearchFilterVariant
+        {
+            Identity = PathOfExileTradeProviderIdentity.Create("explicit.stat_2511217560"),
+            Label = "Explicit",
+            Description = "#% increased Stun and Block Recovery",
+            ProviderKind = "explicit",
+            Mode = SearchFilterVariantMode.Aggregate,
+            SupportsContributorComposition = true,
+            SupportsValueBounds = true,
+        };
+        SearchComponentContributor Child(string id, decimal minimum, bool isHybrid) => new()
+        {
+            ContributorId = id,
+            Source = new SearchComponentSourceProvenance
+            {
+                ComponentId = id,
+                OriginalText = $"{minimum}% increased Stun and Block Recovery",
+                CanonicalSignature = "<number>% increased Stun and Block Recovery",
+                ParsedKind = isHybrid ? ParsedModifierKind.Prefix : ParsedModifierKind.Suffix,
+                Locality = ModifierLocality.Global,
+                ProviderDomain = "Explicit",
+                IsHybrid = isHybrid,
+                ResolvedModifierId = id,
+                ResolvedStatIds = ["base_stun_recovery_+%"],
+                CanonicalNumericValues = [minimum],
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+                ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_2511217560"),
+            },
+            DisplayText = $"{minimum}% increased Stun and Block Recovery",
+            IsSelected = true,
+            RequestedMinimum = minimum,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_2511217560"),
+        };
+        var parent = Modifier(
+            "41% increased Stun and Block Recovery",
+            providerStatId: "explicit.stat_2511217560",
+            canonicalSignature: "<number>% increased Stun and Block Recovery") with
+        {
+            RequestedMinimum = 41m,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            CanonicalNumericValues = [41m],
+            FilterVariants = [parentVariant],
+            SelectedFilterVariantIdentity = parentVariant.Identity,
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Child("stun-hybrid", 14m, isHybrid: true),
+                Child("stun-suffix", 27m, isHybrid: false),
+            ],
+        };
+
+        var result = mapper.Map(Draft([parent]), OfficialStunCatalog());
+        var draft = Draft([parent]);
+        var build = new PathOfExileTradeQueryBuilder().Build(
+            draft,
+            new TradeSearchDraftValidator().Validate(draft),
+            "Mirage",
+            result.Filters);
+
+        Assert.True(result.IsSuccess);
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal("explicit.stat_2511217560", filter.StatId);
+        Assert.Equal(41m, filter.Minimum);
+        Assert.True(build.IsSuccess);
+        using var document = JsonDocument.Parse(build.SerializedJson!);
+        var group = Assert.Single(document.RootElement.GetProperty("query").GetProperty("stats").EnumerateArray());
+        Assert.Equal("and", group.GetProperty("type").GetString());
+        var jsonFilter = Assert.Single(group.GetProperty("filters").EnumerateArray());
+        Assert.Equal("explicit.stat_2511217560", jsonFilter.GetProperty("id").GetString());
+        Assert.Equal(41m, jsonFilter.GetProperty("value").GetProperty("min").GetDecimal());
+    }
+
+    [Fact]
     public void Map_NonPseudoParentIgnoresSelectedChildrenIncludingMissingSourceIdentity()
     {
         var resolvedParent = ContributorAggregate(
@@ -1571,6 +1653,31 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
                 Id = "explicit.stun-recovery",
                 Text = "#% increased Stun and Block Recovery",
                 Type = "explicit",
+            },
+        ]);
+    }
+
+    private static PathOfExileTradeStatCatalog OfficialStunCatalog()
+    {
+        return new PathOfExileTradeStatCatalog(
+        [
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 0,
+                GroupId = "explicit",
+                GroupLabel = "Explicit",
+                Id = "explicit.stat_2511217560",
+                Text = "#% increased Stun and Block Recovery",
+                Type = "explicit",
+            },
+            new PathOfExileTradeStatEntry
+            {
+                ProviderOrder = 1,
+                GroupId = "fractured",
+                GroupLabel = "Fractured",
+                Id = "fractured.stat_2511217560",
+                Text = "#% increased Stun and Block Recovery",
+                Type = "fractured",
             },
         ]);
     }

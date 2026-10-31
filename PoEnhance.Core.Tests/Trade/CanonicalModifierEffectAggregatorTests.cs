@@ -65,6 +65,67 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_HybridAndExplicitLifeSumsWithoutDoubleCountingSiblingHybridEffect()
+    {
+        // Synthetic Stage 03.10 Life pattern: +28 Hybrid Life + +117 Explicit Life = +145.
+        // Sibling hybrid defence effect stays independent and is not folded into Life.
+        var hybridLife = Scalar(
+            "modifier:0:0",
+            0,
+            "+28 to maximum Life",
+            28m,
+            "hybrid-life-es",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            Locality = ModifierLocality.Global,
+            ParsedModifierName = "Prior's",
+        };
+        var hybridEs = Scalar(
+            "modifier:0:1",
+            0,
+            "+15 to maximum Energy Shield",
+            15m,
+            "hybrid-life-es",
+            signature: "+<number> to maximum Energy Shield",
+            statId: "base_maximum_energy_shield",
+            sourceComponentIndex: 1) with
+        {
+            Locality = ModifierLocality.Global,
+            ParsedModifierName = "Prior's",
+        };
+        var explicitLife = Scalar(
+            "modifier:1:0",
+            1,
+            "+117 to maximum Life",
+            117m,
+            "explicit-life",
+            signature: "+<number> to maximum Life",
+            statId: "base_maximum_life") with
+        {
+            Locality = ModifierLocality.Global,
+            ParsedModifierName = "Athlete's",
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([hybridLife, hybridEs, explicitLife]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(2, result.Components.Count);
+        var life = Assert.Single(result.Components, component =>
+            component.ResolvedStatIds.SequenceEqual(["base_maximum_life"]));
+        Assert.Equal("+145 to maximum Life", life.OriginalText);
+        Assert.Equal(145m, life.RequestedMinimum);
+        Assert.Equal([28m, 117m], life.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
+        Assert.Equal([true, false], life.Sources.Select(source => source.IsHybrid));
+        Assert.Equal(2, life.Contributors.Count);
+
+        var energyShield = Assert.Single(result.Components, component =>
+            component.ResolvedStatIds.SequenceEqual(["base_maximum_energy_shield"]));
+        Assert.Equal(15m, energyShield.RequestedMinimum);
+        Assert.True(Assert.Single(energyShield.Sources).IsHybrid);
+    }
+
+    [Fact]
     public void Aggregate_FracturedAndExplicitLifeRetainDistinctSourcesAndDoNotMarkParentFractured()
     {
         // Synthetic regression fixture for Ctrl+D dual-source Life (+27 Fractured + +51 Explicit = +78).
@@ -420,6 +481,90 @@ public sealed class CanonicalModifierEffectAggregatorTests
             result.Components.Select(component => component.ImplicitOrigin));
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Message.Contains("different implicit source provenance", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Aggregate_HybridAndSuffixStunRecoverySumsObservedTotalAndRetainsDistinctSources()
+    {
+        // Synthetic Stage 03.10 fixture: Elephant's-family Hybrid 14% + independent Suffix 27% = 41%.
+        // Values and affix family names are test-only; production uses GameData/Trade identities.
+        var hybrid = Scalar(
+            "modifier:0:0",
+            0,
+            "14% increased Stun and Block Recovery",
+            14m,
+            "hybrid-stun-recovery",
+            "<number>% increased Stun and Block Recovery",
+            "base_stun_recovery_+%") with
+        {
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            ParsedModifierName = "Elephant's",
+            Locality = ModifierLocality.Global,
+        };
+        var hybridDefence = Scalar(
+            "modifier:0:1",
+            0,
+            "37% increased Armour and Evasion",
+            37m,
+            "hybrid-stun-recovery",
+            "<number>% increased Armour and Evasion",
+            "local_armour_and_evasion_+%",
+            sourceComponentIndex: 1) with
+        {
+            ParsedKind = ParsedModifierKind.Prefix,
+            GenerationType = ModifierGenerationType.Prefix,
+            ParsedModifierName = "Elephant's",
+        };
+        var suffix = Scalar(
+            "modifier:1:0",
+            1,
+            "27% increased Stun and Block Recovery",
+            27m,
+            "suffix-stun-recovery",
+            "<number>% increased Stun and Block Recovery",
+            "base_stun_recovery_+%") with
+        {
+            ParsedKind = ParsedModifierKind.Suffix,
+            GenerationType = ModifierGenerationType.Suffix,
+            ParsedModifierName = "of the Whelpling",
+            Locality = ModifierLocality.Global,
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate([hybrid, hybridDefence, suffix]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(2, result.Components.Count);
+        var stun = Assert.Single(result.Components, component =>
+            component.ResolvedStatIds.SequenceEqual(["base_stun_recovery_+%"]));
+        Assert.Equal("41% increased Stun and Block Recovery", stun.OriginalText);
+        Assert.Equal(41m, stun.RequestedMinimum);
+        Assert.Equal([41m], stun.ObservedNumericValues);
+        Assert.Equal([41m], stun.CanonicalNumericValues);
+        Assert.Equal(SearchComponentContributorProjection.Additive, stun.ContributorProjection);
+        Assert.Equal(2, stun.SourceCount);
+        Assert.Equal(["Explicit", "Explicit"], stun.Sources.Select(source => source.ProviderDomain));
+        Assert.Equal([true, false], stun.Sources.Select(source => source.IsHybrid));
+        Assert.Equal(
+            [ParsedModifierKind.Prefix, ParsedModifierKind.Suffix],
+            stun.Sources.Select(source => source.ParsedKind));
+        Assert.Equal([14m, 27m], stun.Sources.Select(source => Assert.Single(source.CanonicalNumericValues)));
+        Assert.Equal(
+            ["modifier:0:0", "modifier:1:0"],
+            stun.Sources.Select(source => source.ComponentId));
+        Assert.Equal(2, stun.Contributors.Count);
+        Assert.Equal(
+            ["14% increased Stun and Block Recovery", "27% increased Stun and Block Recovery"],
+            stun.Contributors.Select(contributor => contributor.DisplayText));
+        Assert.Equal([14m, 27m], stun.Contributors.Select(contributor => contributor.RequestedMinimum));
+        Assert.All(stun.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.False(stun.IsFractured);
+
+        var defence = Assert.Single(result.Components, component =>
+            component.ResolvedStatIds.SequenceEqual(["local_armour_and_evasion_+%"]));
+        Assert.Equal(37m, defence.RequestedMinimum);
+        Assert.True(Assert.Single(defence.Sources).IsHybrid);
+        Assert.Equal(1, defence.SourceCount);
     }
 
     [Fact]

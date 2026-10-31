@@ -1864,6 +1864,10 @@ internal sealed class PriceCheckerSearchController
         var isFracturedModifier = modifier.IsFractured;
         var isVeiledModifier = modifier.IsVeiled;
         var isInteractionEnabled = IsModifierInteractionReady(modifier);
+        var isAggregateCoverageUnavailable = string.Equals(
+            modifier.ProviderDiagnosticCode,
+            PathOfExileTradeSelectedModifierMappingDiagnosticCodes.AggregateCoverageUnavailable,
+            StringComparison.Ordinal);
         var availabilityStatus = isInteractionEnabled
             ? null
             : ModifierAvailabilityStatus(modifier);
@@ -1871,7 +1875,8 @@ internal sealed class PriceCheckerSearchController
             ? null
             : modifier.ProviderDiagnosticMessage ?? modifier.NotSearchableReason ??
                 $"Unsupported {StaticModifierLabel(modifier)} modifier: no exact compatible Trade stat identity is available.";
-        var exposesValueBounds = isInteractionEnabled;
+        // Keep observed aggregate Min/Max visible when Trade cannot express the combined effect.
+        var exposesValueBounds = isInteractionEnabled || isAggregateCoverageUnavailable;
         var variants = CreateVariantViewModels(modifier.FilterVariants).ToList();
         var requestedVariantIdentity = modifier.IsFractured
             ? modifier.RequestedFilterVariantIdentity ?? modifier.SelectedFilterVariantIdentity
@@ -1912,8 +1917,11 @@ internal sealed class PriceCheckerSearchController
             };
             variants.Add(selectedVariant);
         }
-        var contributorsEnabled = isInteractionEnabled &&
-            SearchComponentContributorActivation.AllowsContributorFiltering(modifier);
+        // AggregateCoverageUnavailable disables the main effect checkbox, but individual sources
+        // retain exact Trade identities and may still be selected while the parent stays unchecked.
+        var contributorsEnabled =
+            SearchComponentContributorActivation.AllowsContributorFiltering(modifier) &&
+            (isInteractionEnabled || isAggregateCoverageUnavailable);
         var equivalentProvenanceOnly = IsEquivalentProvenanceOnly(modifier);
         var contributors = (equivalentProvenanceOnly ? [] : modifier.Contributors)
             .Select((contributor, contributorIndex) =>
@@ -1963,7 +1971,7 @@ internal sealed class PriceCheckerSearchController
             IsInteractionEnabled = isInteractionEnabled,
             AvailabilityReason = availabilityReason,
             AvailabilityStatus = availabilityStatus,
-            SupportsValueBounds = exposesValueBounds && modifier.SupportsValueBounds,
+            SupportsValueBounds = isInteractionEnabled && modifier.SupportsValueBounds,
             ValueBoundsUnsupportedReason = modifier.ValueBoundsUnsupportedReason,
             FilterVariants = variants,
             SelectedFilterVariant = selectedVariant,
