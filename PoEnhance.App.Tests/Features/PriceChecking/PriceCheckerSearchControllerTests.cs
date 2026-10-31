@@ -615,6 +615,20 @@ public sealed class PriceCheckerSearchControllerTests
             fixture.Window.CurrentSearchState!.Modifiers.Select(modifier => modifier.SourceIndex));
         Assert.IsType<PriceCheckerItemPropertyViewModel>(fixture.Window.CurrentSearchState.Stats[0]);
         Assert.Equal(
+            PriceCheckerStatsDisplaySection.Derived,
+            Assert.IsType<PriceCheckerItemPropertyViewModel>(fixture.Window.CurrentSearchState.Stats[0])
+                .DisplaySection);
+        Assert.Equal(
+            [
+                PriceCheckerStatsDisplaySection.Implicit,
+                PriceCheckerStatsDisplaySection.Implicit,
+                PriceCheckerStatsDisplaySection.Ordinary,
+            ],
+            fixture.Window.CurrentSearchState.Modifiers.Select(modifier => modifier.DisplaySection));
+        Assert.Equal(
+            [true, false, false],
+            fixture.Window.CurrentSearchState.Modifiers.Select(modifier => modifier.HasSeparatorBefore));
+        Assert.Equal(
             [1, 3, 2],
             fixture.Window.CurrentSearchState.Stats.Skip(1)
                 .Cast<PriceCheckerModifierViewModel>()
@@ -624,6 +638,9 @@ public sealed class PriceCheckerSearchControllerTests
         var parent = Assert.Single(fixture.Window.CurrentSearchState.ItemProperties);
         Assert.Equal(0, Assert.Single(parent.Children).SourceIndex);
         Assert.DoesNotContain(parent.Children, child => child.SourceIndex is 1 or 3);
+        Assert.DoesNotContain(
+            fixture.Window.CurrentSearchState.Modifiers,
+            modifier => modifier.SourceIndex == 0);
 
         fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
 
@@ -641,6 +658,242 @@ public sealed class PriceCheckerSearchControllerTests
             .Select((modifier, index) => (modifier, index))
             .Where(entry => entry.modifier.IsSelected)
             .Select(entry => entry.index));
+        Assert.Equal(
+            draft.ModifierFilters.Select(modifier => modifier.ComponentId),
+            searched.ModifierFilters.Select(modifier => modifier.ComponentId));
+    }
+
+    [Fact]
+    public void StatsPresentation_WeaponDerivedImplicitOrdinaryOrderAndSeparatorContract()
+    {
+        var fixture = SearchFixture.Create();
+        var physical = Modifier(
+            "146% increased Physical Damage",
+            supportsValueBounds: true,
+            minimum: 146m);
+        var fire = Modifier(
+            "Adds 80 to 129 Fire Damage",
+            supportsValueBounds: true,
+            minimum: 104.5m);
+        var implicitMod = Modifier(
+            "60% increased Global Accuracy Rating",
+            ParsedModifierKind.Implicit,
+            supportsValueBounds: true,
+            minimum: 60m);
+        var suffix = Modifier("+30% to Global Critical Strike Multiplier", ParsedModifierKind.Suffix);
+        var fractured = Modifier(
+            "+40 to Dexterity",
+            ParsedModifierKind.Suffix,
+            supportsValueBounds: true,
+            minimum: 40m) with
+        {
+            IsFractured = true,
+        };
+        var unsupported = Modifier(
+            "Unsupported local effect",
+            ParsedModifierKind.Prefix,
+            resolvedModifierId: null) with
+        {
+            NotSearchableReason = "Unsupported ordinary row remains visible.",
+        };
+        var draft = Draft(
+            "Empyrean Gutter",
+            modifiers: [physical, fire, implicitMod, suffix, fractured, unsupported]) with
+        {
+            ItemClass = "Two Hand Swords",
+            Rarity = "Rare",
+            ItemProperties =
+            [
+                ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 169.065m),
+                ItemProperty(TradeSearchItemPropertyKind.ElementalDps, 104.5m),
+            ],
+            ItemPropertyContributionGroups =
+            [
+                ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0),
+                ContributionGroup(TradeSearchItemPropertyKind.ElementalDps, 1),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var state = fixture.Window.CurrentSearchState!;
+        Assert.Equal(
+            [
+                PriceCheckerStatsDisplaySection.Derived,
+                PriceCheckerStatsDisplaySection.Derived,
+            ],
+            state.ItemProperties.Select(property => property.DisplaySection));
+        Assert.Equal([2, 3, 4, 5], state.Modifiers.Select(modifier => modifier.SourceIndex));
+        Assert.Equal(
+            [
+                PriceCheckerStatsDisplaySection.Implicit,
+                PriceCheckerStatsDisplaySection.Ordinary,
+                PriceCheckerStatsDisplaySection.Ordinary,
+                PriceCheckerStatsDisplaySection.Ordinary,
+            ],
+            state.Modifiers.Select(modifier => modifier.DisplaySection));
+        Assert.True(Assert.Single(state.Modifiers, modifier => modifier.SourceIndex == 2).HasSeparatorBefore);
+        Assert.All(
+            state.Modifiers.Where(modifier => modifier.SourceIndex != 2),
+            modifier => Assert.False(modifier.HasSeparatorBefore));
+        Assert.Contains(state.Modifiers, modifier => modifier.SourceIndex == 5 && !modifier.IsInteractionEnabled);
+        Assert.Equal(2, state.Stats.TakeWhile(row => row is PriceCheckerItemPropertyViewModel).Count());
+        Assert.All(
+            state.Stats.Skip(2).Cast<PriceCheckerModifierViewModel>(),
+            modifier => Assert.NotEqual(PriceCheckerStatsDisplaySection.Derived, modifier.DisplaySection));
+    }
+
+    [Fact]
+    public void StatsPresentation_ArmourDerivedImplicitOrdinaryOrderPreservesExpansionAndCheckedState()
+    {
+        var fixture = SearchFixture.Create();
+        var armourContributor = Modifier(
+            "120% increased Armour",
+            supportsValueBounds: true,
+            minimum: 120m);
+        var implicitMod = Modifier(
+            "+5% Chance to Block",
+            ParsedModifierKind.Implicit,
+            supportsValueBounds: true,
+            minimum: 5m);
+        var life = Modifier("+70 to maximum Life", supportsValueBounds: true, minimum: 70m);
+        var draft = Draft(
+            "Supreme Spiked Shield",
+            modifiers: [armourContributor, implicitMod, life]) with
+        {
+            ItemClass = "Shields",
+            Rarity = "Magic",
+            ItemProperties =
+            [
+                ItemProperty(TradeSearchItemPropertyKind.Armour, 420m),
+                ItemProperty(TradeSearchItemPropertyKind.ChanceToBlock, 28m),
+            ],
+            ItemPropertyContributionGroups =
+            [
+                ContributionGroup(TradeSearchItemPropertyKind.Armour, 0),
+            ],
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        fixture.Window.RaiseItemPropertyExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(1, "5", string.Empty);
+        fixture.Window.RaiseModifierSelectionChanged(2, isSelected: true);
+
+        var state = fixture.Window.CurrentSearchState!;
+        Assert.Equal(
+            [PriceCheckerStatsDisplaySection.Derived, PriceCheckerStatsDisplaySection.Derived],
+            state.ItemProperties.Select(property => property.DisplaySection));
+        Assert.True(state.ItemProperties[0].IsExpanded);
+        Assert.Equal(0, Assert.Single(state.ItemProperties[0].Children).SourceIndex);
+        Assert.Equal([1, 2], state.Modifiers.Select(modifier => modifier.SourceIndex));
+        Assert.Equal(
+            [PriceCheckerStatsDisplaySection.Implicit, PriceCheckerStatsDisplaySection.Ordinary],
+            state.Modifiers.Select(modifier => modifier.DisplaySection));
+        Assert.True(state.Modifiers[0].HasSeparatorBefore);
+        Assert.False(state.Modifiers[1].HasSeparatorBefore);
+        Assert.True(state.Modifiers[0].IsSelected);
+        Assert.True(state.Modifiers[1].IsSelected);
+        Assert.Equal("5", state.Modifiers[0].MinimumText);
+        Assert.False(fixture.Window.CurrentState!.Draft.ItemProperties[0].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[1].IsSelected);
+        Assert.True(fixture.Window.CurrentState.Draft.ModifierFilters[2].IsSelected);
+    }
+
+    [Fact]
+    public void StatsPresentation_CorruptedImplicitStaysDistinctWithoutForcingItemStateCorrupted()
+    {
+        var fixture = SearchFixture.Create();
+        var corruptedImplicit = Modifier(
+            "Adds 4 to 7 Physical Damage",
+            ParsedModifierKind.Implicit,
+            supportsValueBounds: true,
+            minimum: 5.5m) with
+        {
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Corrupted,
+        };
+        var matchingOrdinary = Modifier(
+            "Adds 4 to 7 Physical Damage",
+            supportsValueBounds: true,
+            minimum: 5.5m);
+        var draft = Draft(
+            "Corrupted Axe",
+            modifiers: [matchingOrdinary, corruptedImplicit]) with
+        {
+            ItemClass = "One Hand Axes",
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 90m)],
+            ItemStateCriteria = new TradeItemStateCriteria(),
+        };
+        fixture.Controller.UpdateCurrentDraft(draft, new TradeSearchDraftValidator().Validate(draft));
+
+        var state = fixture.Window.CurrentSearchState!;
+        Assert.Equal([1, 0], state.Modifiers.Select(modifier => modifier.SourceIndex));
+        var implicitRow = Assert.Single(state.Modifiers, modifier => modifier.IsCanonicalImplicit);
+        Assert.True(implicitRow.IsCorruptedImplicit);
+        Assert.Equal(PriceCheckerStatsDisplaySection.Implicit, implicitRow.DisplaySection);
+        Assert.Contains("Corrupted", implicitRow.SectionLabel, StringComparison.OrdinalIgnoreCase);
+        var ordinaryRow = Assert.Single(state.Modifiers, modifier => !modifier.IsCanonicalImplicit);
+        Assert.Equal(matchingOrdinary.OriginalText, ordinaryRow.Text);
+        Assert.Equal(implicitRow.Text, ordinaryRow.Text);
+        Assert.NotEqual(implicitRow.SourceIndex, ordinaryRow.SourceIndex);
+        Assert.Equal(TradeTriState.Any, fixture.Window.CurrentState!.Draft.ItemStateCriteria.Corrupted);
+    }
+
+    [Fact]
+    public void StatsPresentation_EmptyDerivedOrImplicitSectionsOmitSeparatorWhitespace()
+    {
+        var fixture = SearchFixture.Create();
+        var onlyOrdinary = Draft(
+            "No Derived",
+            modifiers:
+            [
+                Modifier("+10 to maximum Life"),
+                Modifier("10% increased Rarity of Items found", ParsedModifierKind.Suffix),
+            ]);
+        fixture.Controller.UpdateCurrentDraft(onlyOrdinary, new TradeSearchDraftValidator().Validate(onlyOrdinary));
+        Assert.Empty(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.All(
+            fixture.Window.CurrentSearchState.Modifiers,
+            modifier => Assert.False(modifier.HasSeparatorBefore));
+        Assert.All(
+            fixture.Window.CurrentSearchState.Modifiers,
+            modifier => Assert.Equal(PriceCheckerStatsDisplaySection.Ordinary, modifier.DisplaySection));
+
+        var onlyDerivedChildren = Draft(
+            "Only Derived",
+            modifiers: [Modifier("20% increased Physical Damage", supportsValueBounds: true, minimum: 20m)]) with
+        {
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.PhysicalDps, 100m)],
+            ItemPropertyContributionGroups =
+                [ContributionGroup(TradeSearchItemPropertyKind.PhysicalDps, 0)],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            onlyDerivedChildren,
+            new TradeSearchDraftValidator().Validate(onlyDerivedChildren));
+        Assert.Single(fixture.Window.CurrentSearchState!.ItemProperties);
+        Assert.Empty(fixture.Window.CurrentSearchState.Modifiers);
+
+        var uniqueFoulborn = Modifier(
+            "Foulborn unique effect",
+            ParsedModifierKind.Unique) with
+        {
+            UniqueOrigin = ParsedUniqueModifierOrigin.Foulborn,
+        };
+        var noImplicitWithDerived = Draft(
+            "Unique Foulborn",
+            modifiers: [uniqueFoulborn, Modifier("+20 to Strength", ParsedModifierKind.Suffix)]) with
+        {
+            Rarity = "Unique",
+            ItemProperties = [ItemProperty(TradeSearchItemPropertyKind.Armour, 200m)],
+        };
+        fixture.Controller.UpdateCurrentDraft(
+            noImplicitWithDerived,
+            new TradeSearchDraftValidator().Validate(noImplicitWithDerived));
+        Assert.Equal(
+            [PriceCheckerStatsDisplaySection.Ordinary, PriceCheckerStatsDisplaySection.Ordinary],
+            fixture.Window.CurrentSearchState!.Modifiers.Select(modifier => modifier.DisplaySection));
+        Assert.True(fixture.Window.CurrentSearchState.Modifiers[0].HasSeparatorBefore);
+        Assert.False(fixture.Window.CurrentSearchState.Modifiers[1].HasSeparatorBefore);
+        Assert.True(fixture.Window.CurrentSearchState.Modifiers[0].IsFoulbornUniqueModifier);
     }
 
     [Theory]

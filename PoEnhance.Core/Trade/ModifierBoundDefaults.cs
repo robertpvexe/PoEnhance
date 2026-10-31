@@ -185,16 +185,25 @@ internal static partial class ModifierBoundDefaults
             var canonical = direction == ModifierBoundDirection.Maximum
                 ? -decimal.Abs(observed)
                 : observed;
-            var providerCanonicalSignature = CreateProviderCanonicalSignature(
+            string? providerCanonicalSignature = CreateProviderCanonicalSignature(
                 canonicalTranslation,
                 canonicalVariant,
                 numericIndexes);
-            // Sign-flipped display (negate) on a non-reversing Trade axis: when the sourced
-            // GameData roll strictly straddles zero, higher signed provider values are better
-            // (e.g. local increased Attack Speed, mana reservation efficiency). Same-or-better
-            // is therefore Minimum on the signed threshold. Non-straddle reversing cases
-            // (e.g. reduced Charges per use) keep Maximum — do not globally flip.
-            if (TryApplyBipolarSignedProviderMinimum(
+            // Displayed "increased/more" via negate of a negative raw (e.g. action_speed_-% = -5
+            // → "5% increased Action Speed") already matches the Trade increased axis. Prefer that
+            // selected wording over the empty-handler "reduced" sibling signature, and seed Min at
+            // +Abs(display). Reduced/less display still falls through to bipolar or Maximum.
+            if (TryApplyDisplayMatchedNonReversingProviderMinimum(
+                    canonicalVariant,
+                    retainedHandlers[0],
+                    observed,
+                    ref providerCanonicalSignature,
+                    ref direction,
+                    ref canonical))
+            {
+                // Direction/canonical/signature already match the displayed increased Trade axis.
+            }
+            else if (TryApplyBipolarSignedProviderMinimum(
                     retainedHandlers[0],
                     providerCanonicalSignature,
                     stats,
@@ -966,6 +975,40 @@ internal static partial class ModifierBoundDefaults
 
         direction = ModifierBoundDirection.Minimum;
         canonical = -decimal.Abs(observedDisplayMagnitude);
+        return true;
+    }
+
+    /// <summary>
+    /// Reversing handler (negate) whose SELECTED variant is worded increased/more, e.g.
+    /// <c>action_speed_-%</c> raw -5 renders "5% increased Action Speed" via negate while the
+    /// empty-handler sibling is "reduced". Trade only exposes "#% increased Action Speed", so the
+    /// displayed text already is the provider axis: same-or-better is Minimum at +Abs(display).
+    /// Excludes reduced/less display (bipolar Ventor shape → signed Minimum; non-straddle → Maximum).
+    /// </summary>
+    private static bool TryApplyDisplayMatchedNonReversingProviderMinimum(
+        StatTranslationVariant selectedVariant,
+        IReadOnlyList<string> handlers,
+        decimal observedDisplayMagnitude,
+        ref string? providerCanonicalSignature,
+        ref ModifierBoundDirection direction,
+        ref decimal canonical)
+    {
+        if (direction != ModifierBoundDirection.Maximum ||
+            observedDisplayMagnitude <= 0m ||
+            !handlers.Any(OrderReversingHandlers.Contains))
+        {
+            return false;
+        }
+
+        var displaySignature = RenderCanonicalSignature(selectedVariant);
+        if (!IsNonReversingProviderPolarity(displaySignature))
+        {
+            return false;
+        }
+
+        providerCanonicalSignature = displaySignature;
+        direction = ModifierBoundDirection.Minimum;
+        canonical = decimal.Abs(observedDisplayMagnitude);
         return true;
     }
 

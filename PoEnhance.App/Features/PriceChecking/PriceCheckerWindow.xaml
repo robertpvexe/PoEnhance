@@ -1714,6 +1714,26 @@
                         </DataTemplate>
                         <DataTemplate DataType="{x:Type local:PriceCheckerModifierViewModel}">
                             <StackPanel>
+                            <Border Height="6"
+                                    Background="Transparent">
+                                <Border.Style>
+                                    <Style TargetType="{x:Type Border}">
+                                        <Setter Property="Visibility"
+                                                Value="Collapsed" />
+                                        <Setter Property="Margin"
+                                                Value="0" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasSeparatorBefore}"
+                                                         Value="True">
+                                                <Setter Property="Visibility"
+                                                        Value="Visible" />
+                                                <Setter Property="Margin"
+                                                        Value="0,2,0,0" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
                             <Grid x:Name="StatsTopLevelModifierRow"
                                   Margin="6,4,6,4">
                                 <Grid.ColumnDefinitions>

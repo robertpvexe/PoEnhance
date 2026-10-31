@@ -247,6 +247,34 @@ public sealed class PathOfExileTradeModifierBoundProjectorTests
     }
 
     [Fact]
+    public void ProjectBounds_IncreasedActionSpeedViaNegateKeepsPositiveMinimumOnIncreasedTradeStat()
+    {
+        // Stage 03.9A — Core already seeds Min=5 on the increased axis; projector must not
+        // re-bridge into Max=-5 against official implicit/explicit.stat_2878959938.
+        var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(
+            new ResolvedSearchComponent
+            {
+                ComponentId = "modifier:0:0",
+                OriginalText = "5% increased Action Speed",
+                CanonicalSignature = "<number>% increased Action Speed",
+                ProviderCanonicalSignature = "<number>% increased Action Speed",
+                ValueBoundShape = ModifierBoundShape.Scalar,
+                SupportsValueBounds = true,
+                ObservedNumericValues = [5m],
+                CanonicalNumericValues = [5m],
+                ValueBoundTranslationHandlers = [["negate"]],
+                DefaultBoundDirection = ModifierBoundDirection.Minimum,
+                RequestedMinimum = 5m,
+            },
+            Candidate("#% increased Action Speed"));
+
+        Assert.True(result.IsFaithful);
+        Assert.Equal(5m, result.Minimum);
+        Assert.Null(result.Maximum);
+        Assert.Equal("DisplayIdentity", result.ProjectionKind);
+    }
+
+    [Fact]
     public void ProjectBounds_ReversingProviderStatUsesPositiveMagnitudeMinimum()
     {
         var result = PathOfExileTradeModifierBoundProjector.ProjectBounds(

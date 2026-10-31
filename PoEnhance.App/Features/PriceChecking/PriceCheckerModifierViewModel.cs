@@ -12,6 +12,17 @@ public sealed record PriceCheckerModifierViewModel : INotifyPropertyChanged
 
     public required string Text { get; init; }
 
+    /// <summary>
+    /// Presentation-only section for stats-list ordering (Implicit vs Ordinary).
+    /// </summary>
+    public PriceCheckerStatsDisplaySection DisplaySection { get; init; } =
+        PriceCheckerStatsDisplaySection.Ordinary;
+
+    /// <summary>
+    /// True when a subtle micro-gap should render above this row (nonempty Derived section precedes it).
+    /// </summary>
+    public bool HasSeparatorBefore { get; init; }
+
     public string SectionLabel { get; init; } = string.Empty;
 
     public int SourceCount { get; init; } = 1;

@@ -221,7 +221,10 @@ internal static partial class CanonicalModifierEffectAggregator
     {
         key = default!;
         var canonicalValues = CanonicalValues(component);
-        if (component.HasResolvedUniqueSourceSemantics ||
+        // Implicits stay distinct presentation/query sources even when displayed text matches.
+        // Ordinary additive aggregation (e.g. Stun and Block Recovery) is handled separately.
+        if (IsImplicit(component) ||
+            component.HasResolvedUniqueSourceSemantics ||
             !component.IsSearchable ||
             component.ResolutionStatus != ModifierCandidateResolutionStatus.Exact ||
             component.ResolvedStatIds.Count == 0 ||

@@ -1824,12 +1824,19 @@ internal sealed class PriceCheckerSearchController
         }
 
         var groupedIndexes = GroupedModifierIndexes(draft);
-        return draft.ModifierFilters
+        var orderedIndexes = draft.ModifierFilters
             .Select((_, index) => index)
             .Where(index => !groupedIndexes.Contains(index))
             .OrderBy(index => IsImplicitPresentationModifier(draft.ModifierFilters[index]) ? 0 : 1)
             .ThenBy(index => index)
-            .Select(index => CreateModifierRow(draft, index, showsExpansionControl: true))
+            .ToArray();
+        var hasDerivedSection = draft.ItemProperties.Length > 0;
+        return orderedIndexes
+            .Select((index, position) => CreateModifierRow(
+                draft,
+                index,
+                showsExpansionControl: true,
+                hasSeparatorBefore: position == 0 && hasDerivedSection))
             .ToArray();
     }
 
@@ -1837,11 +1844,18 @@ internal sealed class PriceCheckerSearchController
         component.IsBaseImplicit ||
         component.ResolvedSourceKind == ParsedModifierKind.Implicit;
 
+    private static PriceCheckerStatsDisplaySection ModifierDisplaySection(
+        ResolvedSearchComponent component) =>
+        IsImplicitPresentationModifier(component)
+            ? PriceCheckerStatsDisplaySection.Implicit
+            : PriceCheckerStatsDisplaySection.Ordinary;
+
     private PriceCheckerModifierViewModel CreateModifierRow(
         TradeSearchDraft draft,
         int index,
         bool showsExpansionControl,
-        string? sectionLabelOverride = null)
+        string? sectionLabelOverride = null,
+        bool hasSeparatorBefore = false)
     {
         var modifier = draft.ModifierFilters[index];
         var isUniqueModifier = modifier.HasResolvedUniqueSourceSemantics;
@@ -1936,6 +1950,8 @@ internal sealed class PriceCheckerSearchController
         {
             SourceIndex = index,
             Text = SafeModifierText(modifier.PresentationText ?? modifier.OriginalText),
+            DisplaySection = ModifierDisplaySection(modifier),
+            HasSeparatorBefore = hasSeparatorBefore,
             SectionLabel = FormatModifierSectionLabel(
                 sectionLabelOverride ?? SectionLabelWithSources(modifier),
                 availabilityStatus),
@@ -1952,7 +1968,7 @@ internal sealed class PriceCheckerSearchController
             FilterVariants = variants,
             SelectedFilterVariant = selectedVariant,
             IsCanonicalImplicit = IsImplicitPresentationModifier(modifier),
-            IsCorruptedImplicit = modifier.ParsedKind == ParsedModifierKind.Implicit &&
+            IsCorruptedImplicit = IsImplicitPresentationModifier(modifier) &&
                 modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted,
             IsUniqueModifier = isUniqueModifier,
             IsFoulbornUniqueModifier = isFoulbornUniqueModifier,

@@ -631,6 +631,21 @@ Item Level: 82
     }
 
     [Fact]
+    public void WindowXaml_StatsModifierTemplateRendersDerivedSectionMicroGap()
+    {
+        var xaml = LoadWindowXaml();
+        var modifiers = ExtractElement(xaml, "<ListBox x:Name=\"StatsListBox\"", "</ListBox>");
+        var modifierTemplate = ExtractElement(
+            modifiers,
+            "<DataTemplate DataType=\"{x:Type local:PriceCheckerModifierViewModel}\"",
+            "</DataTemplate>");
+
+        Assert.Contains("Binding=\"{Binding HasSeparatorBefore}\"", modifierTemplate);
+        Assert.Contains("Height=\"6\"", modifierTemplate);
+        Assert.Contains("<Grid x:Name=\"StatsTopLevelModifierRow\"", modifierTemplate);
+    }
+
+    [Fact]
     public void WindowXaml_UsesExplicitSharedColumnsForEachStatsHierarchyLevel()
     {
         var xaml = LoadWindowXaml();

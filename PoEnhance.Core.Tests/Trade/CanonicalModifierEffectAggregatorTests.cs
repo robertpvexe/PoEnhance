@@ -423,6 +423,71 @@ public sealed class CanonicalModifierEffectAggregatorTests
     }
 
     [Fact]
+    public void Aggregate_IdenticalTextImplicitsRemainDistinctIncludingCorrupted()
+    {
+        var baseImplicit = Scalar(
+            "modifier:0:0",
+            0,
+            "14% increased Stun and Block Recovery",
+            14m,
+            "implicit-recovery",
+            "<number>% increased Stun and Block Recovery",
+            "base_stun_recovery_+%") with
+        {
+            ParsedKind = ParsedModifierKind.Implicit,
+            GenerationType = ModifierGenerationType.Implicit,
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Unspecified,
+        };
+        var secondBaseImplicit = baseImplicit with
+        {
+            ComponentId = "modifier:1:0",
+            SourceModifierIndex = 1,
+            ResolvedModifierId = "implicit-recovery-2",
+        };
+        var corruptedImplicit = baseImplicit with
+        {
+            ComponentId = "modifier:2:0",
+            SourceModifierIndex = 2,
+            ResolvedModifierId = "corrupted-recovery",
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Corrupted,
+        };
+        var matchingExplicit = baseImplicit with
+        {
+            ComponentId = "modifier:3:0",
+            SourceModifierIndex = 3,
+            ParsedKind = ParsedModifierKind.Suffix,
+            GenerationType = ModifierGenerationType.Suffix,
+            ImplicitOrigin = ParsedImplicitModifierOrigin.Unspecified,
+            ResolvedModifierId = "explicit-recovery",
+        };
+
+        var result = CanonicalModifierEffectAggregator.Aggregate(
+            [baseImplicit, secondBaseImplicit, corruptedImplicit, matchingExplicit]);
+
+        Assert.Equal(4, result.Components.Count);
+        Assert.Equal(
+            [
+                ParsedModifierKind.Implicit,
+                ParsedModifierKind.Implicit,
+                ParsedModifierKind.Implicit,
+                ParsedModifierKind.Suffix,
+            ],
+            result.Components.Select(component => component.ParsedKind));
+        Assert.Equal(
+            [
+                ParsedImplicitModifierOrigin.Unspecified,
+                ParsedImplicitModifierOrigin.Unspecified,
+                ParsedImplicitModifierOrigin.Corrupted,
+                ParsedImplicitModifierOrigin.Unspecified,
+            ],
+            result.Components.Select(component => component.ImplicitOrigin));
+        Assert.Equal(
+            [14m, 14m, 14m, 14m],
+            result.Components.Select(component => component.RequestedMinimum));
+        Assert.All(result.Components, component => Assert.Equal(1, component.SourceCount));
+    }
+
+    [Fact]
     public void Aggregate_DifferentReviewedSemanticsRemainSeparate()
     {
         var first = Scalar("modifier:0:0", 0, "30% increased Physical Damage", 30m, "first") with

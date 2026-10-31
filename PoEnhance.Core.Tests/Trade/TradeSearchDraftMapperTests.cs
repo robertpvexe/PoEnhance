@@ -78,6 +78,29 @@ public sealed class TradeSearchDraftMapperTests
     }
 
     [Theory]
+    [InlineData(5, -5, -5)]
+    [InlineData(3, -3, -3)]
+    [InlineData(5, -8, -3)]
+    [InlineData(5, -5, 5)]
+    public void ScalarBoundDefault_IncreasedDisplayViaNegateUsesPositiveMinimum(
+        int observedDisplay,
+        int statMinimum,
+        int statMaximum)
+    {
+        // Authentic action_speed_-% shape: empty-handler sibling is "reduced"; selected
+        // increased display uses negate of a negative raw. Trade only has "#% increased …".
+        var result = IncreasedViaNegateBoundDefault(
+            $"{observedDisplay}% increased Action Speed",
+            statMinimum,
+            statMaximum);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(observedDisplay, result.ObservedCanonicalValue);
+        Assert.Equal(ModifierBoundDirection.Minimum, result.Direction);
+        Assert.Equal("<number>% increased Action Speed", result.ProviderCanonicalSignature);
+    }
+
+    [Theory]
     [InlineData("2(-16-16)% reduced Attack Speed", "2(-16 to +16)% reduced Attack Speed")]
     [InlineData("2(16--16)% reduced Attack Speed", "2(-16 to +16)% reduced Attack Speed")]
     [InlineData("13(-15-15)% reduced Mana Reservation Efficiency of Skills", "13(-15 to +15)% reduced Mana Reservation Efficiency of Skills")]
@@ -1944,6 +1967,88 @@ Item Level: 84
             new ModifierDefinition { Id = "test-resistance-modifier", Stats = [stat] },
             [stat],
             [sourceLine],
+            catalog);
+    }
+
+    private static ModifierBoundDefaultResult IncreasedViaNegateBoundDefault(
+        string source,
+        decimal statMinimum,
+        decimal statMaximum,
+        string effectStem = "Action Speed")
+    {
+        // Mirrors RePoE action_speed_-%: reduced (empty handlers, raw ≥ 1) + increased (negate, raw ≤ -1).
+        const string statId = "action_speed_-%";
+        var stat = new ModifierStat
+        {
+            Index = 0,
+            StatId = statId,
+            MinValue = statMinimum,
+            MaxValue = statMaximum,
+        };
+        var catalog = GameDataCatalog.FromPackage(new GameDataPackage
+        {
+            Manifest = new GameDataPackageManifest
+            {
+                SchemaVersion = 1,
+                DataVersion = "test",
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                League = "test",
+                Patch = "test",
+                Sources =
+                [
+                    new GameDataPackageSource
+                    {
+                        SourceId = "test",
+                        RetrievedAtUtc = DateTimeOffset.UnixEpoch,
+                        SourceVersion = "test",
+                        SourceUri = "https://example.test",
+                    },
+                ],
+            },
+            Stats = [new StatDefinition { Id = statId }],
+            StatTranslations =
+            [
+                new StatTranslationDefinition
+                {
+                    Id = "test-action-speed-translation",
+                    StatIds = [statId],
+                    Variants =
+                    [
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MinValue = 1m },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = [] },
+                            ],
+                            FormatLines = [$"{{0}}% reduced {effectStem}"],
+                        },
+                        new StatTranslationVariant
+                        {
+                            Conditions =
+                            [
+                                new StatTranslationCondition { Index = 0, MaxValue = -1m },
+                            ],
+                            ValueFormats = ["#"],
+                            IndexHandlers =
+                            [
+                                new StatTranslationIndexHandler { Index = 0, Handlers = ["negate"] },
+                            ],
+                            FormatLines = [$"{{0}}% increased {effectStem}"],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        return ModifierBoundDefaults.Create(
+            new ModifierDefinition { Id = "test-action-speed-modifier", Stats = [stat] },
+            [stat],
+            [source],
             catalog);
     }
 

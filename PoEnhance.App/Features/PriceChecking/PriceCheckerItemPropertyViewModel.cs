@@ -11,6 +11,11 @@ public sealed record PriceCheckerItemPropertyViewModel : INotifyPropertyChanged
 
     public required int SourceIndex { get; init; }
 
+    /// <summary>
+    /// Presentation-only section for stats-list ordering. Always Derived for item-property rows.
+    /// </summary>
+    public PriceCheckerStatsDisplaySection DisplaySection => PriceCheckerStatsDisplaySection.Derived;
+
     public required TradeSearchItemPropertyKind Kind { get; init; }
 
     public required string Label { get; init; }
