@@ -686,6 +686,18 @@ internal static class PathOfExileTradeModifierVariantResolver
             }
         }
 
+        // Group-A logical criteria (Fire from Fire+Chaos, aggregates, etc.) default to Pseudo.
+        if (PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(component))
+        {
+            var projectedPseudoIndex = Array.FindIndex(
+                groupArray,
+                group => string.Equals(group.ProviderKind, "pseudo", StringComparison.Ordinal));
+            if (projectedPseudoIndex >= 0)
+            {
+                return projectedPseudoIndex;
+            }
+        }
+
         var sourceIds = sourceExactCandidates
             .Select(candidate => candidate.StatId)
             .ToHashSet(StringComparer.Ordinal);

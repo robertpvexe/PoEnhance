@@ -288,6 +288,20 @@ public sealed record ResolvedSearchComponent
 
     public IReadOnlyList<SearchComponentSourceProvenance> Sources { get; init; } = [];
 
+    /// <summary>
+    /// Stable identity of the one physical affix this component (or logical projection of it)
+    /// came from. Empty for ordinary components that are not part of an approved multi-effect
+    /// projection. Components sharing a non-empty value are views of the same physical source.
+    /// </summary>
+    public string PhysicalSourceIdentity { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Display-only logical effect views of one compact physical source (for example the Fire,
+    /// Cold and Lightning views of one all-Elemental-Resistances affix). Empty for ordinary
+    /// components. Selecting any logical contribution selects the same physical source.
+    /// </summary>
+    public IReadOnlyList<SearchComponentLogicalContribution> LogicalContributions { get; init; } = [];
+
     public int SourceCount => Sources.Count == 0 ? 1 : Sources.Count;
 
     /// <summary>

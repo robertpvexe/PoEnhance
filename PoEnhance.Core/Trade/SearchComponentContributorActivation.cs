@@ -32,12 +32,26 @@ public static class SearchComponentContributorActivation
     /// </summary>
     public static bool IsFilteringActive(ResolvedSearchComponent parent) =>
         AllowsContributorFiltering(parent) &&
-        parent.Contributors.Any(contributor => contributor.IsSelected) &&
-        !AreSelectedContributorsSuspendedByParentBound(parent);
+        (parent.Contributors.Any(contributor => contributor.IsSelected) &&
+            !AreSelectedContributorsSuspendedByParentBound(parent) ||
+            HasSelectedLogicalContribution(parent));
+
+    /// <summary>
+    /// True when any independently selectable logical child of a compact physical source is
+    /// selected. Each selected child is its own Trade criterion (Stage 03.11A); it does not imply
+    /// the compact parent's combined exact filter.
+    /// </summary>
+    public static bool HasSelectedLogicalContribution(ResolvedSearchComponent parent)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+
+        return parent.LogicalContributions.Any(contribution => contribution.IsSelected);
+    }
 
     public static int ActiveSelectionCount(ResolvedSearchComponent parent) =>
         AllowsContributorFiltering(parent)
-            ? parent.Contributors.Count(contributor => contributor.IsSelected)
+            ? parent.Contributors.Count(contributor => contributor.IsSelected) +
+                parent.LogicalContributions.Count(contribution => contribution.IsSelected)
             : 0;
 
     public static SearchComponentContributorInactiveReason GetInactiveReason(

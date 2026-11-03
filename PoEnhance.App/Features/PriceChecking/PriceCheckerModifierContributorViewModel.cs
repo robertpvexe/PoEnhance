@@ -17,6 +17,14 @@ public sealed record PriceCheckerModifierContributorViewModel : INotifyPropertyC
 
     public string? SourceBreakdown { get; init; }
 
+    /// <summary>
+    /// When set, this child is a mirrored presentation of a draft-level
+    /// <see cref="SharedSearchCriterion"/> (one selection / Min/Max / Trade filter).
+    /// </summary>
+    public string? SharedCriterionId { get; init; }
+
+    public bool IsSharedCriterionMirror => !string.IsNullOrWhiteSpace(SharedCriterionId);
+
     public bool IsSelected { get; init; }
 
     public bool SupportsValueBounds { get; init; }
@@ -24,6 +32,24 @@ public sealed record PriceCheckerModifierContributorViewModel : INotifyPropertyC
     public string? ValueBoundsUnsupportedReason { get; init; }
 
     public bool IsInteractionEnabled { get; init; }
+
+    public IReadOnlyList<PriceCheckerModifierFilterVariantViewModel> FilterVariants { get; init; } = [];
+
+    public PriceCheckerModifierFilterVariantViewModel? SelectedFilterVariant { get; init; }
+
+    public bool HasFilterVariants => FilterVariants.Count > 0;
+
+    public bool HasSingleFilterVariant => FilterVariants.Count == 1;
+
+    public bool HasMultipleFilterVariants => FilterVariants.Count > 1;
+
+    /// <summary>
+    /// Real ComboBox whenever official FilterVariants exist — including a single Pseudo-only
+    /// shared criterion — so Mod Type chrome matches multi-option rows (not a flat text box).
+    /// </summary>
+    public bool CanSelectFilterVariant => IsInteractionEnabled && HasFilterVariants;
+
+    public string ModTypeLabel => SelectedFilterVariant?.Label ?? ProvenanceLabel;
 
     public SearchComponentContributorInactiveReason InactiveReason
     {

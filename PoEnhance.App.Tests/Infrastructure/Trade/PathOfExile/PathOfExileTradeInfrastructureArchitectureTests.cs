@@ -119,8 +119,15 @@ public sealed class PathOfExileTradeInfrastructureArchitectureTests
         var contributorType = typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierContributorViewModel);
         Assert.Equal(typeof(string), contributorType.GetProperty("MinimumText")?.PropertyType);
         Assert.Equal(typeof(string), contributorType.GetProperty("MaximumText")?.PropertyType);
-        Assert.Null(contributorType.GetProperty("FilterVariants"));
-        Assert.Null(contributorType.GetProperty("SelectedFilterVariant"));
+        // Compact logical children (All Elemental / All Attributes) expose the same opaque
+        // Mod Type surface as parent rows — still no provider identifiers.
+        Assert.Equal(
+            typeof(IReadOnlyList<PoEnhance.App.Features.PriceChecking.PriceCheckerModifierFilterVariantViewModel>),
+            contributorType.GetProperty("FilterVariants")?.PropertyType);
+        Assert.Equal(
+            typeof(PoEnhance.App.Features.PriceChecking.PriceCheckerModifierFilterVariantViewModel),
+            Nullable.GetUnderlyingType(contributorType.GetProperty("SelectedFilterVariant")?.PropertyType!) ??
+                contributorType.GetProperty("SelectedFilterVariant")?.PropertyType);
         Assert.DoesNotContain(contributorType.GetProperties().Select(property => property.Name), name =>
             Contains(name, "StatId") ||
             Contains(name, "TradeStat") ||

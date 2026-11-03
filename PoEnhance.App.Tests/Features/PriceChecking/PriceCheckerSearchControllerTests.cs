@@ -2537,6 +2537,202 @@ public sealed class PriceCheckerSearchControllerTests
         Assert.Empty(fixture.PriceCheckService.Calls);
     }
 
+    // Stage 03.11A — independent logical criteria. SYNTHETIC fixtures: Fire aggregate
+    // (pure Fire + Fire-and-Chaos physical source), lone Chaos projection, compact all-Elemental.
+    private const string SharedPhysicalIdentity = "phys:1:0:modifier:1:0";
+
+    [Fact]
+    public void IndependentLogicalCriteria_SelectingLoneChaosDoesNotSelectFireViews()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(1, isSelected: true);
+
+        var rows = fixture.Window.CurrentSearchState!.Modifiers;
+        var fire = rows.Single(row => row.SourceIndex == 0);
+        var chaos = rows.Single(row => row.SourceIndex == 1);
+        Assert.True(chaos.IsSelected);
+        Assert.False(fire.IsSelected);
+        Assert.All(fire.Contributors, contributor => Assert.False(contributor.IsSelected));
+        Assert.Equal("40", fire.MinimumText);
+    }
+
+    [Fact]
+    public void IndependentLogicalCriteria_SelectingFireChildDoesNotSelectChaosRowOrFireParent()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 1, isSelected: true);
+
+        var rows = fixture.Window.CurrentSearchState!.Modifiers;
+        Assert.False(rows.Single(row => row.SourceIndex == 0).IsSelected);
+        Assert.True(rows.Single(row => row.SourceIndex == 0).Contributors[1].IsSelected);
+        Assert.False(rows.Single(row => row.SourceIndex == 1).IsSelected);
+    }
+
+    [Fact]
+    public void IndependentLogicalCriteria_SelectingOnlyPureFireChildSyncsNothingElse()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(0, 0, isSelected: true);
+
+        var rows = fixture.Window.CurrentSearchState!.Modifiers;
+        Assert.True(rows.Single(row => row.SourceIndex == 0).Contributors[0].IsSelected);
+        Assert.False(rows.Single(row => row.SourceIndex == 0).Contributors[1].IsSelected);
+        Assert.False(rows.Single(row => row.SourceIndex == 1).IsSelected);
+        Assert.DoesNotContain(rows.Single(row => row.SourceIndex == 2).Contributors, child => child.IsSelected);
+    }
+
+    [Fact]
+    public void IndependentLogicalCriteria_ParentCheckboxExpansionAndBoundEditsDoNotSelectChildrenOrRewriteObserved()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        fixture.Window.RaiseModifierExpansionChanged(0, isExpanded: true);
+        fixture.Window.RaiseModifierSelectionChanged(0, isSelected: true);
+        fixture.Window.RaiseModifierBoundsChanged(0, "35", string.Empty);
+
+        var draft = fixture.Window.CurrentState!.Draft;
+        var rows = fixture.Window.CurrentSearchState!.Modifiers;
+        Assert.True(rows.Single(row => row.SourceIndex == 0).IsSelected);
+        Assert.All(rows.Single(row => row.SourceIndex == 0).Contributors, contributor =>
+            Assert.False(contributor.IsSelected));
+        Assert.False(rows.Single(row => row.SourceIndex == 1).IsSelected);
+        Assert.Equal([40m], draft.ModifierFilters[0].ObservedNumericValues);
+        Assert.Equal([40m], draft.ModifierFilters[0].CanonicalNumericValues);
+        Assert.Equal([10m], draft.ModifierFilters[1].ObservedNumericValues);
+        Assert.Equal([9m], draft.ModifierFilters[2].ObservedNumericValues);
+    }
+
+    [Fact]
+    public void CompactLogicalChildren_AreIndependentlySelectableWithoutSelectingParentOrSiblings()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        var compact = fixture.Window.CurrentSearchState!.Modifiers.Single(row => row.SourceIndex == 2);
+        Assert.Equal(
+            ["+9% to Fire Resistance", "+9% to Cold Resistance", "+9% to Lightning Resistance"],
+            compact.Contributors.Select(child => child.Text));
+        Assert.True(compact.ShowsExpansionControl);
+
+        fixture.Window.RaiseModifierExpansionChanged(2, isExpanded: true);
+        fixture.Window.RaiseModifierContributorSelectionChanged(2, 1, isSelected: true);
+
+        compact = fixture.Window.CurrentSearchState!.Modifiers.Single(row => row.SourceIndex == 2);
+        Assert.False(compact.IsSelected);
+        Assert.False(compact.Contributors[0].IsSelected);
+        Assert.True(compact.Contributors[1].IsSelected);
+        Assert.False(compact.Contributors[2].IsSelected);
+        Assert.True(SearchComponentContributorActivation.HasSelectedLogicalContribution(
+            fixture.Window.CurrentState!.Draft.ModifierFilters[2]));
+
+        fixture.Window.RaiseModifierSelectionChanged(2, isSelected: true);
+        compact = fixture.Window.CurrentSearchState!.Modifiers.Single(row => row.SourceIndex == 2);
+        Assert.True(compact.IsSelected);
+        Assert.True(compact.Contributors[1].IsSelected);
+        Assert.False(compact.Contributors[0].IsSelected);
+        Assert.False(compact.Contributors[2].IsSelected);
+    }
+
+    [Fact]
+    public void CompactLogicalChildren_ParentCheckboxDoesNotSelectChildrenAndResetClearsThem()
+    {
+        var fixture = SearchFixture.Create();
+        fixture.Controller.UpdateCurrentDraft(SharedSourceDraft(), ValidationSuccess());
+
+        fixture.Window.RaiseModifierSelectionChanged(2, isSelected: true);
+        var compact = fixture.Window.CurrentSearchState!.Modifiers.Single(row => row.SourceIndex == 2);
+        Assert.True(compact.IsSelected);
+        Assert.All(compact.Contributors, child => Assert.False(child.IsSelected));
+
+        fixture.Window.RaiseModifierContributorSelectionChanged(2, 2, isSelected: true);
+        fixture.Window.RaiseResetItemRequested();
+
+        compact = fixture.Window.CurrentSearchState!.Modifiers.Single(row => row.SourceIndex == 2);
+        Assert.False(compact.IsSelected);
+        Assert.All(compact.Contributors, child => Assert.False(child.IsSelected));
+    }
+
+    private static TradeSearchDraft SharedSourceDraft()
+    {
+        var pureFire = ContributorSource("modifier:0:0", "+30% to Fire Resistance", 30m, "Explicit") with
+        {
+            CanonicalSignature = "+<number>% to Fire Resistance",
+            ResolvedStatIds = ["base_fire_damage_resistance_%"],
+            Locality = ModifierLocality.Global,
+        };
+        var shared = ContributorSource("modifier:1:0", "+10% to Fire and Chaos Resistances", 10m, "Crafted") with
+        {
+            CanonicalSignature = "+<number>% to Fire and Chaos Resistances",
+            ResolvedStatIds = ["fire_and_chaos_damage_resistance_%"],
+            Locality = ModifierLocality.Global,
+            PhysicalSourceIdentity = SharedPhysicalIdentity,
+        };
+        var fire = Modifier("+40% to Fire Resistance", supportsValueBounds: true, minimum: 40m) with
+        {
+            CanonicalSignature = "+<number>% to Fire Resistance",
+            ResolvedStatIds = ["base_fire_damage_resistance_%"],
+            ObservedNumericValues = [40m],
+            CanonicalNumericValues = [40m],
+            Sources = [pureFire, shared],
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Contributor("c-pure-fire", pureFire, 30m, "explicit.fire"),
+                Contributor("c-shared", shared, 10m, "crafted.fire-and-chaos"),
+            ],
+        };
+        var chaos = Modifier("+10% to Chaos Resistance", supportsValueBounds: true, minimum: 10m) with
+        {
+            ComponentId = "modifier:1:0:split:base_chaos_damage_resistance_%",
+            CanonicalSignature = "+<number>% to Chaos Resistance",
+            ResolvedStatIds = ["base_chaos_damage_resistance_%"],
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            Sources = [shared],
+            PhysicalSourceIdentity = SharedPhysicalIdentity,
+        };
+        const string compactIdentity = "phys:2:0:modifier:2:0";
+        var compact = Modifier("+9% to all Elemental Resistances", supportsValueBounds: true, minimum: 9m) with
+        {
+            ComponentId = "modifier:2:0",
+            CanonicalSignature = "+<number>% to all Elemental Resistances",
+            ResolvedStatIds = ["base_resist_all_elements_%"],
+            ObservedNumericValues = [9m],
+            CanonicalNumericValues = [9m],
+            PhysicalSourceIdentity = compactIdentity,
+            LogicalContributions =
+            [
+                Logical(compactIdentity, "base_fire_damage_resistance_%", "+9% to Fire Resistance"),
+                Logical(compactIdentity, "base_cold_damage_resistance_%", "+9% to Cold Resistance"),
+                Logical(compactIdentity, "base_lightning_damage_resistance_%", "+9% to Lightning Resistance"),
+            ],
+        };
+        return Draft("Shared Source Ring", modifiers: [fire, chaos, compact]);
+    }
+
+    private static SearchComponentLogicalContribution Logical(
+        string identity,
+        string statId,
+        string text)
+    {
+        return new SearchComponentLogicalContribution
+        {
+            ContributionId = $"{identity}:{statId}",
+            LogicalStatId = statId,
+            DisplayText = text,
+            CanonicalSignature = text,
+            PhysicalSourceIdentity = identity,
+            CanonicalNumericValues = [9m],
+        };
+    }
+
     [Fact]
     public async Task ModifierBounds_EditingRetainsTheExistingRowsAndDoesNotRequestSearchOrFetch()
     {

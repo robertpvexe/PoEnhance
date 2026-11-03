@@ -205,7 +205,8 @@ public sealed class TradeSearchDraftValidator
         {
             var modifier = draft.ModifierFilters[index];
             ValidateContributors(modifier, index, diagnostics);
-            if (!modifier.IsSelected)
+            if (!modifier.IsSelected &&
+                !SearchComponentContributorActivation.HasSelectedLogicalContribution(modifier))
             {
                 continue;
             }

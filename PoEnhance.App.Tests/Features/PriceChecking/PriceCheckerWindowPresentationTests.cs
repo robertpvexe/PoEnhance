@@ -529,7 +529,9 @@ Item Level: 82
     [Fact]
     public void StatsSelectedCount_UsesUnifiedCanonicalEntryCounts()
     {
-        Assert.Equal("Stats 2 of 8 selected", PriceCheckerWindow.FormatStatsCount(2, 8));
+        Assert.Equal("Stats: 2 filters selected", PriceCheckerWindow.FormatStatsCount(2, 8));
+        Assert.Equal("Stats: 1 filter selected", PriceCheckerWindow.FormatStatsCount(1));
+        Assert.Equal("Stats: 0 filters selected", PriceCheckerWindow.FormatStatsCount(0));
     }
 
     [Fact]
@@ -688,8 +690,18 @@ Item Level: 82
             "StatsMinimumColumn",
             "StatsMaximumColumn");
         Assert.Contains("<CheckBox Grid.Column=\"3\"", propertyContributor);
-        Assert.Contains("<TextBox Grid.Column=\"6\"", propertyContributor);
-        Assert.Contains("<TextBox Grid.Column=\"7\"", propertyContributor);
+        // Nested Mod Type Grid closes before Min/Max TextBoxes; assert bounds against the
+        // surrounding StatsListBox markup rather than the truncated named-Grid extract.
+        Assert.Contains(
+            "x:Name=\"StatsPropertyContributorRow\"",
+            modifiers,
+            StringComparison.Ordinal);
+        Assert.Contains("<TextBox Grid.Column=\"6\"", modifiers, StringComparison.Ordinal);
+        Assert.Contains("<TextBox Grid.Column=\"7\"", modifiers, StringComparison.Ordinal);
+        Assert.Contains(
+            "ToolTip=\"Minimum contributor Trade stat value\"",
+            modifiers,
+            StringComparison.Ordinal);
 
         AssertColumnGroups(
             standaloneContributor,
@@ -700,7 +712,8 @@ Item Level: 82
             "StatsMinimumColumn",
             "StatsMaximumColumn");
         Assert.Contains("<CheckBox Grid.Column=\"2\"", standaloneContributor);
-        Assert.Contains("Grid.ColumnSpan=\"4\"", standaloneContributor);
+        Assert.Contains("x:Name=\"StatsStandaloneContributorRow\"", modifiers, StringComparison.Ordinal);
+        Assert.Contains("Grid.ColumnSpan=\"4\"", modifiers, StringComparison.Ordinal);
         Assert.DoesNotContain("OnModifierExpansionClick", standaloneContributor);
     }
 
@@ -761,7 +774,7 @@ Item Level: 82
             "</Grid>");
 
         Assert.Contains("x:Name=\"StatsCountText\"", propertiesHeader);
-        Assert.Contains("FormatStatsCount(state.SelectedStatsCount, state.StatsCount)", LoadWindowCodeBehind());
+        Assert.Contains("FormatStatsCount(state.SelectedStatsCount)", LoadWindowCodeBehind());
         Assert.DoesNotContain("Text=\"Item Properties\"", xaml);
         Assert.DoesNotContain("Text=\"Modifiers\"", xaml);
         Assert.DoesNotContain("ItemPropertyListBox", xaml);
@@ -804,12 +817,37 @@ Item Level: 82
         Assert.DoesNotContain("SelectionChanged=", modifiers);
         Assert.Contains("HasSingleFilterVariant", modifiers);
         Assert.Contains("Text=\"{Binding SelectedFilterVariant.Label}\"", modifiers);
-        Assert.Contains("ToolTip=\"{Binding SelectedFilterVariant.Description}\"", modifiers);
-        Assert.Contains("Text=\"{Binding Label}\"", modifiers);
-        Assert.Contains("ToolTip=\"{Binding Description}\"", modifiers);
+        Assert.Contains("ToolTip=\"{Binding SelectedFilterVariant.DisplayToolTip}\"", modifiers);
+        Assert.Contains("Text=\"{Binding Label}\"", xaml);
+        Assert.Contains("ToolTip=\"{Binding DisplayToolTip}\"", xaml);
+        Assert.Contains("ModifierFilterVariantItemTemplate", xaml);
+        Assert.Contains("ModifierFilterVariantComboBoxStyle", xaml);
         Assert.DoesNotContain("Text=\"{Binding Description}\"", modifiers);
+        Assert.DoesNotContain("ToolTip=\"{Binding SelectedFilterVariant.Description}\"", modifiers);
         Assert.DoesNotContain("StatId", modifiers, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ProviderStat", modifiers, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ModifierFilterVariantViewModel_ToStringAndToolTipNeverExposeClrDump()
+    {
+        var variant = new PriceCheckerModifierFilterVariantViewModel
+        {
+            Identity = "variant-pseudo-total-strength",
+            Label = "Pseudo",
+            Description =
+                "PriceCheckerModifierFilterVariantViewModel { Identity = variant-..., Label = Pseudo }",
+        };
+
+        Assert.Equal("Pseudo", variant.ToString());
+        Assert.Equal("Pseudo", variant.DisplayToolTip);
+        Assert.DoesNotContain("PriceCheck", variant.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("ViewModel", variant.DisplayToolTip, StringComparison.Ordinal);
+        Assert.DoesNotContain("Identity =", variant.DisplayToolTip, StringComparison.Ordinal);
+
+        var clean = variant with { Description = "Total Strength" };
+        Assert.Equal("Total Strength", clean.DisplayToolTip);
+        Assert.Equal("Pseudo", clean.ToString());
     }
 
     [Fact]
@@ -1554,8 +1592,16 @@ Item Level: 82
             window.UpdateLayout();
 
             var stats = Assert.IsType<ListBox>(window.FindName("StatsListBox"));
-            var inactivePrimary = FindText(stats, inactiveContributor.Text);
-            var inactiveSecondary = FindText(stats, inactiveContributor.ProvenanceLabel);
+            var contributorTexts = FindDescendants<TextBlock>(stats)
+                .Where(candidate => ReferenceEquals(candidate.DataContext, inactiveContributor) &&
+                    candidate.ActualHeight > 0)
+                .OrderByDescending(candidate => candidate.ActualHeight)
+                .ToArray();
+            Assert.Equal(2, contributorTexts.Length);
+            var inactivePrimary = contributorTexts[0];
+            var inactiveSecondary = contributorTexts[1];
+            Assert.Equal(inactiveContributor.Text, inactivePrimary.Text);
+            Assert.Equal(inactiveContributor.ProvenanceLabel, inactiveSecondary.Text);
             var inactiveCheckBox = FindDescendants<CheckBox>(stats).Single(control =>
                 ReferenceEquals(control.DataContext, inactiveContributor));
             var inactiveBounds = FindDescendants<TextBox>(stats).Where(control =>
@@ -1594,8 +1640,16 @@ Item Level: 82
             });
             window.UpdateLayout();
 
-            var activePrimary = FindText(stats, activeContributor.Text);
-            var activeSecondary = FindText(stats, activeContributor.ProvenanceLabel);
+            var activeTexts = FindDescendants<TextBlock>(stats)
+                .Where(candidate => ReferenceEquals(candidate.DataContext, activeContributor) &&
+                    candidate.ActualHeight > 0)
+                .OrderByDescending(candidate => candidate.ActualHeight)
+                .ToArray();
+            Assert.Equal(2, activeTexts.Length);
+            var activePrimary = activeTexts[0];
+            var activeSecondary = activeTexts[1];
+            Assert.Equal(activeContributor.Text, activePrimary.Text);
+            Assert.Equal(activeContributor.ProvenanceLabel, activeSecondary.Text);
             var activeCheckBox = FindDescendants<CheckBox>(stats).Single(control =>
                 ReferenceEquals(control.DataContext, activeContributor));
             var activeBounds = FindDescendants<TextBox>(stats).Where(control =>

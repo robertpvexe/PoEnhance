@@ -710,6 +710,9 @@ internal sealed class PriceCheckerSearchController
         CancelActiveRequest();
         ClearPaginationState();
 
+        // Group-A resist/attr projections share physical provenance but not checkbox selection.
+        // Selecting Fire must not select Chaos (and vice versa). Derived defence still links via
+        // the same ModifierFilterIndex under multiple item-property parents.
         var modifierFilters = currentDraft.ModifierFilters
             .Select((modifier, index) => index == modifierIndex
                 ? modifier with { IsSelected = isSelected }
@@ -748,6 +751,28 @@ internal sealed class PriceCheckerSearchController
         int contributorIndex,
         bool isSelected)
     {
+        if (TryUpdateSharedElementalResistanceMirrorSelection(
+                modifierIndex,
+                contributorIndex,
+                isSelected))
+        {
+            return;
+        }
+
+        if (currentDraft is not null &&
+            modifierIndex >= 0 &&
+            modifierIndex < currentDraft.ModifierFilters.Count &&
+            currentDraft.ModifierFilters[modifierIndex] is
+            {
+                Contributors.Count: 0,
+                LogicalContributions.Count: > 0,
+            } &&
+            contributorIndex < currentDraft.ModifierFilters[modifierIndex].LogicalContributions.Count)
+        {
+            UpdateLogicalContributionSelection(modifierIndex, contributorIndex, isSelected);
+            return;
+        }
+
         if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
             !SearchComponentContributorActivation.AllowsContributorFiltering(parent) ||
             contributor.IsSelected == isSelected)
@@ -786,6 +811,47 @@ internal sealed class PriceCheckerSearchController
                 .Select((modifier, index) => index == modifierIndex ? nextParent : modifier)
                 .ToArray(),
         };
+
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    private void UpdateLogicalContributionSelection(
+        int modifierIndex,
+        int logicalIndex,
+        bool isSelected)
+    {
+        var parent = currentDraft!.ModifierFilters[modifierIndex];
+        var logical = parent.LogicalContributions.ElementAtOrDefault(logicalIndex);
+        if (logical is null ||
+            logical.IsSelected == isSelected ||
+            isSelected && !IsModifierInteractionReady(parent))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+
+        // Compact All Elemental / All Attributes children are independent logical criteria.
+        // Selecting Fire must not select Cold/Lightning; the parent checkbox stays independent.
+        var nextParent = parent with
+        {
+            LogicalContributions = parent.LogicalContributions
+                .Select((candidate, index) => index == logicalIndex
+                    ? candidate with { IsSelected = isSelected }
+                    : candidate)
+                .ToArray(),
+        };
+        currentDraft = currentDraft with
+        {
+            ModifierFilters = currentDraft.ModifierFilters
+                .Select((modifier, index) => index == modifierIndex ? nextParent : modifier)
+                .ToArray(),
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(currentDraft);
         currentValidationResult = draftValidator.Validate(currentDraft);
         PublishCurrentContent();
         ApplyState(CreateIdleOrValidationState());
@@ -845,6 +911,34 @@ internal sealed class PriceCheckerSearchController
         string? minimumText,
         string? maximumText)
     {
+        if (TryUpdateSharedElementalResistanceMirrorBounds(
+                modifierIndex,
+                contributorIndex,
+                minimumText,
+                maximumText))
+        {
+            return;
+        }
+
+        if (currentDraft is not null &&
+            modifierIndex >= 0 &&
+            modifierIndex < currentDraft.ModifierFilters.Count &&
+            currentDraft.ModifierFilters[modifierIndex] is
+            {
+                Contributors.Count: 0,
+                LogicalContributions.Count: > 0,
+            } parentWithLogical &&
+            contributorIndex >= 0 &&
+            contributorIndex < parentWithLogical.LogicalContributions.Count)
+        {
+            UpdateLogicalContributionBounds(
+                modifierIndex,
+                contributorIndex,
+                minimumText,
+                maximumText);
+            return;
+        }
+
         if (!TryGetContributor(modifierIndex, contributorIndex, out var parent, out var contributor) ||
             !SearchComponentContributorActivation.AllowsContributorFiltering(parent) ||
             !contributor.SupportsValueBounds)
@@ -882,6 +976,97 @@ internal sealed class PriceCheckerSearchController
         currentDraft = ReplaceModifier(currentDraft!, modifierIndex, nextParent);
         currentValidationResult = draftValidator.Validate(currentDraft);
         RefreshDisplayedContributorActivity(modifierIndex, nextParent);
+        ApplyState(CreateBoundChangeInvalidatedState());
+    }
+
+    public void UpdateLogicalContributionFilterVariant(
+        int modifierIndex,
+        int logicalIndex,
+        string? variantIdentity)
+    {
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count ||
+            string.IsNullOrWhiteSpace(variantIdentity))
+        {
+            return;
+        }
+
+        var parent = currentDraft.ModifierFilters[modifierIndex];
+        var logical = parent.LogicalContributions.ElementAtOrDefault(logicalIndex);
+        var selectedIdentity = variantIdentity.Trim();
+        if (logical is null ||
+            logical.FilterVariants.All(option => !string.Equals(
+                option.Identity,
+                selectedIdentity,
+                StringComparison.Ordinal)) ||
+            string.Equals(logical.SelectedFilterVariantIdentity, selectedIdentity, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        var nextParent = parent with
+        {
+            LogicalContributions = parent.LogicalContributions
+                .Select((candidate, index) => index == logicalIndex
+                    ? candidate with
+                    {
+                        SelectedFilterVariantIdentity = selectedIdentity,
+                        RequestedFilterVariantIdentity = selectedIdentity,
+                    }
+                    : candidate)
+                .ToArray(),
+        };
+        currentDraft = ReplaceModifier(currentDraft, modifierIndex, nextParent);
+        currentDraft = priceCheckService.ResolveEffectiveDraft(currentDraft);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+    }
+
+    private void UpdateLogicalContributionBounds(
+        int modifierIndex,
+        int logicalIndex,
+        string? minimumText,
+        string? maximumText)
+    {
+        var parent = currentDraft!.ModifierFilters[modifierIndex];
+        var logical = parent.LogicalContributions[logicalIndex];
+        if (!logical.SupportsValueBounds)
+        {
+            return;
+        }
+
+        var key = new ModifierContributorKey(modifierIndex, logicalIndex);
+        var input = new ModifierBoundInput(minimumText ?? string.Empty, maximumText ?? string.Empty);
+        contributorBoundInputs[key] = input;
+        var parsedMinimum = ParseBound(input.MinimumText);
+        var parsedMaximum = ParseBound(input.MaximumText);
+        var nextLogical = logical with
+        {
+            RequestedMinimum = parsedMinimum.IsValid ? parsedMinimum.Value : logical.RequestedMinimum,
+            RequestedMaximum = parsedMaximum.IsValid ? parsedMaximum.Value : logical.RequestedMaximum,
+        };
+        if (nextLogical == logical && !HasInvalidBoundInput(input))
+        {
+            return;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        var nextParent = parent with
+        {
+            LogicalContributions = parent.LogicalContributions
+                .Select((candidate, index) => index == logicalIndex ? nextLogical : candidate)
+                .ToArray(),
+        };
+        currentDraft = ReplaceModifier(currentDraft, modifierIndex, nextParent);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
         ApplyState(CreateBoundChangeInvalidatedState());
     }
 
@@ -940,7 +1125,20 @@ internal sealed class PriceCheckerSearchController
         };
         currentDraft = priceCheckService.ResolveEffectiveDraft(pendingDraft);
         var resolved = currentDraft.ModifierFilters[modifierIndex];
+        var selectedIsPseudo = resolved.FilterVariants.Any(variant =>
+            string.Equals(variant.Identity, resolved.SelectedFilterVariantIdentity, StringComparison.Ordinal) &&
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
         if (resolved.SupportsValueBounds &&
+            selectedIsPseudo &&
+            PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(resolved))
+        {
+            // Intentional Pseudo Total mode change: adopt the item-wide default Min/Max and
+            // refresh bound inputs so a stale source-contribution value cannot overwrite it.
+            modifierBoundInputs[modifierIndex] = new ModifierBoundInput(
+                FormatBound(resolved.RequestedMinimum),
+                FormatBound(resolved.RequestedMaximum));
+        }
+        else if (resolved.SupportsValueBounds &&
             modifierBoundInputs.TryGetValue(modifierIndex, out var input))
         {
             var minimum = ParseBound(input.MinimumText);
@@ -972,7 +1170,11 @@ internal sealed class PriceCheckerSearchController
 
     public void UpdateModifierExpansion(int modifierIndex, bool isExpanded)
     {
-        if (currentDraft?.ModifierFilters.ElementAtOrDefault(modifierIndex)?.Contributors.Count is not > 0)
+        var expandable = currentDraft?.ModifierFilters.ElementAtOrDefault(modifierIndex);
+        if (expandable is null ||
+            (expandable.Contributors.Count == 0 &&
+                expandable.LogicalContributions.Count == 0 &&
+                !LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(expandable)))
         {
             return;
         }
@@ -1257,6 +1459,15 @@ internal sealed class PriceCheckerSearchController
         object? sender,
         PriceCheckerModifierFilterVariantChangedEventArgs e)
     {
+        if (e.ContributorIndex.HasValue)
+        {
+            UpdateLogicalContributionFilterVariant(
+                e.ModifierIndex,
+                e.ContributorIndex.Value,
+                e.VariantIdentity);
+            return;
+        }
+
         UpdateModifierFilterVariant(e.ModifierIndex, e.VariantIdentity);
     }
 
@@ -1954,6 +2165,61 @@ internal sealed class PriceCheckerSearchController
                 };
             })
             .ToArray();
+        if (contributors.Length == 0 && modifier.LogicalContributions.Count > 0)
+        {
+            // Compact All Elemental / All Attributes: independent logical criteria with their own
+            // Mod Type (default Pseudo). Shared physical provenance is shown in SourceBreakdown.
+            contributors = modifier.LogicalContributions
+                .Select((logical, logicalIndex) =>
+                {
+                    var logicalVariants = CreateVariantViewModels(logical.FilterVariants).ToList();
+                    var logicalSelected = logicalVariants.FirstOrDefault(variant => string.Equals(
+                        variant.Identity,
+                        logical.SelectedFilterVariantIdentity,
+                        StringComparison.Ordinal)) ?? logicalVariants.FirstOrDefault();
+                    var logicalUnsupported =
+                        logical.IsSelected &&
+                        logical.ProviderResolutionStatus is
+                            SearchComponentProviderResolutionStatus.Unsupported or
+                            SearchComponentProviderResolutionStatus.NotFound or
+                            SearchComponentProviderResolutionStatus.Ambiguous;
+                    return new PriceCheckerModifierContributorViewModel
+                    {
+                        ParentSourceIndex = index,
+                        ContributorIndex = logicalIndex,
+                        Text = SafeModifierText(logical.DisplayText),
+                        ProvenanceLabel = logicalUnsupported
+                            ? "Unsupported"
+                            : logicalSelected?.Label ?? SectionLabel(modifier),
+                        SourceBreakdown =
+                            $"Same physical source: {SafeModifierText(modifier.OriginalText)}",
+                        IsSelected = logical.IsSelected,
+                        SupportsValueBounds = logical.SupportsValueBounds,
+                        ValueBoundsUnsupportedReason = logical.ValueBoundsUnsupportedReason,
+                        IsInteractionEnabled = isInteractionEnabled,
+                        FilterVariants = logicalVariants,
+                        SelectedFilterVariant = logicalSelected,
+                        MinimumText = logical.SupportsValueBounds
+                            ? FormatBound(logical.RequestedMinimum)
+                            : string.Empty,
+                        MaximumText = logical.SupportsValueBounds
+                            ? FormatBound(logical.RequestedMaximum)
+                            : string.Empty,
+                    };
+                })
+                .ToArray();
+        }
+
+        if (currentDraft is not null &&
+            TryCreateSharedElementalResistanceMirror(
+                index,
+                modifier,
+                isInteractionEnabled,
+                out var elementalMirror))
+        {
+            contributors = [.. contributors, elementalMirror];
+        }
+
         return new PriceCheckerModifierViewModel
         {
             SourceIndex = index,
@@ -1999,8 +2265,207 @@ internal sealed class PriceCheckerSearchController
             IsExpanded = showsExpansionControl &&
                 contributors.Length > 0 &&
                 expandedModifierIndexes.Contains(index),
-            ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier),
+            ActiveContributorCount = SearchComponentContributorActivation.ActiveSelectionCount(modifier) +
+                (currentDraft?.SharedCriteria.Count(criterion =>
+                    criterion.IsSelected &&
+                    criterion.CriterionId == SharedSearchCriterion.TotalElementalResistanceId &&
+                    LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(modifier)) ?? 0),
         };
+    }
+
+    private bool TryCreateSharedElementalResistanceMirror(
+        int parentIndex,
+        ResolvedSearchComponent modifier,
+        bool isInteractionEnabled,
+        out PriceCheckerModifierContributorViewModel mirror)
+    {
+        mirror = null!;
+        if (currentDraft is null ||
+            !LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(modifier))
+        {
+            return false;
+        }
+
+        var criterion = currentDraft.SharedCriteria.FirstOrDefault(candidate => string.Equals(
+            candidate.CriterionId,
+            SharedSearchCriterion.TotalElementalResistanceId,
+            StringComparison.Ordinal));
+        if (criterion is null ||
+            criterion.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact)
+        {
+            return false;
+        }
+
+        var mirrorIndex = ElementalResistanceMirrorContributorIndex(modifier);
+        var sharedHosts = currentDraft.ModifierFilters
+            .Where(LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost)
+            .Select(host => SafeModifierText(host.PresentationText ?? host.OriginalText))
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var sharedLabel = sharedHosts.Length <= 1
+            ? "Item-wide Pseudo Total Elemental Resistance"
+            : $"Shared with {string.Join(", ", sharedHosts)}";
+        // Fixed Pseudo label — official catalog exposes only the one Pseudo Total Elemental
+        // Resistance id; do not reuse this static label for Fire/Chaos component Mod Types.
+        var fixedPseudo = new PriceCheckerModifierFilterVariantViewModel
+        {
+            Identity = criterion.ProviderStatId,
+            Label = "Pseudo",
+            Description = "Pseudo Total Elemental Resistance",
+            SupportsValueBounds = criterion.SupportsValueBounds,
+        };
+        mirror = new PriceCheckerModifierContributorViewModel
+        {
+            ParentSourceIndex = parentIndex,
+            ContributorIndex = mirrorIndex,
+            Text = "Pseudo: Total Elemental Resistance",
+            ProvenanceLabel = "Pseudo",
+            SharedCriterionId = SharedSearchCriterion.TotalElementalResistanceId,
+            SourceBreakdown = sharedLabel,
+            IsSelected = criterion.IsSelected,
+            SupportsValueBounds = criterion.SupportsValueBounds,
+            ValueBoundsUnsupportedReason = criterion.ProviderDiagnosticMessage,
+            IsInteractionEnabled = isInteractionEnabled,
+            FilterVariants = [fixedPseudo],
+            SelectedFilterVariant = fixedPseudo,
+            MinimumText = criterion.SupportsValueBounds
+                ? FormatBound(criterion.RequestedMinimum)
+                : string.Empty,
+            MaximumText = criterion.SupportsValueBounds
+                ? FormatBound(criterion.RequestedMaximum)
+                : string.Empty,
+        };
+        return true;
+    }
+
+    private static int ElementalResistanceMirrorContributorIndex(ResolvedSearchComponent modifier)
+    {
+        if (modifier.Contributors.Count > 0)
+        {
+            return modifier.Contributors.Count;
+        }
+
+        if (modifier.LogicalContributions.Count > 0)
+        {
+            return modifier.LogicalContributions.Count;
+        }
+
+        return 0;
+    }
+
+    private bool TryUpdateSharedElementalResistanceMirrorSelection(
+        int modifierIndex,
+        int contributorIndex,
+        bool isSelected)
+    {
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count)
+        {
+            return false;
+        }
+
+        var parent = currentDraft.ModifierFilters[modifierIndex];
+        if (!LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(parent) ||
+            contributorIndex != ElementalResistanceMirrorContributorIndex(parent))
+        {
+            return false;
+        }
+
+        var criterion = currentDraft.SharedCriteria.FirstOrDefault(candidate => string.Equals(
+            candidate.CriterionId,
+            SharedSearchCriterion.TotalElementalResistanceId,
+            StringComparison.Ordinal));
+        if (criterion is null || criterion.IsSelected == isSelected)
+        {
+            return true;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            SharedCriteria = currentDraft.SharedCriteria
+                .Select(candidate => string.Equals(
+                        candidate.CriterionId,
+                        SharedSearchCriterion.TotalElementalResistanceId,
+                        StringComparison.Ordinal)
+                    ? candidate with { IsSelected = isSelected }
+                    : candidate)
+                .ToArray(),
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(currentDraft);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateIdleOrValidationState());
+        return true;
+    }
+
+    private bool TryUpdateSharedElementalResistanceMirrorBounds(
+        int modifierIndex,
+        int contributorIndex,
+        string? minimumText,
+        string? maximumText)
+    {
+        if (currentDraft is null ||
+            modifierIndex < 0 ||
+            modifierIndex >= currentDraft.ModifierFilters.Count)
+        {
+            return false;
+        }
+
+        var parent = currentDraft.ModifierFilters[modifierIndex];
+        if (!LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(parent) ||
+            contributorIndex != ElementalResistanceMirrorContributorIndex(parent))
+        {
+            return false;
+        }
+
+        var criterion = currentDraft.SharedCriteria.FirstOrDefault(candidate => string.Equals(
+            candidate.CriterionId,
+            SharedSearchCriterion.TotalElementalResistanceId,
+            StringComparison.Ordinal));
+        if (criterion is null || !criterion.SupportsValueBounds)
+        {
+            return true;
+        }
+
+        var parsedMinimum = ParseBound(minimumText ?? string.Empty);
+        var parsedMaximum = ParseBound(maximumText ?? string.Empty);
+        var nextMinimum = parsedMinimum.IsValid ? parsedMinimum.Value : criterion.RequestedMinimum;
+        var nextMaximum = parsedMaximum.IsValid ? parsedMaximum.Value : criterion.RequestedMaximum;
+        if (nextMinimum == criterion.RequestedMinimum &&
+            nextMaximum == criterion.RequestedMaximum)
+        {
+            return true;
+        }
+
+        generation++;
+        CancelActiveRequest();
+        ClearPaginationState();
+        currentDraft = currentDraft with
+        {
+            SharedCriteria = currentDraft.SharedCriteria
+                .Select(candidate => string.Equals(
+                        candidate.CriterionId,
+                        SharedSearchCriterion.TotalElementalResistanceId,
+                        StringComparison.Ordinal)
+                    ? candidate with
+                    {
+                        IsSelected = true,
+                        RequestedMinimum = nextMinimum,
+                        RequestedMaximum = nextMaximum,
+                    }
+                    : candidate)
+                .ToArray(),
+        };
+        currentDraft = priceCheckService.ResolveEffectiveDraft(currentDraft);
+        currentValidationResult = draftValidator.Validate(currentDraft);
+        PublishCurrentContent();
+        ApplyState(CreateBoundChangeInvalidatedState());
+        return true;
     }
 
     private static bool IsExactlySearchableRestrictedModifier(ResolvedSearchComponent modifier)
@@ -2402,6 +2867,20 @@ internal sealed class PriceCheckerSearchController
             return parent;
         }
 
+        // Item-wide Pseudo Total for Group-A logical effects must not be rewritten back to the
+        // additive source-contribution floor (e.g. Dex 30 from 22+8 when the Pseudo total is 42).
+        var selectedIsPseudo = parent.FilterVariants.Any(variant =>
+            string.Equals(
+                variant.Identity,
+                parent.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal) &&
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+        if (selectedIsPseudo &&
+            PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(parent))
+        {
+            return parent;
+        }
+
         var state = parentMinimumStates.GetValueOrDefault(
             modifierIndex,
             PriceCheckerParentMinimumState.CanonicalDefault);
@@ -2565,7 +3044,9 @@ internal sealed class PriceCheckerSearchController
     private static TradeSearchDraft ResetModifierSelections(TradeSearchDraft draft)
     {
         if (!draft.ModifierFilters.Any(modifier =>
-                modifier.IsSelected || modifier.Contributors.Any(contributor => contributor.IsSelected)))
+                modifier.IsSelected ||
+                modifier.Contributors.Any(contributor => contributor.IsSelected) ||
+                modifier.LogicalContributions.Any(logical => logical.IsSelected)))
         {
             return draft;
         }
@@ -2578,6 +3059,9 @@ internal sealed class PriceCheckerSearchController
                     IsSelected = false,
                     Contributors = modifier.Contributors
                         .Select(contributor => contributor with { IsSelected = false })
+                        .ToArray(),
+                    LogicalContributions = modifier.LogicalContributions
+                        .Select(logical => logical with { IsSelected = false })
                         .ToArray(),
                 })
                 .ToArray(),

@@ -86,22 +86,39 @@ internal static class PathOfExileTradeModifierVariantDiscovery
             }));
         var eligible = working.Where(candidate => candidate.IsEligible).ToList();
         eligible = DeduplicateExactProviderIds(eligible, working, component, sourceExactCandidate);
-        eligible = DeduplicateGroups(
-            eligible,
-            working,
-            component,
-            sourceExactCandidate,
-            CanonicalProviderIdentity,
-            DuplicateCanonicalIdentity,
-            diagnostics);
-        eligible = DeduplicateGroups(
-            eligible,
-            working,
-            component,
-            sourceExactCandidate,
-            candidate => PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
-            WeakerSemanticProvenance,
-            diagnostics);
+        var isProjectedLogicalCriterion = IsLogicalEffectSearchOverride(component);
+        if (isProjectedLogicalCriterion)
+        {
+            // Keep one official catalog entry per provider kind for logical search overrides
+            // (Pseudo/Explicit/Fractured/Crafted/Implicit), preferring the source's exact text.
+            eligible = KeepBestPerProviderKind(eligible, working, sourceExactCandidate);
+            eligible = EnsureProjectedLogicalCatalogKinds(
+                eligible,
+                working,
+                component,
+                catalog,
+                sourceExactCandidate,
+                sourceDomains);
+        }
+        else
+        {
+            eligible = DeduplicateGroups(
+                eligible,
+                working,
+                component,
+                sourceExactCandidate,
+                CanonicalProviderIdentity,
+                DuplicateCanonicalIdentity,
+                diagnostics);
+            eligible = DeduplicateGroups(
+                eligible,
+                working,
+                component,
+                sourceExactCandidate,
+                candidate => PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                WeakerSemanticProvenance,
+                diagnostics);
+        }
 
         var finalIndexes = eligible.Select(candidate => candidate.Index).ToHashSet();
         var trace = working
@@ -172,8 +189,18 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                 PathOfExileTradePseudoVariantCompatibility.IncompatibleProjection or
                 PathOfExileTradePseudoVariantCompatibility.IncompatibleTranslationProjection;
         var semanticCompatible = compatibility.IsCompatible || sourceIdentityWithoutProjectableBounds;
-        var itemApplicable = isPseudo || isSourceIdentity || hasContributorIdentity ||
-            hasSourceDomainProvenance || evidence.Length > 0;
+        // Group-A logical criteria (:logic: / approved single resistance or attribute) are
+        // deliberate search overrides for the logical effect. Catalog-backed Explicit/Fractured/
+        // Crafted/Implicit siblings of the matched logical stat must remain choosable even when
+        // this item's physical source was a combined All-Elemental / pair affix without that
+        // provider domain, and even after re-resolve pinned a Pseudo selected identity.
+        var isProjectedLogicalCriterion = IsLogicalEffectSearchOverride(component);
+        var itemApplicable = isPseudo ||
+            isSourceIdentity ||
+            hasContributorIdentity ||
+            hasSourceDomainProvenance ||
+            evidence.Length > 0 ||
+            (isProjectedLogicalCriterion && semanticCompatible && kindKnown);
         var isEligible = semanticCompatible && kindKnown && itemApplicable &&
             !hasRelevantCatalogDiagnostic;
         var reason = !semanticCompatible
@@ -187,6 +214,8 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                     : Accepted;
         var applicability = isPseudo
             ? "Pseudo totals do not require one source modifier domain."
+            : isProjectedLogicalCriterion && semanticCompatible
+                ? "Projected logical effect: official catalog variants for this logical stat are selectable search overrides."
             : isSourceIdentity
                 ? "The official identity is the exact source match."
                 : hasContributorIdentity
@@ -238,6 +267,133 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                 IsAccepted = false,
                 RejectionReason = reason,
             });
+    }
+
+    private static List<WorkingCandidate> KeepBestPerProviderKind(
+        IReadOnlyList<WorkingCandidate> eligible,
+        IReadOnlyList<WorkingCandidate> all,
+        PathOfExileTradeStatMatchCandidate source)
+    {
+        var retained = new List<WorkingCandidate>();
+        foreach (var group in eligible.GroupBy(
+                     candidate => PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+                         candidate.Candidate),
+                     StringComparer.Ordinal))
+        {
+            var selected = group
+                .OrderByDescending(candidate => string.Equals(
+                    candidate.Candidate.Text,
+                    source.Text,
+                    StringComparison.OrdinalIgnoreCase))
+                .ThenBy(candidate => candidate.Candidate.ProviderOrder)
+                .ThenBy(candidate => candidate.Index)
+                .First();
+            retained.Add(selected);
+            foreach (var duplicate in group.Where(candidate => candidate.Index != selected.Index))
+            {
+                Reject(all, duplicate.Index, WeakerSemanticProvenance);
+            }
+        }
+
+        return retained;
+    }
+
+    private static List<WorkingCandidate> EnsureProjectedLogicalCatalogKinds(
+        List<WorkingCandidate> eligible,
+        List<WorkingCandidate> working,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeStatMatchCandidate source,
+        IReadOnlyList<string> sourceDomains)
+    {
+        var sourceEffect = PathOfExileTradePseudoVariantCompatibility.LogicalEffectIdentity(source.Text);
+        var presentKinds = eligible
+            .Select(candidate => PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate.Candidate))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var kind in new[] { "pseudo", "explicit", "fractured", "crafted", "implicit" })
+        {
+            if (presentKinds.Contains(kind))
+            {
+                continue;
+            }
+
+            var match = catalog.FindCandidatesByLogicalEffect(sourceEffect)
+                .Where(candidate => string.Equals(
+                    PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                    kind,
+                    StringComparison.Ordinal))
+                .OrderByDescending(candidate => string.Equals(
+                    candidate.Text,
+                    source.Text,
+                    StringComparison.OrdinalIgnoreCase))
+                .ThenBy(candidate => candidate.ProviderOrder)
+                .FirstOrDefault();
+            if (match is null &&
+                string.Equals(kind, "pseudo", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (match is null)
+            {
+                // Exact-text sibling in the same numeric family (e.g. Fractured +#% to Fire Resistance).
+                match = catalog.Entries
+                    .Select(PathOfExileTradeStatCandidateClassifier.ToCandidate)
+                    .FirstOrDefault(candidate =>
+                        string.Equals(
+                            PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                            kind,
+                            StringComparison.Ordinal) &&
+                        string.Equals(candidate.Text, source.Text, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (match is null)
+            {
+                continue;
+            }
+
+            var evaluated = Evaluate(
+                working.Count,
+                component,
+                catalog,
+                source,
+                match,
+                sourceDomains);
+            // Projected logical overrides: accept catalog-backed kinds even when ordinary
+            // item-domain provenance would leave them ItemApplicabilityUnproven, and even when
+            // rediscovery was seeded from a selected Pseudo identity (locality SemanticMismatch).
+            var sameLogicalEffect = string.Equals(
+                PathOfExileTradePseudoVariantCompatibility.LogicalEffectIdentity(match.Text),
+                sourceEffect,
+                StringComparison.Ordinal);
+            var forceEligible =
+                !evaluated.IsEligible &&
+                sameLogicalEffect &&
+                (evaluated.Trace.RejectionReason == ItemApplicabilityUnproven ||
+                    evaluated.Trace.RejectionReason.StartsWith(SemanticMismatch, StringComparison.Ordinal));
+            if (forceEligible)
+            {
+                evaluated = new WorkingCandidate(
+                    evaluated.Index,
+                    evaluated.Candidate,
+                    isEligible: true,
+                    evaluated.Trace with
+                    {
+                        RejectionReason = Accepted,
+                        ItemApplicability =
+                            "Projected logical effect: official catalog variant forced as search override.",
+                    });
+            }
+
+            working.Add(evaluated);
+            if (evaluated.IsEligible)
+            {
+                eligible.Add(evaluated);
+                presentKinds.Add(kind);
+            }
+        }
+
+        return KeepBestPerProviderKind(eligible, working, source);
     }
 
     private static List<WorkingCandidate> DeduplicateExactProviderIds(
@@ -296,10 +452,20 @@ internal static class PathOfExileTradeModifierVariantDiscovery
                 {
                     Candidate = candidate,
                     Score = ProvenanceScore(component, candidate.Candidate, source),
+                    TextMatch = string.Equals(
+                        candidate.Candidate.Text,
+                        source.Text,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? 1
+                        : 0,
                 })
                 .OrderByDescending(entry => entry.Score)
+                .ThenByDescending(entry => entry.TextMatch)
+                .ThenBy(entry => entry.Candidate.Candidate.ProviderOrder)
                 .ToArray();
-            if (ranked.Length == 1 || ranked[0].Score > ranked[1].Score)
+            if (ranked.Length == 1 ||
+                ranked[0].Score > ranked[1].Score ||
+                ranked[0].TextMatch > ranked[1].TextMatch)
             {
                 retained.Add(ranked[0].Candidate);
                 foreach (var weaker in ranked.Skip(1))
@@ -478,6 +644,32 @@ internal static class PathOfExileTradeModifierVariantDiscovery
     private static string DisplayKind(string kind) => string.IsNullOrWhiteSpace(kind)
         ? "Unknown"
         : char.ToUpperInvariant(kind[0]) + kind[1..].ToLowerInvariant();
+
+    /// <summary>
+    /// Projected Group-A split rows (:logic: Fire from Fire+Chaos, All-Elemental children, …).
+    /// Match must seed Explicit for these; physical Crafted/Fractured provenance stays on Sources.
+    /// </summary>
+    internal static bool IsProjectedLogicalCriterion(ResolvedSearchComponent component) =>
+        !string.IsNullOrEmpty(component.PhysicalSourceIdentity) &&
+        component.PhysicalSourceIdentity.Contains(":logic:", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Group-A projected splits and approved single logical resistance/attribute rows expose
+    /// official Trade catalog kinds as deliberate search overrides for that logical effect.
+    /// Does not change Match RequiredKind for unanimous Fractured/Crafted physical parents.
+    /// </summary>
+    internal static bool IsLogicalEffectSearchOverride(ResolvedSearchComponent component)
+    {
+        if (IsProjectedLogicalCriterion(component))
+        {
+            return true;
+        }
+
+        return component.ResolvedStatIds.Count == 1 &&
+            ApprovedMultiEffectProjectionCatalog.TryGetLogicalTarget(
+                component.ResolvedStatIds[0],
+                out _);
+    }
 
     private sealed class WorkingCandidate(
         int index,

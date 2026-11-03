@@ -17,8 +17,11 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 indexed.Modifier.IsSelected ||
                 SearchComponentContributorActivation.IsFilteringActive(indexed.Modifier))
             .ToArray();
+        var selectedShared = (draft?.SharedCriteria ?? [])
+            .Where(criterion => criterion.IsSelected)
+            .ToArray();
 
-        if (relevantModifiers.Length == 0)
+        if (relevantModifiers.Length == 0 && selectedShared.Length == 0)
         {
             return PathOfExileTradeSelectedModifierMappingResult.Success([]);
         }
@@ -26,6 +29,7 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var filters = new List<PathOfExileTradeSelectedModifierFilter>();
         var contributorFilters = new List<PathOfExileTradeSelectedModifierFilter>();
         var diagnostics = new List<PathOfExileTradeSelectedModifierMappingDiagnostic>();
+        AddActiveSharedCriteriaFilters(draft!, selectedShared, filters, diagnostics);
         foreach (var selectedModifier in relevantModifiers)
         {
             AddActiveContributorFilters(
@@ -34,7 +38,13 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
                 catalog,
                 contributorFilters,
                 diagnostics);
+            AddActiveLogicalContributionFilters(
+                selectedModifier.Index,
+                selectedModifier.Modifier,
+                contributorFilters,
+                diagnostics);
 
+            // Compact logical children are independent criteria and never imply the parent filter.
             if (!selectedModifier.Modifier.IsSelected)
             {
                 continue;
@@ -236,6 +246,88 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
             "enchant",
             StringComparison.OrdinalIgnoreCase);
 
+    private static void AddActiveSharedCriteriaFilters(
+        TradeSearchDraft draft,
+        IReadOnlyList<SharedSearchCriterion> selectedShared,
+        List<PathOfExileTradeSelectedModifierFilter> filters,
+        List<PathOfExileTradeSelectedModifierMappingDiagnostic> diagnostics)
+    {
+        foreach (var criterion in selectedShared)
+        {
+            if (criterion.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+                string.IsNullOrWhiteSpace(criterion.ProviderStatId))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound,
+                    criterion.ProviderDiagnosticMessage ??
+                        $"Selected shared criterion has no faithful Trade filter: {criterion.DisplayText}",
+                    SourceIndex: -1));
+                continue;
+            }
+
+            var hostIndexes = draft.ModifierFilters
+                .Select((modifier, index) => (modifier, index))
+                .Where(entry =>
+                    string.Equals(
+                        criterion.CriterionId,
+                        SharedSearchCriterion.TotalElementalResistanceId,
+                        StringComparison.Ordinal) &&
+                    LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(entry.modifier))
+                .Select(entry => entry.index)
+                .ToArray();
+            filters.Add(new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = hostIndexes.Length > 0 ? hostIndexes[0] : -1,
+                SourceIndexes = hostIndexes,
+                StatId = criterion.ProviderStatId,
+                OriginalText = criterion.DisplayText,
+                NormalizedItemTemplate = criterion.DisplayText,
+                ExtractedNumericValues = [],
+                Minimum = criterion.SupportsValueBounds ? criterion.RequestedMinimum : null,
+                Maximum = criterion.SupportsValueBounds ? criterion.RequestedMaximum : null,
+            });
+        }
+    }
+
+    private static void AddActiveLogicalContributionFilters(
+        int parentIndex,
+        ResolvedSearchComponent parent,
+        List<PathOfExileTradeSelectedModifierFilter> filters,
+        List<PathOfExileTradeSelectedModifierMappingDiagnostic> diagnostics)
+    {
+        foreach (var contribution in parent.LogicalContributions.Where(candidate => candidate.IsSelected))
+        {
+            if (contribution.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.Exact ||
+                string.IsNullOrWhiteSpace(contribution.ProviderStatId))
+            {
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    contribution.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Ambiguous
+                        ? PathOfExileTradeSelectedModifierMappingDiagnosticCodes.Ambiguous
+                        : contribution.ProviderResolutionStatus ==
+                            SearchComponentProviderResolutionStatus.Unsupported
+                            ? PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable
+                            : PathOfExileTradeSelectedModifierMappingDiagnosticCodes.NotFound,
+                    contribution.ProviderDiagnosticMessage ??
+                        $"Selected logical effect has no faithful Trade filter: {SafeModifierText(contribution.DisplayText)}",
+                    parentIndex,
+                    contribution.ProviderDiagnosticCode));
+                continue;
+            }
+
+            filters.Add(new PathOfExileTradeSelectedModifierFilter
+            {
+                SourceIndex = parentIndex,
+                SourceIndexes = [parentIndex],
+                StatId = contribution.ProviderStatId,
+                OriginalText = contribution.DisplayText,
+                NormalizedItemTemplate = ToProviderTemplate(contribution.CanonicalSignature),
+                ExtractedNumericValues = [],
+                Minimum = contribution.SupportsValueBounds ? contribution.RequestedMinimum : null,
+                Maximum = contribution.SupportsValueBounds ? contribution.RequestedMaximum : null,
+            });
+        }
+    }
+
     private static void AddActiveContributorFilters(
         int parentIndex,
         ResolvedSearchComponent parent,
@@ -243,7 +335,8 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         List<PathOfExileTradeSelectedModifierFilter> filters,
         List<PathOfExileTradeSelectedModifierMappingDiagnostic> diagnostics)
     {
-        if (!SearchComponentContributorActivation.IsFilteringActive(parent))
+        if (!SearchComponentContributorActivation.IsFilteringActive(parent) ||
+            parent.Contributors.Count == 0)
         {
             return;
         }
@@ -257,6 +350,53 @@ internal sealed class PathOfExileTradeSelectedModifierMapper : IPathOfExileTrade
         var resolved = new List<ResolvedContributor>(selected.Length);
         foreach (var contributor in selected)
         {
+            // Group-A composite physical sources under a logical Fire/Chaos/attr parent must not
+            // emit the combined exact affix. Prefer the parent's resolved logical/Pseudo filter.
+            if (ApprovedMultiEffectProjectionCatalog.IsApprovedCompositeStat(
+                    contributor.Source.ResolvedStatIds) &&
+                parent.ResolvedStatIds.Count == 1)
+            {
+                if (parent.IsSelected &&
+                    !string.IsNullOrWhiteSpace(parent.ProviderStatId) &&
+                    string.Equals(
+                        parentProviderIdentity,
+                        PathOfExileTradeProviderIdentity.Create(parent.ProviderStatId),
+                        StringComparison.Ordinal))
+                {
+                    // Folded into the selected parent logical/Pseudo criterion.
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(parent.ProviderStatId) &&
+                    parent.ProviderResolutionStatus is
+                        SearchComponentProviderResolutionStatus.Exact or
+                        SearchComponentProviderResolutionStatus.ExactEquivalentSet)
+                {
+                    filters.Add(new PathOfExileTradeSelectedModifierFilter
+                    {
+                        SourceIndex = parentIndex,
+                        SourceIndexes = [parentIndex],
+                        StatId = parent.ProviderStatId,
+                        OriginalText = contributor.Source.OriginalText,
+                        NormalizedItemTemplate = ToProviderTemplate(parent.CanonicalSignature),
+                        ExtractedNumericValues = [],
+                        Minimum = parent.SupportsValueBounds
+                            ? parent.RequestedMinimum ?? contributor.RequestedMinimum
+                            : contributor.RequestedMinimum,
+                        Maximum = parent.SupportsValueBounds
+                            ? parent.RequestedMaximum
+                            : contributor.RequestedMaximum,
+                    });
+                    continue;
+                }
+
+                diagnostics.Add(new PathOfExileTradeSelectedModifierMappingDiagnostic(
+                    PathOfExileTradeSelectedModifierMappingDiagnosticCodes.VariantUnavailable,
+                    $"Selected multi-effect source requires a faithful logical total filter for '{SafeModifierText(parent.OriginalText)}'.",
+                    parentIndex));
+                continue;
+            }
+
             PathOfExileTradeProviderLocalityDecision? localityDecision = null;
             PathOfExileTradeStatEntry? providerEntry = null;
             if (contributor.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact &&

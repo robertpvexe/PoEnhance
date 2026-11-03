@@ -39,14 +39,18 @@ public sealed partial class TradeSearchDraftMapper
                 itemBaseResolution,
                 uniqueItemResolution,
                 gameDataCatalog);
-        var aggregation = CanonicalModifierEffectAggregator.Aggregate(
+        // Approved composite modifiers (e.g. Fire and Chaos Resistances) are projected into logical
+        // effect components first so each logical effect aggregates with its single-effect siblings.
+        var projectedComponents = MultiEffectModifierProjector.Project(
             CreateSearchComponents(
                     parsedItem,
                     effectiveItemBaseResolution,
                     modifierResolutionByIndex,
                     gameDataCatalog,
                     uniqueItemResolution)
-                .ToArray());
+                .ToArray(),
+            gameDataCatalog);
+        var aggregation = CanonicalModifierEffectAggregator.Aggregate(projectedComponents);
         var derivedPropertyCalculator = new DerivedWeaponPropertyCalculator();
         var derivedWeaponProperties = derivedPropertyCalculator.CalculateQ20(
             parsedItem,
@@ -1452,6 +1456,43 @@ public sealed partial class TradeSearchDraftMapper
             yield break;
         }
 
+        // A Crafted multi-line modifier is one physical bench craft. It stays ONE intact ordinary
+        // modifier unless a stat is a proven local unconditional derived contributor (local weapon
+        // or defence semantics), in which case it keeps splitting so that local component can feed
+        // the derived parents. Global crafted combinations never contribute to derived weapon DPS.
+        if (modifier.IsCrafted && valueLines.Length > 1)
+        {
+            var craftedOrderedStats = exactCandidate.Stats
+                .OrderBy(stat => stat.Index)
+                .ToArray();
+            var hasCraftedLineGroups = TryMatchStatsToParsedLines(
+                exactCandidate,
+                valueLines,
+                catalog,
+                preserveSingleLineProofSemantics: true,
+                out var craftedLineStatGroups);
+            if (!HasProvenLocalReviewedContributor(
+                    craftedOrderedStats,
+                    hasCraftedLineGroups ? craftedLineStatGroups : null,
+                    catalog))
+            {
+                yield return CreateComponent(
+                    modifierIndex,
+                    modifier,
+                    resolution,
+                    exactCandidate,
+                    craftedOrderedStats,
+                    ModifierStatMappingProofStatus.WholeVector,
+                    sourceLineIndex: -1,
+                    sourceComponentIndex: 0,
+                    componentLines: valueLines,
+                    itemBaseResolution,
+                    traditionalInfluences,
+                    catalog);
+                yield break;
+            }
+        }
+
         if (TryMatchStatsToParsedLines(
                 exactCandidate,
                 valueLines,
@@ -2330,6 +2371,38 @@ public sealed partial class TradeSearchDraftMapper
     private static bool IsUnveiledDomain(string? domain)
     {
         return string.Equals(domain?.Trim(), "unveiled", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when any stat group of a modifier is a proven local, unconditionally displayed
+    /// item-property contributor (the same reviewed descriptors that feed derived weapon/defence
+    /// parents). Requires a catalog; without one nothing can be proven.
+    /// </summary>
+    private static bool HasProvenLocalReviewedContributor(
+        IReadOnlyList<ModifierStat> orderedStats,
+        IReadOnlyList<IReadOnlyList<ModifierStat>>? lineStatGroups,
+        GameDataCatalog? catalog)
+    {
+        if (catalog is null)
+        {
+            return false;
+        }
+
+        var groups = (lineStatGroups ?? orderedStats.Select(stat => (IReadOnlyList<ModifierStat>)[stat]))
+            .Append(orderedStats)
+            .Where(group => group.Count > 0);
+        return groups.Any(group =>
+        {
+            var statIds = StatIds(group).ToArray();
+            if (statIds.Length == 0 ||
+                DetermineLocality(group, catalog) != ModifierLocality.Local)
+            {
+                return false;
+            }
+
+            return catalog.FindItemPropertySemanticByOrderedStatVector(statIds)?.Applicability ==
+                ItemPropertyApplicability.UnconditionalDisplayedLocal;
+        });
     }
 
     private static ItemPropertySemanticDescriptor? FindReviewedItemPropertySemantic(

@@ -139,6 +139,20 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
                 indexed.Modifier.ProviderResolutionStatus != SearchComponentProviderResolutionStatus.BaseGuaranteed)
             .Select(indexed => indexed.Index)
             .ToHashSet();
+        // Shared criteria (e.g. Pseudo Total Elemental Resistance) emit one filter whose
+        // SourceIndexes list every mirror host; treat those hosts as covered selections.
+        if (draft.SharedCriteria.Any(criterion => criterion.IsSelected))
+        {
+            for (var index = 0; index < draft.ModifierFilters.Count; index++)
+            {
+                if (LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(
+                        draft.ModifierFilters[index]))
+                {
+                    selectedSourceIndexes.Add(index);
+                }
+            }
+        }
+
         var providerFilters = selectedModifierFilters ?? [];
         if (selectedSourceIndexes.Count > 0 && providerFilters.Count == 0)
         {
@@ -151,6 +165,7 @@ internal sealed class PathOfExileTradeQueryBuilder : IPathOfExileTradeQueryBuild
             .SelectMany(filter => filter.SourceIndexes.Count > 0
                 ? filter.SourceIndexes
                 : [filter.SourceIndex])
+            .Where(index => index >= 0)
             .ToHashSet();
         if (!selectedSourceIndexes.SetEquals(mappedSourceIndexes))
         {

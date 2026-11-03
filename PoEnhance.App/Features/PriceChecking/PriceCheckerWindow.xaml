@@ -1,4 +1,4 @@
-<Window x:Class="PoEnhance.App.Features.PriceChecking.PriceCheckerWindow"
+﻿<Window x:Class="PoEnhance.App.Features.PriceChecking.PriceCheckerWindow"
         x:ClassModifier="internal"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -436,6 +436,12 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <DataTemplate x:Key="ModifierFilterVariantItemTemplate">
+            <TextBlock FontWeight="SemiBold"
+                       Text="{Binding Label}"
+                       TextTrimming="CharacterEllipsis"
+                       ToolTip="{Binding DisplayToolTip}" />
+        </DataTemplate>
         <Style x:Key="ModifierFilterComboBoxStyle"
                TargetType="{x:Type ComboBox}">
             <Setter Property="Height"
@@ -475,6 +481,7 @@
                                                       VerticalAlignment="Center"
                                                       Content="{TemplateBinding SelectionBoxItem}"
                                                       ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      ContentStringFormat="{}{0}"
                                                       IsHitTestVisible="False" />
                                     <Path Width="7"
                                           Height="4"
@@ -556,6 +563,13 @@
                             Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+        <Style x:Key="ModifierFilterVariantComboBoxStyle"
+               TargetType="{x:Type ComboBox}"
+               BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
+            <!-- Label for closed + open list; VM.ToString() is SelectionBox fallback. -->
+            <Setter Property="ItemTemplate"
+                    Value="{StaticResource ModifierFilterVariantItemTemplate}" />
         </Style>
         <Style x:Key="RarityComboBoxStyle"
                TargetType="{x:Type ComboBox}"
@@ -956,17 +970,17 @@
                                     Click="OnItemStateButtonClick"
                                     Content="Identified: Any"
                                     Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Identified: click to cycle Any → Yes → No" />
+                                    ToolTip="Identified: click to cycle Any › Yes › No" />
                             <Button x:Name="MirroredStateButton"
                                     Click="OnItemStateButtonClick"
                                     Content="Mirrored: Any"
                                     Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Mirrored: click to cycle Any → Yes → No" />
+                                    ToolTip="Mirrored: click to cycle Any › Yes › No" />
                             <Button x:Name="CorruptedStateButton"
                                     Click="OnItemStateButtonClick"
                                     Content="Corrupted: Any"
                                     Style="{StaticResource ItemStateButtonStyle}"
-                                    ToolTip="Corrupted: click to cycle Any → Yes → No" />
+                                    ToolTip="Corrupted: click to cycle Any › Yes › No" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -985,7 +999,7 @@
                             Click="OnItemStateButtonClick"
                             Content="Fractured Item: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Fractured Item: click to cycle Any → Yes → No" />
+                            ToolTip="Fractured Item: click to cycle Any › Yes › No" />
                     <Border x:Name="ItemLevelFilterBorder"
                             Margin="0,0,2,3"
                             PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
@@ -1091,49 +1105,49 @@
                             Click="OnItemStateButtonClick"
                             Content="Synthesised Item: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Synthesised Item: click to cycle Any → Yes → No" />
+                            ToolTip="Synthesised Item: click to cycle Any › Yes › No" />
                     <Button x:Name="SplitStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Split: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Split: click to cycle Any → Yes → No" />
+                            ToolTip="Split: click to cycle Any › Yes › No" />
                     <Button x:Name="CraftedStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Crafted: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Crafted: click to cycle Any → Yes → No" />
+                            ToolTip="Crafted: click to cycle Any › Yes › No" />
                     <Button x:Name="VeiledStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Veiled: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Veiled: click to cycle Any → Yes → No" />
+                            ToolTip="Veiled: click to cycle Any › Yes › No" />
                     <Button x:Name="ForeseeingStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Foreseeing: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Foreseeing: click to cycle Any → Yes → No" />
+                            ToolTip="Foreseeing: click to cycle Any › Yes › No" />
                     <Button x:Name="CrucibleStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Crucible Item: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Crucible Item: click to cycle Any → Yes → No" />
+                            ToolTip="Crucible Item: click to cycle Any › Yes › No" />
                     <Button x:Name="FoulbornStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Foulborn: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Foulborn: click to cycle Any → Yes → No" />
+                            ToolTip="Foulborn: click to cycle Any › Yes › No" />
                     <Button x:Name="VestigialStateButton"
                             Margin="0,0,2,3"
                             Click="OnItemStateButtonClick"
                             Content="Vestigial: Any"
                             Style="{StaticResource ItemStateButtonStyle}"
-                            ToolTip="Vestigial: click to cycle Any → Yes → No" />
+                            ToolTip="Vestigial: click to cycle Any › Yes › No" />
                     <Border x:Name="MemoryStrandsFilterBorder"
                             Margin="0,0,2,3"
                             PreviewMouseLeftButtonDown="OnRequestedItemFilterBorderPreviewMouseLeftButtonDown"
@@ -1500,7 +1514,7 @@
                                                                 BorderBrush="#454545"
                                                                 BorderThickness="0.75"
                                                                 CornerRadius="3"
-                                                                ToolTip="{Binding SelectedFilterVariant.Description}">
+                                                                ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
                                                             <Border.Style>
                                                                 <Style TargetType="{x:Type Border}">
                                                                     <Setter Property="Visibility"
@@ -1529,10 +1543,10 @@
                                                                   ItemsSource="{Binding FilterVariants}"
                                                                   SelectedItem="{Binding SelectedFilterVariant, Mode=OneWay}"
                                                                   DropDownClosed="OnModifierFilterVariantDropDownClosed"
-                                                                  ToolTip="{Binding SelectedFilterVariant.Description}">
+                                                                  ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
                                                             <ComboBox.Style>
                                                                 <Style TargetType="{x:Type ComboBox}"
-                                                                       BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
+                                                                       BasedOn="{StaticResource ModifierFilterVariantComboBoxStyle}">
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding HasStaticModType}"
                                                                                      Value="True">
@@ -1542,13 +1556,6 @@
                                                                     </Style.Triggers>
                                                                 </Style>
                                                             </ComboBox.Style>
-                                                            <ComboBox.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <TextBlock FontWeight="SemiBold"
-                                                                               Text="{Binding Label}"
-                                                                               ToolTip="{Binding Description}" />
-                                                                </DataTemplate>
-                                                            </ComboBox.ItemTemplate>
                                                         </ComboBox>
                                                     </Grid>
                                                     <TextBox Grid.Column="5"
@@ -1663,6 +1670,31 @@
                                                                     </TextBlock>
                                                                     </StackPanel>
                                                                 </Border>
+                                                                <Grid Grid.Column="5"
+                                                                      VerticalAlignment="Top">
+                                                                    <!-- Real ComboBox for any FilterVariants (including Pseudo-only shared). No flat single-option Border. -->
+                                                                    <ComboBox IsEnabled="{Binding CanSelectFilterVariant}"
+                                                                              ItemsSource="{Binding FilterVariants}"
+                                                                              SelectedItem="{Binding SelectedFilterVariant, Mode=OneWay}"
+                                                                              DropDownClosed="OnModifierFilterVariantDropDownClosed"
+                                                                              ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
+                                                                        <ComboBox.Style>
+                                                                            <Style TargetType="{x:Type ComboBox}"
+                                                                                   BasedOn="{StaticResource ModifierFilterVariantComboBoxStyle}">
+                                                                                <!-- Override base Collapsed-until-multiple. -->
+                                                                                <Setter Property="Visibility"
+                                                                                        Value="Visible" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding HasFilterVariants}"
+                                                                                                 Value="False">
+                                                                                        <Setter Property="Visibility"
+                                                                                                Value="Collapsed" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </ComboBox.Style>
+                                                                    </ComboBox>
+                                                                </Grid>
                                                                 <TextBox Grid.Column="6"
                                                                          Margin="3,0"
                                                                          IsEnabled="{Binding CanEditBounds}"
@@ -1852,7 +1884,7 @@
                                             BorderBrush="#454545"
                                             BorderThickness="0.75"
                                             CornerRadius="3"
-                                            ToolTip="{Binding SelectedFilterVariant.Description}">
+                                            ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
                                         <Border.Style>
                                             <Style TargetType="{x:Type Border}">
                                                 <Setter Property="Visibility"
@@ -1881,10 +1913,10 @@
                                               ItemsSource="{Binding FilterVariants}"
                                               SelectedItem="{Binding SelectedFilterVariant, Mode=OneWay}"
                                               DropDownClosed="OnModifierFilterVariantDropDownClosed"
-                                              ToolTip="{Binding SelectedFilterVariant.Description}">
+                                              ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
                                         <ComboBox.Style>
                                             <Style TargetType="{x:Type ComboBox}"
-                                                   BasedOn="{StaticResource ModifierFilterComboBoxStyle}">
+                                                   BasedOn="{StaticResource ModifierFilterVariantComboBoxStyle}">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding HasStaticModType}"
                                                                  Value="True">
@@ -1894,13 +1926,6 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </ComboBox.Style>
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock FontWeight="SemiBold"
-                                                           Text="{Binding Label}"
-                                                           ToolTip="{Binding Description}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
                                     </ComboBox>
                                 </Grid>
                                 <TextBox Grid.Column="4"
@@ -2026,6 +2051,31 @@
                                                 </TextBlock>
                                                 </StackPanel>
                                             </Border>
+                                            <Grid Grid.Column="4"
+                                                  VerticalAlignment="Top">
+                                                <!-- Real ComboBox for any FilterVariants (including Pseudo-only shared). No flat single-option Border. -->
+                                                <ComboBox IsEnabled="{Binding CanSelectFilterVariant}"
+                                                          ItemsSource="{Binding FilterVariants}"
+                                                          SelectedItem="{Binding SelectedFilterVariant, Mode=OneWay}"
+                                                          DropDownClosed="OnModifierFilterVariantDropDownClosed"
+                                                          ToolTip="{Binding SelectedFilterVariant.DisplayToolTip}">
+                                                    <ComboBox.Style>
+                                                        <Style TargetType="{x:Type ComboBox}"
+                                                               BasedOn="{StaticResource ModifierFilterVariantComboBoxStyle}">
+                                                            <!-- Override base Collapsed-until-multiple. -->
+                                                            <Setter Property="Visibility"
+                                                                    Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasFilterVariants}"
+                                                                             Value="False">
+                                                                    <Setter Property="Visibility"
+                                                                            Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </ComboBox.Style>
+                                                </ComboBox>
+                                            </Grid>
                                             <TextBox Grid.Column="5"
                                                      Margin="3,0"
                                                      IsEnabled="{Binding CanEditBounds}"

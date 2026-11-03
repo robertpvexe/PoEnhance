@@ -1545,6 +1545,16 @@ internal sealed class PathOfExileTradeStatMatcher : IPathOfExileTradeStatMatcher
 
     private static string? RequiredKind(StatMatchSource source)
     {
+        // Projected Group-A splits (:logic:) must not pin Match to the physical composite's
+        // Crafted/Fractured/Veiled branch — seed Explicit for the logical effect. Unanimous
+        // Fractured/Crafted physical parents keep their RequiredKind so Exact provenance Match
+        // still resolves (coverage audit / Fractured parent search).
+        if (source.Component is not null &&
+            PathOfExileTradeModifierVariantDiscovery.IsProjectedLogicalCriterion(source.Component))
+        {
+            return "explicit";
+        }
+
         if (source.IsCrafted)
         {
             return "crafted";

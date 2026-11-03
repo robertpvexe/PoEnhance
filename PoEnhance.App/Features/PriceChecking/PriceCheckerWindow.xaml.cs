@@ -229,9 +229,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             TradeItemStateKind.Vestigial,
             draft.ItemStateCriteria.Vestigial);
         StatsCountText.Text = FormatStatsCount(
-            draft.ItemProperties.Count(property => property.IsSelected) +
-                draft.ModifierFilters.Count(modifier => modifier.IsSelected),
-            draft.ItemProperties.Length + draft.ModifierFilters.Count);
+            TradeSearchSelectedCriteriaCounter.Count(draft));
         ScheduleOfferCapacityReport();
     }
 
@@ -253,7 +251,7 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             : state.LeagueIdentifier;
         SearchStatusText.Text = state.Message;
         SearchSummaryText.Text = state.Summary;
-        StatsCountText.Text = FormatStatsCount(state.SelectedStatsCount, state.StatsCount);
+        StatsCountText.Text = FormatStatsCount(state.SelectedStatsCount);
         if (!statsRowsAreUnchanged || StatsListBox.ItemsSource is null)
         {
             StatsListBox.ItemsSource = state.Stats;
@@ -1244,6 +1242,18 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
                         modifier.SourceIndex,
                         selected.Identity));
                 break;
+            case PriceCheckerModifierContributorViewModel contributor when !string.Equals(
+                contributor.SelectedFilterVariant?.Identity,
+                selected.Identity,
+                StringComparison.Ordinal):
+                PanelInteraction?.Invoke(this, EventArgs.Empty);
+                ModifierFilterVariantChanged?.Invoke(
+                    this,
+                    new PriceCheckerModifierFilterVariantChangedEventArgs(
+                        contributor.ParentSourceIndex,
+                        selected.Identity,
+                        contributor.ContributorIndex));
+                break;
         }
     }
 
@@ -1515,10 +1525,14 @@ internal partial class PriceCheckerWindow : Window, IPriceCheckerWindow, IPriceC
             : null;
     }
 
-    internal static string FormatStatsCount(int selectedCount, int totalCount)
-    {
-        return $"Stats {selectedCount} of {totalCount} selected";
-    }
+    internal static string FormatStatsCount(int selectedCount) =>
+        selectedCount == 1
+            ? "Stats: 1 filter selected"
+            : $"Stats: {selectedCount} filters selected";
+
+    // Legacy overload kept for call-site/tests that still pass a physical-row denominator.
+    internal static string FormatStatsCount(int selectedCount, int totalCount) =>
+        FormatStatsCount(selectedCount);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);

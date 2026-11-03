@@ -51,6 +51,12 @@ public sealed record TradeSearchDraft
 
     public IReadOnlyList<ResolvedSearchComponent> ModifierFilters { get; init; } = [];
 
+    /// <summary>
+    /// Draft-level criteria that several modifier rows may mirror in the UI (one selection,
+    /// one Min/Max, one Trade filter). Stage 03.11D: Pseudo Total Elemental Resistance.
+    /// </summary>
+    public IReadOnlyList<SharedSearchCriterion> SharedCriteria { get; init; } = [];
+
     public ImmutableArray<TradeSearchItemPropertyContributionGroup> ItemPropertyContributionGroups { get; init; } = [];
 
     public IReadOnlyList<TradeSearchDraftDiagnostic> ModifierAggregationDiagnostics { get; init; } = [];

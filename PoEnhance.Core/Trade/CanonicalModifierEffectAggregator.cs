@@ -165,6 +165,7 @@ internal static partial class CanonicalModifierEffectAggregator
             IsBaseImplicit = component.IsBaseImplicit,
             BaseImplicitProvenance = component.BaseImplicitProvenance,
             IsHybrid = isHybrid,
+            PhysicalSourceIdentity = component.PhysicalSourceIdentity,
             ResolvedModifierId = component.ResolvedModifierId,
             ResolvedModifierName = component.ResolvedModifierName,
             ResolvedStatIds = component.ResolvedStatIds.ToArray(),
@@ -281,7 +282,17 @@ internal static partial class CanonicalModifierEffectAggregator
     private static ResolvedSearchComponent CreateAggregate(
         IReadOnlyList<ResolvedSearchComponent> components)
     {
-        var first = components[0];
+        // A projected logical component carries the physical composite's provider evidence so a
+        // lone logical view can still find its Trade stat. An aggregate spans several physical
+        // sources, so it must be built from a component whose provider evidence describes the
+        // logical effect itself; otherwise it falls back to the logical canonical signature.
+        var first = components.FirstOrDefault(component =>
+                string.IsNullOrEmpty(component.PhysicalSourceIdentity)) ??
+            components[0] with
+            {
+                ProviderCanonicalSignature = null,
+                ProviderSearchSignatures = [],
+            };
         var canonicalValues = SumVectors(components.Select(CanonicalValues).ToArray());
         var observedValues = SumVectors(components
             .Select(component => component.ObservedNumericValues)
@@ -329,6 +340,9 @@ internal static partial class CanonicalModifierEffectAggregator
             ProviderDiagnosticCode = null,
             ProviderDiagnosticMessage = null,
             Sources = sources,
+            // An aggregate spans several physical sources; its sources carry their own identities.
+            PhysicalSourceIdentity = string.Empty,
+            LogicalContributions = [],
             Contributors = sources
                 .Select((source, index) => CreateContributor(source, index, first))
                 .ToArray(),

@@ -379,9 +379,10 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         }
 
         if (!hasValidationErrors &&
-            draft?.ModifierFilters.Any(modifier =>
-                modifier.IsSelected ||
-                SearchComponentContributorActivation.IsFilteringActive(modifier)) == true &&
+            (draft?.ModifierFilters.Any(modifier =>
+                    modifier.IsSelected ||
+                    SearchComponentContributorActivation.IsFilteringActive(modifier)) == true ||
+                draft?.SharedCriteria.Any(criterion => criterion.IsSelected) == true) &&
             providerStatCatalog is not null)
         {
             var mappingResult = selectedModifierMapper.Map(draft, providerStatCatalog);
@@ -801,9 +802,11 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         TradeSearchValidationResult? validationResult,
         string? leagueIdentifier)
     {
-        return draft?.ModifierFilters.Any(modifier =>
+        var hasSelectedModifiers = draft?.ModifierFilters.Any(modifier =>
                 modifier.IsSelected ||
-                SearchComponentContributorActivation.IsFilteringActive(modifier)) == true &&
+                SearchComponentContributorActivation.IsFilteringActive(modifier)) == true;
+        var hasSelectedShared = draft?.SharedCriteria.Any(criterion => criterion.IsSelected) == true;
+        return (hasSelectedModifiers || hasSelectedShared) &&
             validationResult is not null &&
             !validationResult.Diagnostics.Any(diagnostic =>
                 diagnostic.Severity == TradeSearchValidationSeverity.Error) &&
@@ -875,19 +878,34 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             .Select(group => group.Key)
             .ToHashSet();
         var resolvedComponents = draft.ModifierFilters
-            .Select(component => multiLineUniqueSourceIndexes.Contains(component.SourceModifierIndex)
-                ? MarkUnsafeMultiLineUnique(component)
-                : ResolveProviderComponent(
-                    draft,
-                    component,
-                    catalog,
-                    uniqueIdentity,
-                    filterCatalog,
-                    !multiComponentFracturedSourceIndexes.Contains(component.SourceModifierIndex)))
+            .Select(component =>
+            {
+                var resolved = multiLineUniqueSourceIndexes.Contains(component.SourceModifierIndex)
+                    ? MarkUnsafeMultiLineUnique(component)
+                    : ResolveProviderComponent(
+                        draft,
+                        component,
+                        catalog,
+                        uniqueIdentity,
+                        filterCatalog,
+                        !multiComponentFracturedSourceIndexes.Contains(component.SourceModifierIndex));
+                return ResolveLogicalContributions(draft, resolved, catalog);
+            })
             .ToArray();
         var resolvedDraft = draft with
         {
             ModifierFilters = resolvedComponents,
+        };
+        resolvedDraft = ResolveSharedCriteria(resolvedDraft, catalog);
+        resolvedDraft = SynchronizeSharedPseudoAttributeTotals(resolvedDraft);
+        // Final pass: item-wide Pseudo mins must see the fully resolved sibling set (aggregates,
+        // compact parents, projected logical children) after shared-criterion sync.
+        resolvedDraft = resolvedDraft with
+        {
+            ModifierFilters = resolvedDraft.ModifierFilters
+                .Select(component => ApplyItemWideLogicalPseudoMinimum(resolvedDraft, component))
+                .Select(component => ApplyItemWideLogicalContributionMinimums(resolvedDraft, component))
+                .ToArray(),
         };
 
         if (resolvedComponents.Any(component =>
@@ -1019,13 +1037,21 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
                 return component;
             }
 
-            var discoverySource = component.Sources
-                .Where(source =>
-                    source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact)
-                .Select(source => catalog.TryGetByProviderIdentity(source.ProviderIdentity, out var entry)
-                    ? entry
-                    : null)
-                .FirstOrDefault(entry => entry is not null) ?? previouslyResolvedEntry;
+            // Projected/logical Group-A criteria keep composite provenance on Sources. Rediscovery
+            // must seed from the Explicit logical-effect template — never from the currently
+            // selected Pseudo identity (UpdateCurrentDraft re-resolves after PreferPseudo) and
+            // never from the composite Crafted Fire+Chaos Source identity.
+            var isLogicalOverride =
+                PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(component);
+            var discoverySource = isLogicalOverride
+                ? ResolveLogicalEffectDiscoverySeed(component, catalog, previouslyResolvedEntry)
+                : component.Sources
+                    .Where(source =>
+                        source.ProviderResolutionStatus == SearchComponentProviderResolutionStatus.Exact)
+                    .Select(source => catalog.TryGetByProviderIdentity(source.ProviderIdentity, out var entry)
+                        ? entry
+                        : null)
+                    .FirstOrDefault(entry => entry is not null) ?? previouslyResolvedEntry;
             return PathOfExileTradeModifierVariantResolver.Apply(
                 component,
                 catalog,
@@ -1987,6 +2013,27 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
     private static ResolvedSearchComponent NeutralizeInheritedSpecialProviderFlags(
         ResolvedSearchComponent component)
     {
+        // Projected Group-A splits (:logic:) and multi-source aggregates must stay
+        // non-Crafted/Fractured for Trade discovery even when Sources still carry that provenance.
+        // Unanimous single-source Fractured/Crafted logical stats keep their provenance so
+        // contributor filtering / Fractured parent search stay faithful.
+        if (PathOfExileTradeModifierVariantDiscovery.IsProjectedLogicalCriterion(component) ||
+            (PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(component) &&
+                component.Sources.Count > 1))
+        {
+            if (!component.IsCrafted && !component.IsFractured && !component.IsVeiled)
+            {
+                return component;
+            }
+
+            return component with
+            {
+                IsCrafted = false,
+                IsFractured = false,
+                IsVeiled = false,
+            };
+        }
+
         if (component.Sources.Count <= 1)
         {
             return component;
@@ -2343,6 +2390,516 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
         };
     }
 
+    private ResolvedSearchComponent ResolveLogicalContributions(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        component = ApplyItemWideLogicalPseudoMinimum(draft, component);
+
+        if (component.LogicalContributions.Count == 0)
+        {
+            return component;
+        }
+
+        var resolvedChildren = component.LogicalContributions
+            .Select(contribution => ResolveLogicalContribution(draft, component, contribution, catalog))
+            .ToArray();
+        return component with { LogicalContributions = resolvedChildren };
+    }
+
+    private SearchComponentLogicalContribution ResolveLogicalContribution(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent parent,
+        SearchComponentLogicalContribution contribution,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        var itemWideMinimum = LogicalEffectItemTotalCalculator.TryCompute(
+                draft.ModifierFilters,
+                contribution.LogicalStatId,
+                out var total)
+            ? total
+            : contribution.CanonicalNumericValues.ElementAtOrDefault(0) is decimal scalar
+                ? scalar
+                : (decimal?)null;
+        var synthetic = new ResolvedSearchComponent
+        {
+            ComponentId = contribution.ContributionId,
+            SourceModifierIndex = parent.SourceModifierIndex,
+            SourceLineIndex = parent.SourceLineIndex,
+            SourceComponentIndex = parent.SourceComponentIndex,
+            OriginalText = contribution.DisplayText,
+            CanonicalSignature = contribution.CanonicalSignature,
+            // Treat as ordinary Explicit text for discovery; PreferPseudo picks totals.
+            ParsedKind = ParsedModifierKind.Suffix,
+            Locality = parent.Locality,
+            ResolutionStatus = parent.ResolutionStatus,
+            ResolvedModifierId = parent.ResolvedModifierId,
+            ResolvedModifierName = parent.ResolvedModifierName,
+            ResolvedStatIds = [contribution.LogicalStatId],
+            IsSearchable = parent.IsSearchable,
+            SupportsValueBounds = itemWideMinimum.HasValue,
+            ValueBoundShape = itemWideMinimum.HasValue
+                ? ModifierBoundShape.Scalar
+                : ModifierBoundShape.Unsupported,
+            ObservedNumericValues = itemWideMinimum.HasValue ? [itemWideMinimum.Value] : [],
+            CanonicalNumericValues = itemWideMinimum.HasValue ? [itemWideMinimum.Value] : [],
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+            RequestedMinimum = contribution.RequestedMinimum ?? itemWideMinimum,
+            RequestedMaximum = contribution.RequestedMaximum,
+            SelectedFilterVariantIdentity = contribution.SelectedFilterVariantIdentity,
+            RequestedFilterVariantIdentity = contribution.RequestedFilterVariantIdentity,
+            RequestedFilterVariantKind = contribution.RequestedFilterVariantKind,
+            IsSelected = contribution.IsSelected,
+            PhysicalSourceIdentity = $"{contribution.PhysicalSourceIdentity}:logic:{contribution.LogicalStatId}",
+            // Do not inherit Crafted/Fractured — logical totals are Pseudo/Explicit criteria.
+            IsCrafted = false,
+            IsFractured = false,
+        };
+
+        var match = statMatcher.Match(
+            synthetic,
+            catalog,
+            CreateMatchContext(draft, synthetic));
+        if (match.ExactCandidate is null)
+        {
+            return contribution with
+            {
+                SupportsValueBounds = false,
+                ValueBoundShape = ModifierBoundShape.Unsupported,
+                ValueBoundsUnsupportedReason =
+                    "No faithful Trade filter was found for this logical effect total.",
+                ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Unsupported,
+                ProviderDiagnosticCode = match.Diagnostics.FirstOrDefault()?.Code,
+                ProviderDiagnosticMessage = match.Diagnostics.FirstOrDefault()?.Message ??
+                    "This logical effect total cannot be searched faithfully.",
+                FilterVariants = [],
+                SelectedFilterVariantIdentity = null,
+                ProviderStatId = null,
+            };
+        }
+
+        var resolved = PathOfExileTradeModifierVariantResolver.Apply(
+            synthetic,
+            catalog,
+            match.ExactCandidate);
+        // Default Pseudo for compact logical children, but never override a deliberate
+        // user-requested Mod Type (e.g. Explicit Fire instead of Pseudo Total Fire).
+        var requestedIdentity = TrimToNull(contribution.RequestedFilterVariantIdentity);
+        var preferredIdentity =
+            requestedIdentity is not null &&
+            resolved.FilterVariants.Any(option => string.Equals(
+                option.Identity,
+                requestedIdentity,
+                StringComparison.Ordinal))
+                ? requestedIdentity
+                : PreferPseudoVariantIdentity(
+                    resolved.FilterVariants,
+                    resolved.SelectedFilterVariantIdentity);
+        if (!string.Equals(
+                preferredIdentity,
+                resolved.SelectedFilterVariantIdentity,
+                StringComparison.Ordinal))
+        {
+            resolved = PathOfExileTradeModifierVariantResolver.Apply(
+                resolved with
+                {
+                    SelectedFilterVariantIdentity = preferredIdentity,
+                    RequestedFilterVariantIdentity = contribution.RequestedFilterVariantIdentity,
+                },
+                catalog,
+                match.ExactCandidate);
+        }
+
+        return contribution with
+        {
+            SupportsValueBounds = resolved.SupportsValueBounds,
+            ValueBoundsUnsupportedReason = resolved.ValueBoundsUnsupportedReason,
+            ValueBoundShape = resolved.ValueBoundShape,
+            DefaultBoundDirection = resolved.DefaultBoundDirection,
+            RequestedMinimum = contribution.IsSelected
+                ? contribution.RequestedMinimum ?? resolved.RequestedMinimum ?? itemWideMinimum
+                : itemWideMinimum,
+            RequestedMaximum = contribution.IsSelected
+                ? contribution.RequestedMaximum
+                : null,
+            FilterVariants = resolved.FilterVariants,
+            SelectedFilterVariantIdentity = resolved.SelectedFilterVariantIdentity,
+            RequestedFilterVariantIdentity = contribution.RequestedFilterVariantIdentity,
+            RequestedFilterVariantKind = contribution.RequestedFilterVariantKind,
+            ProviderResolutionStatus = resolved.ProviderResolutionStatus,
+            ProviderStatId = resolved.ProviderStatId,
+            ProviderStatText = resolved.ProviderStatText,
+            ProviderStatAlternativeIds = resolved.ProviderStatAlternativeIds,
+            ProviderDiagnosticCode = resolved.ProviderDiagnosticCode,
+            ProviderDiagnosticMessage = resolved.ProviderDiagnosticMessage,
+        };
+    }
+
+    private static ResolvedSearchComponent ApplyItemWideLogicalPseudoMinimum(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component)
+    {
+        if (component.ResolvedStatIds.Count != 1 ||
+            !component.SupportsValueBounds ||
+            component.DefaultBoundDirection != ModifierBoundDirection.Minimum)
+        {
+            return component;
+        }
+
+        var isLogicalOverride =
+            PathOfExileTradeModifierVariantDiscovery.IsLogicalEffectSearchOverride(component);
+        var selectedIsPseudo = component.FilterVariants.Any(variant =>
+            string.Equals(variant.Identity, component.SelectedFilterVariantIdentity, StringComparison.Ordinal) &&
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+        if (!isLogicalOverride && !selectedIsPseudo)
+        {
+            return component;
+        }
+
+        if (!LogicalEffectItemTotalCalculator.TryCompute(
+                draft.ModifierFilters,
+                component.ResolvedStatIds[0],
+                out var total))
+        {
+            return component;
+        }
+
+        // Pseudo Total for Group-A logical effects is the item-wide evaluated total. Source
+        // contribution scalars are defaults; replace them. Preserve only a true user edit.
+        if (isLogicalOverride && selectedIsPseudo)
+        {
+            return component with { RequestedMinimum = total };
+        }
+
+        var sourceContributions = new HashSet<decimal>();
+        if (component.CanonicalNumericValues.Count == 1)
+        {
+            sourceContributions.Add(component.CanonicalNumericValues[0]);
+        }
+
+        if (component.ObservedNumericValues.Count == 1)
+        {
+            sourceContributions.Add(component.ObservedNumericValues[0]);
+        }
+
+        foreach (var source in component.Sources)
+        {
+            if (source.CanonicalNumericValues.Count == 1)
+            {
+                sourceContributions.Add(source.CanonicalNumericValues[0]);
+            }
+        }
+
+        if (component.RequestedMinimum is { } requested &&
+            requested != total &&
+            !sourceContributions.Contains(requested))
+        {
+            return component;
+        }
+
+        return component with { RequestedMinimum = total };
+    }
+
+    private static ResolvedSearchComponent ApplyItemWideLogicalContributionMinimums(
+        TradeSearchDraft draft,
+        ResolvedSearchComponent component)
+    {
+        if (component.LogicalContributions.Count == 0)
+        {
+            return component;
+        }
+
+        return component with
+        {
+            LogicalContributions = component.LogicalContributions
+                .Select(contribution =>
+                {
+                    var selectedIsPseudo = contribution.FilterVariants.Any(variant =>
+                        string.Equals(
+                            variant.Identity,
+                            contribution.SelectedFilterVariantIdentity,
+                            StringComparison.Ordinal) &&
+                        string.Equals(
+                            variant.ProviderKind,
+                            "pseudo",
+                            StringComparison.OrdinalIgnoreCase));
+                    if (!selectedIsPseudo ||
+                        !LogicalEffectItemTotalCalculator.TryCompute(
+                            draft.ModifierFilters,
+                            contribution.LogicalStatId,
+                            out var total))
+                    {
+                        return contribution;
+                    }
+
+                    var sourceContributions = contribution.CanonicalNumericValues.Count == 1
+                        ? new HashSet<decimal> { contribution.CanonicalNumericValues[0] }
+                        : [];
+                    if (contribution.RequestedMinimum.HasValue &&
+                        !sourceContributions.Contains(contribution.RequestedMinimum.Value) &&
+                        contribution.RequestedMinimum.Value != total)
+                    {
+                        return contribution;
+                    }
+
+                    return contribution with { RequestedMinimum = total };
+                })
+                .ToArray(),
+        };
+    }
+
+    private static TradeSearchDraft ResolveSharedCriteria(
+        TradeSearchDraft draft,
+        PathOfExileTradeStatCatalog catalog)
+    {
+        var hostsElementalMirror = draft.ModifierFilters.Any(
+            LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost);
+        if (!hostsElementalMirror)
+        {
+            return draft with
+            {
+                SharedCriteria = draft.SharedCriteria
+                    .Where(criterion => criterion.CriterionId !=
+                        SharedSearchCriterion.TotalElementalResistanceId)
+                    .ToArray(),
+            };
+        }
+
+        if (!catalog.TryGetById(
+                SharedSearchCriterion.TotalElementalResistanceProviderStatId,
+                out _))
+        {
+            return draft;
+        }
+
+        var previous = draft.SharedCriteria.FirstOrDefault(criterion => string.Equals(
+            criterion.CriterionId,
+            SharedSearchCriterion.TotalElementalResistanceId,
+            StringComparison.Ordinal));
+        var hasTotal = LogicalEffectItemTotalCalculator.TryComputeTotalElementalResistance(
+            draft.ModifierFilters,
+            out var elementalTotal);
+        var requestedMinimum = previous?.IsSelected == true
+            ? previous.RequestedMinimum ?? (hasTotal ? elementalTotal : null)
+            : hasTotal ? elementalTotal : null;
+        var elemental = new SharedSearchCriterion
+        {
+            CriterionId = SharedSearchCriterion.TotalElementalResistanceId,
+            ProviderStatId = SharedSearchCriterion.TotalElementalResistanceProviderStatId,
+            DisplayText = SharedSearchCriterion.TotalElementalResistanceDisplayText,
+            IsSelected = previous?.IsSelected == true,
+            SupportsValueBounds = hasTotal,
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+            RequestedMinimum = requestedMinimum,
+            RequestedMaximum = previous?.IsSelected == true ? previous.RequestedMaximum : null,
+            ProviderResolutionStatus = hasTotal
+                ? SearchComponentProviderResolutionStatus.Exact
+                : SearchComponentProviderResolutionStatus.Unsupported,
+            ProviderDiagnosticMessage = hasTotal
+                ? null
+                : "No item-wide Elemental Resistance total is available for this item.",
+        };
+
+        var others = draft.SharedCriteria
+            .Where(criterion => criterion.CriterionId != SharedSearchCriterion.TotalElementalResistanceId)
+            .ToArray();
+        return draft with { SharedCriteria = [.. others, elemental] };
+    }
+
+    /// <summary>
+    /// When several rows expose the same Pseudo Total attribute (standalone Dex + All Attributes
+    /// Dex child), keep one shared Min/Max so provider JSON collapses to a single filter.
+    /// </summary>
+    private static TradeSearchDraft SynchronizeSharedPseudoAttributeTotals(TradeSearchDraft draft)
+    {
+        var groups = EnumeratePseudoAttributeSelections(draft)
+            .GroupBy(entry => entry.ProviderStatId, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .ToArray();
+        if (groups.Length == 0)
+        {
+            return draft;
+        }
+
+        var modifiers = draft.ModifierFilters.ToArray();
+        foreach (var group in groups)
+        {
+            var preferredMinimum = group
+                .Select(entry => entry.RequestedMinimum)
+                .FirstOrDefault(value => value.HasValue);
+            var preferredMaximum = group
+                .Select(entry => entry.RequestedMaximum)
+                .FirstOrDefault(value => value.HasValue);
+            foreach (var entry in group)
+            {
+                if (entry.LogicalIndex is int logicalIndex)
+                {
+                    var parent = modifiers[entry.ModifierIndex];
+                    var logical = parent.LogicalContributions[logicalIndex];
+                    if (logical.RequestedMinimum == preferredMinimum &&
+                        logical.RequestedMaximum == preferredMaximum)
+                    {
+                        continue;
+                    }
+
+                    modifiers[entry.ModifierIndex] = parent with
+                    {
+                        LogicalContributions = parent.LogicalContributions
+                            .Select((candidate, index) => index == logicalIndex
+                                ? candidate with
+                                {
+                                    RequestedMinimum = preferredMinimum,
+                                    RequestedMaximum = preferredMaximum,
+                                }
+                                : candidate)
+                            .ToArray(),
+                    };
+                }
+                else
+                {
+                    var modifier = modifiers[entry.ModifierIndex];
+                    if (modifier.RequestedMinimum == preferredMinimum &&
+                        modifier.RequestedMaximum == preferredMaximum)
+                    {
+                        continue;
+                    }
+
+                    modifiers[entry.ModifierIndex] = modifier with
+                    {
+                        RequestedMinimum = preferredMinimum,
+                        RequestedMaximum = preferredMaximum,
+                    };
+                }
+            }
+        }
+
+        return draft with { ModifierFilters = modifiers };
+    }
+
+    private static IEnumerable<(
+        int ModifierIndex,
+        int? LogicalIndex,
+        string ProviderStatId,
+        decimal? RequestedMinimum,
+        decimal? RequestedMaximum)> EnumeratePseudoAttributeSelections(TradeSearchDraft draft)
+    {
+        for (var index = 0; index < draft.ModifierFilters.Count; index++)
+        {
+            var modifier = draft.ModifierFilters[index];
+            if (modifier.IsSelected &&
+                IsSelectedPseudoAttribute(modifier.ResolvedStatIds, modifier.FilterVariants, modifier.SelectedFilterVariantIdentity) &&
+                !string.IsNullOrWhiteSpace(modifier.ProviderStatId))
+            {
+                yield return (
+                    index,
+                    null,
+                    modifier.ProviderStatId!,
+                    modifier.RequestedMinimum,
+                    modifier.RequestedMaximum);
+            }
+
+            for (var logicalIndex = 0; logicalIndex < modifier.LogicalContributions.Count; logicalIndex++)
+            {
+                var logical = modifier.LogicalContributions[logicalIndex];
+                if (!logical.IsSelected ||
+                    !IsSelectedPseudoAttribute(
+                        [logical.LogicalStatId],
+                        logical.FilterVariants,
+                        logical.SelectedFilterVariantIdentity) ||
+                    string.IsNullOrWhiteSpace(logical.ProviderStatId))
+                {
+                    continue;
+                }
+
+                yield return (
+                    index,
+                    logicalIndex,
+                    logical.ProviderStatId!,
+                    logical.RequestedMinimum,
+                    logical.RequestedMaximum);
+            }
+        }
+    }
+
+    private static bool IsSelectedPseudoAttribute(
+        IReadOnlyList<string> resolvedStatIds,
+        IReadOnlyList<SearchFilterVariant> variants,
+        string? selectedIdentity)
+    {
+        if (resolvedStatIds.Count != 1 ||
+            !LogicalEffectItemTotalCalculator.IsAttributeLogicalStat(resolvedStatIds[0]))
+        {
+            return false;
+        }
+
+        return variants.Any(variant =>
+            string.Equals(variant.Identity, selectedIdentity, StringComparison.Ordinal) &&
+            string.Equals(variant.ProviderKind, "pseudo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool IsElementalResistanceMirrorHost(ResolvedSearchComponent component) =>
+        LogicalEffectItemTotalCalculator.IsElementalResistanceMirrorHost(component);
+
+    private static string? PreferPseudoVariantIdentity(
+        IReadOnlyList<SearchFilterVariant> variants,
+        string? currentIdentity)
+    {
+        var pseudo = variants.FirstOrDefault(variant => string.Equals(
+            variant.ProviderKind,
+            "pseudo",
+            StringComparison.OrdinalIgnoreCase));
+        return pseudo?.Identity ?? currentIdentity;
+    }
+
+    /// <summary>
+    /// Seeds Mod Type rediscovery for Group-A logical effects from the Explicit catalog
+    /// sibling of the logical stat. Using the selected Pseudo provider as the seed truncates
+    /// Explicit/Fractured/Implicit (and asymmetric Crafted) via locality SemanticMismatch.
+    /// </summary>
+    private static PathOfExileTradeStatEntry ResolveLogicalEffectDiscoverySeed(
+        ResolvedSearchComponent component,
+        PathOfExileTradeStatCatalog catalog,
+        PathOfExileTradeStatEntry previouslyResolved)
+    {
+        var previousKind = PathOfExileTradeStatCandidateClassifier.GetProviderKind(
+            PathOfExileTradeStatCandidateClassifier.ToCandidate(previouslyResolved));
+        if (string.Equals(previousKind, "explicit", StringComparison.Ordinal))
+        {
+            return previouslyResolved;
+        }
+
+        var effectTemplate = component.ResolvedStatIds.Count == 1 &&
+            ApprovedMultiEffectProjectionCatalog.TryGetLogicalTarget(
+                component.ResolvedStatIds[0],
+                out var target)
+            ? target.CanonicalSignature
+                .Replace("+<number>", "+#", StringComparison.Ordinal)
+                .Replace("-<number>", "-#", StringComparison.Ordinal)
+                .Replace("<number>", "#", StringComparison.Ordinal)
+            : previouslyResolved.Text;
+        var sourceEffect = PathOfExileTradePseudoVariantCompatibility.LogicalEffectIdentity(
+            effectTemplate);
+        var explicitSeed = catalog.FindCandidatesByLogicalEffect(sourceEffect)
+            .Where(candidate => string.Equals(
+                PathOfExileTradeStatCandidateClassifier.GetProviderKind(candidate),
+                "explicit",
+                StringComparison.Ordinal))
+            .OrderByDescending(candidate => string.Equals(
+                candidate.Text,
+                effectTemplate,
+                StringComparison.OrdinalIgnoreCase))
+            .ThenBy(candidate => candidate.ProviderOrder)
+            .FirstOrDefault();
+        if (explicitSeed is not null &&
+            catalog.TryGetById(explicitSeed.StatId, out var explicitEntry))
+        {
+            return explicitEntry;
+        }
+
+        return previouslyResolved;
+    }
+
     private static bool IsCompatibleRetainedContributorIdentity(
         SearchComponentSourceProvenance source,
         PathOfExileTradeStatEntry providerEntry)
@@ -2398,6 +2955,8 @@ internal sealed class PathOfExileTradePriceCheckService : IPathOfExileTradePrice
             OriginalSourceRollRanges = source.OriginalSourceRollRanges,
             CanonicalNumericValues = source.CanonicalNumericValues,
             ProviderCanonicalSignature = source.ProviderCanonicalSignature,
+            // Projected physical provenance matches Trade through its composite search renderings.
+            ProviderSearchSignatures = source.ProviderSearchSignatures,
             ValueBoundTranslationHandlers = source.TranslationHandlers,
             ValueBoundTranslationIdentity = source.TranslationIdentity,
             DefaultBoundDirection = source.DefaultBoundDirection,

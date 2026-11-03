@@ -96,6 +96,13 @@ public sealed record SearchComponentSourceProvenance
 
     public bool IsHybrid { get; init; }
 
+    /// <summary>
+    /// Shared identity of the one physical affix when this source belongs to an approved
+    /// multi-effect projection; empty otherwise. See
+    /// <see cref="ResolvedSearchComponent.PhysicalSourceIdentity"/>.
+    /// </summary>
+    public string PhysicalSourceIdentity { get; init; } = string.Empty;
+
     public string? ResolvedModifierId { get; init; }
 
     public string? ResolvedModifierName { get; init; }

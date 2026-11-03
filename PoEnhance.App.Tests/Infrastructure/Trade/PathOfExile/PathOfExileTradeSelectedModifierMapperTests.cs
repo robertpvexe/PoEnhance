@@ -1576,6 +1576,337 @@ public sealed class PathOfExileTradeSelectedModifierMapperTests
         };
     }
 
+    // Stage 03.11 - shared physical-source query identity. SYNTHETIC components/catalog.
+    private const string FireAndChaosStatId = "explicit.stat_fire_and_chaos";
+    private const string PseudoFireStatId = "pseudo.pseudo_total_fire_resistance";
+    private const string PseudoChaosStatId = "pseudo.pseudo_total_chaos_resistance";
+    private const string SharedFireAndChaosIdentity = "phys:1:0:modifier:1:0";
+
+    [Fact]
+    public void Map_IndependentChaosRow_EmitsPseudoChaosTotal()
+    {
+        var (fire, chaos) = SharedFireAndChaosModifiers(chaosSelected: true, fireChildSelected: false);
+
+        var result = mapper.Map(Draft([fire, chaos]), SharedFireAndChaosCatalog());
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(PseudoChaosStatId, filter.StatId);
+        Assert.Equal(10m, filter.Minimum);
+    }
+
+    [Fact]
+    public void Map_ProjectedFireChild_EmitsParentPseudoFireTotalNotCombinedExact()
+    {
+        var (fire, chaos) = SharedFireAndChaosModifiers(chaosSelected: false, fireChildSelected: true);
+
+        var result = mapper.Map(Draft([fire, chaos]), SharedFireAndChaosCatalog());
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(PseudoFireStatId, filter.StatId);
+        Assert.Equal(40m, filter.Minimum);
+        Assert.DoesNotContain(result.Filters, candidate => candidate.StatId == FireAndChaosStatId);
+    }
+
+    [Fact]
+    public void Map_IndependentFireAndChaosCriteria_EmitTwoDistinctPseudoTotals()
+    {
+        var (fire, chaos) = SharedFireAndChaosModifiers(chaosSelected: true, fireChildSelected: true);
+
+        var result = mapper.Map(Draft([fire, chaos]), SharedFireAndChaosCatalog());
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(2, result.Filters.Count);
+        Assert.Contains(result.Filters, filter => filter.StatId == PseudoFireStatId && filter.Minimum == 40m);
+        Assert.Contains(result.Filters, filter => filter.StatId == PseudoChaosStatId && filter.Minimum == 10m);
+    }
+
+    [Fact]
+    public void Map_SharedFireAndChaosSource_WithNothingSelectedEmitsNoFilter()
+    {
+        var (fire, chaos) = SharedFireAndChaosModifiers(chaosSelected: false, fireChildSelected: false);
+
+        var result = mapper.Map(Draft([fire, chaos]), SharedFireAndChaosCatalog());
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Filters);
+    }
+
+    [Fact]
+    public void Map_CompactAllElementalParentOnly_EmitsExactCombinedFilter()
+    {
+        const string exactId = "explicit.stat_all_elemental";
+        var parent = CompactAllElementalParent(
+            parentSelected: true,
+            fireSelected: false,
+            coldSelected: false,
+            lightningSelected: false,
+            exactId);
+
+        var result = mapper.Map(Draft([parent]), CompactAllElementalCatalog(exactId));
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(exactId, filter.StatId);
+        Assert.Equal(9m, filter.Minimum);
+    }
+
+    [Fact]
+    public void Map_CompactAllElementalFireChildOnly_EmitsPseudoFireTotal()
+    {
+        const string exactId = "explicit.stat_all_elemental";
+        var parent = CompactAllElementalParent(
+            parentSelected: false,
+            fireSelected: true,
+            coldSelected: false,
+            lightningSelected: false,
+            exactId);
+
+        var result = mapper.Map(Draft([parent]), CompactAllElementalCatalog(exactId));
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        var filter = Assert.Single(result.Filters);
+        Assert.Equal(PseudoFireStatId, filter.StatId);
+        Assert.Equal(14m, filter.Minimum);
+        Assert.DoesNotContain(result.Filters, candidate => candidate.StatId == exactId);
+    }
+
+    [Fact]
+    public void Map_CompactAllElementalParentAndTwoChildren_EmitExactPlusTwoPseudos()
+    {
+        const string exactId = "explicit.stat_all_elemental";
+        var parent = CompactAllElementalParent(
+            parentSelected: true,
+            fireSelected: true,
+            coldSelected: true,
+            lightningSelected: false,
+            exactId);
+
+        var result = mapper.Map(Draft([parent]), CompactAllElementalCatalog(exactId));
+
+        Assert.True(result.IsSuccess, string.Join("; ", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(3, result.Filters.Count);
+        Assert.Contains(result.Filters, filter => filter.StatId == exactId && filter.Minimum == 9m);
+        Assert.Contains(result.Filters, filter => filter.StatId == PseudoFireStatId);
+        Assert.Contains(result.Filters, filter => filter.StatId == "pseudo.pseudo_total_cold_resistance");
+    }
+
+    private static ResolvedSearchComponent CompactAllElementalParent(
+        bool parentSelected,
+        bool fireSelected,
+        bool coldSelected,
+        bool lightningSelected,
+        string exactId) =>
+        Modifier(
+            "+9% to all Elemental Resistances",
+            isSelected: parentSelected,
+            statIds: ["base_resist_all_elements_%"],
+            providerStatId: exactId,
+            canonicalSignature: "+<number>% to all Elemental Resistances") with
+        {
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [9m],
+            CanonicalNumericValues = [9m],
+            RequestedMinimum = 9m,
+            TranslationRecognition = null,
+            ValueBoundTranslationHandlers = [[]],
+            PhysicalSourceIdentity = "phys:2:0:modifier:2:0",
+            LogicalContributions =
+            [
+                LogicalChild(
+                    "base_fire_damage_resistance_%",
+                    "+9% to Fire Resistance",
+                    fireSelected,
+                    PseudoFireStatId,
+                    requestedMinimum: 14m),
+                LogicalChild(
+                    "base_cold_damage_resistance_%",
+                    "+9% to Cold Resistance",
+                    coldSelected,
+                    "pseudo.pseudo_total_cold_resistance",
+                    requestedMinimum: 9m),
+                LogicalChild(
+                    "base_lightning_damage_resistance_%",
+                    "+9% to Lightning Resistance",
+                    lightningSelected,
+                    "pseudo.pseudo_total_lightning_resistance",
+                    requestedMinimum: 9m),
+            ],
+        };
+
+    private static SearchComponentLogicalContribution LogicalChild(
+        string statId,
+        string text,
+        bool isSelected,
+        string providerStatId,
+        decimal requestedMinimum)
+    {
+        var signature = text.Contains("Fire", StringComparison.Ordinal)
+            ? "+<number>% to Fire Resistance"
+            : text.Contains("Cold", StringComparison.Ordinal)
+                ? "+<number>% to Cold Resistance"
+                : "+<number>% to Lightning Resistance";
+        return new SearchComponentLogicalContribution
+        {
+            ContributionId = $"phys:2:0:modifier:2:0:{statId}",
+            LogicalStatId = statId,
+            DisplayText = text,
+            CanonicalSignature = signature,
+            PhysicalSourceIdentity = $"phys:2:0:modifier:2:0:logic:{statId}",
+            CanonicalNumericValues = [9m],
+            IsSelected = isSelected,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            DefaultBoundDirection = ModifierBoundDirection.Minimum,
+            RequestedMinimum = requestedMinimum,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderStatId = providerStatId,
+            SelectedFilterVariantIdentity = PathOfExileTradeModifierVariantResolver.IdentityFor(providerStatId),
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = PathOfExileTradeModifierVariantResolver.IdentityFor(providerStatId),
+                    Label = "Pseudo",
+                    Description = providerStatId,
+                    ProviderKind = "pseudo",
+                    SupportsValueBounds = true,
+                },
+            ],
+        };
+    }
+
+    private static PathOfExileTradeStatCatalog SharedFireAndChaosCatalog() => new(
+    [
+        Entry(FireAndChaosStatId, "+#% to Fire and Chaos Resistances"),
+        Entry("explicit.stat_fire", "+#% to Fire Resistance"),
+        PseudoEntry(PseudoFireStatId, "+#% total to Fire Resistance"),
+        PseudoEntry(PseudoChaosStatId, "+#% total to Chaos Resistance"),
+    ]);
+
+    private static PathOfExileTradeStatCatalog CompactAllElementalCatalog(string exactId) => new(
+    [
+        Entry(exactId, "+#% to all Elemental Resistances"),
+        PseudoEntry(PseudoFireStatId, "+#% total to Fire Resistance"),
+        PseudoEntry("pseudo.pseudo_total_cold_resistance", "+#% total to Cold Resistance"),
+        PseudoEntry("pseudo.pseudo_total_lightning_resistance", "+#% total to Lightning Resistance"),
+    ]);
+
+    private static PathOfExileTradeStatEntry PseudoEntry(string id, string text) => new()
+    {
+        ProviderOrder = 0,
+        GroupId = "pseudo",
+        GroupLabel = "Pseudo",
+        Id = id,
+        Text = text,
+        Type = "pseudo",
+    };
+
+    private static (ResolvedSearchComponent Fire, ResolvedSearchComponent Chaos) SharedFireAndChaosModifiers(
+        bool chaosSelected,
+        bool fireChildSelected)
+    {
+        var shared = new SearchComponentSourceProvenance
+        {
+            ComponentId = "modifier:1:0",
+            SourceModifierIndex = 1,
+            OriginalText = "+10% to Fire and Chaos Resistances",
+            CanonicalSignature = "+<number>% to Fire and Chaos Resistances",
+            ParsedKind = ParsedModifierKind.Suffix,
+            Locality = ModifierLocality.Global,
+            ProviderDomain = "Explicit",
+            ResolvedModifierId = "mod.fire-and-chaos",
+            ResolvedStatIds = ["fire_and_chaos_damage_resistance_%"],
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            TranslationHandlers = [[]],
+            PhysicalSourceIdentity = SharedFireAndChaosIdentity,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create(FireAndChaosStatId),
+        };
+        var pureFire = shared with
+        {
+            ComponentId = "modifier:0:0",
+            SourceModifierIndex = 0,
+            OriginalText = "+30% to Fire Resistance",
+            CanonicalSignature = "+<number>% to Fire Resistance",
+            ResolvedModifierId = "mod.fire",
+            ResolvedStatIds = ["base_fire_damage_resistance_%"],
+            ObservedNumericValues = [30m],
+            CanonicalNumericValues = [30m],
+            PhysicalSourceIdentity = string.Empty,
+            ProviderIdentity = PathOfExileTradeProviderIdentity.Create("explicit.stat_fire"),
+        };
+        SearchComponentContributor Child(string id, SearchComponentSourceProvenance source, decimal value, bool selected) => new()
+        {
+            ContributorId = id,
+            Source = source,
+            DisplayText = source.OriginalText,
+            IsSelected = selected,
+            RequestedMinimum = value,
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            ProviderIdentity = source.ProviderIdentity,
+        };
+
+        var fire = Modifier(
+            "+40% to Fire Resistance",
+            isSelected: false,
+            statIds: ["base_fire_damage_resistance_%"],
+            providerStatId: PseudoFireStatId,
+            canonicalSignature: "+<number>% to Fire Resistance") with
+        {
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            CanonicalNumericValues = [40m],
+            ObservedNumericValues = [40m],
+            RequestedMinimum = 40m,
+            ProviderResolutionStatus = SearchComponentProviderResolutionStatus.Exact,
+            SelectedFilterVariantIdentity = PathOfExileTradeModifierVariantResolver.IdentityFor(PseudoFireStatId),
+            FilterVariants =
+            [
+                new SearchFilterVariant
+                {
+                    Identity = PathOfExileTradeModifierVariantResolver.IdentityFor(PseudoFireStatId),
+                    Label = "Pseudo",
+                    Description = "+#% total to Fire Resistance",
+                    ProviderKind = "pseudo",
+                    SupportsValueBounds = true,
+                    SupportsContributorComposition = true,
+                },
+            ],
+            Sources = [pureFire, shared],
+            ContributorProjection = SearchComponentContributorProjection.Additive,
+            Contributors =
+            [
+                Child("c-pure", pureFire, 30m, selected: false),
+                Child("c-shared", shared, 10m, fireChildSelected),
+            ],
+        };
+        var chaos = Modifier(
+            "+10% to Chaos Resistance",
+            isSelected: chaosSelected,
+            statIds: ["base_chaos_damage_resistance_%"],
+            providerStatId: PseudoChaosStatId,
+            canonicalSignature: "+<number>% to Chaos Resistance") with
+        {
+            ComponentId = "modifier:1:0:split:base_chaos_damage_resistance_%",
+            SupportsValueBounds = true,
+            ValueBoundShape = ModifierBoundShape.Scalar,
+            ObservedNumericValues = [10m],
+            CanonicalNumericValues = [10m],
+            RequestedMinimum = 10m,
+            ValueBoundTranslationHandlers = [[]],
+            Sources = [shared],
+            PhysicalSourceIdentity = $"{SharedFireAndChaosIdentity}:logic:base_chaos_damage_resistance_%",
+        };
+        return (fire, chaos);
+    }
+
     private static ResolvedSearchComponent ContributorAggregate(
         bool pseudo,
         decimal parentMinimum,

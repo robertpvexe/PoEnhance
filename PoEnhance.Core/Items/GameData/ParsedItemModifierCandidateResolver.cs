@@ -1181,6 +1181,7 @@ public sealed partial class ParsedItemModifierCandidateResolver
 
         if (modifier.ImplicitOrigin == ParsedImplicitModifierOrigin.Corrupted &&
             exactTextEvaluations.Length == finalCandidates.Count &&
+            exactTextEvaluations.Length > 1 &&
             TryProveEquivalentSourceSet(
                 finalCandidates,
                 exactTextEvaluations.Select(evaluation => evaluation.Result).ToArray(),
@@ -1209,6 +1210,84 @@ public sealed partial class ParsedItemModifierCandidateResolver
             {
                 TranslationRecognition = commonTranslationRecognition,
             };
+        }
+
+        // Crafted "of Craft" pools: text Match hits every rank of the same translation family
+        // (e.g. all Fire+Chaos crafts). Narrow to AID roll-range Matches first, then prove
+        // JunMaster vs JunMaster2 clones with identical stats as one Exact equivalent set.
+        if (modifier.IsCrafted)
+        {
+            var craftedRangeExactEvaluations = exactTextEvaluations
+                .Where(evaluation =>
+                    advancedRanges.Count == 0 ||
+                    CandidateAdvancedValuesMatch(
+                        evaluation.Candidate,
+                        catalog,
+                        modifier.ValueLines,
+                        advancedRanges))
+                .ToArray();
+            if (craftedRangeExactEvaluations.Length > 1 &&
+                TryProveEquivalentCraftedSourceSet(
+                    craftedRangeExactEvaluations.Select(evaluation => evaluation.Candidate).ToArray(),
+                    craftedRangeExactEvaluations.Select(evaluation => evaluation.Result).ToArray(),
+                    out var craftedEquivalentRecognition))
+            {
+                var craftedEquivalentCandidates = ToReadOnly(
+                    craftedRangeExactEvaluations.Select(evaluation => evaluation.Candidate));
+                return new ModifierCandidateResolutionResult(
+                    index,
+                    modifier,
+                    modifier.Name,
+                    modifier.Kind,
+                    generationType,
+                    ModifierCandidateResolutionStatus.Exact,
+                    craftedEquivalentCandidates,
+                    Diagnostics(
+                        ModifierCandidateResolutionDiagnosticCodes.ModifierTextExactEquivalentSourceSet,
+                        "Multiple crafted-domain catalog ranks proved one identical mechanical effect (including Disabled RePoE craft records); every equivalent observation was retained."),
+                    nameCandidateCount,
+                    generationKindCandidateCount,
+                    eligibleCandidates.Count,
+                    allExcludedCandidates
+                        .Concat(finalCandidates.Where(candidate =>
+                            craftedEquivalentCandidates.All(match => !ReferenceEquals(match, candidate))))
+                        .Count(),
+                    allExcludedCandidates
+                        .Concat(finalCandidates.Where(candidate =>
+                            craftedEquivalentCandidates.All(match => !ReferenceEquals(match, candidate))))
+                        .ToArray(),
+                    TextSignatureCandidateCount: finalCandidates.Count,
+                    ExcludedByTextCandidateCount: textExcludedCandidates.Length,
+                    TextSignatureMatches: textResults,
+                    Locality: DetermineLocality(craftedEquivalentCandidates[0], catalog))
+                {
+                    TranslationRecognition = craftedEquivalentRecognition,
+                };
+            }
+
+            // Unique AID range + text Match after excluding sibling ranks.
+            if (craftedRangeExactEvaluations.Length == 1)
+            {
+                var selected = craftedRangeExactEvaluations[0];
+                return MatchedByStructuralEvidence(
+                    index,
+                    modifier,
+                    catalog,
+                    generationType,
+                    selected.Candidate,
+                    nameCandidateCount,
+                    generationKindCandidateCount,
+                    eligibleCandidates.Count,
+                    allExcludedCandidates
+                        .Concat(finalCandidates.Where(candidate =>
+                            !ReferenceEquals(candidate, selected.Candidate)))
+                        .ToArray(),
+                    finalCandidates.Count,
+                    textExcludedCandidates.Length,
+                    textResults,
+                    "Exactly one crafted-domain candidate matched both the Advanced Item Description source roll ranges and a definitive stat-text signature.",
+                    selected.Result.TranslationRecognition);
+            }
         }
 
         var allRetainedUnknown = retainedEvaluations.All(evaluation =>
@@ -1850,6 +1929,47 @@ public sealed partial class ParsedItemModifierCandidateResolver
         return true;
     }
 
+    /// <summary>
+    /// Crafted bench ranks in RePoE are routinely <see cref="ModifierSourceAvailability.Disabled"/>
+    /// with zero spawn weights, and JunMaster vs JunMaster2 copies can differ only by required
+    /// level while sharing the same GroupId/Name/stat vector. Ordinary equivalent-source rules
+    /// reject Disabled rows; crafted resolution must still Exact-match that identical mechanical
+    /// effect so Group-A projection and Soften can run.
+    /// </summary>
+    private static bool TryProveEquivalentCraftedSourceSet(
+        IReadOnlyList<ModifierDefinition> candidates,
+        IReadOnlyList<ModifierTextSignatureMatchResult> textMatches,
+        out StatTranslationRecognitionEvidence? commonTranslationRecognition)
+    {
+        commonTranslationRecognition = null;
+        if (candidates.Count < 2 ||
+            candidates.Count != textMatches.Count ||
+            textMatches.Any(match => match.Outcome != ModifierTextSignatureMatchOutcome.Match))
+        {
+            return false;
+        }
+
+        var firstCandidate = candidates[0];
+        var firstMatch = textMatches[0];
+        if (firstMatch.TranslationRecognition is null ||
+            !string.Equals(Normalize(firstCandidate.Domain), "crafted", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        for (var index = 1; index < candidates.Count; index++)
+        {
+            if (!HaveEquivalentCraftedSourceMechanics(firstCandidate, candidates[index]) ||
+                !HaveEquivalentTranslationProof(firstMatch, textMatches[index]))
+            {
+                return false;
+            }
+        }
+
+        commonTranslationRecognition = firstMatch.TranslationRecognition;
+        return true;
+    }
+
     private static bool HaveEquivalentSourceMechanics(
         ModifierDefinition first,
         ModifierDefinition second)
@@ -1867,6 +1987,20 @@ public sealed partial class ParsedItemModifierCandidateResolver
             SameTextSet(first.Tags, second.Tags) &&
             SameStats(first.Stats, second.Stats) &&
             SameSpawnWeights(first.SpawnWeights, second.SpawnWeights);
+    }
+
+    private static bool HaveEquivalentCraftedSourceMechanics(
+        ModifierDefinition first,
+        ModifierDefinition second)
+    {
+        return first.GenerationType == second.GenerationType &&
+            first.IsEssenceOnly == second.IsEssenceOnly &&
+            SameText(first.GroupId, second.GroupId) &&
+            SameText(first.Name, second.Name) &&
+            string.Equals(Normalize(first.Domain), "crafted", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Normalize(second.Domain), "crafted", StringComparison.OrdinalIgnoreCase) &&
+            SameText(first.SourceGenerationType, second.SourceGenerationType) &&
+            SameStats(first.Stats, second.Stats);
     }
 
     private static bool HaveEquivalentTranslationProof(
